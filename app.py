@@ -113,14 +113,15 @@ if submitted:
                 
                 # 2. Create design iteration
                 iteration_data = {
-                    'project_id': project_id,
-                    'version_number': 1,
-                    'material': material_family,
-                    'standard': design_standard,
-                    'notes': notes if notes else None,
-                    'gps_lat': gps_lat,
-                    'gps_lng': gps_lng,
-                    'uploaded_by': str(uuid.uuid4())  # placeholder
+    'project_id': project_id,
+    'version_number': 1,
+    'material': material_family,
+    'standard': design_standard,
+    'notes': notes if notes else None,
+    'gps_lat': gps_lat if gps_lat is not None else None,
+    'gps_lng': gps_lng if gps_lng is not None else None,
+    'uploaded_by': str(uuid.uuid4())
+}  # placeholder
                 }
                 iteration_result = supabase.table('design_iterations').insert(iteration_data).execute()
                 iteration_id = iteration_result.data[0]['id']
