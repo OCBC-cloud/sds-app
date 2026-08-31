@@ -168,8 +168,8 @@ if submitted:
                     
                     # Use user-provided GPS if EXIF not found
                     if exif_gps_lat is None:
-                        exif_gps_lat = gps_lat
-                        exif_gps_lng = gps_lng
+    exif_gps_lat = gps_lat if gps_lat is not None else None
+    exif_gps_lng = gps_lng if gps_lng is not None else None
                     
                     # Upload to Supabase Storage
                     file_path = f"projects/{project_id}/{iteration_id}/{img.name}"
