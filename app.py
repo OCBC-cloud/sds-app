@@ -29,7 +29,6 @@ st.caption("Tensile Membrane Structure Design | Upload Sketches, Photos, GPS Ima
 with st.sidebar:
     st.header("📊 Project Info")
     
-    # Project selector
     project_name = st.text_input("Project Name", placeholder="e.g., Taman Megah Canopy")
     client_name = st.text_input("Client Name (optional)", placeholder="e.g., Tuan Haji Ahmad")
     
@@ -53,7 +52,6 @@ with col1:
         ["Steel", "Aluminium", "Timber", "Tensile Fabric (PVC/PTFE)", "ETFE/PTFE Cushion"]
     )
     
-    # Dynamic standard mapping based on material
     standard_mapping = {
         "Steel": ["MS (EN)", "AISC", "GB", "AS/NZS"],
         "Aluminium": ["MS (EN)", "AISC", "GB", "AS/NZS"],
@@ -73,7 +71,7 @@ with col2:
     gps_lat = st.number_input("Latitude (optional)", value=None, format="%.6f", help="e.g., 3.1390")
     gps_lng = st.number_input("Longitude (optional)", value=None, format="%.6f", help="e.g., 101.6869")
     
-    st.caption("📍 Default: Kuala Lumpur (3.1390° N, 101.6869° E)")
+    st.caption("📍 Leave blank if GPS is not available")
 
 # --- Image Upload ---
 st.subheader("🖼️ Upload Images")
@@ -84,7 +82,6 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True,
     key="uploaded_files",
     help="Upload sketches, photos of existing structures, or site inspiration"
-)
 )
 
 # --- Additional Notes ---
@@ -106,22 +103,21 @@ if submitted:
                 project_data = {
                     'name': project_name,
                     'client_name': client_name if client_name else None,
-                    'created_by': str(uuid.uuid4())  # placeholder - will link to auth later
+                    'created_by': str(uuid.uuid4())
                 }
                 project_result = supabase.table('projects').insert(project_data).execute()
                 project_id = project_result.data[0]['id']
                 
                 # 2. Create design iteration
                 iteration_data = {
-    'project_id': project_id,
-    'version_number': 1,
-    'material': material_family,
-    'standard': design_standard,
-    'notes': notes if notes else None,
-    'gps_lat': gps_lat if gps_lat is not None else None,
-    'gps_lng': gps_lng if gps_lng is not None else None,
-    'uploaded_by': str(uuid.uuid4())
-}  # placeholder
+                    'project_id': project_id,
+                    'version_number': 1,
+                    'material': material_family,
+                    'standard': design_standard,
+                    'notes': notes if notes else None,
+                    'gps_lat': gps_lat if gps_lat is not None else None,
+                    'gps_lng': gps_lng if gps_lng is not None else None,
+                    'uploaded_by': str(uuid.uuid4())
                 }
                 iteration_result = supabase.table('design_iterations').insert(iteration_data).execute()
                 iteration_id = iteration_result.data[0]['id']
@@ -129,7 +125,6 @@ if submitted:
                 # 3. Upload each image
                 uploaded_count = 0
                 for img in uploaded_files:
-                    # Read image
                     image_data = img.read()
                     
                     # Try to extract GPS from EXIF
@@ -147,7 +142,6 @@ if submitted:
                                         sub_tag = GPSTAGS.get(gps_tag, gps_tag)
                                         gps_info[sub_tag] = value[gps_tag]
                                     
-                                    # Convert GPS to decimal
                                     def convert_to_degrees(value):
                                         d = float(value[0])
                                         m = float(value[1])
@@ -163,14 +157,13 @@ if submitted:
                                             lng = -lng
                                         exif_gps_lat = lat
                                         exif_gps_lng = lng
-                    except Exception as e:
-                        # EXIF extraction failed - use user-provided or default
+                    except Exception:
                         pass
                     
                     # Use user-provided GPS if EXIF not found
                     if exif_gps_lat is None:
-    exif_gps_lat = gps_lat if gps_lat is not None else None
-    exif_gps_lng = gps_lng if gps_lng is not None else None
+                        exif_gps_lat = gps_lat if gps_lat is not None else None
+                        exif_gps_lng = gps_lng if gps_lng is not None else None
                     
                     # Upload to Supabase Storage
                     file_path = f"projects/{project_id}/{iteration_id}/{img.name}"
@@ -178,22 +171,21 @@ if submitted:
                     
                     # Store image metadata
                     image_record = {
-    'iteration_id': iteration_id,
-    'storage_path': file_path,
-    'filename': img.name,
-    'mime_type': img.type,
-    'exif_gps_lat': exif_gps_lat if exif_gps_lat is not None else None,
-    'exif_gps_lng': exif_gps_lng if exif_gps_lng is not None else None
-}
+                        'iteration_id': iteration_id,
+                        'storage_path': file_path,
+                        'filename': img.name,
+                        'mime_type': img.type,
+                        'exif_gps_lat': exif_gps_lat if exif_gps_lat is not None else None,
+                        'exif_gps_lng': exif_gps_lng if exif_gps_lng is not None else None
                     }
                     supabase.table('images').insert(image_record).execute()
                     uploaded_count += 1
                 
                 st.success(f"✅ Successfully uploaded {uploaded_count} images to project: {project_name}")
                 if gps_lat is not None and gps_lng is not None:
-    st.info(f"📍 Location: {gps_lat:.6f}, {gps_lng:.6f}")
-else:
-    st.info("📍 Location: Not provided")
+                    st.info(f"📍 Location: {gps_lat:.6f}, {gps_lng:.6f}")
+                else:
+                    st.info("📍 Location: Not provided")
                 st.info(f"📐 Material: {material_family} | Standard: {design_standard}")
                 
             except Exception as e:
