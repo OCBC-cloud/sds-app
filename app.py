@@ -82,7 +82,9 @@ uploaded_files = st.file_uploader(
     "Choose images (JPG/PNG, max 10MB each)",
     type=["jpg", "jpeg", "png"],
     accept_multiple_files=True,
+    key="uploaded_files",
     help="Upload sketches, photos of existing structures, or site inspiration"
+)
 )
 
 # --- Additional Notes ---
