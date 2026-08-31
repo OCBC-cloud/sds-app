@@ -178,12 +178,13 @@ if submitted:
                     
                     # Store image metadata
                     image_record = {
-                        'iteration_id': iteration_id,
-                        'storage_path': file_path,
-                        'filename': img.name,
-                        'mime_type': img.type,
-                        'exif_gps_lat': exif_gps_lat,
-                        'exif_gps_lng': exif_gps_lng
+    'iteration_id': iteration_id,
+    'storage_path': file_path,
+    'filename': img.name,
+    'mime_type': img.type,
+    'exif_gps_lat': exif_gps_lat if exif_gps_lat is not None else None,
+    'exif_gps_lng': exif_gps_lng if exif_gps_lng is not None else None
+}
                     }
                     supabase.table('images').insert(image_record).execute()
                     uploaded_count += 1
