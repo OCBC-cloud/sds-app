@@ -71,7 +71,7 @@ with col2:
     st.markdown("### 📍 Location")
     
     gps_lat = st.number_input("Latitude (optional)", value=None, format="%.6f", help="e.g., 3.1390")
-gps_lng = st.number_input("Longitude (optional)", value=None, format="%.6f", help="e.g., 101.6869")
+    gps_lng = st.number_input("Longitude (optional)", value=None, format="%.6f", help="e.g., 101.6869")
     
     st.caption("📍 Default: Kuala Lumpur (3.1390° N, 101.6869° E)")
 
