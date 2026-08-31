@@ -190,7 +190,10 @@ if submitted:
                     uploaded_count += 1
                 
                 st.success(f"✅ Successfully uploaded {uploaded_count} images to project: {project_name}")
-                st.info(f"📍 Location: {gps_lat:.6f}, {gps_lng:.6f}")
+                if gps_lat is not None and gps_lng is not None:
+    st.info(f"📍 Location: {gps_lat:.6f}, {gps_lng:.6f}")
+else:
+    st.info("📍 Location: Not provided")
                 st.info(f"📐 Material: {material_family} | Standard: {design_standard}")
                 
             except Exception as e:
