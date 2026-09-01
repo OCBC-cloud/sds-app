@@ -9,6 +9,9 @@ import io
 import base64
 import plotly.graph_objects as go
 import time
+import json
+import zipfile
+from io import BytesIO
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -18,41 +21,26 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Custom Dark Theme CSS (Higher Contrast) ---
+# --- Custom Dark Theme CSS ---
 st.markdown("""
 <style>
-    /* Main background */
-    .stApp {
-        background-color: #1E1E1E;
-    }
-    /* Sidebar */
-    .css-1d391kg {
-        background-color: #2A2A2A;
-    }
-    /* Labels - NOW WHITE for better readability */
-    .stTextInput label, .stTextArea label, .stNumberInput label, .stSelectbox label, .stDateInput label {
-        color: #FFFFFF !important;
-        font-weight: 500 !important;
-    }
-    /* Input fields - LIGHTER BACKGROUND */
+    .stApp { background-color: #1E1E1E; }
+    .css-1d391kg { background-color: #2A2A2A; }
     .stTextInput input, .stTextArea textarea, .stNumberInput input {
         background-color: #3A3A3A !important;
         color: #FFFFFF !important;
         border: 1px solid #5A5A5A !important;
         border-radius: 8px !important;
     }
-    /* Placeholders */
     .stTextInput input::placeholder, .stTextArea textarea::placeholder {
         color: #B0B0B0 !important;
     }
-    /* Dropdowns */
     .stSelectbox select {
         background-color: #3A3A3A !important;
         color: #FFFFFF !important;
         border: 1px solid #5A5A5A !important;
         border-radius: 8px !important;
     }
-    /* Buttons */
     .stButton button {
         background-color: #00B4D8 !important;
         color: #FFFFFF !important;
@@ -60,50 +48,38 @@ st.markdown("""
         border-radius: 8px !important;
         font-weight: bold !important;
     }
-    .stButton button:hover {
-        background-color: #0090B0 !important;
+    .stButton button:hover { background-color: #0090B0 !important; }
+    .stButton button[data-testid="baseButton-secondary"] {
+        background-color: #4A4A4A !important;
     }
-    /* Headers */
-    h1, h2, h3, h4 {
-        color: #FFFFFF !important;
+    .stButton button[data-testid="baseButton-secondary"]:hover {
+        background-color: #5A5A5A !important;
     }
-    /* Captions and text */
-    .stCaption, .stMarkdown p {
-        color: #D0D0D0 !important;
+    h1, h2, h3, h4 { color: #FFFFFF !important; }
+    .stCaption, .stMarkdown p { color: #D0D0D0 !important; }
+    .stAlert { background-color: #2A3A2A !important; border-color: #52B788 !important; color: #D4EDDA !important; }
+    .stError { background-color: #3A2A2A !important; border-color: #E63946 !important; color: #F8D7DA !important; }
+    .stInfo { background-color: #2A3A4A !important; border-color: #00B4D8 !important; color: #D4EDF4 !important; }
+    .stWarning { background-color: #4A3A2A !important; border-color: #F4A261 !important; color: #FFF3E0 !important; }
+    hr { border-color: #3A3A3A !important; }
+    .stProgress > div > div { background-color: #00B4D8 !important; }
+    div[data-testid="metric-container"] label { color: #FFFFFF !important; }
+    div[data-testid="metric-container"] div { color: #FFFFFF !important; }
+    .project-card {
+        background-color: #2A2A2A;
+        padding: 16px;
+        border-radius: 8px;
+        margin-bottom: 12px;
+        border-left: 4px solid #00B4D8;
     }
-    /* Success, Error, Info */
-    .stAlert {
-        background-color: #2A3A2A !important;
-        border-color: #52B788 !important;
-        color: #D4EDDA !important;
-    }
-    .stError {
-        background-color: #3A2A2A !important;
-        border-color: #E63946 !important;
-        color: #F8D7DA !important;
-    }
-    .stInfo {
-        background-color: #2A3A4A !important;
-        border-color: #00B4D8 !important;
-        color: #D4EDF4 !important;
-    }
-    .stWarning {
-        background-color: #4A3A2A !important;
-        border-color: #F4A261 !important;
-        color: #FFF3E0 !important;
-    }
-    hr {
-        border-color: #3A3A3A !important;
-    }
-    .stProgress > div > div {
-        background-color: #00B4D8 !important;
-    }
-    /* Metric labels and values */
-    div[data-testid="metric-container"] label {
-        color: #FFFFFF !important;
-    }
-    div[data-testid="metric-container"] div {
-        color: #FFFFFF !important;
+    .project-card strong { color: #FFFFFF; }
+    .project-card span { color: #B0B0B0; }
+    .export-section {
+        background-color: #1E2A2A;
+        padding: 12px;
+        border-radius: 8px;
+        margin-top: 8px;
+        border: 1px solid #2A4A4A;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -115,7 +91,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Initialize Session State ---
 if 'stage' not in st.session_state:
-    st.session_state.stage = 1
+    st.session_state.stage = 0  # 0 = Dashboard, 1-5 = Stages
 if 'project_id' not in st.session_state:
     st.session_state.project_id = None
 if 'iteration_id' not in st.session_state:
@@ -128,16 +104,6 @@ if 'cached_fig' not in st.session_state:
     st.session_state.cached_fig = None
 if 'cached_inputs' not in st.session_state:
     st.session_state.cached_inputs = None
-
-# --- App Title ---
-st.title("🏗️ SDS Design Portal")
-st.caption("Tensile Membrane Structure Design | Multi-Stage Input Portal")
-
-# --- Stage Navigation ---
-stages = ["1. Project Registration", "2. Design Input", "3. Collaboration", "4. 3D View", "5. Concept Freeze"]
-current_stage = st.session_state.stage - 1
-st.progress((current_stage + 1) / len(stages))
-st.caption(f"Stage {st.session_state.stage} of {len(stages)}: {stages[current_stage]}")
 
 # --- Helper: Clear all fields for current stage ---
 def clear_stage_fields(stage):
@@ -153,9 +119,195 @@ def clear_stage_fields(stage):
             del st.session_state[key]
     st.rerun()
 
-# --- Stage 1: Project Registration ---
-if st.session_state.stage == 1:
+# --- Helper: Load project ---
+def load_project(project_id, iteration_id, stage):
+    st.session_state.project_id = project_id
+    st.session_state.iteration_id = iteration_id
+    st.session_state.stage = stage
+    st.rerun()
+
+# --- Helper: Delete project ---
+def delete_project(project_id):
+    try:
+        supabase.table('projects').delete().eq('id', project_id).execute()
+        st.success("✅ Project deleted successfully.")
+        st.rerun()
+    except Exception as e:
+        st.error(f"❌ Error deleting project: {str(e)}")
+
+# --- Export Function: Export Project as JSON ---
+def export_project_json(project_id, project_name):
+    try:
+        # Fetch project data
+        project = supabase.table('projects').select('*').eq('id', project_id).execute()
+        if not project.data:
+            return None, "Project not found"
+        
+        # Fetch design iterations
+        iterations = supabase.table('design_iterations').select('*').eq('project_id', project_id).execute()
+        
+        # Fetch images
+        images = []
+        for iter_data in iterations.data:
+            img = supabase.table('images').select('*').eq('iteration_id', iter_data['id']).execute()
+            images.extend(img.data)
+        
+        # Fetch comments
+        comments = []
+        for iter_data in iterations.data:
+            cmt = supabase.table('comments').select('*').eq('iteration_id', iter_data['id']).execute()
+            comments.extend(cmt.data)
+        
+        # Build export data
+        export_data = {
+            'project': project.data[0],
+            'iterations': iterations.data,
+            'images': images,
+            'comments': comments,
+            'exported_at': datetime.now().isoformat(),
+            'version': '1.0'
+        }
+        
+        json_str = json.dumps(export_data, indent=2, default=str)
+        return json_str, None
+    except Exception as e:
+        return None, str(e)
+
+# --- Export Function: Export Images as ZIP ---
+def export_images_zip(project_id):
+    try:
+        # Fetch all images for this project
+        iterations = supabase.table('design_iterations').select('id').eq('project_id', project_id).execute()
+        iteration_ids = [i['id'] for i in iterations.data]
+        
+        if not iteration_ids:
+            return None, "No images found"
+        
+        # Fetch all images
+        images = supabase.table('images').select('*').in_('iteration_id', iteration_ids).execute()
+        
+        if not images.data:
+            return None, "No images found"
+        
+        # Create ZIP file
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+            for img in images.data:
+                try:
+                    # Get image from storage
+                    file_data = supabase.storage.from_('design-uploads').download(img['storage_path'])
+                    # Add to ZIP with filename
+                    filename = img.get('filename', f"image_{img['id']}.jpg")
+                    zip_file.writestr(filename, file_data)
+                except Exception as e:
+                    st.warning(f"Could not download image: {img.get('filename', 'unknown')}")
+        
+        zip_buffer.seek(0)
+        return zip_buffer, None
+    except Exception as e:
+        return None, str(e)
+
+# --- App Title ---
+st.title("🏗️ SDS Design Portal")
+st.caption("Tensile Membrane Structure Design | Multi-Stage Input Portal")
+
+# --- STAGE 0: PROJECT DASHBOARD ---
+if st.session_state.stage == 0:
+    st.subheader("📋 Project Dashboard")
+    
+    # Fetch all projects
+    try:
+        projects = supabase.table('projects').select('id, name, client_name, project_date, created_by').order('created_at', desc=True).execute()
+        projects_data = projects.data
+        
+        if projects_data:
+            st.caption(f"Showing {len(projects_data)} project(s)")
+            
+            # Display projects as cards
+            for proj in projects_data:
+                st.markdown(f"""
+                <div class="project-card">
+                    <strong>{proj['name']}</strong><br>
+                    <span>Client: {proj.get('client_name', 'N/A')} | Date: {proj.get('project_date', 'N/A')}</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+                with col1:
+                    if st.button("📂 Load", key=f"load_{proj['id']}"):
+                        iterations = supabase.table('design_iterations').select('id, status').eq('project_id', proj['id']).order('version_number', desc=True).limit(1).execute()
+                        if iterations.data:
+                            iter_data = iterations.data[0]
+                            iter_id = iter_data['id']
+                            status = iter_data.get('status', 'draft')
+                            if status == 'frozen':
+                                stage = 5
+                            else:
+                                stage = 3
+                            load_project(proj['id'], iter_id, stage)
+                        else:
+                            load_project(proj['id'], None, 2)
+                
+                with col2:
+                    if st.button("📋 Copy ID", key=f"copy_{proj['id']}"):
+                        st.code(proj['id'], language="text")
+                        st.caption("✅ Project ID copied to clipboard")
+                
+                with col3:
+                    if st.button("📥 Export JSON", key=f"export_{proj['id']}"):
+                        json_data, error = export_project_json(proj['id'], proj['name'])
+                        if json_data:
+                            st.download_button(
+                                label="⬇️ Download JSON",
+                                data=json_data,
+                                file_name=f"{proj['name']}_{proj['id'][:8]}.json",
+                                mime="application/json",
+                                key=f"download_{proj['id']}"
+                            )
+                        else:
+                            st.error(f"❌ Export error: {error}")
+                
+                with col4:
+                    if st.button("🗑️", key=f"delete_{proj['id']}"):
+                        delete_project(proj['id'])
+                
+                # Export Images button (below the row)
+                col5, col6 = st.columns([1, 3])
+                with col5:
+                    if st.button("🖼️ Export Images (ZIP)", key=f"export_images_{proj['id']}"):
+                        zip_data, error = export_images_zip(proj['id'])
+                        if zip_data:
+                            st.download_button(
+                                label="⬇️ Download Images ZIP",
+                                data=zip_data,
+                                file_name=f"{proj['name']}_images.zip",
+                                mime="application/zip",
+                                key=f"download_zip_{proj['id']}"
+                            )
+                        else:
+                            st.error(f"❌ Export error: {error}")
+                
+                st.divider()
+        else:
+            st.info("No projects found. Create your first project below.")
+            
+    except Exception as e:
+        st.error(f"❌ Error loading projects: {str(e)}")
+        projects_data = []
+    
+    # Create new project button
+    st.subheader("➕ Create New Project")
+    if st.button("📤 New Project", type="primary"):
+        st.session_state.stage = 1
+        st.rerun()
+
+# --- STAGE 1: Project Registration ---
+elif st.session_state.stage == 1:
     st.subheader("📋 Project Registration")
+    
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.stage = 0
+        st.rerun()
     
     if st.button("🗑️ Clear All Fields", key="clear_stage1"):
         clear_stage_fields(1)
@@ -197,9 +349,13 @@ if st.session_state.stage == 1:
                     except Exception as e:
                         st.error(f"❌ Registration error: {str(e)}")
 
-# --- Stage 2: Design Input ---
+# --- STAGE 2: Design Input ---
 elif st.session_state.stage == 2:
     st.subheader("📐 Design Input")
+    
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.stage = 0
+        st.rerun()
     
     if st.button("🗑️ Clear All Fields", key="clear_stage2"):
         clear_stage_fields(2)
@@ -224,10 +380,6 @@ elif st.session_state.stage == 2:
             key="design_images",
             help="Upload sketches, photos of existing structures, or site inspiration"
         )
-        # Removed the "Clear Images" button to avoid Streamlit form button conflict.
-        
-        st.subheader("✏️ Sketch Board")
-        st.info("📝 Sketch board feature coming soon. For now, upload images above.")
         
         submitted = st.form_submit_button("💾 Save Design", type="primary")
         
@@ -264,9 +416,13 @@ elif st.session_state.stage == 2:
                 except Exception as e:
                     st.error(f"❌ Error saving design: {str(e)}")
 
-# --- Stage 3: Collaboration ---
+# --- STAGE 3: Collaboration ---
 elif st.session_state.stage == 3:
     st.subheader("💬 Collaboration")
+    
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.stage = 0
+        st.rerun()
     
     if st.button("🗑️ Clear All Fields", key="clear_stage3"):
         clear_stage_fields(3)
@@ -282,7 +438,7 @@ elif st.session_state.stage == 3:
                     comment_data = {
                         'iteration_id': st.session_state.iteration_id,
                         'user_id': str(uuid.uuid4()),
-                        'content': message,  # <-- FIXED: no extra quotes
+                        'content': message,
                         'stakeholder_type': stakeholder,
                         'is_read': False
                     }
@@ -301,11 +457,14 @@ elif st.session_state.stage == 3:
             st.session_state.stage = 4
             st.rerun()
 
-# --- Stage 4: 3D View ---
+# --- STAGE 4: 3D View ---
 elif st.session_state.stage == 4:
     st.subheader("🏗️ 3D Design Progress")
     
-    # Get design parameters from session state or use defaults
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.stage = 0
+        st.rerun()
+    
     width = st.session_state.get('width', 5.0)
     depth = st.session_state.get('depth', 3.0)
     length = st.session_state.get('length', 10.0)
@@ -313,21 +472,17 @@ elif st.session_state.stage == 4:
     structure_type = st.session_state.get('structure_type', 'Steel')
     roof_type = st.session_state.get('roof_type', 'Tensile Fabric (PVC/PTFE)')
     
-    # View mode selector
     view_modes = ['3D Perspective', 'Plan (Top)', 'Front Elevation', 'Side Elevation']
     selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode")
     
-    # Build cache key from inputs
     current_inputs = (width, depth, length, height, structure_type, roof_type, selected_view)
     
-    # Check if we need to rebuild the figure
     rebuild_needed = (
         st.session_state.cached_fig is None or
         st.session_state.cached_inputs != current_inputs
     )
     
     if rebuild_needed:
-        # Show loading progress
         progress_bar = st.progress(0)
         status_text = st.empty()
         
@@ -336,20 +491,15 @@ elif st.session_state.stage == 4:
         time.sleep(0.1)
         
         try:
-            # --- Build the 3D model ---
-            # 1. Define dimensions
             L = float(length) if length > 0 else 10.0
             W = float(width) if width > 0 else 5.0
             H = float(height) if height > 0 else 5.0
-            D = float(depth) if depth > 0 else 3.0
             
-            # 2. Define the membrane surface (tensile fabric)
             grid_size = 20
             x = []
             y = []
             z = []
             
-            # Generate membrane surface (saddle shape with rise)
             for i in range(grid_size + 1):
                 for j in range(grid_size + 1):
                     u = i / grid_size
@@ -361,7 +511,6 @@ elif st.session_state.stage == 4:
                     y.append(y_pos)
                     z.append(z_pos)
             
-            # Create triangulation for the surface
             triangles = []
             for i in range(grid_size):
                 for j in range(grid_size):
@@ -378,10 +527,8 @@ elif st.session_state.stage == 4:
             progress_bar.progress(30)
             time.sleep(0.1)
             
-            # --- Create the figure ---
             fig = go.Figure()
             
-            # 1. Add membrane surface
             fig.add_trace(go.Mesh3d(
                 x=x,
                 y=y,
@@ -401,7 +548,6 @@ elif st.session_state.stage == 4:
             progress_bar.progress(60)
             time.sleep(0.1)
             
-            # 2. Add primary beams (two along the length)
             beam_positions = [-W/3, W/3]
             beam_color = '#8B8B8B' if structure_type == 'Steel' else '#C0C0C0'
             
@@ -419,7 +565,6 @@ elif st.session_state.stage == 4:
             progress_bar.progress(80)
             time.sleep(0.1)
             
-            # 3. Add columns at corners
             column_positions = [
                 (-L/2, -W/3, 0), (-L/2, W/3, 0),
                 (L/2, -W/3, 0), (L/2, W/3, 0)
@@ -438,8 +583,6 @@ elif st.session_state.stage == 4:
             progress_bar.progress(95)
             time.sleep(0.1)
             
-            # 4. Add dimension lines
-            # Length dimension (bottom edge)
             fig.add_trace(go.Scatter3d(
                 x=[-L/2, L/2],
                 y=[-W/2 - 0.5, -W/2 - 0.5],
@@ -458,7 +601,6 @@ elif st.session_state.stage == 4:
                 showlegend=False
             ))
             
-            # Width dimension (front edge)
             fig.add_trace(go.Scatter3d(
                 x=[-L/2 - 0.5, -L/2 - 0.5],
                 y=[-W/3, W/3],
@@ -477,7 +619,6 @@ elif st.session_state.stage == 4:
                 showlegend=False
             ))
             
-            # Height dimension (at center)
             fig.add_trace(go.Scatter3d(
                 x=[L/2 + 0.5, L/2 + 0.5],
                 y=[0, 0],
@@ -500,7 +641,6 @@ elif st.session_state.stage == 4:
             progress_bar.progress(100)
             time.sleep(0.1)
             
-            # 5. Configure scene based on selected view
             scene_config = dict(
                 bgcolor='#1E1E1E',
                 xaxis=dict(title='Length (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
@@ -510,10 +650,7 @@ elif st.session_state.stage == 4:
                 aspectratio=dict(x=L/5, y=W/5, z=H/5) if L > 0 and W > 0 and H > 0 else dict(x=1, y=1, z=1)
             )
             
-            # Set camera based on view mode
-            camera_dict = dict(
-                eye=dict(x=2.0, y=2.0, z=1.5)
-            )
+            camera_dict = dict(eye=dict(x=2.0, y=2.0, z=1.5))
             if selected_view == 'Plan (Top)':
                 camera_dict = dict(eye=dict(x=0, y=0, z=3))
             elif selected_view == 'Front Elevation':
@@ -532,14 +669,12 @@ elif st.session_state.stage == 4:
                 font=dict(color='#B0B0B0')
             )
             
-            # Cache the figure
             st.session_state.cached_fig = fig
             st.session_state.cached_inputs = current_inputs
             
             status_text.text("✅ Model ready!")
             time.sleep(0.2)
             
-            # Clear progress indicators
             progress_bar.empty()
             status_text.empty()
             
@@ -547,7 +682,6 @@ elif st.session_state.stage == 4:
             progress_bar.empty()
             status_text.empty()
             st.error(f"❌ Error building 3D model: {str(e)}")
-            # Create fallback simple figure
             fig = go.Figure()
             fig.add_trace(go.Scatter3d(
                 x=[0, 1, 1, 0, 0, 1, 1, 0],
@@ -565,13 +699,10 @@ elif st.session_state.stage == 4:
             st.session_state.cached_fig = fig
             st.session_state.cached_inputs = current_inputs
     else:
-        # Use cached figure
         fig = st.session_state.cached_fig
     
-    # Display the figure
     st.plotly_chart(fig, use_container_width=True, key="3d_viewer")
     
-    # --- Design Summary ---
     st.subheader("📋 Design Summary")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -591,7 +722,6 @@ elif st.session_state.stage == 4:
     with col3:
         st.metric("Status", "Draft")
     
-    # --- Navigation ---
     col1, col2 = st.columns(2)
     with col1:
         if st.button("⬅️ Back to Collaboration"):
@@ -602,9 +732,14 @@ elif st.session_state.stage == 4:
             st.session_state.stage = 5
             st.rerun()
 
-# --- Stage 5: Concept Freeze ---
+# --- STAGE 5: Concept Freeze ---
 elif st.session_state.stage == 5:
     st.subheader("📌 Freeze Concept")
+    
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.stage = 0
+        st.rerun()
+    
     st.warning("⚠️ Freezing the concept will lock this design version. No further edits will be allowed.")
     
     col1, col2 = st.columns(2)
