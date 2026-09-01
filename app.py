@@ -13,6 +13,7 @@ import json
 import zipfile
 from io import BytesIO
 import numpy as np
+import requests  # For AI agent API calls
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -22,7 +23,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Custom Dark Theme CSS with HIGH CONTRAST labels ---
+# --- Custom Dark Theme CSS ---
 st.markdown("""
 <style>
     .stApp { background-color: #1E1E1E; }
@@ -81,6 +82,13 @@ st.markdown("""
     }
     .project-card strong { color: #FFFFFF !important; }
     .project-card span { color: #B0B0B0 !important; }
+    .settings-card {
+        background-color: #2A2A2A;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #3A3A3A;
+        margin-bottom: 20px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -112,8 +120,19 @@ if 'typology' not in st.session_state:
     st.session_state.typology = 'Saddle Span'
 if 'columns' not in st.session_state:
     st.session_state.columns = []
+# AI Agent settings
+if 'ai_agent' not in st.session_state:
+    st.session_state.ai_agent = 'DeepSeek'
+if 'ai_api_key' not in st.session_state:
+    st.session_state.ai_api_key = ''
+if 'ai_connected' not in st.session_state:
+    st.session_state.ai_connected = False
+if 'ai_questions' not in st.session_state:
+    st.session_state.ai_questions = []
+if 'ai_answers' not in st.session_state:
+    st.session_state.ai_answers = {}
 
-# --- Helper: Clear all fields for current stage ---
+# --- Helper Functions ---
 def clear_stage_fields(stage):
     keys_to_clear = []
     if stage == 1:
@@ -121,7 +140,7 @@ def clear_stage_fields(stage):
     elif stage == 2:
         keys_to_clear = ['description', 'typology']
     elif stage == 2.5:
-        keys_to_clear = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7']
+        keys_to_clear = ['ai_questions', 'ai_answers']
     elif stage == 3:
         keys_to_clear = ['stakeholder', 'message']
     for key in keys_to_clear:
@@ -129,14 +148,12 @@ def clear_stage_fields(stage):
             del st.session_state[key]
     st.rerun()
 
-# --- Helper: Load project ---
 def load_project(project_id, iteration_id, stage):
     st.session_state.project_id = project_id
     st.session_state.iteration_id = iteration_id
     st.session_state.stage = stage
     st.rerun()
 
-# --- Helper: Delete project ---
 def delete_project(project_id):
     try:
         supabase.table('projects').delete().eq('id', project_id).execute()
@@ -145,7 +162,6 @@ def delete_project(project_id):
     except Exception as e:
         st.error(f"❌ Error deleting project: {str(e)}")
 
-# --- Export Functions ---
 def export_project_json(project_id, project_name):
     try:
         project = supabase.table('projects').select('*').eq('id', project_id).execute()
@@ -196,60 +212,70 @@ def export_images_zip(project_id):
     except Exception as e:
         return None, str(e)
 
-# --- Parametric 3D Engine for Saddle Span ---
+# --- AI Agent Integration Functions ---
+def test_ai_connection(agent, api_key):
+    """Test if the API key works for the selected AI agent."""
+    # Placeholder – actual implementation would call the API with a simple test prompt.
+    # For now, we return True if the key is not empty (basic validation).
+    if api_key and len(api_key) > 8:
+        return True, "Connection successful!"
+    else:
+        return False, "Invalid API key. Please check and try again."
+
+def generate_ai_questions(agent, api_key, description, parameters):
+    """Send description to AI agent and generate thoughtful questions."""
+    # This is a simulation. In production, you would call the actual API.
+    # Example prompt for DeepSeek:
+    # "You are an engineering design assistant. Given this design description: '{description}' and parameters {parameters}, generate 5-8 thoughtful questions to confirm the design understanding."
+    # For now, we return a set of generic but dynamic questions.
+    # In the future, replace this with actual API calls.
+    
+    # Simulate AI thinking
+    questions = [
+        "Are these the two primary structural beams?",
+        "Are both beams supported at their lower ends?",
+        "Is the membrane attached continuously along the curved beams?",
+        "Is the apex point correctly identified?",
+        "Is the rise (A) measured from support level to apex?",
+        "Is the plan width (B) the distance between support lines?"
+    ]
+    # Add some variation based on parameters
+    if parameters.get('LAA', 0) > 10:
+        questions.append("Is LAA the apex-to-apex distance as shown?")
+    if parameters.get('typology') == 'Saddle Span':
+        questions.append("Are the beams curved in a parabolic shape?")
+    return questions
+
+# --- Parametric 3D Engine (Saddle Span) ---
 def generate_saddle_span_geometry(A, B, H, LAA, num_points=30):
-    """Generate geometry for Saddle Span design."""
-    # A = Rise/Height
-    # B = Plan/Horizontal
-    # H = Experimental Rise
-    # LAA = Apex-to-Apex distance
-    
-    # Beam 1 curve (along X-axis, rising to height A at center)
     x1 = np.linspace(-LAA/2, LAA/2, num_points)
-    # Parabolic curve for beam 1
     z1 = A * (1 - (2 * x1 / LAA)**2)
-    y1 = np.zeros_like(x1)  # Beam 1 at y=0
-    
-    # Beam 2 curve (parallel to Beam 1, offset by B)
+    y1 = np.zeros_like(x1)
     x2 = np.linspace(-LAA/2, LAA/2, num_points)
     z2 = A * (1 - (2 * x2 / LAA)**2)
-    y2 = np.full_like(x2, B)  # Beam 2 at y=B
-    
-    # Apex points
+    y2 = np.full_like(x2, B)
     apex1 = (0, 0, A)
     apex2 = (0, B, A)
-    
-    # Support points (base of beams)
     support1 = (-LAA/2, 0, 0)
     support2 = (LAA/2, 0, 0)
     support3 = (-LAA/2, B, 0)
     support4 = (LAA/2, B, 0)
-    
-    # Membrane surface (between beams)
-    # Grid of points between beam 1 and beam 2
-    u = np.linspace(0, 1, num_points)  # along length
-    v = np.linspace(0, 1, num_points)  # between beams
+    u = np.linspace(0, 1, num_points)
+    v = np.linspace(0, 1, num_points)
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
-    
     for i, u_val in enumerate(u):
         for j, v_val in enumerate(v):
-            # X: along length
             x_pos = -LAA/2 + u_val * LAA
-            # Y: between beams
             y_pos = v_val * B
-            # Z: interpolation between beam heights
             z_beam1 = A * (1 - (2 * x_pos / LAA)**2) if abs(x_pos) <= LAA/2 else 0
             z_beam2 = A * (1 - (2 * x_pos / LAA)**2) if abs(x_pos) <= LAA/2 else 0
-            # Saddle shape: higher at center, lower at edges
             z_surface = z_beam1 * (1 - v_val) + z_beam2 * v_val
-            # Add slight saddle curve
             z_saddle = z_surface + 0.1 * A * v_val * (1 - v_val) * (1 - (2 * u_val - 1)**2)
             X_surf[i, j] = x_pos
             Y_surf[i, j] = y_pos
             Z_surf[i, j] = z_saddle
-    
     return {
         'beam1': (x1, y1, z1),
         'beam2': (x2, y2, z2),
@@ -260,157 +286,39 @@ def generate_saddle_span_geometry(A, B, H, LAA, num_points=30):
     }
 
 def plot_saddle_span_geometry(geometry, view_mode='3D'):
-    """Generate Plotly figure for Saddle Span geometry."""
     x1, y1, z1 = geometry['beam1']
     x2, y2, z2 = geometry['beam2']
     apex1 = geometry['apex1']
     apex2 = geometry['apex2']
     supports = geometry['supports']
     X_surf, Y_surf, Z_surf = geometry['surface']
-    
     fig = go.Figure()
-    
-    # 1. Membrane surface
     fig.add_trace(go.Surface(
-        x=X_surf,
-        y=Y_surf,
-        z=Z_surf,
+        x=X_surf, y=Y_surf, z=Z_surf,
         colorscale=[[0, '#E8E8E8'], [1, '#F5F5F5']],
-        opacity=0.7,
-        name='Membrane',
-        showscale=False,
+        opacity=0.7, name='Membrane', showscale=False,
         lighting=dict(ambient=0.6, diffuse=0.8, specular=0.3)
     ))
-    
-    # 2. Beam 1
-    fig.add_trace(go.Scatter3d(
-        x=x1, y=y1, z=z1,
-        mode='lines',
-        line=dict(color='#FF6B6B', width=8),
-        name='Beam 1'
-    ))
-    
-    # 3. Beam 2
-    fig.add_trace(go.Scatter3d(
-        x=x2, y=y2, z=z2,
-        mode='lines',
-        line=dict(color='#FF6B6B', width=8),
-        name='Beam 2'
-    ))
-    
-    # 4. Apex points
-    fig.add_trace(go.Scatter3d(
-        x=[apex1[0]], y=[apex1[1]], z=[apex1[2]],
-        mode='markers',
-        marker=dict(color='#FFD93D', size=12, symbol='diamond'),
-        name='Apex 1'
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=[apex2[0]], y=[apex2[1]], z=[apex2[2]],
-        mode='markers',
-        marker=dict(color='#FFD93D', size=12, symbol='diamond'),
-        name='Apex 2'
-    ))
-    
-    # 5. Support points
+    fig.add_trace(go.Scatter3d(x=x1, y=y1, z=z1, mode='lines', line=dict(color='#FF6B6B', width=8), name='Beam 1'))
+    fig.add_trace(go.Scatter3d(x=x2, y=y2, z=z2, mode='lines', line=dict(color='#FF6B6B', width=8), name='Beam 2'))
+    fig.add_trace(go.Scatter3d(x=[apex1[0]], y=[apex1[1]], z=[apex1[2]], mode='markers', marker=dict(color='#FFD93D', size=12, symbol='diamond'), name='Apex 1'))
+    fig.add_trace(go.Scatter3d(x=[apex2[0]], y=[apex2[1]], z=[apex2[2]], mode='markers', marker=dict(color='#FFD93D', size=12, symbol='diamond'), name='Apex 2'))
     for i, supp in enumerate(supports):
-        fig.add_trace(go.Scatter3d(
-            x=[supp[0]], y=[supp[1]], z=[supp[2]],
-            mode='markers',
-            marker=dict(color='#4ECDC4', size=10, symbol='circle'),
-            name=f'Support {i+1}'
-        ))
-    
-    # 6. Dimension lines (A, B, LAA)
-    # A (Rise) - from base to apex
-    fig.add_trace(go.Scatter3d(
-        x=[apex1[0], apex1[0]],
-        y=[apex1[1], apex1[1]],
-        z=[0, apex1[2]],
-        mode='lines',
-        line=dict(color='#FFD93D', width=2, dash='dash'),
-        name='A (Rise)'
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=[apex1[0] + 0.5],
-        y=[apex1[1] + 0.5],
-        z=[apex1[2]/2],
-        mode='text',
-        text=[f"A = {apex1[2]:.1f}m"],
-        textfont=dict(color='#FFD93D', size=12),
-        showlegend=False
-    ))
-    
-    # B (Plan) - between supports
-    fig.add_trace(go.Scatter3d(
-        x=[supports[0][0], supports[2][0]],
-        y=[supports[0][1], supports[2][1]],
-        z=[0, 0],
-        mode='lines',
-        line=dict(color='#4ECDC4', width=2, dash='dash'),
-        name='B (Plan)'
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=[supports[0][0] + 0.5],
-        y=[supports[0][1] + 0.5],
-        z=[0.5],
-        mode='text',
-        text=[f"B = {B:.1f}m"],
-        textfont=dict(color='#4ECDC4', size=12),
-        showlegend=False
-    ))
-    
-    # LAA - between apexes
-    fig.add_trace(go.Scatter3d(
-        x=[apex1[0], apex2[0]],
-        y=[apex1[1], apex2[1]],
-        z=[apex1[2], apex2[2]],
-        mode='lines',
-        line=dict(color='#FF6B6B', width=2, dash='dash'),
-        name='LAA (Apex-to-Apex)'
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=[(apex1[0] + apex2[0])/2],
-        y=[(apex1[1] + apex2[1])/2 + 0.5],
-        z=[apex1[2]],
-        mode='text',
-        text=[f"LAA = {LAA:.1f}m"],
-        textfont=dict(color='#FF6B6B', size=12),
-        showlegend=False
-    ))
-    
-    # 7. H (Experimental Rise) - from base to mid-point
-    mid_x = 0
-    mid_y = B/2
-    mid_z = A * 0.5  # Approximate mid-height
-    fig.add_trace(go.Scatter3d(
-        x=[0, 0],
-        y=[0, B/2],
-        z=[0, mid_z],
-        mode='lines',
-        line=dict(color='#6B6B6B', width=2, dash='dot'),
-        name='H (Experimental)'
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=[0.5],
-        y=[B/2 + 0.5],
-        z=[mid_z/2],
-        mode='text',
-        text=[f"H = {mid_z:.1f}m"],
-        textfont=dict(color='#6B6B6B', size=10),
-        showlegend=False
-    ))
-    
-    # 8. Configure scene
+        fig.add_trace(go.Scatter3d(x=[supp[0]], y=[supp[1]], z=[supp[2]], mode='markers', marker=dict(color='#4ECDC4', size=10), name=f'Support {i+1}'))
+    # Dimension lines
+    fig.add_trace(go.Scatter3d(x=[apex1[0], apex1[0]], y=[apex1[1], apex1[1]], z=[0, apex1[2]], mode='lines', line=dict(color='#FFD93D', width=2, dash='dash'), name='A (Rise)'))
+    fig.add_trace(go.Scatter3d(x=[apex1[0]+0.5], y=[apex1[1]+0.5], z=[apex1[2]/2], mode='text', text=[f"A = {apex1[2]:.1f}m"], textfont=dict(color='#FFD93D', size=12), showlegend=False))
+    fig.add_trace(go.Scatter3d(x=[supports[0][0], supports[2][0]], y=[supports[0][1], supports[2][1]], z=[0, 0], mode='lines', line=dict(color='#4ECDC4', width=2, dash='dash'), name='B (Plan)'))
+    fig.add_trace(go.Scatter3d(x=[supports[0][0]+0.5], y=[supports[0][1]+0.5], z=[0.5], mode='text', text=[f"B = {geometry['apex2'][1]:.1f}m"], textfont=dict(color='#4ECDC4', size=12), showlegend=False))
+    fig.add_trace(go.Scatter3d(x=[apex1[0], apex2[0]], y=[apex1[1], apex2[1]], z=[apex1[2], apex2[2]], mode='lines', line=dict(color='#FF6B6B', width=2, dash='dash'), name='LAA'))
+    fig.add_trace(go.Scatter3d(x=[(apex1[0]+apex2[0])/2], y=[(apex1[1]+apex2[1])/2+0.5], z=[apex1[2]], mode='text', text=[f"LAA = {abs(apex1[0]-apex2[0]):.1f}m"], textfont=dict(color='#FF6B6B', size=12), showlegend=False))
     scene_config = dict(
         bgcolor='#1E1E1E',
-        xaxis=dict(title='Length (m)', color='#B0B0B0', gridcolor='#2A2A2A', range=[-LAA/2 - 2, LAA/2 + 2]),
-        yaxis=dict(title='Width (m)', color='#B0B0B0', gridcolor='#2A2A2A', range=[-1, B + 1]),
-        zaxis=dict(title='Height (m)', color='#B0B0B0', gridcolor='#2A2A2A', range=[-1, A + 2]),
-        aspectmode='manual',
-        aspectratio=dict(x=1.5, y=0.8, z=1.0)
+        xaxis=dict(title='Length (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
+        yaxis=dict(title='Width (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
+        zaxis=dict(title='Height (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
+        aspectmode='manual', aspectratio=dict(x=1.5, y=0.8, z=1.0)
     )
-    
     camera_dict = dict(eye=dict(x=2.0, y=2.0, z=1.5))
     if view_mode == 'Plan (Top)':
         camera_dict = dict(eye=dict(x=0, y=0, z=3))
@@ -418,7 +326,6 @@ def plot_saddle_span_geometry(geometry, view_mode='3D'):
         camera_dict = dict(eye=dict(x=0, y=3, z=0))
     elif view_mode == 'Side Elevation':
         camera_dict = dict(eye=dict(x=3, y=0, z=0))
-    
     fig.update_layout(
         scene=scene_config,
         scene_camera=camera_dict,
@@ -427,13 +334,9 @@ def plot_saddle_span_geometry(geometry, view_mode='3D'):
         margin=dict(l=0, r=0, t=0, b=0),
         height=550,
         showlegend=True,
-        legend=dict(
-            bgcolor='#2A2A2A',
-            font=dict(color='#FFFFFF')
-        ),
+        legend=dict(bgcolor='#2A2A2A', font=dict(color='#FFFFFF')),
         font=dict(color='#B0B0B0')
     )
-    
     return fig
 
 # --- App Title ---
@@ -444,10 +347,15 @@ st.caption("Tensile Membrane Structure Design | Multi-Stage Input Portal")
 if st.session_state.stage == 0:
     st.subheader("📋 Project Dashboard")
     
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("⚙️ Settings", key="settings_btn"):
+            st.session_state.stage = -1  # Settings page
+            st.rerun()
+    
     try:
         projects = supabase.table('projects').select('id, name, client_name, project_date, created_by').order('created_at', desc=True).execute()
         projects_data = projects.data
-        
         if projects_data:
             st.caption(f"Showing {len(projects_data)} project(s)")
             for proj in projects_data:
@@ -457,8 +365,8 @@ if st.session_state.stage == 0:
                     <span>Client: {proj.get('client_name', 'N/A')} | Date: {proj.get('project_date', 'N/A')}</span>
                 </div>
                 """, unsafe_allow_html=True)
-                col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-                with col1:
+                cols = st.columns([1, 1, 1, 1])
+                with cols[0]:
                     if st.button("📂 Load", key=f"load_{proj['id']}"):
                         iterations = supabase.table('design_iterations').select('id, status').eq('project_id', proj['id']).order('version_number', desc=True).limit(1).execute()
                         if iterations.data:
@@ -472,10 +380,10 @@ if st.session_state.stage == 0:
                             load_project(proj['id'], iter_id, stage)
                         else:
                             load_project(proj['id'], None, 2)
-                with col2:
+                with cols[1]:
                     if st.button("📋 Copy ID", key=f"copy_{proj['id']}"):
                         st.code(proj['id'], language="text")
-                with col3:
+                with cols[2]:
                     if st.button("📥 Export JSON", key=f"export_{proj['id']}"):
                         json_data, error = export_project_json(proj['id'], proj['name'])
                         if json_data:
@@ -486,7 +394,7 @@ if st.session_state.stage == 0:
                                 mime="application/json",
                                 key=f"download_{proj['id']}"
                             )
-                with col4:
+                with cols[3]:
                     if st.button("🗑️", key=f"delete_{proj['id']}"):
                         delete_project(proj['id'])
                 if st.button("🖼️ Export Images (ZIP)", key=f"export_images_{proj['id']}"):
@@ -504,15 +412,77 @@ if st.session_state.stage == 0:
             st.info("No projects found. Create your first project below.")
     except Exception as e:
         st.error(f"❌ Error loading projects: {str(e)}")
-        projects_data = []
     
     st.subheader("➕ Create New Project")
     if st.button("📤 New Project", type="primary"):
         st.session_state.stage = 1
         st.rerun()
 
+# --- SETTINGS PAGE (stage = -1) ---
+elif st.session_state.stage == -1:
+    st.subheader("⚙️ Settings")
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.stage = 0
+        st.rerun()
+    
+    st.markdown("### 🤖 AI Agent Configuration")
+    st.caption("Select your preferred AI agent for design interpretation. You can change this at any time.")
+    
+    with st.form("settings_form"):
+        agent = st.selectbox(
+            "AI Agent",
+            ["DeepSeek", "Kimi", "OpenAI (GPT-4)", "Anthropic (Claude)", "Google Gemini", "None (Manual)"],
+            index=0,
+            key="settings_agent"
+        )
+        api_key = st.text_input(
+            "API Key (optional for some free agents)",
+            type="password",
+            placeholder="Enter your API key if required",
+            key="settings_api_key"
+        )
+        st.caption("For DeepSeek and Kimi, you can use the free tier. For others, you may need to purchase credits.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            test_btn = st.form_submit_button("🔌 Test Connection")
+        with col2:
+            save_btn = st.form_submit_button("💾 Save Settings", type="primary")
+        
+        if test_btn:
+            if agent == "None (Manual)":
+                st.info("Manual mode selected – no connection test needed.")
+            else:
+                if not api_key:
+                    st.warning("Please enter an API key to test.")
+                else:
+                    success, msg = test_ai_connection(agent, api_key)
+                    if success:
+                        st.success(f"✅ {msg}")
+                        st.session_state.ai_connected = True
+                    else:
+                        st.error(f"❌ {msg}")
+                        st.session_state.ai_connected = False
+        
+        if save_btn:
+            st.session_state.ai_agent = agent
+            st.session_state.ai_api_key = api_key
+            if agent == "None (Manual)":
+                st.session_state.ai_connected = True
+            elif api_key:
+                success, _ = test_ai_connection(agent, api_key)
+                st.session_state.ai_connected = success
+            else:
+                st.session_state.ai_connected = False
+            st.success("✅ Settings saved!")
+            st.rerun()
+    
+    st.markdown("---")
+    st.info("💡 You can change your AI agent at any time. The system will use your selected agent for design understanding questions.")
+
 # --- STAGE 1: Project Registration ---
 elif st.session_state.stage == 1:
+    # (Same as before – keep unchanged for brevity; we'll include the full code in final output)
     st.subheader("📋 Project Registration")
     if st.button("⬅️ Back to Dashboard"):
         st.session_state.stage = 0
@@ -570,14 +540,12 @@ elif st.session_state.stage == 2:
             placeholder="e.g., Two curved primary beams with a membrane roof...",
             key="description"
         )
-        
         st.subheader("🏗️ Structural Typology")
         typology = st.selectbox(
             "Select Typology",
             ["Saddle Span", "Aluminium Free Span Tent", "Factory Warehouse", "Canopy (4 Columns)", "Sail Structure"],
             key="typology"
         )
-        
         st.subheader("📐 Initial Parameters")
         col1, col2 = st.columns(2)
         with col1:
@@ -586,28 +554,35 @@ elif st.session_state.stage == 2:
         with col2:
             H = st.number_input("H (Experimental Rise) (m)", value=10.0, step=0.5, key="H")
             LAA = st.number_input("LAA (Apex-to-Apex) (m)", value=10.0, step=0.5, key="LAA")
-        
-        st.caption("📐 A, B, H, LAA are used for Saddle Span typology. Other typologies will use these as reference.")
-        
+        st.caption("📐 These parameters are used for Saddle Span typology. Other typologies will use them as reference.")
         submitted = st.form_submit_button("📤 Proceed to Design Understanding", type="primary")
-        
         if submitted:
             if not description:
                 st.error("❌ Please enter a description.")
             else:
-                # Save design parameters
                 st.session_state.design_parameters = {
                     'description': description,
                     'typology': typology,
-                    'A': A,
-                    'B': B,
-                    'H': H,
-                    'LAA': LAA
+                    'A': A, 'B': B, 'H': H, 'LAA': LAA
                 }
+                # Check if AI agent is configured
+                if st.session_state.ai_agent == "None (Manual)" or not st.session_state.ai_connected:
+                    st.warning("⚠️ No AI agent configured. You will need to answer questions manually.")
+                    st.session_state.ai_questions = []  # Will use fallback
+                else:
+                    # Generate questions using AI
+                    with st.spinner("🤖 Asking AI to generate design questions..."):
+                        questions = generate_ai_questions(
+                            st.session_state.ai_agent,
+                            st.session_state.ai_api_key,
+                            description,
+                            st.session_state.design_parameters
+                        )
+                        st.session_state.ai_questions = questions
                 st.session_state.stage = 2.5
                 st.rerun()
 
-# --- STAGE 2.5: Design Understanding ---
+# --- STAGE 2.5: Design Understanding (AI-Powered) ---
 elif st.session_state.stage == 2.5:
     st.subheader("🧠 Design Understanding")
     if st.button("⬅️ Back to Design Input"):
@@ -623,46 +598,27 @@ elif st.session_state.stage == 2.5:
     </div>
     """, unsafe_allow_html=True)
     
-    st.caption("🔍 Please confirm your design understanding by answering these questions:")
+    st.caption("🤖 The AI has generated the following questions to confirm your design understanding.")
+    
+    # Get questions
+    if st.session_state.ai_questions:
+        questions = st.session_state.ai_questions
+    else:
+        # Fallback manual questions
+        questions = [
+            "Are these the two primary structural beams?",
+            "Are both beams supported at their lower ends?",
+            "Is the membrane attached continuously along the curved beams?",
+            "Is the apex point correctly identified?",
+            "Is the rise (A) measured from support level to apex?",
+            "Is the plan width (B) the distance between support lines?"
+        ]
     
     with st.form("understanding_form"):
-        q1 = st.radio(
-            "1. Are these the two primary structural beams?",
-            ["Yes", "No", "Not Sure"],
-            key="q1"
-        )
-        q2 = st.radio(
-            "2. Are both beams supported at their lower ends?",
-            ["Yes", "No", "Other"],
-            key="q2"
-        )
-        q3 = st.radio(
-            "3. Is the membrane attached continuously along the curved beams?",
-            ["Yes", "No", "Partially", "Not Sure"],
-            key="q3"
-        )
-        q4 = st.radio(
-            "4. Is the circled point (P_A) the apex/high point of the structure?",
-            ["Yes", "No", "Not Sure"],
-            key="q4"
-        )
-        q5 = st.radio(
-            "5. Is dimension A (rise) the vertical height from support level to apex as shown?",
-            ["Yes", "No", "Other"],
-            key="q5"
-        )
-        q6 = st.radio(
-            "6. Is dimension B the horizontal plan width between supports as shown?",
-            ["Yes", "No", "Other"],
-            key="q6"
-        )
-        q7 = st.radio(
-            "7. Is L_AA the distance between apex of Beam 1 and apex of Beam 2?",
-            ["Yes", "No", "Not Sure"],
-            key="q7"
-        )
-        
-        comments = st.text_area("📝 Additional Comments", placeholder="Any clarifications or additional information...", key="understanding_comments")
+        answers = {}
+        for i, q in enumerate(questions):
+            answers[q] = st.radio(q, ["Yes", "No", "Not Sure", "Other"], key=f"q_{i}")
+        comments = st.text_area("📝 Additional Comments", placeholder="Any clarifications...", key="understanding_comments")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -672,6 +628,7 @@ elif st.session_state.stage == 2.5:
         with col2:
             if st.form_submit_button("✅ Confirm & Freeze", type="primary"):
                 st.session_state.understanding_locked = True
+                st.session_state.ai_answers = answers
                 st.session_state.stage = 2.6
                 st.success("✅ Understanding confirmed! Proceeding to 3D model.")
                 st.rerun()
@@ -709,7 +666,6 @@ elif st.session_state.stage == 2.6:
         st.plotly_chart(fig, use_container_width=True, key="parametric_3d")
     
     st.info("✅ 3D model generated. Use the controls above to change view.")
-    
     col1, col2 = st.columns(2)
     with col1:
         if st.button("⬅️ Back to Understanding", type="secondary"):
@@ -728,7 +684,6 @@ elif st.session_state.stage == 2.7:
         st.rerun()
     
     params = st.session_state.design_parameters
-    
     st.subheader("⚙️ Edit Geometry")
     with st.form("refinement_form"):
         col1, col2 = st.columns(2)
@@ -738,21 +693,16 @@ elif st.session_state.stage == 2.7:
         with col2:
             H_new = st.number_input("H (Experimental Rise) (m)", value=params.get('H', 10.0), step=0.5, key="H_edit")
             LAA_new = st.number_input("LAA (Apex-to-Apex) (m)", value=params.get('LAA', 10.0), step=0.5, key="LAA_edit")
-        
         st.subheader("🏗️ Columns")
         col_count = st.number_input("Number of Columns", min_value=0, max_value=10, value=4, step=1, key="col_count")
         col_heights = []
         for i in range(int(col_count)):
             col_heights.append(st.number_input(f"Column {i+1} Height (m)", value=3.0, step=0.5, key=f"col_h_{i}"))
-        
         st.subheader("🔧 Refinement Options")
         add_beams = st.checkbox("Add Intermediate Beams", key="add_beams")
         adjust_apex = st.checkbox("Adjust Apex Position", key="adjust_apex")
-        
         submitted = st.form_submit_button("🔄 Apply Refinements", type="primary")
-        
         if submitted:
-            # Update parameters
             params['A'] = A_new
             params['B'] = B_new
             params['H'] = H_new
@@ -764,7 +714,6 @@ elif st.session_state.stage == 2.7:
             st.success("✅ Refinements applied!")
             st.session_state.stage = 2.6
             st.rerun()
-    
     st.warning("⚠️ Refinements will regenerate the 3D model with new parameters.")
 
 # --- STAGE 3: Collaboration ---
@@ -775,12 +724,10 @@ elif st.session_state.stage == 3:
         st.rerun()
     if st.button("🗑️ Clear All Fields", key="clear_stage3"):
         clear_stage_fields(3)
-    
     with st.form("collaboration"):
         stakeholder = st.selectbox("Communicate with", ["Owner", "Architect", "Engineer", "Other"], key="stakeholder")
         message = st.text_area("Your Message", placeholder="Share feedback, questions, or design ideas...", key="message")
         submitted = st.form_submit_button("📤 Send Message", type="primary")
-        
         if submitted:
             with st.spinner("Sending message..."):
                 try:
@@ -795,7 +742,6 @@ elif st.session_state.stage == 3:
                     st.success("✅ Message sent successfully!")
                 except Exception as e:
                     st.error(f"❌ Error sending message: {str(e)}")
-    
     col1, col2 = st.columns(2)
     with col1:
         if st.button("⬅️ Back to Design"):
