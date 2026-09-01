@@ -224,10 +224,7 @@ elif st.session_state.stage == 2:
             key="design_images",
             help="Upload sketches, photos of existing structures, or site inspiration"
         )
-        if st.button("Clear Images", key="clear_images"):
-            if 'design_images' in st.session_state:
-                del st.session_state.design_images
-            st.rerun()
+        # Removed the "Clear Images" button to avoid Streamlit form button conflict.
         
         st.subheader("✏️ Sketch Board")
         st.info("📝 Sketch board feature coming soon. For now, upload images above.")
@@ -285,14 +282,14 @@ elif st.session_state.stage == 3:
                     comment_data = {
                         'iteration_id': st.session_state.iteration_id,
                         'user_id': str(uuid.uuid4()),
-                        'content': message,
-                        'stakeholder_type': stakeholder,
-                        'is_read': False
+                        'content':" message,
+❌                        'stakeholder_type': stakeholder,
+                        Error 'is_read': False
                     }
                     supabase.table('comments').insert(comment_data).execute()
                     st.success("✅ Message sent successfully!")
                 except Exception as e:
-                    st.error(f"❌ Error sending message: {str(e)}")
+                    st.error(f sending message: {str(e)}")
     
     col1, col2 = st.columns(2)
     with col1:
