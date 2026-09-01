@@ -13,7 +13,7 @@ import json
 import zipfile
 from io import BytesIO
 import numpy as np
-import requests  # For AI agent API calls
+import re
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -82,12 +82,12 @@ st.markdown("""
     }
     .project-card strong { color: #FFFFFF !important; }
     .project-card span { color: #B0B0B0 !important; }
-    .settings-card {
-        background-color: #2A2A2A;
-        padding: 20px;
+    .ai-bridge-card {
+        background-color: #2A3A4A;
+        padding: 16px;
         border-radius: 8px;
-        border: 1px solid #3A3A3A;
-        margin-bottom: 20px;
+        border: 1px solid #4A6A7A;
+        margin-bottom: 16px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -120,17 +120,15 @@ if 'typology' not in st.session_state:
     st.session_state.typology = 'Saddle Span'
 if 'columns' not in st.session_state:
     st.session_state.columns = []
-# AI Agent settings
-if 'ai_agent' not in st.session_state:
-    st.session_state.ai_agent = 'DeepSeek'
-if 'ai_api_key' not in st.session_state:
-    st.session_state.ai_api_key = ''
-if 'ai_connected' not in st.session_state:
-    st.session_state.ai_connected = False
-if 'ai_questions' not in st.session_state:
-    st.session_state.ai_questions = []
-if 'ai_answers' not in st.session_state:
-    st.session_state.ai_answers = {}
+# AI Bridge
+if 'ai_bridge_response' not in st.session_state:
+    st.session_state.ai_bridge_response = ''
+if 'ai_bridge_prompt' not in st.session_state:
+    st.session_state.ai_bridge_prompt = ''
+if 'ai_bridge_questions' not in st.session_state:
+    st.session_state.ai_bridge_questions = []
+if 'ai_bridge_answers' not in st.session_state:
+    st.session_state.ai_bridge_answers = {}
 
 # --- Helper Functions ---
 def clear_stage_fields(stage):
@@ -140,7 +138,7 @@ def clear_stage_fields(stage):
     elif stage == 2:
         keys_to_clear = ['description', 'typology']
     elif stage == 2.5:
-        keys_to_clear = ['ai_questions', 'ai_answers']
+        keys_to_clear = ['ai_bridge_response', 'ai_bridge_prompt', 'ai_bridge_questions', 'ai_bridge_answers']
     elif stage == 3:
         keys_to_clear = ['stakeholder', 'message']
     for key in keys_to_clear:
@@ -212,38 +210,68 @@ def export_images_zip(project_id):
     except Exception as e:
         return None, str(e)
 
-# --- AI Agent Integration Functions ---
-def test_ai_connection(agent, api_key):
-    """Test if the API key works for the selected AI agent."""
-    # Placeholder – actual implementation would call the API with a simple test prompt.
-    # For now, we return True if the key is not empty (basic validation).
-    if api_key and len(api_key) > 8:
-        return True, "Connection successful!"
-    else:
-        return False, "Invalid API key. Please check and try again."
-
-def generate_ai_questions(agent, api_key, description, parameters):
-    """Send description to AI agent and generate thoughtful questions."""
-    # This is a simulation. In production, you would call the actual API.
-    # Example prompt for DeepSeek:
-    # "You are an engineering design assistant. Given this design description: '{description}' and parameters {parameters}, generate 5-8 thoughtful questions to confirm the design understanding."
-    # For now, we return a set of generic but dynamic questions.
-    # In the future, replace this with actual API calls.
+# --- AI Bridge Prompt Generator ---
+def generate_ai_bridge_prompt(description, parameters):
+    typology = parameters.get('typology', 'Saddle Span')
+    A = parameters.get('A', 10.0)
+    B = parameters.get('B', 5.0)
+    H = parameters.get('H', 10.0)
+    LAA = parameters.get('LAA', 10.0)
     
-    # Simulate AI thinking
-    questions = [
-        "Are these the two primary structural beams?",
-        "Are both beams supported at their lower ends?",
-        "Is the membrane attached continuously along the curved beams?",
-        "Is the apex point correctly identified?",
-        "Is the rise (A) measured from support level to apex?",
-        "Is the plan width (B) the distance between support lines?"
-    ]
-    # Add some variation based on parameters
-    if parameters.get('LAA', 0) > 10:
-        questions.append("Is LAA the apex-to-apex distance as shown?")
-    if parameters.get('typology') == 'Saddle Span':
-        questions.append("Are the beams curved in a parabolic shape?")
+    prompt = f"""You are an expert structural engineering design assistant working on a {typology} tensile membrane structure.
+
+**Design Description:**
+{description}
+
+**Initial Parameters:**
+- A (Rise/Height): {A:.1f} m
+- B (Plan/Horizontal): {B:.1f} m
+- H (Experimental Rise): {H:.1f} m
+- LAA (Apex-to-Apex): {LAA:.1f} m
+
+Based on this description, please generate 5-8 thoughtful, specific questions to confirm the design understanding. The questions should help clarify:
+- The primary structural elements (beams, columns, supports)
+- The membrane geometry and attachment
+- The apex and support conditions
+- The dimensions and ratios
+- Any unique features or constraints
+
+Please format your response as a numbered list of questions only (no introductory text or conclusion). Each question should be clear and concise.
+
+Example format:
+1. Are these the two primary structural beams?
+2. Are both beams supported at their lower ends?
+3. Is the membrane attached continuously along the curved beams?
+
+Now generate your questions:"""
+    return prompt
+
+def parse_ai_questions(response_text):
+    """Extract questions from AI response."""
+    # Try to extract numbered list
+    lines = response_text.strip().split('\n')
+    questions = []
+    for line in lines:
+        # Match patterns like "1. ", "1) ", "Q1: " etc.
+        match = re.match(r'^(\d+)[\.\)\:]\s*(.+)', line.strip())
+        if match:
+            questions.append(match.group(2).strip())
+        elif line.strip().startswith('-') or line.strip().startswith('*'):
+            # bullet points
+            questions.append(line.strip()[1:].strip())
+        elif line.strip() and not re.match(r'^[A-Z]', line) and len(line.strip()) > 10:
+            # fallback: any non-header line
+            questions.append(line.strip())
+    # If no questions extracted, use fallback
+    if not questions:
+        questions = [
+            "Are these the two primary structural beams?",
+            "Are both beams supported at their lower ends?",
+            "Is the membrane attached continuously along the curved beams?",
+            "Is the apex point correctly identified?",
+            "Is the rise (A) measured from support level to apex?",
+            "Is the plan width (B) the distance between support lines?"
+        ]
     return questions
 
 # --- Parametric 3D Engine (Saddle Span) ---
@@ -347,12 +375,6 @@ st.caption("Tensile Membrane Structure Design | Multi-Stage Input Portal")
 if st.session_state.stage == 0:
     st.subheader("📋 Project Dashboard")
     
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("⚙️ Settings", key="settings_btn"):
-            st.session_state.stage = -1  # Settings page
-            st.rerun()
-    
     try:
         projects = supabase.table('projects').select('id, name, client_name, project_date, created_by').order('created_at', desc=True).execute()
         projects_data = projects.data
@@ -418,71 +440,8 @@ if st.session_state.stage == 0:
         st.session_state.stage = 1
         st.rerun()
 
-# --- SETTINGS PAGE (stage = -1) ---
-elif st.session_state.stage == -1:
-    st.subheader("⚙️ Settings")
-    if st.button("⬅️ Back to Dashboard"):
-        st.session_state.stage = 0
-        st.rerun()
-    
-    st.markdown("### 🤖 AI Agent Configuration")
-    st.caption("Select your preferred AI agent for design interpretation. You can change this at any time.")
-    
-    with st.form("settings_form"):
-        agent = st.selectbox(
-            "AI Agent",
-            ["DeepSeek", "Kimi", "OpenAI (GPT-4)", "Anthropic (Claude)", "Google Gemini", "None (Manual)"],
-            index=0,
-            key="settings_agent"
-        )
-        api_key = st.text_input(
-            "API Key (optional for some free agents)",
-            type="password",
-            placeholder="Enter your API key if required",
-            key="settings_api_key"
-        )
-        st.caption("For DeepSeek and Kimi, you can use the free tier. For others, you may need to purchase credits.")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            test_btn = st.form_submit_button("🔌 Test Connection")
-        with col2:
-            save_btn = st.form_submit_button("💾 Save Settings", type="primary")
-        
-        if test_btn:
-            if agent == "None (Manual)":
-                st.info("Manual mode selected – no connection test needed.")
-            else:
-                if not api_key:
-                    st.warning("Please enter an API key to test.")
-                else:
-                    success, msg = test_ai_connection(agent, api_key)
-                    if success:
-                        st.success(f"✅ {msg}")
-                        st.session_state.ai_connected = True
-                    else:
-                        st.error(f"❌ {msg}")
-                        st.session_state.ai_connected = False
-        
-        if save_btn:
-            st.session_state.ai_agent = agent
-            st.session_state.ai_api_key = api_key
-            if agent == "None (Manual)":
-                st.session_state.ai_connected = True
-            elif api_key:
-                success, _ = test_ai_connection(agent, api_key)
-                st.session_state.ai_connected = success
-            else:
-                st.session_state.ai_connected = False
-            st.success("✅ Settings saved!")
-            st.rerun()
-    
-    st.markdown("---")
-    st.info("💡 You can change your AI agent at any time. The system will use your selected agent for design understanding questions.")
-
 # --- STAGE 1: Project Registration ---
 elif st.session_state.stage == 1:
-    # (Same as before – keep unchanged for brevity; we'll include the full code in final output)
     st.subheader("📋 Project Registration")
     if st.button("⬅️ Back to Dashboard"):
         st.session_state.stage = 0
@@ -565,26 +524,14 @@ elif st.session_state.stage == 2:
                     'typology': typology,
                     'A': A, 'B': B, 'H': H, 'LAA': LAA
                 }
-                # Check if AI agent is configured
-                if st.session_state.ai_agent == "None (Manual)" or not st.session_state.ai_connected:
-                    st.warning("⚠️ No AI agent configured. You will need to answer questions manually.")
-                    st.session_state.ai_questions = []  # Will use fallback
-                else:
-                    # Generate questions using AI
-                    with st.spinner("🤖 Asking AI to generate design questions..."):
-                        questions = generate_ai_questions(
-                            st.session_state.ai_agent,
-                            st.session_state.ai_api_key,
-                            description,
-                            st.session_state.design_parameters
-                        )
-                        st.session_state.ai_questions = questions
+                # Generate AI prompt
+                st.session_state.ai_bridge_prompt = generate_ai_bridge_prompt(description, st.session_state.design_parameters)
                 st.session_state.stage = 2.5
                 st.rerun()
 
-# --- STAGE 2.5: Design Understanding (AI-Powered) ---
+# --- STAGE 2.5: AI Bridge ---
 elif st.session_state.stage == 2.5:
-    st.subheader("🧠 Design Understanding")
+    st.subheader("🧠 Design Understanding – AI Bridge")
     if st.button("⬅️ Back to Design Input"):
         st.session_state.stage = 2
         st.rerun()
@@ -598,14 +545,70 @@ elif st.session_state.stage == 2.5:
     </div>
     """, unsafe_allow_html=True)
     
-    st.caption("🤖 The AI has generated the following questions to confirm your design understanding.")
+    st.markdown("### 🤖 AI Bridge")
+    st.caption("Use your existing AI app to generate thoughtful design questions. No API key required.")
     
-    # Get questions
-    if st.session_state.ai_questions:
-        questions = st.session_state.ai_questions
-    else:
-        # Fallback manual questions
-        questions = [
+    # AI App selection
+    st.markdown("**Select your AI assistant:**")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("📱 DeepSeek", key="deepseek_btn"):
+            st.session_state.ai_bridge_selected = "DeepSeek"
+    with col2:
+        if st.button("💬 ChatGPT", key="chatgpt_btn"):
+            st.session_state.ai_bridge_selected = "ChatGPT"
+    with col3:
+        if st.button("🧠 Kimi", key="kimi_btn"):
+            st.session_state.ai_bridge_selected = "Kimi"
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        if st.button("🤖 Claude", key="claude_btn"):
+            st.session_state.ai_bridge_selected = "Claude"
+    with col5:
+        if st.button("🌟 Gemini", key="gemini_btn"):
+            st.session_state.ai_bridge_selected = "Gemini"
+    with col6:
+        if st.button("📝 Manual", key="manual_btn"):
+            st.session_state.ai_bridge_selected = "Manual"
+    
+    # Show prompt and copy option
+    st.markdown("### 📋 AI Prompt")
+    prompt = st.session_state.ai_bridge_prompt
+    st.text_area("Copy this prompt to your AI app:", prompt, height=200, key="ai_prompt_display")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📋 Copy Prompt to Clipboard", key="copy_prompt"):
+            # Using streamlit's built-in clipboard via js
+            st.code(prompt, language="text")
+            st.caption("✅ Prompt copied! You can highlight and copy from the box above.")
+    with col2:
+        # Deep link attempt (for supported apps)
+        st.caption("🔗 If you have the app installed, try these links:")
+        st.markdown("- [DeepSeek](deepseek://chat) (Android)")
+        st.markdown("- [ChatGPT](https://chat.openai.com) (Web)")
+    
+    st.markdown("---")
+    st.markdown("### 📥 Paste AI Response")
+    st.caption("After your AI generates questions, paste the response here:")
+    ai_response = st.text_area("AI Response", placeholder="Paste the AI's response with the questions...", height=150, key="ai_response_input")
+    
+    if st.button("🔄 Process AI Response", type="primary"):
+        if ai_response:
+            questions = parse_ai_questions(ai_response)
+            st.session_state.ai_bridge_questions = questions
+            st.session_state.ai_bridge_response = ai_response
+            st.success(f"✅ Extracted {len(questions)} questions from AI response.")
+            st.session_state.stage = 2.6  # Proceed to answering questions
+            st.rerun()
+        else:
+            st.error("❌ Please paste the AI response first.")
+    
+    # Manual fallback
+    st.markdown("---")
+    st.caption("📝 If you don't have an AI app, you can use the manual mode.")
+    if st.button("📝 Use Manual Questions", key="manual_fallback"):
+        st.session_state.ai_bridge_questions = [
             "Are these the two primary structural beams?",
             "Are both beams supported at their lower ends?",
             "Is the membrane attached continuously along the curved beams?",
@@ -613,34 +616,46 @@ elif st.session_state.stage == 2.5:
             "Is the rise (A) measured from support level to apex?",
             "Is the plan width (B) the distance between support lines?"
         ]
+        st.session_state.stage = 2.6
+        st.rerun()
+
+# --- STAGE 2.6: Answer AI Questions ---
+elif st.session_state.stage == 2.6:
+    st.subheader("🧠 Answer Design Questions")
+    if st.button("⬅️ Back to AI Bridge"):
+        st.session_state.stage = 2.5
+        st.rerun()
     
-    with st.form("understanding_form"):
-        answers = {}
-        for i, q in enumerate(questions):
-            answers[q] = st.radio(q, ["Yes", "No", "Not Sure", "Other"], key=f"q_{i}")
-        comments = st.text_area("📝 Additional Comments", placeholder="Any clarifications...", key="understanding_comments")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.form_submit_button("🔁 Modify Understanding"):
-                st.session_state.understanding_locked = False
-                st.rerun()
-        with col2:
-            if st.form_submit_button("✅ Confirm & Freeze", type="primary"):
+    st.caption("Please answer the following questions generated by your AI assistant:")
+    
+    questions = st.session_state.ai_bridge_questions
+    if not questions:
+        st.warning("No questions generated. Please go back and use the manual mode.")
+        if st.button("🔙 Go Back"):
+            st.session_state.stage = 2.5
+            st.rerun()
+    else:
+        with st.form("answer_form"):
+            answers = {}
+            for i, q in enumerate(questions):
+                answers[q] = st.radio(q, ["Yes", "No", "Not Sure", "Other"], key=f"qa_{i}")
+            comments = st.text_area("📝 Additional Comments", placeholder="Any clarifications...", key="answer_comments")
+            
+            if st.form_submit_button("✅ Confirm Understanding", type="primary"):
+                st.session_state.ai_bridge_answers = answers
                 st.session_state.understanding_locked = True
-                st.session_state.ai_answers = answers
-                st.session_state.stage = 2.6
+                st.session_state.stage = 2.7  # Proceed to 3D model
                 st.success("✅ Understanding confirmed! Proceeding to 3D model.")
                 st.rerun()
 
-# --- STAGE 2.6: Parametric 3D Model ---
-elif st.session_state.stage == 2.6:
+# --- STAGE 2.7: Parametric 3D Model ---
+elif st.session_state.stage == 2.7:
     st.subheader("🏗️ Parametric 3D Model")
-    if st.button("⬅️ Back to Understanding"):
-        st.session_state.stage = 2.5
+    if st.button("⬅️ Back to Questions"):
+        st.session_state.stage = 2.6
         st.rerun()
     if st.button("📐 Redesign & Refine"):
-        st.session_state.stage = 2.7
+        st.session_state.stage = 2.8
         st.rerun()
     
     params = st.session_state.design_parameters
@@ -658,7 +673,7 @@ elif st.session_state.stage == 2.6:
     """, unsafe_allow_html=True)
     
     view_modes = ['3D Perspective', 'Plan (Top)', 'Front Elevation', 'Side Elevation']
-    selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_26")
+    selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_27")
     
     with st.spinner("Generating 3D model..."):
         geometry = generate_saddle_span_geometry(A, B, H, LAA)
@@ -668,19 +683,19 @@ elif st.session_state.stage == 2.6:
     st.info("✅ 3D model generated. Use the controls above to change view.")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("⬅️ Back to Understanding", type="secondary"):
-            st.session_state.stage = 2.5
+        if st.button("⬅️ Back to Questions", type="secondary"):
+            st.session_state.stage = 2.6
             st.rerun()
     with col2:
         if st.button("📐 Redesign & Refine", type="primary"):
-            st.session_state.stage = 2.7
+            st.session_state.stage = 2.8
             st.rerun()
 
-# --- STAGE 2.7: Redesign & Refinement ---
-elif st.session_state.stage == 2.7:
+# --- STAGE 2.8: Redesign & Refinement ---
+elif st.session_state.stage == 2.8:
     st.subheader("📐 Redesign & Refinement")
     if st.button("⬅️ Back to 3D Model"):
-        st.session_state.stage = 2.6
+        st.session_state.stage = 2.7
         st.rerun()
     
     params = st.session_state.design_parameters
@@ -712,7 +727,7 @@ elif st.session_state.stage == 2.7:
             params['adjust_apex'] = adjust_apex
             st.session_state.design_parameters = params
             st.success("✅ Refinements applied!")
-            st.session_state.stage = 2.6
+            st.session_state.stage = 2.7
             st.rerun()
     st.warning("⚠️ Refinements will regenerate the 3D model with new parameters.")
 
