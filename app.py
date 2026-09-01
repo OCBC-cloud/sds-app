@@ -282,14 +282,14 @@ elif st.session_state.stage == 3:
                     comment_data = {
                         'iteration_id': st.session_state.iteration_id,
                         'user_id': str(uuid.uuid4()),
-                        'content':" message,
-❌                        'stakeholder_type': stakeholder,
-                        Error 'is_read': False
+                        'content': message,  # <-- FIXED: no extra quotes
+                        'stakeholder_type': stakeholder,
+                        'is_read': False
                     }
                     supabase.table('comments').insert(comment_data).execute()
                     st.success("✅ Message sent successfully!")
                 except Exception as e:
-                    st.error(f sending message: {str(e)}")
+                    st.error(f"❌ Error sending message: {str(e)}")
     
     col1, col2 = st.columns(2)
     with col1:
