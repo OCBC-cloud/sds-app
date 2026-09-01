@@ -8,6 +8,7 @@ from PIL.ExifTags import TAGS, GPSTAGS
 import io
 import base64
 import plotly.graph_objects as go
+import time
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -17,23 +18,41 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Custom Dark Theme CSS ---
+# --- Custom Dark Theme CSS (Higher Contrast) ---
 st.markdown("""
 <style>
-    .stApp { background-color: #1E1E1E; }
-    .css-1d391kg { background-color: #2A2A2A; }
+    /* Main background */
+    .stApp {
+        background-color: #1E1E1E;
+    }
+    /* Sidebar */
+    .css-1d391kg {
+        background-color: #2A2A2A;
+    }
+    /* Labels - NOW WHITE for better readability */
+    .stTextInput label, .stTextArea label, .stNumberInput label, .stSelectbox label, .stDateInput label {
+        color: #FFFFFF !important;
+        font-weight: 500 !important;
+    }
+    /* Input fields - LIGHTER BACKGROUND */
     .stTextInput input, .stTextArea textarea, .stNumberInput input {
-        background-color: #2D2D2D !important;
-        color: #E0E0E0 !important;
-        border: 1px solid #3A3A3A !important;
+        background-color: #3A3A3A !important;
+        color: #FFFFFF !important;
+        border: 1px solid #5A5A5A !important;
         border-radius: 8px !important;
     }
+    /* Placeholders */
+    .stTextInput input::placeholder, .stTextArea textarea::placeholder {
+        color: #B0B0B0 !important;
+    }
+    /* Dropdowns */
     .stSelectbox select {
         background-color: #3A3A3A !important;
-        color: #E0E0E0 !important;
-        border: 1px solid #4A4A4A !important;
+        color: #FFFFFF !important;
+        border: 1px solid #5A5A5A !important;
         border-radius: 8px !important;
     }
+    /* Buttons */
     .stButton button {
         background-color: #00B4D8 !important;
         color: #FFFFFF !important;
@@ -41,23 +60,50 @@ st.markdown("""
         border-radius: 8px !important;
         font-weight: bold !important;
     }
-    .stButton button:hover { background-color: #0090B0 !important; }
-    h1, h2, h3, h4 { color: #F0F0F0 !important; }
-    .stCaption, .stMarkdown p { color: #B0B0B0 !important; }
-    .stAlert { background-color: #2A3A2A !important; border-color: #52B788 !important; color: #D4EDDA !important; }
-    .stError { background-color: #3A2A2A !important; border-color: #E63946 !important; color: #F8D7DA !important; }
-    .stInfo { background-color: #2A3A4A !important; border-color: #00B4D8 !important; color: #D4EDF4 !important; }
-    hr { border-color: #3A3A3A !important; }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #2A2A2A;
-        color: #B0B0B0;
-        border-radius: 8px;
-        padding: 8px 16px;
+    .stButton button:hover {
+        background-color: #0090B0 !important;
     }
-    .stTabs [aria-selected="true"] {
-        background-color: #3A3A3A;
-        color: #F0F0F0 !important;
+    /* Headers */
+    h1, h2, h3, h4 {
+        color: #FFFFFF !important;
+    }
+    /* Captions and text */
+    .stCaption, .stMarkdown p {
+        color: #D0D0D0 !important;
+    }
+    /* Success, Error, Info */
+    .stAlert {
+        background-color: #2A3A2A !important;
+        border-color: #52B788 !important;
+        color: #D4EDDA !important;
+    }
+    .stError {
+        background-color: #3A2A2A !important;
+        border-color: #E63946 !important;
+        color: #F8D7DA !important;
+    }
+    .stInfo {
+        background-color: #2A3A4A !important;
+        border-color: #00B4D8 !important;
+        color: #D4EDF4 !important;
+    }
+    .stWarning {
+        background-color: #4A3A2A !important;
+        border-color: #F4A261 !important;
+        color: #FFF3E0 !important;
+    }
+    hr {
+        border-color: #3A3A3A !important;
+    }
+    .stProgress > div > div {
+        background-color: #00B4D8 !important;
+    }
+    /* Metric labels and values */
+    div[data-testid="metric-container"] label {
+        color: #FFFFFF !important;
+    }
+    div[data-testid="metric-container"] div {
+        color: #FFFFFF !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -76,6 +122,12 @@ if 'iteration_id' not in st.session_state:
     st.session_state.iteration_id = None
 if 'frozen' not in st.session_state:
     st.session_state.frozen = False
+if 'view_mode' not in st.session_state:
+    st.session_state.view_mode = '3D'
+if 'cached_fig' not in st.session_state:
+    st.session_state.cached_fig = None
+if 'cached_inputs' not in st.session_state:
+    st.session_state.cached_inputs = None
 
 # --- App Title ---
 st.title("🏗️ SDS Design Portal")
@@ -105,7 +157,6 @@ def clear_stage_fields(stage):
 if st.session_state.stage == 1:
     st.subheader("📋 Project Registration")
     
-    # Clear button outside the form
     if st.button("🗑️ Clear All Fields", key="clear_stage1"):
         clear_stage_fields(1)
     
@@ -256,35 +307,294 @@ elif st.session_state.stage == 3:
 # --- Stage 4: 3D View ---
 elif st.session_state.stage == 4:
     st.subheader("🏗️ 3D Design Progress")
-    st.info("📐 Simple 3D visualization of your design")
     
-    fig = go.Figure(data=[
-        go.Mesh3d(
-            x=[0, 1, 1, 0, 0, 1, 1, 0],
-            y=[0, 0, 1, 1, 0, 0, 1, 1],
-            z=[0, 0, 0, 0, 1, 1, 1, 1],
-            color='#00B4D8',
-            opacity=0.5
-        )
-    ])
-    fig.update_layout(
-        scene=dict(
-            xaxis_title="Width",
-            yaxis_title="Depth",
-            zaxis_title="Height",
-            bgcolor="#1E1E1E",
-            xaxis=dict(color="#E0E0E0"),
-            yaxis=dict(color="#E0E0E0"),
-            zaxis=dict(color="#E0E0E0")
-        ),
-        paper_bgcolor="#1E1E1E",
-        plot_bgcolor="#1E1E1E",
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=400
+    # Get design parameters from session state or use defaults
+    width = st.session_state.get('width', 5.0)
+    depth = st.session_state.get('depth', 3.0)
+    length = st.session_state.get('length', 10.0)
+    height = st.session_state.get('height', 5.0)
+    structure_type = st.session_state.get('structure_type', 'Steel')
+    roof_type = st.session_state.get('roof_type', 'Tensile Fabric (PVC/PTFE)')
+    
+    # View mode selector
+    view_modes = ['3D Perspective', 'Plan (Top)', 'Front Elevation', 'Side Elevation']
+    selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode")
+    
+    # Build cache key from inputs
+    current_inputs = (width, depth, length, height, structure_type, roof_type, selected_view)
+    
+    # Check if we need to rebuild the figure
+    rebuild_needed = (
+        st.session_state.cached_fig is None or
+        st.session_state.cached_inputs != current_inputs
     )
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption("🔲 Simple 3D representation of your design dimensions")
     
+    if rebuild_needed:
+        # Show loading progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        status_text.text("🔨 Building 3D model... (0%)")
+        progress_bar.progress(5)
+        time.sleep(0.1)
+        
+        try:
+            # --- Build the 3D model ---
+            # 1. Define dimensions
+            L = float(length) if length > 0 else 10.0
+            W = float(width) if width > 0 else 5.0
+            H = float(height) if height > 0 else 5.0
+            D = float(depth) if depth > 0 else 3.0
+            
+            # 2. Define the membrane surface (tensile fabric)
+            grid_size = 20
+            x = []
+            y = []
+            z = []
+            
+            # Generate membrane surface (saddle shape with rise)
+            for i in range(grid_size + 1):
+                for j in range(grid_size + 1):
+                    u = i / grid_size
+                    v = j / grid_size
+                    x_pos = -L/2 + u * L
+                    y_pos = -W/2 + v * W
+                    z_pos = H * max(0, (1 - (2*u - 1)**2) * (1 - (2*v - 1)**2))
+                    x.append(x_pos)
+                    y.append(y_pos)
+                    z.append(z_pos)
+            
+            # Create triangulation for the surface
+            triangles = []
+            for i in range(grid_size):
+                for j in range(grid_size):
+                    idx = i * (grid_size + 1) + j
+                    idx1 = idx + 1
+                    idx2 = idx + (grid_size + 1)
+                    idx3 = idx2 + 1
+                    triangles.append([idx, idx1, idx2])
+                    triangles.append([idx1, idx3, idx2])
+            
+            triangles_flat = [item for sublist in triangles for item in sublist]
+            
+            status_text.text("🔨 Building membrane surface... (30%)")
+            progress_bar.progress(30)
+            time.sleep(0.1)
+            
+            # --- Create the figure ---
+            fig = go.Figure()
+            
+            # 1. Add membrane surface
+            fig.add_trace(go.Mesh3d(
+                x=x,
+                y=y,
+                z=z,
+                i=[triangles_flat[i] for i in range(0, len(triangles_flat), 3)],
+                j=[triangles_flat[i] for i in range(1, len(triangles_flat), 3)],
+                k=[triangles_flat[i] for i in range(2, len(triangles_flat), 3)],
+                name='Membrane Surface',
+                color='#F5F5F5',
+                opacity=0.7,
+                flatshading=True,
+                showscale=False,
+                lighting=dict(ambient=0.5, diffuse=0.8, specular=0.2)
+            ))
+            
+            status_text.text("🔨 Adding structural beams... (60%)")
+            progress_bar.progress(60)
+            time.sleep(0.1)
+            
+            # 2. Add primary beams (two along the length)
+            beam_positions = [-W/3, W/3]
+            beam_color = '#8B8B8B' if structure_type == 'Steel' else '#C0C0C0'
+            
+            for pos_y in beam_positions:
+                fig.add_trace(go.Scatter3d(
+                    x=[-L/2, L/2],
+                    y=[pos_y, pos_y],
+                    z=[0, 0],
+                    mode='lines',
+                    line=dict(color=beam_color, width=8),
+                    name='Primary Beam'
+                ))
+            
+            status_text.text("🔨 Adding structural columns... (80%)")
+            progress_bar.progress(80)
+            time.sleep(0.1)
+            
+            # 3. Add columns at corners
+            column_positions = [
+                (-L/2, -W/3, 0), (-L/2, W/3, 0),
+                (L/2, -W/3, 0), (L/2, W/3, 0)
+            ]
+            for pos_x, pos_y, pos_z in column_positions:
+                fig.add_trace(go.Scatter3d(
+                    x=[pos_x, pos_x],
+                    y=[pos_y, pos_y],
+                    z=[0, H/4],
+                    mode='lines',
+                    line=dict(color='#6B6B6B', width=6),
+                    name='Column'
+                ))
+            
+            status_text.text("🔨 Adding dimensions and labels... (95%)")
+            progress_bar.progress(95)
+            time.sleep(0.1)
+            
+            # 4. Add dimension lines
+            # Length dimension (bottom edge)
+            fig.add_trace(go.Scatter3d(
+                x=[-L/2, L/2],
+                y=[-W/2 - 0.5, -W/2 - 0.5],
+                z=[0, 0],
+                mode='lines',
+                line=dict(color='#FF6B6B', width=2, dash='dash'),
+                name='Length'
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[0],
+                y=[-W/2 - 0.5],
+                z=[0.1],
+                mode='text',
+                text=[f"L = {L:.1f} m"],
+                textfont=dict(color='#FF6B6B', size=12),
+                showlegend=False
+            ))
+            
+            # Width dimension (front edge)
+            fig.add_trace(go.Scatter3d(
+                x=[-L/2 - 0.5, -L/2 - 0.5],
+                y=[-W/3, W/3],
+                z=[0, 0],
+                mode='lines',
+                line=dict(color='#4ECDC4', width=2, dash='dash'),
+                name='Width'
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[-L/2 - 0.5],
+                y=[0],
+                z=[0.1],
+                mode='text',
+                text=[f"W = {W:.1f} m"],
+                textfont=dict(color='#4ECDC4', size=12),
+                showlegend=False
+            ))
+            
+            # Height dimension (at center)
+            fig.add_trace(go.Scatter3d(
+                x=[L/2 + 0.5, L/2 + 0.5],
+                y=[0, 0],
+                z=[0, H],
+                mode='lines',
+                line=dict(color='#FFD93D', width=2, dash='dash'),
+                name='Height'
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[L/2 + 0.5],
+                y=[0],
+                z=[H/2],
+                mode='text',
+                text=[f"H = {H:.1f} m"],
+                textfont=dict(color='#FFD93D', size=12),
+                showlegend=False
+            ))
+            
+            status_text.text("🔨 Setting up view... (100%)")
+            progress_bar.progress(100)
+            time.sleep(0.1)
+            
+            # 5. Configure scene based on selected view
+            scene_config = dict(
+                bgcolor='#1E1E1E',
+                xaxis=dict(title='Length (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
+                yaxis=dict(title='Width (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
+                zaxis=dict(title='Height (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
+                aspectmode='manual',
+                aspectratio=dict(x=L/5, y=W/5, z=H/5) if L > 0 and W > 0 and H > 0 else dict(x=1, y=1, z=1)
+            )
+            
+            # Set camera based on view mode
+            camera_dict = dict(
+                eye=dict(x=2.0, y=2.0, z=1.5)
+            )
+            if selected_view == 'Plan (Top)':
+                camera_dict = dict(eye=dict(x=0, y=0, z=3))
+            elif selected_view == 'Front Elevation':
+                camera_dict = dict(eye=dict(x=0, y=3, z=0))
+            elif selected_view == 'Side Elevation':
+                camera_dict = dict(eye=dict(x=3, y=0, z=0))
+            
+            fig.update_layout(
+                scene=scene_config,
+                scene_camera=camera_dict,
+                paper_bgcolor='#1E1E1E',
+                plot_bgcolor='#1E1E1E',
+                margin=dict(l=0, r=0, t=0, b=0),
+                height=500,
+                showlegend=False,
+                font=dict(color='#B0B0B0')
+            )
+            
+            # Cache the figure
+            st.session_state.cached_fig = fig
+            st.session_state.cached_inputs = current_inputs
+            
+            status_text.text("✅ Model ready!")
+            time.sleep(0.2)
+            
+            # Clear progress indicators
+            progress_bar.empty()
+            status_text.empty()
+            
+        except Exception as e:
+            progress_bar.empty()
+            status_text.empty()
+            st.error(f"❌ Error building 3D model: {str(e)}")
+            # Create fallback simple figure
+            fig = go.Figure()
+            fig.add_trace(go.Scatter3d(
+                x=[0, 1, 1, 0, 0, 1, 1, 0],
+                y=[0, 0, 1, 1, 0, 0, 1, 1],
+                z=[0, 0, 0, 0, 1, 1, 1, 1],
+                mode='markers',
+                marker=dict(size=5, color='#00B4D8')
+            ))
+            fig.update_layout(
+                scene=dict(bgcolor='#1E1E1E'),
+                paper_bgcolor='#1E1E1E',
+                margin=dict(l=0, r=0, t=0, b=0),
+                height=400
+            )
+            st.session_state.cached_fig = fig
+            st.session_state.cached_inputs = current_inputs
+    else:
+        # Use cached figure
+        fig = st.session_state.cached_fig
+    
+    # Display the figure
+    st.plotly_chart(fig, use_container_width=True, key="3d_viewer")
+    
+    # --- Design Summary ---
+    st.subheader("📋 Design Summary")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Length (L)", f"{length:.1f} m")
+    with col2:
+        st.metric("Width (W)", f"{width:.1f} m")
+    with col3:
+        st.metric("Height (H)", f"{height:.1f} m")
+    with col4:
+        st.metric("Depth (D)", f"{depth:.1f} m")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Structure Type", structure_type)
+    with col2:
+        st.metric("Roof Type", roof_type)
+    with col3:
+        st.metric("Status", "Draft")
+    
+    # --- Navigation ---
     col1, col2 = st.columns(2)
     with col1:
         if st.button("⬅️ Back to Collaboration"):
