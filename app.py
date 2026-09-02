@@ -15,6 +15,7 @@ from io import BytesIO
 import numpy as np
 import re
 import requests
+import os
 
 # ============================================================================
 # Page Configuration & Session State
@@ -31,19 +32,23 @@ st.set_page_config(
 )
 
 # ============================================================================
-# Custom Dark Theme CSS
+# Custom Dark Theme CSS – High Contrast Labels
 # ============================================================================
 
 st.markdown("""
 <style>
+    /* Main background */
     .stApp { background-color: #1E1E1E; }
+    /* Sidebar */
     .css-1d391kg { background-color: #2A2A2A; }
+    /* All labels – WHITE, bold, readable */
     .stTextInput label, .stTextArea label, .stNumberInput label, 
     .stSelectbox label, .stDateInput label, .stRadio label {
         color: #FFFFFF !important;
         font-weight: 600 !important;
         font-size: 14px !important;
     }
+    /* Input fields */
     .stTextInput input, .stTextArea textarea, .stNumberInput input {
         background-color: #3A3A3A !important;
         color: #FFFFFF !important;
@@ -132,10 +137,6 @@ if 'design_parameters' not in st.session_state:
     st.session_state.design_parameters = {}
 if 'understanding_locked' not in st.session_state:
     st.session_state.understanding_locked = False
-if 'typology' not in st.session_state:
-    st.session_state.typology = 'Saddle Span'
-if 'columns' not in st.session_state:
-    st.session_state.columns = []
 if 'iteration_count' not in st.session_state:
     st.session_state.iteration_count = 0
 if 'feedback_history' not in st.session_state:
@@ -166,6 +167,10 @@ if 'load_options' not in st.session_state:
     st.session_state.load_options = None
 if 'uploaded_images' not in st.session_state:
     st.session_state.uploaded_images = []
+if 'round' not in st.session_state:
+    st.session_state.round = 0
+if 'user_feedback' not in st.session_state:
+    st.session_state.user_feedback = ''
 
 # ============================================================================
 # Helper Functions
@@ -176,7 +181,7 @@ def clear_stage_fields(stage):
     if stage == 1:
         keys_to_clear = ['proj_name', 'client_name', 'main_contractor', 'contact_phone', 'contact_email', 'project_date']
     elif stage == 2:
-        keys_to_clear = ['description', 'typology', 'uploaded_images']
+        keys_to_clear = ['description', 'uploaded_images']
     elif stage == 3:
         keys_to_clear = ['stakeholder', 'message']
     for key in keys_to_clear:
@@ -208,6 +213,7 @@ def load_project(project_id, iteration_id, stage):
                 st.session_state.frozen = state.get('frozen', False)
                 st.session_state.ai_bridge_prompt = state.get('ai_prompt', '')
                 st.session_state.uploaded_images = state.get('uploaded_images', [])
+                st.session_state.round = state.get('round', 0)
     except Exception as e:
         pass
     st.rerun()
@@ -230,6 +236,7 @@ def save_design_state(project_id):
         'frozen': st.session_state.frozen,
         'ai_prompt': st.session_state.ai_bridge_prompt,
         'uploaded_images': st.session_state.uploaded_images,
+        'round': st.session_state.round,
         'last_modified': datetime.now().isoformat()
     }
     try:
@@ -271,6 +278,7 @@ def delete_design_data(project_id):
         st.session_state.ai_bridge_prompt = ''
         st.session_state.ai_bridge_response = ''
         st.session_state.uploaded_images = []
+        st.session_state.round = 0
         st.success("✅ All design data deleted. Project metadata preserved.")
         st.rerun()
     except Exception as e:
@@ -327,86 +335,38 @@ def export_images_zip(project_id):
         return None, str(e)
 
 # ============================================================================
-# Typology-specific Parameter Definitions
+# Design Engine (No "AI" References)
 # ============================================================================
 
-def get_typology_params(typology):
-    """Return list of parameter definitions for the given typology."""
-    params = {
-        "Saddle Span": [
-            {"key": "A", "label": "Rise/Height (m)", "default": 6.5, "step": 0.5},
-            {"key": "B", "label": "Plan/Horizontal (m)", "default": 6.0, "step": 0.5},
-            {"key": "LAA", "label": "Apex-to-Apex (m)", "default": 15.0, "step": 0.5}
-        ],
-        "Single Pole": [
-            {"key": "H", "label": "Height of Pole (m)", "default": 8.0, "step": 0.5},
-            {"key": "R", "label": "Radius of Canopy (m)", "default": 5.0, "step": 0.5},
-            {"key": "Tilt", "label": "Tilt Angle (degrees)", "default": 0.0, "step": 1.0}
-        ],
-        "4 Poles": [
-            {"key": "L", "label": "Length (m)", "default": 10.0, "step": 0.5},
-            {"key": "W", "label": "Width (m)", "default": 8.0, "step": 0.5},
-            {"key": "H", "label": "Height of Poles (m)", "default": 4.0, "step": 0.5}
-        ],
-        "Sail Structure": [
-            {"key": "Span", "label": "Span (m)", "default": 12.0, "step": 0.5},
-            {"key": "NumAnchors", "label": "Number of Anchors", "default": 4, "step": 1},
-            {"key": "H", "label": "Height (m)", "default": 5.0, "step": 0.5}
-        ]
-    }
-    return params.get(typology, [])
-
-def get_typology_ai_prompt(typology, parameters, description):
-    """Generate a tailored AI prompt for the chosen typology."""
-    param_text = "\n".join([f"- {k}: {v}" for k, v in parameters.items()])
-    prompt = f"""You are an expert structural engineering design consultant specializing in {typology} structures.
-
-Your Role:
-Understand the user's design and produce a complete Design Brief in JSON format.
-
-Design Context:
-- Typology: {typology}
-Parameters:
-{param_text}
-
-User's Description:
-{description}
-
-Required JSON Structure (ONLY OUTPUT THIS EXACT FORMAT):
-{{
-  "typology": "{typology}",
-  "parameters": {parameters},
-  "structure": {{
-    "material": "Steel",
-    "finish": "Galvanized",
-    "additional": {{}}
-  }}
-}}
-
-OUTPUT ONLY THE JSON OBJECT. NO OTHER TEXT."""
-    return prompt
-
-# ============================================================================
-# AI Integration (DeepSeek API + Manual Fallback)
-# ============================================================================
-
-def call_deepseek_api(prompt, api_key):
+def call_design_engine(prompt, api_key, images=None):
+    """Call the design interpretation engine."""
     url = "https://api.deepseek.com/v1/chat/completions"
+    
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
+    
+    messages = [
+        {"role": "system", "content": "You are a structural engineering design expert. You MUST output ONLY valid JSON. No explanations, no markdown, just pure JSON."},
+        {"role": "user", "content": prompt}
+    ]
+    
+    if images:
+        image_text = "\n\n**Uploaded Images:**\n"
+        for i, img in enumerate(images):
+            image_text += f"- Image {i+1}: {img}\n"
+        messages[1]["content"] += image_text
+    
     data = {
         "model": "deepseek-chat",
-        "messages": [
-            {"role": "system", "content": "You are a structural engineering design expert. You MUST output ONLY valid JSON. No explanations, no markdown, just pure JSON."},
-            {"role": "user", "content": prompt}
-        ],
+        "messages": messages,
         "temperature": 0.2,
-        "max_tokens": 2000
+        "max_tokens": 4000
     }
+    
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response = requests.post(url, headers=headers, json=data, timeout=60)
         if response.status_code == 200:
             result = response.json()
             content = result['choices'][0]['message']['content']
@@ -416,7 +376,104 @@ def call_deepseek_api(prompt, api_key):
     except Exception as e:
         return None, f"Request Error: {str(e)}"
 
+def generate_design_prompt(description, images=None):
+    """Generate a prompt for the design interpretation engine."""
+    prompt = f"""You are an expert structural engineering design consultant.
+
+**Your Task:**
+Interpret the user's design description and produce a complete Design Brief in JSON format.
+
+**User's Description:**
+{description}
+
+**Instructions:**
+1. Extract all design elements from the description:
+   - Beams (number, type, curve, positions, height, material)
+   - Supports (positions, type)
+   - Columns (number, positions, height)
+   - Membranes (type, attachments, material)
+   - Anchors (positions)
+
+2. Generate a structured JSON Design Brief using the following schema:
+{{
+  "version": "1.0",
+  "project": {{
+    "name": "Untitled",
+    "description": "User description",
+    "images": []
+  }},
+  "elements": {{
+    "beams": [],
+    "supports": [],
+    "columns": [],
+    "membranes": [],
+    "anchors": []
+  }}
+}}
+
+3. For each element, provide all relevant parameters.
+
+4. Use realistic engineering values.
+
+5. OUTPUT ONLY THE JSON OBJECT. NO OTHER TEXT.
+
+Example beam:
+{{
+  "id": "B1",
+  "type": "curved",
+  "curve": "parabolic",
+  "start": [-7.5, 0, 0],
+  "end": [7.5, 0, 0],
+  "height": 6.5,
+  "material": "Steel",
+  "section": "CHS 219 x 6.3"
+}}
+
+Example support:
+{{
+  "position": [-7.5, 0, 0],
+  "type": "pinned"
+}}
+
+Example membrane:
+{{
+  "id": "M1",
+  "type": "saddle",
+  "attachments": ["B1", "B2"],
+  "material": "PVC/PTFE",
+  "prestress": "3.0 kN/m"
+}}
+"""
+    return prompt
+
+def generate_feedback_prompt(description, design_brief, feedback):
+    """Generate a prompt for refining the Design Brief."""
+    current_brief = json.dumps(design_brief, indent=2)
+    prompt = f"""You are an expert structural engineering design consultant.
+
+**Current Design Brief:**
+{current_brief}
+
+**User Feedback:**
+{feedback}
+
+**Task:**
+Update the Design Brief based on the user's feedback. Modify only the relevant elements. Keep the rest unchanged.
+
+**Instructions:**
+1. Read the user's feedback carefully.
+2. Identify which elements need to be changed.
+3. Update the JSON Design Brief accordingly.
+4. Return ONLY the updated JSON object.
+
+**Original Description:**
+{description}
+
+OUTPUT ONLY THE JSON OBJECT. NO OTHER TEXT."""
+    return prompt
+
 def parse_design_brief(response_text):
+    """Extract and parse JSON from response."""
     try:
         json_match = re.search(r'\{[\s\S]*\}', response_text)
         if json_match:
@@ -424,162 +481,199 @@ def parse_design_brief(response_text):
             data = json.loads(json_str)
             return data, None
         else:
-            return None, "No JSON found in response. Please ensure the AI outputs valid JSON."
+            return None, "No JSON found in response."
     except json.JSONDecodeError as e:
-        return None, f"JSON parsing error: {str(e)}. Please check the format."
+        return None, f"JSON parsing error: {str(e)}"
 
 # ============================================================================
-# Geometry Engines for Each Typology
+# Universal Geometry Engine
 # ============================================================================
 
-def generate_geometry(typology, params):
-    if typology == "Saddle Span":
-        return generate_saddle_span_geometry(params)
-    elif typology == "Single Pole":
-        return generate_single_pole_geometry(params)
-    elif typology == "4 Poles":
-        return generate_4_poles_geometry(params)
-    elif typology == "Sail Structure":
-        return generate_sail_geometry(params)
-    else:
-        return generate_saddle_span_geometry(params)  # fallback
-
-def generate_saddle_span_geometry(params):
-    A = params.get('A', 6.5)
-    B = params.get('B', 6.0)
-    LAA = params.get('LAA', 15.0)
-    num_points = 30
-    x1 = np.linspace(-LAA/2, LAA/2, num_points)
-    z1 = A * (1 - (2 * x1 / LAA)**2)
-    y1 = np.zeros_like(x1)
-    x2 = np.linspace(-LAA/2, LAA/2, num_points)
-    z2 = A * (1 - (2 * x2 / LAA)**2)
-    y2 = np.full_like(x2, B)
-    apex1 = (0, 0, A)
-    apex2 = (0, B, A)
-    support1 = (-LAA/2, 0, 0)
-    support2 = (LAA/2, 0, 0)
-    support3 = (-LAA/2, B, 0)
-    support4 = (LAA/2, B, 0)
-    u = np.linspace(0, 1, num_points)
-    v = np.linspace(0, 1, num_points)
-    X_surf = np.zeros((num_points, num_points))
-    Y_surf = np.zeros((num_points, num_points))
-    Z_surf = np.zeros((num_points, num_points))
-    for i, u_val in enumerate(u):
-        for j, v_val in enumerate(v):
-            x_pos = -LAA/2 + u_val * LAA
-            y_pos = v_val * B
-            z_beam1 = A * (1 - (2 * x_pos / LAA)**2) if abs(x_pos) <= LAA/2 else 0
-            z_beam2 = A * (1 - (2 * x_pos / LAA)**2) if abs(x_pos) <= LAA/2 else 0
-            z_surface = z_beam1 * (1 - v_val) + z_beam2 * v_val
-            z_saddle = z_surface + 0.1 * A * v_val * (1 - v_val) * (1 - (2 * u_val - 1)**2)
-            X_surf[i, j] = x_pos
-            Y_surf[i, j] = y_pos
-            Z_surf[i, j] = z_saddle
-    return {
-        'beam1': (x1, y1, z1),
-        'beam2': (x2, y2, z2),
-        'apex1': apex1,
-        'apex2': apex2,
-        'supports': [support1, support2, support3, support4],
-        'surface': (X_surf, Y_surf, Z_surf)
+def generate_geometry_from_brief(brief):
+    """Generate 3D geometry from a Design Brief."""
+    geometry = {
+        'beams': [],
+        'supports': [],
+        'columns': [],
+        'membranes': [],
+        'anchors': []
     }
+    
+    elements = brief.get('elements', {})
+    
+    for beam in elements.get('beams', []):
+        if beam.get('type') == 'curved' and beam.get('curve') == 'parabolic':
+            start = beam.get('start', [-5, 0, 0])
+            end = beam.get('end', [5, 0, 0])
+            height = beam.get('height', 5.0)
+            num_points = 30
+            
+            x = np.linspace(start[0], end[0], num_points)
+            span = end[0] - start[0]
+            z = height * (1 - (2 * (x - start[0]) / span)**2) if span != 0 else np.zeros_like(x)
+            y = np.full_like(x, start[1])
+            
+            geometry['beams'].append({
+                'id': beam.get('id', 'B1'),
+                'x': x.tolist(),
+                'y': y.tolist(),
+                'z': z.tolist(),
+                'material': beam.get('material', 'Steel'),
+                'section': beam.get('section', 'CHS 219 x 6.3'),
+                'height': height
+            })
+    
+    for support in elements.get('supports', []):
+        geometry['supports'].append({
+            'position': support.get('position', [0, 0, 0]),
+            'type': support.get('type', 'pinned')
+        })
+    
+    for column in elements.get('columns', []):
+        geometry['columns'].append({
+            'position': column.get('position', [0, 0, 0]),
+            'height': column.get('height', 4.0),
+            'section': column.get('section', 'CHS 168 x 5.0')
+        })
+    
+    for membrane in elements.get('membranes', []):
+        attachments = membrane.get('attachments', [])
+        if len(attachments) >= 2:
+            beam1_data = None
+            beam2_data = None
+            for beam in geometry['beams']:
+                if beam['id'] == attachments[0]:
+                    beam1_data = beam
+                if beam['id'] == attachments[1]:
+                    beam2_data = beam
+            
+            if beam1_data and beam2_data:
+                x1 = np.array(beam1_data['x'])
+                y1 = np.array(beam1_data['y'])
+                z1 = np.array(beam1_data['z'])
+                x2 = np.array(beam2_data['x'])
+                y2 = np.array(beam2_data['y'])
+                z2 = np.array(beam2_data['z'])
+                
+                num_points = len(x1)
+                X_surf = np.zeros((num_points, 2))
+                Y_surf = np.zeros((num_points, 2))
+                Z_surf = np.zeros((num_points, 2))
+                
+                for i in range(num_points):
+                    X_surf[i, 0] = x1[i]
+                    X_surf[i, 1] = x2[i]
+                    Y_surf[i, 0] = y1[i]
+                    Y_surf[i, 1] = y2[i]
+                    Z_surf[i, 0] = z1[i]
+                    Z_surf[i, 1] = z2[i]
+                
+                geometry['membranes'].append({
+                    'id': membrane.get('id', 'M1'),
+                    'surface': (X_surf.tolist(), Y_surf.tolist(), Z_surf.tolist()),
+                    'material': membrane.get('material', 'PVC/PTFE'),
+                    'prestress': membrane.get('prestress', '3.0 kN/m')
+                })
+    
+    return geometry
 
-def generate_single_pole_geometry(params):
-    H = params.get('H', 8.0)
-    R = params.get('R', 5.0)
-    # Simple pole + conical canopy
-    x = [0, 0]
-    y = [0, 0]
-    z = [0, H]
-    # canopy as a circle
-    theta = np.linspace(0, 2*np.pi, 20)
-    cx = R * np.cos(theta)
-    cy = R * np.sin(theta)
-    cz = np.full_like(cx, H*0.9)
-    return {'pole': (x, y, z), 'canopy': (cx, cy, cz)}
-
-def generate_4_poles_geometry(params):
-    L = params.get('L', 10.0)
-    W = params.get('W', 8.0)
-    H = params.get('H', 4.0)
-    # 4 poles at corners, roof surface
-    poles = [
-        (-L/2, -W/2, 0), (-L/2, W/2, 0),
-        (L/2, -W/2, 0), (L/2, W/2, 0)
-    ]
-    # roof as a flat surface at height H
-    x = [-L/2, L/2, L/2, -L/2, -L/2]
-    y = [-W/2, -W/2, W/2, W/2, -W/2]
-    z = [H, H, H, H, H]
-    return {'poles': poles, 'roof': (x, y, z)}
-
-def generate_sail_geometry(params):
-    # Simplified sail with anchors and cables
-    span = params.get('Span', 12.0)
-    n_anchors = params.get('NumAnchors', 4)
-    H = params.get('H', 5.0)
-    anchors = []
-    for i in range(n_anchors):
-        angle = 2 * np.pi * i / n_anchors
-        r = span/2
-        anchors.append((r*np.cos(angle), r*np.sin(angle), 0))
-    # Sail surface as a conical shape
-    return {'anchors': anchors, 'height': H}
-
-# ============================================================================
-# Plotting Functions (Unified)
-# ============================================================================
-
-def plot_geometry(geometry, typology, view_mode='3D'):
+def plot_geometry(geometry, view_mode='3D'):
+    """Plot the 3D geometry."""
     fig = go.Figure()
-    if typology == "Saddle Span":
-        fig = plot_saddle_span(geometry, view_mode)
-    elif typology == "Single Pole":
-        fig = plot_single_pole(geometry, view_mode)
-    elif typology == "4 Poles":
-        fig = plot_4_poles(geometry, view_mode)
-    elif typology == "Sail Structure":
-        fig = plot_sail(geometry, view_mode)
-    else:
-        fig = plot_saddle_span(geometry, view_mode)
-    return fig
-
-def plot_saddle_span(geometry, view_mode):
-    x1, y1, z1 = geometry['beam1']
-    x2, y2, z2 = geometry['beam2']
-    apex1 = geometry['apex1']
-    apex2 = geometry['apex2']
-    supports = geometry['supports']
-    X_surf, Y_surf, Z_surf = geometry['surface']
-    fig = go.Figure()
-    fig.add_trace(go.Surface(
-        x=X_surf, y=Y_surf, z=Z_surf,
-        colorscale=[[0, '#E8E8E8'], [1, '#F5F5F5']],
-        opacity=0.7, name='Membrane', showscale=False,
-        lighting=dict(ambient=0.6, diffuse=0.8, specular=0.3)
-    ))
-    fig.add_trace(go.Scatter3d(x=x1, y=y1, z=z1, mode='lines', line=dict(color='#FF6B6B', width=8), name='Beam 1'))
-    fig.add_trace(go.Scatter3d(x=x2, y=y2, z=z2, mode='lines', line=dict(color='#FF6B6B', width=8), name='Beam 2'))
-    fig.add_trace(go.Scatter3d(x=[apex1[0]], y=[apex1[1]], z=[apex1[2]], mode='markers', marker=dict(color='#FFD93D', size=12, symbol='diamond'), name='Apex 1'))
-    fig.add_trace(go.Scatter3d(x=[apex2[0]], y=[apex2[1]], z=[apex2[2]], mode='markers', marker=dict(color='#FFD93D', size=12, symbol='diamond'), name='Apex 2'))
-    for i, supp in enumerate(supports):
-        fig.add_trace(go.Scatter3d(x=[supp[0]], y=[supp[1]], z=[supp[2]], mode='markers', marker=dict(color='#4ECDC4', size=10), name=f'Support {i+1}'))
-    # Dimension lines
-    fig.add_trace(go.Scatter3d(x=[apex1[0], apex1[0]], y=[apex1[1], apex1[1]], z=[0, apex1[2]], mode='lines', line=dict(color='#FFD93D', width=2, dash='dash'), name='A (Rise)'))
-    fig.add_trace(go.Scatter3d(x=[apex1[0]+0.5], y=[apex1[1]+0.5], z=[apex1[2]/2], mode='text', text=[f"A = {apex1[2]:.1f}m"], textfont=dict(color='#FFD93D', size=12), showlegend=False))
-    fig.add_trace(go.Scatter3d(x=[supports[0][0], supports[2][0]], y=[supports[0][1], supports[2][1]], z=[0, 0], mode='lines', line=dict(color='#4ECDC4', width=2, dash='dash'), name='B (Plan)'))
-    fig.add_trace(go.Scatter3d(x=[supports[0][0]+0.5], y=[supports[0][1]+0.5], z=[0.5], mode='text', text=[f"B = {geometry['apex2'][1]:.1f}m"], textfont=dict(color='#4ECDC4', size=12), showlegend=False))
-    fig.add_trace(go.Scatter3d(x=[apex1[0], apex2[0]], y=[apex1[1], apex2[1]], z=[apex1[2], apex2[2]], mode='lines', line=dict(color='#FF6B6B', width=2, dash='dash'), name='LAA'))
-    fig.add_trace(go.Scatter3d(x=[(apex1[0]+apex2[0])/2], y=[(apex1[1]+apex2[1])/2+0.5], z=[apex1[2]], mode='text', text=[f"LAA = {abs(apex1[0]-apex2[0]):.1f}m"], textfont=dict(color='#FF6B6B', size=12), showlegend=False))
+    
+    for beam in geometry['beams']:
+        x = beam['x']
+        y = beam['y']
+        z = beam['z']
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='lines',
+            line=dict(color='#FF6B6B', width=6),
+            name=f"Beam {beam.get('id', '')}"
+        ))
+    
+    for i, support in enumerate(geometry['supports']):
+        pos = support['position']
+        fig.add_trace(go.Scatter3d(
+            x=[pos[0]], y=[pos[1]], z=[pos[2]],
+            mode='markers',
+            marker=dict(color='#4ECDC4', size=10, symbol='circle'),
+            name=f"Support {i+1}"
+        ))
+    
+    for i, column in enumerate(geometry['columns']):
+        pos = column['position']
+        h = column['height']
+        fig.add_trace(go.Scatter3d(
+            x=[pos[0], pos[0]],
+            y=[pos[1], pos[1]],
+            z=[0, h],
+            mode='lines',
+            line=dict(color='#8B8B8B', width=6),
+            name=f"Column {i+1}"
+        ))
+    
+    for membrane in geometry['membranes']:
+        X_surf, Y_surf, Z_surf = membrane['surface']
+        fig.add_trace(go.Surface(
+            x=X_surf, y=Y_surf, z=Z_surf,
+            colorscale=[[0, '#E8E8E8'], [1, '#F5F5F5']],
+            opacity=0.6,
+            name=f"Membrane {membrane.get('id', '')}",
+            showscale=False,
+            lighting=dict(ambient=0.6, diffuse=0.8, specular=0.3)
+        ))
+    
+    if geometry['beams']:
+        beam1 = geometry['beams'][0]
+        x = np.array(beam1['x'])
+        z = np.array(beam1['z'])
+        if len(x) > 0 and len(z) > 0:
+            mid_idx = len(x) // 2
+            fig.add_trace(go.Scatter3d(
+                x=[x[0], x[-1]],
+                y=[beam1['y'][0], beam1['y'][-1]],
+                z=[0, 0],
+                mode='lines',
+                line=dict(color='#FFD93D', width=2, dash='dash'),
+                name='Span'
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[x[mid_idx]],
+                y=[beam1['y'][mid_idx]],
+                z=[-0.5],
+                mode='text',
+                text=[f"Span = {abs(x[-1] - x[0]):.1f}m"],
+                textfont=dict(color='#FFD93D', size=12),
+                showlegend=False
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[x[mid_idx], x[mid_idx]],
+                y=[beam1['y'][mid_idx], beam1['y'][mid_idx]],
+                z=[0, z[mid_idx]],
+                mode='lines',
+                line=dict(color='#FFD93D', width=2, dash='dash'),
+                name='Height'
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[x[mid_idx] + 0.5],
+                y=[beam1['y'][mid_idx] + 0.5],
+                z=[z[mid_idx]/2],
+                mode='text',
+                text=[f"H = {z[mid_idx]:.1f}m"],
+                textfont=dict(color='#FFD93D', size=12),
+                showlegend=False
+            ))
+    
     scene_config = dict(
         bgcolor='#1E1E1E',
         xaxis=dict(title='Length (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
         yaxis=dict(title='Width (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
         zaxis=dict(title='Height (m)', color='#B0B0B0', gridcolor='#2A2A2A'),
-        aspectmode='manual', aspectratio=dict(x=1.5, y=0.8, z=1.0)
+        aspectmode='manual',
+        aspectratio=dict(x=1.5, y=0.8, z=1.0)
     )
+    
     camera_dict = dict(eye=dict(x=2.0, y=2.0, z=1.5))
     if view_mode == 'Plan (Top)':
         camera_dict = dict(eye=dict(x=0, y=0, z=3))
@@ -587,6 +681,7 @@ def plot_saddle_span(geometry, view_mode):
         camera_dict = dict(eye=dict(x=0, y=3, z=0))
     elif view_mode == 'Side Elevation':
         camera_dict = dict(eye=dict(x=3, y=0, z=0))
+    
     fig.update_layout(
         scene=scene_config,
         scene_camera=camera_dict,
@@ -598,50 +693,7 @@ def plot_saddle_span(geometry, view_mode):
         legend=dict(bgcolor='#2A2A2A', font=dict(color='#FFFFFF')),
         font=dict(color='#B0B0B0')
     )
-    return fig
-
-def plot_single_pole(geometry, view_mode):
-    fig = go.Figure()
-    pole_x, pole_y, pole_z = geometry['pole']
-    fig.add_trace(go.Scatter3d(x=pole_x, y=pole_y, z=pole_z, mode='lines', line=dict(color='#8B8B8B', width=6), name='Pole'))
-    cx, cy, cz = geometry['canopy']
-    fig.add_trace(go.Scatter3d(x=cx, y=cy, z=cz, mode='markers', marker=dict(color='#F5F5F5', size=5), name='Canopy'))
-    fig.update_layout(
-        scene=dict(bgcolor='#1E1E1E', xaxis=dict(color='#B0B0B0'), yaxis=dict(color='#B0B0B0'), zaxis=dict(color='#B0B0B0')),
-        paper_bgcolor='#1E1E1E',
-        plot_bgcolor='#1E1E1E',
-        height=550
-    )
-    return fig
-
-def plot_4_poles(geometry, view_mode):
-    fig = go.Figure()
-    for p in geometry['poles']:
-        fig.add_trace(go.Scatter3d(x=[p[0], p[0]], y=[p[1], p[1]], z=[0, p[2]], mode='lines', line=dict(color='#8B8B8B', width=6), showlegend=False))
-    x, y, z = geometry['roof']
-    fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode='lines', line=dict(color='#F5F5F5', width=4), name='Roof'))
-    fig.update_layout(
-        scene=dict(bgcolor='#1E1E1E', xaxis=dict(color='#B0B0B0'), yaxis=dict(color='#B0B0B0'), zaxis=dict(color='#B0B0B0')),
-        paper_bgcolor='#1E1E1E',
-        plot_bgcolor='#1E1E1E',
-        height=550
-    )
-    return fig
-
-def plot_sail(geometry, view_mode):
-    fig = go.Figure()
-    anchors = geometry['anchors']
-    for i, a in enumerate(anchors):
-        fig.add_trace(go.Scatter3d(x=[a[0]], y=[a[1]], z=[a[2]], mode='markers', marker=dict(color='#4ECDC4', size=10), name=f'Anchor {i+1}'))
-    # Add a simple sail surface (delaunay-like)
-    # For simplicity, just a scatter of points
-    fig.add_trace(go.Scatter3d(x=[a[0] for a in anchors], y=[a[1] for a in anchors], z=[geometry['height']]*len(anchors), mode='markers', marker=dict(color='#F5F5F5', size=5), name='Sail'))
-    fig.update_layout(
-        scene=dict(bgcolor='#1E1E1E', xaxis=dict(color='#B0B0B0'), yaxis=dict(color='#B0B0B0'), zaxis=dict(color='#B0B0B0')),
-        paper_bgcolor='#1E1E1E',
-        plot_bgcolor='#1E1E1E',
-        height=550
-    )
+    
     return fig
 
 # ============================================================================
@@ -651,7 +703,7 @@ def plot_sail(geometry, view_mode):
 col_title, col_fs = st.columns([4, 1])
 with col_title:
     st.title("🏗️ SDS Design Portal")
-    st.caption("Configurable Tensile Membrane & Structure Design")
+    st.caption("Structural Design | Upload, Describe, Review, Refine")
 with col_fs:
     if st.button("⛶ Full Screen" if not st.session_state.fullscreen else "⛶ Normal", key="fullscreen_toggle"):
         st.session_state.fullscreen = not st.session_state.fullscreen
@@ -701,7 +753,7 @@ if st.session_state.stage == 0:
                 <div class="project-card">
                     <strong>{proj['name']}</strong><br>
                     <span>Client: {proj.get('client_name', 'N/A')} | Date: {proj.get('project_date', 'N/A')}</span><br>
-                    <span>Status: {status} | Iterations: {state.get('iteration_count', 0)}</span>
+                    <span>Status: {status} | Iterations: {state.get('iteration_count', 0)} | Rounds: {state.get('round', 0)}</span>
                 </div>
                 """, unsafe_allow_html=True)
                 cols = st.columns([1, 1, 1, 1, 1])
@@ -794,10 +846,11 @@ elif st.session_state.stage == 0.5:
                     st.session_state.frozen = state.get('frozen', False)
                     st.session_state.ai_bridge_prompt = state.get('ai_prompt', '')
                     st.session_state.uploaded_images = state.get('uploaded_images', [])
+                    st.session_state.round = state.get('round', 0)
                 if state.get('frozen', False):
                     stage = 5
                 elif state.get('confirmed', False):
-                    stage = 2.9
+                    stage = 3.0
                 elif state.get('iteration_count', 0) > 0:
                     stage = 2.5
                 else:
@@ -821,6 +874,7 @@ elif st.session_state.stage == 0.5:
             st.session_state.ai_bridge_prompt = ''
             st.session_state.ai_bridge_response = ''
             st.session_state.uploaded_images = []
+            st.session_state.round = 0
             st.session_state.stage = 2
             st.success("✅ Design data deleted. Starting fresh.")
             st.rerun()
@@ -828,7 +882,7 @@ elif st.session_state.stage == 0.5:
             st.error(f"❌ Error: {str(e)}")
     st.markdown("---")
     st.markdown("**3. Choose what to keep**")
-    st.caption("Select which design data to restore. Unchecked items will be deleted.")
+    st.caption("Select which design data to restore.")
     try:
         result = supabase.table('projects').select('design_state').eq('id', project_id).execute()
         current_state = result.data[0].get('design_state', {}) if result.data else {}
@@ -844,27 +898,13 @@ elif st.session_state.stage == 0.5:
     if has_data:
         with st.form("load_selective"):
             keep_description = st.checkbox("📝 Description", value=True, key="keep_description")
-            keep_parameters = st.checkbox("📐 Parameters", value=True, key="keep_parameters")
-            keep_typology = st.checkbox("🏗️ Typology", value=True, key="keep_typology")
-            keep_ai_prompt = st.checkbox("🤖 AI Prompt", value=True, key="keep_ai_prompt")
             keep_design_brief = st.checkbox("📋 Design Brief", value=True, key="keep_design_brief")
             keep_feedback = st.checkbox("📝 Feedback History", value=True, key="keep_feedback")
             keep_images = st.checkbox("🖼️ Uploaded Images", value=True, key="keep_images")
             if st.form_submit_button("✅ Load Selected", type="primary"):
                 new_state = {}
-                if keep_description and 'description' in current_state.get('parameters', {}):
-                    new_state['parameters'] = new_state.get('parameters', {})
-                    new_state['parameters']['description'] = current_state['parameters'].get('description')
-                if keep_parameters:
-                    new_state['parameters'] = new_state.get('parameters', {})
-                    for k, v in current_state.get('parameters', {}).items():
-                        if k not in ['description', 'typology']:
-                            new_state['parameters'][k] = v
-                if keep_typology and 'typology' in current_state.get('parameters', {}):
-                    new_state['parameters'] = new_state.get('parameters', {})
-                    new_state['parameters']['typology'] = current_state['parameters'].get('typology')
-                if keep_ai_prompt and current_state.get('ai_prompt'):
-                    new_state['ai_prompt'] = current_state['ai_prompt']
+                if keep_description:
+                    new_state['parameters'] = current_state.get('parameters', {})
                 if keep_design_brief and current_state.get('design_brief'):
                     new_state['design_brief'] = current_state['design_brief']
                     new_state['confirmed'] = True
@@ -874,7 +914,7 @@ elif st.session_state.stage == 0.5:
                     new_state['uploaded_images'] = current_state['uploaded_images']
                 new_state['iteration_count'] = current_state.get('iteration_count', 0)
                 new_state['frozen'] = current_state.get('frozen', False)
-                new_state['last_modified'] = datetime.now().isoformat()
+                new_state['round'] = current_state.get('round', 0)
                 supabase.table('projects').update({'design_state': new_state}).eq('id', project_id).execute()
                 st.session_state.project_id = project_id
                 st.session_state.design_parameters = new_state.get('parameters', {})
@@ -885,10 +925,11 @@ elif st.session_state.stage == 0.5:
                 st.session_state.frozen = new_state.get('frozen', False)
                 st.session_state.ai_bridge_prompt = new_state.get('ai_prompt', '')
                 st.session_state.uploaded_images = new_state.get('uploaded_images', [])
+                st.session_state.round = new_state.get('round', 0)
                 if new_state.get('frozen', False):
                     stage = 5
                 elif new_state.get('confirmed', False):
-                    stage = 2.9
+                    stage = 3.0
                 elif new_state.get('iteration_count', 0) > 0:
                     stage = 2.5
                 else:
@@ -897,22 +938,7 @@ elif st.session_state.stage == 0.5:
                 st.success("✅ Selected data restored successfully!")
                 st.rerun()
     else:
-        st.info("📭 No design data found. Start fresh.")
-        if st.button("📤 Start Fresh", key="load_fresh_empty"):
-            supabase.table('projects').update({'design_state': {}}).eq('id', project_id).execute()
-            st.session_state.project_id = project_id
-            st.session_state.design_parameters = {}
-            st.session_state.iteration_count = 0
-            st.session_state.feedback_history = []
-            st.session_state.design_brief = None
-            st.session_state.design_brief_confirmed = False
-            st.session_state.frozen = False
-            st.session_state.ai_bridge_prompt = ''
-            st.session_state.ai_bridge_response = ''
-            st.session_state.uploaded_images = []
-            st.session_state.stage = 2
-            st.success("✅ Starting fresh.")
-            st.rerun()
+        st.info("📭 No design data found.")
 
 # ============================================================================
 # STAGE 1: PROJECT REGISTRATION
@@ -968,7 +994,7 @@ elif st.session_state.stage == 1:
                         st.error(f"❌ Registration error: {str(e)}")
 
 # ============================================================================
-# STAGE 2: DESIGN INPUT (with Image Upload)
+# STAGE 2: DESIGN INPUT
 # ============================================================================
 
 elif st.session_state.stage == 2:
@@ -979,43 +1005,15 @@ elif st.session_state.stage == 2:
     if st.button("🗑️ Clear All Fields", key="clear_stage2"):
         clear_stage_fields(2)
     
+    st.markdown("""
+    <div style="background-color: #2A3A4A; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #00B4D8;">
+        <strong style="color: #FFFFFF;">📋 How It Works</strong><br>
+        <span style="color: #D0D0D0;">1. Upload images (sketches, photos, GPS images) → 2. Describe your design → 3. Generate Design Brief → 4. Review 3D model → 5. Refine until satisfied</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
     with st.form("design_input"):
-        st.subheader("📝 General Description")
-        description = st.text_area(
-            "Describe your design concept",
-            placeholder="e.g., Two curved primary beams with a membrane roof...",
-            key="description",
-            height=150,
-            value=st.session_state.design_parameters.get('description', '')
-        )
-        st.subheader("🏗️ Structural Typology")
-        typology = st.selectbox(
-            "Select Typology",
-            ["Saddle Span", "Single Pole", "4 Poles", "Sail Structure"],
-            key="typology",
-            index=["Saddle Span", "Single Pole", "4 Poles", "Sail Structure"].index(
-                st.session_state.design_parameters.get('typology', 'Saddle Span')
-            ) if st.session_state.design_parameters.get('typology', 'Saddle Span') in ["Saddle Span", "Single Pole", "4 Poles", "Sail Structure"] else 0
-        )
-        
-        st.subheader("📐 Parameters")
-        param_defs = get_typology_params(typology)
-        params = {}
-        cols = st.columns(2)
-        for i, pdef in enumerate(param_defs):
-            with cols[i % 2]:
-                if pdef.get('key') in st.session_state.design_parameters:
-                    default_val = st.session_state.design_parameters[pdef['key']]
-                else:
-                    default_val = pdef['default']
-                if isinstance(default_val, int):
-                    val = st.number_input(pdef['label'], value=float(default_val), step=float(pdef['step']), key=f"param_{pdef['key']}")
-                else:
-                    val = st.number_input(pdef['label'], value=float(default_val), step=float(pdef['step']), key=f"param_{pdef['key']}")
-                params[pdef['key']] = val
-        
-        # Image Upload
-        st.subheader("🖼️ Upload Images (Sketches, Photos, GPS Images)")
+        st.subheader("🖼️ Upload Images")
         uploaded_files = st.file_uploader(
             "Choose images (JPG/PNG, max 10MB each)",
             type=["jpg", "jpeg", "png"],
@@ -1023,40 +1021,49 @@ elif st.session_state.stage == 2:
             key="design_images",
             help="Upload sketches, photos of existing structures, or site inspiration"
         )
-        if st.session_state.uploaded_images:
-            st.caption(f"📸 {len(st.session_state.uploaded_images)} image(s) already uploaded.")
         
-        st.caption("📐 These parameters define the primary geometry of the structure.")
-        submitted = st.form_submit_button("📤 Proceed to AI Consultation", type="primary")
+        if uploaded_files:
+            st.success(f"📸 {len(uploaded_files)} image(s) uploaded")
+            st.session_state.uploaded_images = [f.name for f in uploaded_files]
+        elif st.session_state.uploaded_images:
+            st.info(f"📸 Previously uploaded: {len(st.session_state.uploaded_images)} image(s)")
+        
+        st.subheader("📝 Describe Your Design")
+        description = st.text_area(
+            "Describe your design concept in natural language",
+            placeholder="e.g., A saddle span tensile membrane structure covering a community gathering space. Two curved primary beams with a PVC/PTFE membrane roof. The structure spans 15 meters with a rise of 6.5 meters. The beams are parallel with separate apexes, and the membrane is attached continuously along the curved beams. Supports are pinned at the base.",
+            key="description",
+            height=200,
+            value=st.session_state.design_parameters.get('description', '')
+        )
+        
+        st.caption("💡 Be as detailed as possible. Include dimensions, materials, and structural elements.")
+        
+        submitted = st.form_submit_button("🚀 Generate Design Brief", type="primary")
         if submitted:
             if not description:
-                st.error("❌ Please enter a description.")
+                st.error("❌ Please describe your design.")
             else:
-                # Save parameters and uploaded images
                 st.session_state.design_parameters = {
-                    'description': description,
-                    'typology': typology,
-                    **params
+                    'description': description
                 }
-                if uploaded_files:
-                    st.session_state.uploaded_images = [f.name for f in uploaded_files]
-                    # In production, we would upload to Supabase Storage here.
-                st.session_state.ai_bridge_prompt = get_typology_ai_prompt(typology, params, description)
+                st.session_state.ai_bridge_prompt = generate_design_prompt(description, st.session_state.uploaded_images)
                 st.session_state.iteration_count = 0
                 st.session_state.feedback_history = []
                 st.session_state.design_brief = None
                 st.session_state.design_brief_confirmed = False
+                st.session_state.round = 0
                 save_design_state(st.session_state.project_id)
                 save_project_metadata(st.session_state.project_id)
                 st.session_state.stage = 2.5
                 st.rerun()
 
 # ============================================================================
-# STAGE 2.5: AI CONSULTANT
+# STAGE 2.5: DESIGN INTERPRETATION
 # ============================================================================
 
 elif st.session_state.stage == 2.5:
-    st.subheader("🧠 AI Consultant")
+    st.subheader("🧠 Design Interpretation")
     if st.button("⬅️ Back to Design Input"):
         st.session_state.stage = 2
         st.rerun()
@@ -1068,68 +1075,57 @@ elif st.session_state.stage == 2.5:
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("### 🤖 AI Consultant")
-    st.caption("The app will automatically call DeepSeek to generate the Design Brief.")
-    st.info(f"🔄 Iteration {st.session_state.iteration_count + 1}")
+    st.markdown("### 🤖 Design Interpretation")
+    st.caption("The system will interpret your description and images to generate a Design Brief.")
+    st.info(f"🔄 Round {st.session_state.round + 1}")
     
     if st.session_state.feedback_history:
         st.markdown("**📋 Feedback History:**")
         for i, fb in enumerate(st.session_state.feedback_history):
-            st.caption(f"Iteration {i+1}: {fb[:100]}...")
+            st.caption(f"Round {i+1}: {fb[:100]}...")
     
     prompt = st.session_state.ai_bridge_prompt
     with st.expander("📋 View Prompt (Advanced)"):
-        st.text_area("AI Consultant Prompt", prompt, height=200, key="ai_prompt_display")
+        st.text_area("Design Prompt", prompt, height=200, key="ai_prompt_display")
     
     try:
         api_key = st.secrets["DEEPSEEK_API_KEY"]
         has_api_key = True
     except:
         has_api_key = False
-        st.warning("⚠️ DeepSeek API key not found. You can use the manual fallback below.")
+        st.warning("⚠️ Design engine key not found. Use the manual fallback below.")
     
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("🚀 Generate Design Brief", type="primary"):
             if has_api_key:
-                with st.spinner("🤖 Calling DeepSeek API..."):
-                    result, error = call_deepseek_api(prompt, api_key)
+                with st.spinner("🔄 Processing your design..."):
+                    result, error = call_design_engine(prompt, api_key, st.session_state.uploaded_images)
                     if result:
-                        st.success("✅ DeepSeek response received!")
+                        st.success("✅ Design Brief received!")
                         data, parse_error = parse_design_brief(result)
                         if data:
                             st.session_state.design_brief = data
                             st.session_state.design_brief_confirmed = False
                             st.session_state.iteration_count += 1
+                            st.session_state.round += 1
                             save_design_state(st.session_state.project_id)
-                            st.success("✅ Design Brief extracted successfully!")
-                            st.session_state.stage = 2.7
+                            st.success("✅ Design Brief extracted successfully! Proceeding to 3D model.")
+                            st.session_state.stage = 3.0
                             st.rerun()
                         else:
                             st.error(f"❌ Error parsing Design Brief: {parse_error}")
                             st.text_area("Raw Response (for debugging)", result, height=150)
                     else:
-                        st.error(f"❌ API Error: {error}")
+                        st.error(f"❌ Interpretation Error: {error}")
                         st.info("💡 You can use the manual fallback below.")
             else:
-                st.error("❌ No API key found. Please add DEEPSEEK_API_KEY to Streamlit Secrets.")
+                st.error("❌ No design engine key found.")
     
     with col2:
         if st.button("📝 Manual Fallback", type="secondary"):
             st.session_state.stage = 2.6
             st.rerun()
-    
-    st.markdown("---")
-    st.caption("📝 If you don't want to use AI, you can skip to manual design input.")
-    if st.button("📝 Skip to Manual Design", key="skip_ai"):
-        st.session_state.design_brief = {
-            'typology': st.session_state.design_parameters.get('typology', 'Saddle Span'),
-            'parameters': st.session_state.design_parameters,
-            'structure': {'material': 'Steel', 'finish': 'Galvanized', 'additional': {}}
-        }
-        st.session_state.design_brief_confirmed = True
-        st.session_state.stage = 2.7
-        st.rerun()
 
 # ============================================================================
 # STAGE 2.6: MANUAL FALLBACK
@@ -1137,192 +1133,138 @@ elif st.session_state.stage == 2.5:
 
 elif st.session_state.stage == 2.6:
     st.subheader("📝 Manual Fallback")
-    if st.button("⬅️ Back to AI Consultant"):
+    if st.button("⬅️ Back to Design Interpretation"):
         st.session_state.stage = 2.5
         st.rerun()
     
-    st.caption("Copy the prompt below, paste it into your AI, and paste the response back.")
+    st.caption("Copy the prompt below, paste it into your preferred design tool, and paste the response back.")
     prompt = st.session_state.ai_bridge_prompt
-    st.text_area("AI Consultant Prompt", prompt, height=200, key="ai_prompt_fallback")
+    st.text_area("Design Prompt", prompt, height=200, key="ai_prompt_fallback")
     col1, col2 = st.columns(2)
     with col1:
         if st.button("📋 Copy Prompt", key="copy_prompt_fallback"):
             st.code(prompt, language="text")
             st.caption("✅ Prompt copied!")
     st.markdown("---")
-    st.markdown("### 📥 Paste AI Response")
-    ai_response = st.text_area("AI Response", placeholder="Paste the AI's response here...", height=150, key="ai_response_fallback")
+    st.markdown("### 📥 Paste Design Brief")
+    response = st.text_area("Design Brief Response", placeholder="Paste the design brief response here...", height=150, key="ai_response_fallback")
     if st.button("🔄 Process Design Brief", type="primary"):
-        if ai_response:
-            data, error = parse_design_brief(ai_response)
+        if response:
+            data, error = parse_design_brief(response)
             if data:
                 st.session_state.design_brief = data
                 st.session_state.design_brief_confirmed = False
                 st.session_state.iteration_count += 1
+                st.session_state.round += 1
                 save_design_state(st.session_state.project_id)
                 st.success("✅ Design Brief extracted successfully!")
-                st.session_state.stage = 2.7
+                st.session_state.stage = 3.0
                 st.rerun()
             else:
                 st.error(f"❌ Error parsing Design Brief: {error}")
         else:
-            st.error("❌ Please paste the AI response first.")
+            st.error("❌ Please paste the design brief response.")
 
 # ============================================================================
-# STAGE 2.7: CONFIRM DESIGN BRIEF
-# ============================================================================
-
-elif st.session_state.stage == 2.7:
-    st.subheader("📋 Review Design Brief")
-    if st.button("⬅️ Back to AI Consultant"):
-        st.session_state.stage = 2.5
-        st.rerun()
-    if st.button("💾 Save Progress", key="save_progress"):
-        save_design_state(st.session_state.project_id)
-        st.success("✅ Progress saved!")
-    
-    if st.session_state.design_brief:
-        st.markdown("**Design Brief:**")
-        st.json(st.session_state.design_brief)
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔁 Modify with Feedback", type="secondary"):
-                st.session_state.stage = 2.8
-                st.rerun()
-        with col2:
-            if st.button("✅ Confirm Design Brief", type="primary"):
-                st.session_state.design_brief_confirmed = True
-                save_design_state(st.session_state.project_id)
-                st.success("✅ Design Brief confirmed!")
-                st.session_state.stage = 2.9
-                st.rerun()
-    else:
-        st.warning("No Design Brief found. Please go back to AI Consultant.")
-
-# ============================================================================
-# STAGE 2.8: PROVIDE FEEDBACK
-# ============================================================================
-
-elif st.session_state.stage == 2.8:
-    st.subheader("📝 Provide Feedback")
-    if st.button("⬅️ Back to Review"):
-        st.session_state.stage = 2.7
-        st.rerun()
-    st.markdown("### 🔄 Feedback to AI Consultant")
-    st.caption("Provide feedback on the Design Brief. The AI will refine it based on your feedback.")
-    if st.session_state.design_brief:
-        st.json(st.session_state.design_brief)
-    feedback = st.text_area("Your Feedback", placeholder="e.g., The beams should be diverging, not parallel.", height=150, key="feedback_input")
-    if st.button("🔄 Submit Feedback & Regenerate", type="primary"):
-        if feedback:
-            st.session_state.feedback_history.append(feedback)
-            current_prompt = st.session_state.ai_bridge_prompt
-            updated_prompt = current_prompt + f"\n\n**User Feedback:**\n{feedback}\n\nPlease update the Design Brief based on this feedback."
-            st.session_state.ai_bridge_prompt = updated_prompt
-            st.session_state.iteration_count += 1
-            save_design_state(st.session_state.project_id)
-            st.success("✅ Feedback submitted! Return to AI Consultant to regenerate.")
-            st.session_state.stage = 2.5
-            st.rerun()
-        else:
-            st.error("❌ Please enter feedback.")
-
-# ============================================================================
-# STAGE 2.9: 3D MODEL
-# ============================================================================
-
-elif st.session_state.stage == 2.9:
-    st.subheader("🏗️ 3D Design Model")
-    if st.button("⬅️ Back to Design Brief"):
-        st.session_state.stage = 2.7
-        st.rerun()
-    if st.button("📐 Redesign & Refine"):
-        st.session_state.stage = 3.0
-        st.rerun()
-    if st.button("💾 Save Progress", key="save_progress_2"):
-        save_design_state(st.session_state.project_id)
-        st.success("✅ Progress saved!")
-    
-    # Get parameters and typology
-    if st.session_state.design_brief:
-        params = st.session_state.design_brief.get('parameters', {})
-        typology = st.session_state.design_brief.get('typology', 'Saddle Span')
-    else:
-        params = st.session_state.design_parameters
-        typology = params.get('typology', 'Saddle Span')
-        # Remove description and typology from params for display
-        params = {k: v for k, v in params.items() if k not in ['description', 'typology']}
-    
-    # Display parameters
-    param_display = " | ".join([f"{k} = {v:.1f}" for k, v in params.items() if isinstance(v, (int, float))])
-    st.markdown(f"""
-    <div style="background-color: #2A2A2A; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
-        <strong style="color: #FFFFFF;">📐 {typology}</strong><br>
-        <span style="color: #D0D0D0;">{param_display}</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    view_modes = ['3D Perspective', 'Plan (Top)', 'Front Elevation', 'Side Elevation']
-    selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_29")
-    
-    with st.spinner("Generating 3D model..."):
-        geometry = generate_geometry(typology, params)
-        fig = plot_geometry(geometry, typology, selected_view)
-        st.plotly_chart(fig, use_container_width=True, key="parametric_3d")
-    
-    st.info("✅ 3D model generated. Use the controls above to change view.")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⬅️ Back to Design Brief", type="secondary"):
-            st.session_state.stage = 2.7
-            st.rerun()
-    with col2:
-        if st.button("📐 Redesign & Refine", type="primary"):
-            st.session_state.stage = 3.0
-            st.rerun()
-    
-    if st.button("📌 Proceed to Collaboration"):
-        st.session_state.stage = 3
-        st.rerun()
-
-# ============================================================================
-# STAGE 3.0: REDESIGN & REFINEMENT
+# STAGE 3.0: 3D MODEL + REFINEMENT
 # ============================================================================
 
 elif st.session_state.stage == 3.0:
-    st.subheader("📐 Redesign & Refinement")
-    if st.button("⬅️ Back to 3D Model"):
-        st.session_state.stage = 2.9
+    st.subheader("🏗️ 3D Design Model")
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.stage = 0
         st.rerun()
+    if st.button("💾 Save Progress", key="save_progress_3"):
+        save_design_state(st.session_state.project_id)
+        st.success("✅ Progress saved!")
     
-    params = st.session_state.design_parameters
-    param_defs = get_typology_params(params.get('typology', 'Saddle Span'))
-    st.subheader("⚙️ Edit Geometry")
-    with st.form("refinement_form"):
-        cols = st.columns(2)
-        new_params = {}
-        for i, pdef in enumerate(param_defs):
-            with cols[i % 2]:
-                val = st.number_input(pdef['label'], value=float(params.get(pdef['key'], pdef['default'])), step=float(pdef['step']), key=f"refine_{pdef['key']}")
-                new_params[pdef['key']] = val
-        col_count = st.number_input("Number of Columns", min_value=0, max_value=10, value=4, step=1, key="col_count")
-        col_heights = []
-        for i in range(int(col_count)):
-            col_heights.append(st.number_input(f"Column {i+1} Height (m)", value=3.0, step=0.5, key=f"col_h_{i}"))
-        add_beams = st.checkbox("Add Intermediate Beams", key="add_beams")
-        adjust_apex = st.checkbox("Adjust Apex Position", key="adjust_apex")
-        submitted = st.form_submit_button("🔄 Apply Refinements", type="primary")
-        if submitted:
-            # Update parameters
-            st.session_state.design_parameters.update(new_params)
-            st.session_state.design_parameters['columns'] = col_heights
-            st.session_state.design_parameters['add_beams'] = add_beams
-            st.session_state.design_parameters['adjust_apex'] = adjust_apex
-            save_design_state(st.session_state.project_id)
-            st.success("✅ Refinements applied!")
-            st.session_state.stage = 2.9
+    if st.session_state.design_brief:
+        with st.expander("📋 View Design Brief"):
+            st.json(st.session_state.design_brief)
+        
+        try:
+            geometry = generate_geometry_from_brief(st.session_state.design_brief)
+            
+            view_modes = ['3D Perspective', 'Plan (Top)', 'Front Elevation', 'Side Elevation']
+            selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_3")
+            
+            current_inputs = (str(st.session_state.design_brief), selected_view)
+            
+            rebuild_needed = (
+                st.session_state.cached_fig is None or
+                st.session_state.cached_inputs != current_inputs
+            )
+            
+            if rebuild_needed:
+                with st.spinner("🔄 Building 3D model..."):
+                    fig = plot_geometry(geometry, selected_view)
+                    st.session_state.cached_fig = fig
+                    st.session_state.cached_inputs = current_inputs
+            else:
+                fig = st.session_state.cached_fig
+            
+            st.plotly_chart(fig, use_container_width=True, key="universal_3d")
+            
+            st.subheader("📋 Design Summary")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Beams", len(geometry['beams']))
+            with col2:
+                st.metric("Supports", len(geometry['supports']))
+            with col3:
+                st.metric("Columns", len(geometry['columns']))
+            
+            if geometry['membranes']:
+                st.info(f"🟦 Membranes: {len(geometry['membranes'])}")
+            
+            st.markdown("---")
+            st.subheader("🔄 Refine Design")
+            st.caption(f"Round {st.session_state.round}. Provide feedback to improve the design.")
+            
+            feedback = st.text_area(
+                "Your Feedback",
+                placeholder="e.g., Change the beam material to aluminium. Add two more columns. The membrane should be attached differently.",
+                height=100,
+                key="refinement_feedback"
+            )
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Refine Design", type="primary"):
+                    if feedback:
+                        st.session_state.user_feedback = feedback
+                        st.session_state.feedback_history.append(feedback)
+                        
+                        updated_prompt = generate_feedback_prompt(
+                            st.session_state.design_parameters.get('description', ''),
+                            st.session_state.design_brief,
+                            feedback
+                        )
+                        st.session_state.ai_bridge_prompt = updated_prompt
+                        st.session_state.stage = 2.5
+                        st.rerun()
+                    else:
+                        st.error("❌ Please enter feedback.")
+            
+            with col2:
+                if st.button("✅ Accept Design", type="secondary"):
+                    st.session_state.design_brief_confirmed = True
+                    save_design_state(st.session_state.project_id)
+                    st.success("✅ Design accepted! Proceeding to collaboration.")
+                    st.session_state.stage = 3
+                    st.rerun()
+            
+        except Exception as e:
+            st.error(f"❌ Error generating 3D model: {str(e)}")
+            st.info("💡 Please go back to Design Interpretation and regenerate the Design Brief.")
+            if st.button("⬅️ Back to Design Interpretation"):
+                st.session_state.stage = 2.5
+                st.rerun()
+    else:
+        st.warning("No Design Brief found. Please go back to Design Interpretation.")
+        if st.button("⬅️ Back to Design Interpretation"):
+            st.session_state.stage = 2.5
             st.rerun()
-    st.warning("⚠️ Refinements will regenerate the 3D model with new parameters.")
 
 # ============================================================================
 # STAGE 3: COLLABORATION
@@ -1356,7 +1298,7 @@ elif st.session_state.stage == 3:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("⬅️ Back to 3D Model"):
-            st.session_state.stage = 2.9
+            st.session_state.stage = 3.0
             st.rerun()
     with col2:
         if st.button("📌 Freeze Concept"):
@@ -1392,7 +1334,7 @@ elif st.session_state.stage == 5:
                 except Exception as e:
                     st.error(f"❌ Error freezing concept: {str(e)}")
     if st.session_state.frozen:
-        st.info("🎉 Your design is now frozen and ready for Stage 2: Structural Testing.")
+        st.info("🎉 Your design is now frozen and ready for the next stage.")
         if st.button("🔄 Start New Project"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
@@ -1404,4 +1346,4 @@ elif st.session_state.stage == 5:
 
 st.divider()
 st.caption("🧬 Knowledge may evolve. 🌱 Identity shall remain.")
-st.caption("SDS Chamber 002 – Configurable Design Portal")
+st.caption("SDS Chamber 002 – Design Portal")
