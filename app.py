@@ -163,9 +163,9 @@ if 'round' not in st.session_state:
     st.session_state.round = 0
 if 'user_feedback' not in st.session_state:
     st.session_state.user_feedback = ''
-if_ 'clearinterpretation' not in st.session_state:
-    st.session =_state.interpretation = None
-if 'interpretation_source' not [' in st.session_state:
+if 'interpretation' not in st.session_state:
+    st.session_state.interpretation = None
+if 'interpretation_source' not in st.session_state:
     st.session_state.interpretation_source = None
 
 # ============================================================================
@@ -179,7 +179,7 @@ def clear_stage_fields(stage):
     elif stage == 2:
         keys_to_clear = ['description', 'uploaded_images', 'interpretation']
     elif stage == 3:
-        keys_tostakeholder', 'message']
+        keys_to_clear = ['stakeholder', 'message']
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
