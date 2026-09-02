@@ -359,9 +359,9 @@ def call_deepseek_api(prompt, api_key):
 def interpret_description(description):
     params = {
         'structure_type': 'Saddle Span',
-        'span': 15.0,
+        'span': 10.0,
         'rise': 6.5,
-        'laa': 6.0,
+        'laa': 15.0,
         'height': 0,
         'radius': 0,
         'supports': 2,
@@ -407,7 +407,7 @@ def parse_ai_interpretation(response_text):
         return None, f"JSON parsing error: {str(e)}"
 
 # ============================================================================
-# Geometry Engine
+# Geometry Engine – CORRECTED SADDLE SPAN
 # ============================================================================
 
 def generate_geometry(structure_type, params):
@@ -423,52 +423,57 @@ def generate_geometry(structure_type, params):
         return generate_saddle_span(params)
 
 def generate_saddle_span(params):
-    span = params.get('span', 15.0)
-    rise = params.get('rise', 6.5)
-    laa = params.get('laa', 6.0)
+    span = params.get('span', 10.0)   # Correct default
+    rise = params.get('rise', 6.5)    # Correct
+    laa = params.get('laa', 15.0)     # Correct default
     num_points = 30
+
+    # --- Beams ---
+    x = np.linspace(-span/2, span/2, num_points)
+    z = rise * (1 - (2 * x / span)**2)
     
-    x1 = np.linspace(-span/2, span/2, num_points)
-    z1 = rise * (1 - (2 * x1 / span)**2)
-    y1 = -laa/2 * (1 - (2 * x1 / span)**2)
-    
-    x2 = np.linspace(-span/2, span/2, num_points)
-    z2 = rise * (1 - (2 * x2 / span)**2)
-    y2 = laa/2 * (1 - (2 * x2 / span)**2)
-    
-    apex1 = (0, -laa/2, rise)
-    apex2 = (0, laa/2, rise)
-    
-    supports = [(-span/2, 0, 0), (span/2, 0, 0)]
-    
-    u = np.linspace(0, 1, num_points)
-    v = np.linspace(0, 1, num_points)
+    # Beam 1 (left side)
+    y1 = -laa/2 * (1 - (2 * x / span)**2)
+    # Beam 2 (right side)
+    y2 = laa/2 * (1 - (2 * x / span)**2)
+
+    # --- Membrane Surface (SADDLE between beams) ---
+    u = np.linspace(0, 1, num_points)  # along the span
+    v = np.linspace(0, 1, num_points)  # between beams
+
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
-    
+
     for i, u_val in enumerate(u):
         for j, v_val in enumerate(v):
+            # X position along span
             x_pos = -span/2 + u_val * span
-            y_beam1 = -laa/2 * (1 - (2 * x_pos / span)**2)
-            y_beam2 = laa/2 * (1 - (2 * x_pos / span)**2)
-            y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
+            
+            # Y position: interpolate between beam y1 and y2 at this x
+            y_pos = y1[i] * (1 - v_val) + y2[i] * v_val
+            
+            # Z position: beam height at this x, then saddle effect
             z_beam = rise * (1 - (2 * x_pos / span)**2) if abs(x_pos) <= span/2 else 0
-            if laa > 0 and y_beam2 - y_beam1 > 0.001:
-                y_normalized = (y_pos - y_beam1) / (y_beam2 - y_beam1 + 0.001)
-                z_pos = z_beam * (1 - 0.4 * (2 * (y_normalized - 0.5))**2)
-                z_pos = min(z_pos, z_beam * 0.98)
-            else:
-                z_pos = z_beam * 0.95
+            # Saddle: lower in the middle between beams
+            z_pos = z_beam * (1 - 0.3 * (2 * v_val - 1)**2)
+            
             X_surf[i, j] = x_pos
             Y_surf[i, j] = y_pos
             Z_surf[i, j] = z_pos
-    
+
+    # --- Apexes ---
+    apex1 = (0, -laa/2, rise)
+    apex2 = (0, laa/2, rise)
+
+    # --- Supports ---
+    supports = [(-span/2, 0, 0), (span/2, 0, 0)]
+
     return {
         'type': 'Saddle Span',
         'beams': [
-            {'x': x1.tolist(), 'y': y1.tolist(), 'z': z1.tolist(), 'color': '#FF6B6B'},
-            {'x': x2.tolist(), 'y': y2.tolist(), 'z': z2.tolist(), 'color': '#FF6B6B'}
+            {'x': x.tolist(), 'y': y1.tolist(), 'z': z.tolist(), 'color': '#FF6B6B'},
+            {'x': x.tolist(), 'y': y2.tolist(), 'z': z.tolist(), 'color': '#FF6B6B'}
         ],
         'apexes': [apex1, apex2],
         'supports': supports,
@@ -957,7 +962,7 @@ elif st.session_state.stage == 2:
         st.subheader("📝 Describe Your Design")
         description = st.text_area(
             "Describe your design concept in natural language",
-            placeholder="e.g., A saddle span tensile membrane structure spanning 15 meters with a rise of 6.5 meters. Two curved beams with separate apexes, 6 meters apart. Two pinned supports at the base.",
+            placeholder="e.g., A saddle span tensile membrane structure spanning 10 meters with a rise of 6.5 meters. Two curved beams with separate apexes, 15 meters apart. Two pinned supports at the base.",
             key="description",
             height=200,
             value=st.session_state.design_parameters.get('description', '')
@@ -1013,9 +1018,9 @@ elif st.session_state.stage == 2:
                     'description': description,
                     'interpretation': params,
                     'structure_type': params.get('structure_type', 'Saddle Span'),
-                    'span': params.get('span', 15.0),
+                    'span': params.get('span', 10.0),
                     'rise': params.get('rise', 6.5),
-                    'laa': params.get('laa', 6.0),
+                    'laa': params.get('laa', 15.0),
                     'height': 0,
                     'radius': 0,
                     'supports': params.get('supports', 2),
@@ -1054,9 +1059,9 @@ elif st.session_state.stage == 2.5:
     <div style="background-color: #2A2A2A; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
         <strong style="color: #FFFFFF;">📐 Extracted Parameters:</strong><br>
         <span style="color: #D0D0D0;">Structure Type: {params.get('structure_type', 'N/A')}</span><br>
-        <span style="color: #D0D0D0;">Span: {params.get('span', 15.0):.1f} m</span><br>
+        <span style="color: #D0D0D0;">Span: {params.get('span', 10.0):.1f} m</span><br>
         <span style="color: #D0D0D0;">Rise: {params.get('rise', 6.5):.1f} m</span><br>
-        <span style="color: #D0D0D0;">LAA: {params.get('laa', 6.0):.1f} m</span><br>
+        <span style="color: #D0D0D0;">LAA: {params.get('laa', 15.0):.1f} m</span><br>
         <span style="color: #D0D0D0;">Supports: {params.get('supports', 2)}</span><br>
         <span style="color: #D0D0D0;">Beams: {params.get('beams', 2)}</span>
     </div>
@@ -1073,13 +1078,13 @@ elif st.session_state.stage == 2.5:
             index=["Saddle Span", "Single Pole", "Canopy", "Sail Structure"].index(params.get('structure_type', 'Saddle Span'))
         )
     with col2:
-        span = st.number_input("Span (m)", value=params.get('span', 15.0), step=0.5)
+        span = st.number_input("Span (m)", value=params.get('span', 10.0), step=0.5)
     with col3:
         rise = st.number_input("Rise (m)", value=params.get('rise', 6.5), step=0.5)
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        laa = st.number_input("LAA (m)", value=params.get('laa', 6.0), step=0.5)
+        laa = st.number_input("LAA (m)", value=params.get('laa', 15.0), step=0.5)
     with col2:
         supports = st.number_input("Supports", value=params.get('supports', 2), step=1, min_value=1, max_value=20)
     with col3:
@@ -1135,10 +1140,16 @@ elif st.session_state.stage == 3.0:
     params = st.session_state.design_parameters
     structure_type = params.get('structure_type', 'Saddle Span')
     
+    # Safeguard: Ensure correct structure type
+    valid_types = ["Saddle Span", "Single Pole", "Canopy", "Sail Structure"]
+    if structure_type not in valid_types:
+        structure_type = "Saddle Span"
+        st.warning("⚠️ Structure type reset to Saddle Span.")
+    
     st.markdown(f"""
     <div style="background-color: #2A2A2A; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
         <strong style="color: #FFFFFF;">📐 {structure_type}</strong><br>
-        <span style="color: #D0D0D0;">Span = {params.get('span', 15.0):.1f}m | Rise = {params.get('rise', 6.5):.1f}m | LAA = {params.get('laa', 6.0):.1f}m</span>
+        <span style="color: #D0D0D0;">Span = {params.get('span', 10.0):.1f}m | Rise = {params.get('rise', 6.5):.1f}m | LAA = {params.get('laa', 15.0):.1f}m</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1158,11 +1169,11 @@ elif st.session_state.stage == 3.0:
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        new_span = st.number_input("Span (m)", value=params.get('span', 15.0), step=0.5, key="ref_span")
+        new_span = st.number_input("Span (m)", value=params.get('span', 10.0), step=0.5, key="ref_span")
     with col2:
         new_rise = st.number_input("Rise (m)", value=params.get('rise', 6.5), step=0.5, key="ref_rise")
     with col3:
-        new_laa = st.number_input("LAA (m)", value=params.get('laa', 6.0), step=0.5, key="ref_laa")
+        new_laa = st.number_input("LAA (m)", value=params.get('laa', 15.0), step=0.5, key="ref_laa")
     
     col1, col2 = st.columns(2)
     with col1:
