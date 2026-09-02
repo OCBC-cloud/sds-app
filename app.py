@@ -15,6 +15,10 @@ from io import BytesIO
 import numpy as np
 import re
 
+# --- Initialize Session State (BEFORE page config) ---
+if 'fullscreen' not in st.session_state:
+    st.session_state.fullscreen = False
+
 # --- Page Configuration ---
 st.set_page_config(
     page_title="SDS Design Portal",
@@ -23,9 +27,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Custom Dark Theme CSS ---
+# --- Custom Dark Theme CSS + Fullscreen Support ---
 st.markdown("""
 <style>
+    /* Base dark theme */
     .stApp { background-color: #1E1E1E; }
     .css-1d391kg { background-color: #2A2A2A; }
     .stTextInput label, .stTextArea label, .stNumberInput label, 
@@ -313,7 +318,6 @@ Understand the user's design and produce a complete Design Brief in JSON format.
 def parse_design_brief(response_text):
     """Extract and parse JSON from AI response."""
     try:
-        # Try to find JSON block
         json_match = re.search(r'\{[\s\S]*\}', response_text)
         if json_match:
             json_str = json_match.group()
@@ -417,9 +421,63 @@ def plot_saddle_span_geometry(geometry, view_mode='3D'):
     )
     return fig
 
-# --- App Title ---
-st.title("🏗️ SDS Design Portal")
-st.caption("Tensile Membrane Structure Design | Multi-Stage Input Portal")
+# --- App Title with Full-Screen Toggle ---
+# Top bar with title and full-screen button
+col_title, col_fs = st.columns([4, 1])
+with col_title:
+    st.title("🏗️ SDS Design Portal")
+    st.caption("Tensile Membrane Structure Design | Multi-Stage Input Portal")
+with col_fs:
+    # Full-screen toggle button
+    if st.button("⛶ Full Screen" if not st.session_state.fullscreen else "⛶ Normal", key="fullscreen_toggle"):
+        st.session_state.fullscreen = not st.session_state.fullscreen
+        st.rerun()
+
+# --- Inject CSS to control sidebar visibility based on fullscreen state ---
+if st.session_state.fullscreen:
+    st.markdown("""
+    <style>
+        /* Hide sidebar */
+        section[data-testid="stSidebar"] {
+            display: none !important;
+        }
+        /* Expand main content */
+        .main {
+            max-width: 100% !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        /* Remove sidebar gap */
+        .stApp {
+            margin-left: 0 !important;
+        }
+        /* Center content */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+            max-width: 100% !important;
+        }
+        /* Fix the title bar position */
+        .st-emotion-cache-1v0mbdj {
+            padding-top: 0.5rem !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    # Default sidebar visible
+    st.markdown("""
+    <style>
+        /* Ensure sidebar is visible by default */
+        section[data-testid="stSidebar"] {
+            display: block !important;
+        }
+        /* Normal content width */
+        .block-container {
+            max-width: 1200px !important;
+            padding-top: 2rem !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- STAGE 0: PROJECT DASHBOARD ---
 if st.session_state.stage == 0:
@@ -447,15 +505,14 @@ if st.session_state.stage == 0:
                 cols = st.columns([1, 1, 1, 1])
                 with cols[0]:
                     if st.button("📂 Load", key=f"load_{proj['id']}"):
-                        # Determine which stage to load
                         if state.get('frozen', False):
-                            stage = 5  # Concept Freeze
+                            stage = 5
                         elif state.get('confirmed', False):
-                            stage = 2.8  # 3D Model
+                            stage = 2.8
                         elif state.get('iteration_count', 0) > 0:
-                            stage = 2.6  # AI Consultation
+                            stage = 2.6
                         else:
-                            stage = 2  # Design Input
+                            stage = 2
                         load_project(proj['id'], None, stage)
                 with cols[1]:
                     if st.button("🔓 Unlock", key=f"unlock_{proj['id']}"):
@@ -553,7 +610,8 @@ elif st.session_state.stage == 2:
         description = st.text_area(
             "Describe your design concept",
             placeholder="e.g., Two curved primary beams with a membrane roof...",
-            key="description"
+            key="description",
+            height=150
         )
         st.subheader("🏗️ Structural Typology")
         typology = st.selectbox(
@@ -580,7 +638,6 @@ elif st.session_state.stage == 2:
                     'typology': typology,
                     'A': A, 'B': B, 'LAA': LAA
                 }
-                # Generate AI Consultant prompt
                 st.session_state.ai_bridge_prompt = generate_ai_consultant_prompt(description, st.session_state.design_parameters)
                 st.session_state.iteration_count = 0
                 st.session_state.feedback_history = []
@@ -607,16 +664,13 @@ elif st.session_state.stage == 2.5:
     st.markdown("### 🤖 AI Consultant")
     st.caption("Copy this prompt to your AI agent (DeepSeek, ChatGPT, Kimi, Claude, Gemini). The AI will output a Design Brief in JSON format.")
     
-    # Show iteration count
     st.info(f"🔄 Iteration {st.session_state.iteration_count + 1}")
     
-    # Show feedback history
     if st.session_state.feedback_history:
         st.markdown("**📋 Feedback History:**")
         for i, fb in enumerate(st.session_state.feedback_history):
             st.caption(f"Iteration {i+1}: {fb[:100]}...")
     
-    # Show prompt
     prompt = st.session_state.ai_bridge_prompt
     st.text_area("AI Consultant Prompt", prompt, height=250, key="ai_prompt_display")
     
@@ -692,7 +746,6 @@ elif st.session_state.stage == 2.6:
     if st.button("🔄 Submit Feedback & Regenerate", type="primary"):
         if feedback:
             st.session_state.feedback_history.append(feedback)
-            # Update prompt with feedback
             current_prompt = st.session_state.ai_bridge_prompt
             updated_prompt = current_prompt + f"\n\n**User Feedback:**\n{feedback}\n\nPlease update the Design Brief based on this feedback."
             st.session_state.ai_bridge_prompt = updated_prompt
@@ -746,7 +799,6 @@ elif st.session_state.stage == 2.8:
         save_design_state(st.session_state.project_id)
         st.success("✅ Progress saved!")
     
-    # Get parameters from Design Brief
     if st.session_state.design_brief:
         params = st.session_state.design_brief.get('parameters', {})
         A = params.get('A', 10.0)
@@ -787,7 +839,6 @@ elif st.session_state.stage == 2.8:
             st.session_state.stage = 2.9
             st.rerun()
     
-    # Show confirmation button
     if st.button("📌 Proceed to Collaboration"):
         st.session_state.stage = 3
         st.rerun()
@@ -818,7 +869,6 @@ elif st.session_state.stage == 2.9:
         adjust_apex = st.checkbox("Adjust Apex Position", key="adjust_apex")
         submitted = st.form_submit_button("🔄 Apply Refinements", type="primary")
         if submitted:
-            # Update Design Brief
             if st.session_state.design_brief:
                 st.session_state.design_brief['parameters']['A'] = A_new
                 st.session_state.design_brief['parameters']['B'] = B_new
