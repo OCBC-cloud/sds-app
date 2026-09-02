@@ -14,6 +14,7 @@ import zipfile
 from io import BytesIO
 import numpy as np
 import re
+import requests  # For API calls
 
 # ============================================================================
 # Page Configuration & Session State
@@ -35,7 +36,6 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* Base dark theme */
     .stApp { background-color: #1E1E1E; }
     .css-1d391kg { background-color: #2A2A2A; }
     .stTextInput label, .stTextArea label, .stNumberInput label, 
@@ -92,13 +92,6 @@ st.markdown("""
     }
     .project-card strong { color: #FFFFFF !important; }
     .project-card span { color: #B0B0B0 !important; }
-    .ai-bridge-card {
-        background-color: #2A3A4A;
-        padding: 16px;
-        border-radius: 8px;
-        border: 1px solid #4A6A7A;
-        margin-bottom: 16px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -148,6 +141,8 @@ if 'design_brief' not in st.session_state:
     st.session_state.design_brief = None
 if 'design_brief_confirmed' not in st.session_state:
     st.session_state.design_brief_confirmed = False
+if 'is_loading' not in st.session_state:
+    st.session_state.is_loading = False
 
 # ============================================================================
 # Helper Functions
@@ -268,8 +263,38 @@ def export_images_zip(project_id):
         return None, str(e)
 
 # ============================================================================
-# AI Consultant – Prompt Generator & Parser
+# DeepSeek API Integration
 # ============================================================================
+
+def call_deepseek_api(prompt, api_key):
+    """Call DeepSeek API with the given prompt."""
+    url = "https://api.deepseek.com/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "You are a structural engineering design expert. You MUST output ONLY valid JSON. No explanations, no markdown, just pure JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2,
+        "max_tokens": 2000
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=30)
+        if response.status_code == 200:
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            return content, None
+        else:
+            return None, f"API Error {response.status_code}: {response.text}"
+    except Exception as e:
+        return None, f"Request Error: {str(e)}"
 
 def generate_ai_consultant_prompt(description, parameters):
     typology = parameters.get('typology', 'Saddle Span')
@@ -278,9 +303,6 @@ def generate_ai_consultant_prompt(description, parameters):
     LAA = parameters.get('LAA', 10.0)
     
     prompt = f"""You are an expert structural engineering design consultant specializing in tensile membrane structures.
-
-**IMPORTANT INSTRUCTION:**
-You MUST output ONLY valid JSON. Do NOT include any conversational text, explanations, or markdown. ONLY the JSON object.
 
 **Your Role:**
 Understand the user's design and produce a complete Design Brief in JSON format.
@@ -294,7 +316,7 @@ Understand the user's design and produce a complete Design Brief in JSON format.
 **User's Description:**
 {description}
 
-**Required JSON Structure:**
+**Required JSON Structure (ONLY OUTPUT THIS EXACT FORMAT):**
 {{
   "typology": "{typology}",
   "parameters": {{
@@ -439,7 +461,7 @@ def plot_saddle_span_geometry(geometry, view_mode='3D'):
     return fig
 
 # ============================================================================
-# App Layout – Title + Fullscreen Toggle (Truly Expands)
+# App Layout – Title + Fullscreen Toggle
 # ============================================================================
 
 col_title, col_fs = st.columns([4, 1])
@@ -451,62 +473,25 @@ with col_fs:
         st.session_state.fullscreen = not st.session_state.fullscreen
         st.rerun()
 
-# --- CSS to make full-screen truly expand ---
 if st.session_state.fullscreen:
     st.markdown("""
     <style>
-        /* Hide sidebar */
-        section[data-testid="stSidebar"] {
-            display: none !important;
-        }
-        /* Remove all padding and max-width from main content */
-        .main > div {
-            max-width: 100% !important;
-            padding: 0 !important;
-        }
-        .block-container {
-            max-width: 100% !important;
-            padding: 0.5rem !important;
-            margin: 0 !important;
-        }
-        /* Remove the extra margin from the app */
-        .stApp {
-            margin-left: 0 !important;
-        }
-        /* Ensure content stretches */
-        .element-container {
-            width: 100% !important;
-        }
-        /* Center content properly */
-        .st-emotion-cache-1v0mbdj {
-            padding-top: 0.5rem !important;
-        }
-        /* Full-width columns */
-        .row-widget {
-            width: 100% !important;
-        }
-        /* Adjust plotly charts to fill space */
-        .plotly-graph-div {
-            width: 100% !important;
-        }
+        section[data-testid="stSidebar"] { display: none !important; }
+        .main > div { max-width: 100% !important; padding: 0 !important; }
+        .block-container { max-width: 100% !important; padding: 0.5rem !important; margin: 0 !important; }
+        .stApp { margin-left: 0 !important; }
+        .element-container { width: 100% !important; }
+        .st-emotion-cache-1v0mbdj { padding-top: 0.5rem !important; }
+        .row-widget { width: 100% !important; }
+        .plotly-graph-div { width: 100% !important; }
     </style>
     """, unsafe_allow_html=True)
 else:
     st.markdown("""
     <style>
-        /* Default sidebar visible */
-        section[data-testid="stSidebar"] {
-            display: block !important;
-        }
-        /* Normal content width */
-        .block-container {
-            max-width: 1200px !important;
-            padding-top: 2rem !important;
-        }
-        .main > div {
-            max-width: 1200px !important;
-            margin: 0 auto !important;
-        }
+        section[data-testid="stSidebar"] { display: block !important; }
+        .block-container { max-width: 1200px !important; padding-top: 2rem !important; }
+        .main > div { max-width: 1200px !important; margin: 0 auto !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -688,7 +673,7 @@ elif st.session_state.stage == 2:
                 st.rerun()
 
 # ============================================================================
-# STAGE 2.5: AI CONSULTANT (Option B – Platform Selector + Fallback)
+# STAGE 2.5: AI CONSULTANT (AUTO-CALL + FALLBACK)
 # ============================================================================
 
 elif st.session_state.stage == 2.5:
@@ -705,14 +690,7 @@ elif st.session_state.stage == 2.5:
     """, unsafe_allow_html=True)
     
     st.markdown("### 🤖 AI Consultant")
-    st.caption("Select your preferred AI platform. The app will try to open it with the pre-filled prompt.")
-    
-    # AI Platform Selector
-    ai_platform = st.selectbox(
-        "Select your AI platform:",
-        ["DeepSeek", "ChatGPT", "Kimi", "Claude", "Gemini", "Manual (Copy-Paste)"],
-        key="ai_platform"
-    )
+    st.caption("The app will automatically call DeepSeek to generate the Design Brief.")
     
     st.info(f"🔄 Iteration {st.session_state.iteration_count + 1}")
     
@@ -721,65 +699,51 @@ elif st.session_state.stage == 2.5:
         for i, fb in enumerate(st.session_state.feedback_history):
             st.caption(f"Iteration {i+1}: {fb[:100]}...")
     
-    # Generate the prompt
+    # Show the prompt (for transparency)
     prompt = st.session_state.ai_bridge_prompt
+    with st.expander("📋 View Prompt (Advanced)"):
+        st.text_area("AI Consultant Prompt", prompt, height=200, key="ai_prompt_display")
     
-    # Deep link generation based on platform
-    deep_links = {
-        "DeepSeek": f"https://chat.deepseek.com/?q={prompt[:2000]}",
-        "ChatGPT": f"https://chat.openai.com/?q={prompt[:2000]}",
-        "Kimi": f"https://kimi.moonshot.cn/?q={prompt[:2000]}",
-        "Claude": f"https://claude.ai/new?q={prompt[:2000]}",
-        "Gemini": f"https://gemini.google.com/?q={prompt[:2000]}",
-        "Manual (Copy-Paste)": None
-    }
+    # Check if API key is available
+    try:
+        api_key = st.secrets["DEEPSEEK_API_KEY"]
+        has_api_key = True
+    except:
+        has_api_key = False
+        st.warning("⚠️ DeepSeek API key not found. Please add it to Streamlit Secrets.")
+        st.info("💡 If you prefer, you can still use the manual copy-paste method below.")
     
+    # Auto-call button
     col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("🚀 Open AI Platform", type="primary"):
-            if ai_platform == "Manual (Copy-Paste)":
-                st.info("📝 Manual mode selected. Please copy the prompt and paste it into your AI.")
+        if st.button("🚀 Generate Design Brief", type="primary"):
+            if has_api_key:
+                with st.spinner("🤖 Calling DeepSeek API..."):
+                    result, error = call_deepseek_api(prompt, api_key)
+                    if result:
+                        st.success("✅ DeepSeek response received!")
+                        data, parse_error = parse_design_brief(result)
+                        if data:
+                            st.session_state.design_brief = data
+                            st.session_state.design_brief_confirmed = False
+                            st.session_state.iteration_count += 1
+                            save_design_state(st.session_state.project_id)
+                            st.success("✅ Design Brief extracted successfully!")
+                            st.session_state.stage = 2.7
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Error parsing Design Brief: {parse_error}")
+                            st.text_area("Raw Response (for debugging)", result, height=150)
+                    else:
+                        st.error(f"❌ API Error: {error}")
+                        st.info("💡 You can use the manual fallback below.")
             else:
-                link = deep_links.get(ai_platform)
-                if link:
-                    st.markdown(f"[🔗 Click here to open {ai_platform}]({link})")
-                    st.caption("✅ Click the link above to open the AI platform with the pre-filled prompt.")
-                    st.caption("💡 After you get the response, copy it and return to this page. Then paste it below.")
+                st.error("❌ No API key found. Please add DEEPSEEK_API_KEY to Streamlit Secrets.")
     
     with col2:
-        if st.button("📋 Copy Prompt", key="copy_prompt"):
-            st.code(prompt, language="text")
-            st.caption("✅ Prompt copied! You can highlight and copy from the box above.")
-    
-    # Show the prompt
-    st.text_area("AI Consultant Prompt", prompt, height=200, key="ai_prompt_display")
-    
-    st.markdown("---")
-    st.markdown("### 📥 Paste AI Response (Manual Fallback)")
-    st.caption("If the auto-detection doesn't work, paste the AI's response here manually:")
-    ai_response = st.text_area("AI Response", placeholder="Paste the AI's response here...", height=150, key="ai_response_input")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📝 Provide Feedback", type="secondary"):
+        if st.button("📝 Manual Fallback", type="secondary"):
             st.session_state.stage = 2.6
             st.rerun()
-    with col2:
-        if st.button("🔄 Process Design Brief", type="primary"):
-            if ai_response:
-                data, error = parse_design_brief(ai_response)
-                if data:
-                    st.session_state.design_brief = data
-                    st.session_state.design_brief_confirmed = False
-                    st.session_state.iteration_count += 1
-                    save_design_state(st.session_state.project_id)
-                    st.success("✅ Design Brief extracted successfully!")
-                    st.session_state.stage = 2.7
-                    st.rerun()
-                else:
-                    st.error(f"❌ Error parsing Design Brief: {error}")
-            else:
-                st.error("❌ Please paste the AI response first.")
     
     st.markdown("---")
     st.caption("📝 If you don't want to use AI, you can skip to manual design input.")
@@ -802,37 +766,45 @@ elif st.session_state.stage == 2.5:
         st.rerun()
 
 # ============================================================================
-# STAGE 2.6: PROVIDE FEEDBACK
+# STAGE 2.6: MANUAL FALLBACK
 # ============================================================================
 
 elif st.session_state.stage == 2.6:
-    st.subheader("📝 Provide Feedback")
+    st.subheader("📝 Manual Fallback")
     if st.button("⬅️ Back to AI Consultant"):
         st.session_state.stage = 2.5
         st.rerun()
     
-    st.markdown("### 🔄 Feedback to AI Consultant")
-    st.caption("Provide feedback on the AI's understanding. The AI will refine the Design Brief based on your feedback.")
+    st.caption("Copy the prompt below, paste it into your AI, and paste the response back.")
     
-    if st.session_state.design_brief:
-        st.markdown("**Current Design Brief:**")
-        st.json(st.session_state.design_brief)
+    prompt = st.session_state.ai_bridge_prompt
+    st.text_area("AI Consultant Prompt", prompt, height=200, key="ai_prompt_fallback")
     
-    feedback = st.text_area("Your Feedback", placeholder="e.g., The beams should be diverging, not parallel. The rise should be 8m instead of 10m.", height=150, key="feedback_input")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📋 Copy Prompt", key="copy_prompt_fallback"):
+            st.code(prompt, language="text")
+            st.caption("✅ Prompt copied!")
     
-    if st.button("🔄 Submit Feedback & Regenerate", type="primary"):
-        if feedback:
-            st.session_state.feedback_history.append(feedback)
-            current_prompt = st.session_state.ai_bridge_prompt
-            updated_prompt = current_prompt + f"\n\n**User Feedback:**\n{feedback}\n\nPlease update the Design Brief based on this feedback."
-            st.session_state.ai_bridge_prompt = updated_prompt
-            st.session_state.iteration_count += 1
-            save_design_state(st.session_state.project_id)
-            st.success("✅ Feedback submitted! Return to AI Consultant with the new prompt.")
-            st.session_state.stage = 2.5
-            st.rerun()
+    st.markdown("---")
+    st.markdown("### 📥 Paste AI Response")
+    ai_response = st.text_area("AI Response", placeholder="Paste the AI's response here...", height=150, key="ai_response_fallback")
+    
+    if st.button("🔄 Process Design Brief", type="primary"):
+        if ai_response:
+            data, error = parse_design_brief(ai_response)
+            if data:
+                st.session_state.design_brief = data
+                st.session_state.design_brief_confirmed = False
+                st.session_state.iteration_count += 1
+                save_design_state(st.session_state.project_id)
+                st.success("✅ Design Brief extracted successfully!")
+                st.session_state.stage = 2.7
+                st.rerun()
+            else:
+                st.error(f"❌ Error parsing Design Brief: {error}")
         else:
-            st.error("❌ Please enter feedback.")
+            st.error("❌ Please paste the AI response first.")
 
 # ============================================================================
 # STAGE 2.7: CONFIRM DESIGN BRIEF
@@ -854,29 +826,63 @@ elif st.session_state.stage == 2.7:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔁 Modify with Feedback", type="secondary"):
-                st.session_state.stage = 2.6
+                st.session_state.stage = 2.8
                 st.rerun()
         with col2:
             if st.button("✅ Confirm Design Brief", type="primary"):
                 st.session_state.design_brief_confirmed = True
                 save_design_state(st.session_state.project_id)
                 st.success("✅ Design Brief confirmed!")
-                st.session_state.stage = 2.8
+                st.session_state.stage = 2.9
                 st.rerun()
     else:
         st.warning("No Design Brief found. Please go back to AI Consultant.")
 
 # ============================================================================
-# STAGE 2.8: PARAMETRIC 3D MODEL
+# STAGE 2.8: PROVIDE FEEDBACK
 # ============================================================================
 
 elif st.session_state.stage == 2.8:
+    st.subheader("📝 Provide Feedback")
+    if st.button("⬅️ Back to Review"):
+        st.session_state.stage = 2.7
+        st.rerun()
+    
+    st.markdown("### 🔄 Feedback to AI Consultant")
+    st.caption("Provide feedback on the Design Brief. The AI will refine it based on your feedback.")
+    
+    if st.session_state.design_brief:
+        st.markdown("**Current Design Brief:**")
+        st.json(st.session_state.design_brief)
+    
+    feedback = st.text_area("Your Feedback", placeholder="e.g., The beams should be diverging, not parallel. The rise should be 8m instead of 10m.", height=150, key="feedback_input")
+    
+    if st.button("🔄 Submit Feedback & Regenerate", type="primary"):
+        if feedback:
+            st.session_state.feedback_history.append(feedback)
+            # Update prompt with feedback
+            current_prompt = st.session_state.ai_bridge_prompt
+            updated_prompt = current_prompt + f"\n\n**User Feedback:**\n{feedback}\n\nPlease update the Design Brief based on this feedback."
+            st.session_state.ai_bridge_prompt = updated_prompt
+            st.session_state.iteration_count += 1
+            save_design_state(st.session_state.project_id)
+            st.success("✅ Feedback submitted! Return to AI Consultant to regenerate.")
+            st.session_state.stage = 2.5
+            st.rerun()
+        else:
+            st.error("❌ Please enter feedback.")
+
+# ============================================================================
+# STAGE 2.9: PARAMETRIC 3D MODEL
+# ============================================================================
+
+elif st.session_state.stage == 2.9:
     st.subheader("🏗️ Parametric 3D Model")
     if st.button("⬅️ Back to Design Brief"):
         st.session_state.stage = 2.7
         st.rerun()
     if st.button("📐 Redesign & Refine"):
-        st.session_state.stage = 2.9
+        st.session_state.stage = 3.0
         st.rerun()
     if st.button("💾 Save Progress", key="save_progress_2"):
         save_design_state(st.session_state.project_id)
@@ -904,7 +910,7 @@ elif st.session_state.stage == 2.8:
     """, unsafe_allow_html=True)
     
     view_modes = ['3D Perspective', 'Plan (Top)', 'Front Elevation', 'Side Elevation']
-    selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_28")
+    selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_29")
     
     with st.spinner("Generating 3D model..."):
         geometry = generate_saddle_span_geometry(A, B, LAA)
@@ -919,7 +925,7 @@ elif st.session_state.stage == 2.8:
             st.rerun()
     with col2:
         if st.button("📐 Redesign & Refine", type="primary"):
-            st.session_state.stage = 2.9
+            st.session_state.stage = 3.0
             st.rerun()
     
     if st.button("📌 Proceed to Collaboration"):
@@ -927,13 +933,13 @@ elif st.session_state.stage == 2.8:
         st.rerun()
 
 # ============================================================================
-# STAGE 2.9: REDESIGN & REFINEMENT
+# STAGE 3.0: REDESIGN & REFINEMENT
 # ============================================================================
 
-elif st.session_state.stage == 2.9:
+elif st.session_state.stage == 3.0:
     st.subheader("📐 Redesign & Refinement")
     if st.button("⬅️ Back to 3D Model"):
-        st.session_state.stage = 2.8
+        st.session_state.stage = 2.9
         st.rerun()
     
     params = st.session_state.design_brief.get('parameters', {}) if st.session_state.design_brief else st.session_state.design_parameters
@@ -967,7 +973,7 @@ elif st.session_state.stage == 2.9:
                 st.session_state.design_parameters['LAA'] = LAA_new
             save_design_state(st.session_state.project_id)
             st.success("✅ Refinements applied!")
-            st.session_state.stage = 2.8
+            st.session_state.stage = 2.9
             st.rerun()
     st.warning("⚠️ Refinements will regenerate the 3D model with new parameters.")
 
@@ -1003,7 +1009,7 @@ elif st.session_state.stage == 3:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("⬅️ Back to 3D Model"):
-            st.session_state.stage = 2.8
+            st.session_state.stage = 2.9
             st.rerun()
     with col2:
         if st.button("📌 Freeze Concept"):
