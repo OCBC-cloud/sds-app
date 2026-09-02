@@ -35,6 +35,7 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* Base dark theme */
     .stApp { background-color: #1E1E1E; }
     .css-1d391kg { background-color: #2A2A2A; }
     .stTextInput label, .stTextArea label, .stNumberInput label, 
@@ -438,7 +439,7 @@ def plot_saddle_span_geometry(geometry, view_mode='3D'):
     return fig
 
 # ============================================================================
-# App Layout – Title + Fullscreen Toggle
+# App Layout – Title + Fullscreen Toggle (Truly Expands)
 # ============================================================================
 
 col_title, col_fs = st.columns([4, 1])
@@ -450,21 +451,62 @@ with col_fs:
         st.session_state.fullscreen = not st.session_state.fullscreen
         st.rerun()
 
+# --- CSS to make full-screen truly expand ---
 if st.session_state.fullscreen:
     st.markdown("""
     <style>
-        section[data-testid="stSidebar"] { display: none !important; }
-        .main { max-width: 100% !important; padding-left: 1rem !important; padding-right: 1rem !important; }
-        .stApp { margin-left: 0 !important; }
-        .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; max-width: 100% !important; }
-        .st-emotion-cache-1v0mbdj { padding-top: 0.5rem !important; }
+        /* Hide sidebar */
+        section[data-testid="stSidebar"] {
+            display: none !important;
+        }
+        /* Remove all padding and max-width from main content */
+        .main > div {
+            max-width: 100% !important;
+            padding: 0 !important;
+        }
+        .block-container {
+            max-width: 100% !important;
+            padding: 0.5rem !important;
+            margin: 0 !important;
+        }
+        /* Remove the extra margin from the app */
+        .stApp {
+            margin-left: 0 !important;
+        }
+        /* Ensure content stretches */
+        .element-container {
+            width: 100% !important;
+        }
+        /* Center content properly */
+        .st-emotion-cache-1v0mbdj {
+            padding-top: 0.5rem !important;
+        }
+        /* Full-width columns */
+        .row-widget {
+            width: 100% !important;
+        }
+        /* Adjust plotly charts to fill space */
+        .plotly-graph-div {
+            width: 100% !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 else:
     st.markdown("""
     <style>
-        section[data-testid="stSidebar"] { display: block !important; }
-        .block-container { max-width: 1200px !important; padding-top: 2rem !important; }
+        /* Default sidebar visible */
+        section[data-testid="stSidebar"] {
+            display: block !important;
+        }
+        /* Normal content width */
+        .block-container {
+            max-width: 1200px !important;
+            padding-top: 2rem !important;
+        }
+        .main > div {
+            max-width: 1200px !important;
+            margin: 0 auto !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
