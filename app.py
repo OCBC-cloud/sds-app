@@ -14,6 +14,7 @@ import zipfile
 from io import BytesIO
 import numpy as np
 import re
+import requests
 
 # ============================================================================
 # Page Configuration & Session State
@@ -98,6 +99,13 @@ st.markdown("""
         border: 1px solid #4A6A7A;
         margin-bottom: 16px;
     }
+    .interpretation-card {
+        background-color: #2A3A2A;
+        padding: 16px;
+        border-radius: 8px;
+        border-left: 4px solid #52B788;
+        margin-bottom: 16px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -155,6 +163,10 @@ if 'round' not in st.session_state:
     st.session_state.round = 0
 if 'user_feedback' not in st.session_state:
     st.session_state.user_feedback = ''
+if 'interpretation' not in st.session_state:
+    st.session_state.interpretation = None
+if 'interpretation_source' not in st.session_state:
+    st.session_state.interpretation_source = None
 
 # ============================================================================
 # Helper Functions
@@ -165,7 +177,7 @@ def clear_stage_fields(stage):
     if stage == 1:
         keys_to_clear = ['proj_name', 'client_name', 'main_contractor', 'contact_phone', 'contact_email', 'project_date']
     elif stage == 2:
-        keys_to_clear = ['description', 'structure_type', 'uploaded_images']
+        keys_to_clear = ['description', 'uploaded_images', 'interpretation']
     elif stage == 3:
         keys_to_clear = ['stakeholder', 'message']
     for key in keys_to_clear:
@@ -195,6 +207,7 @@ def load_project(project_id, iteration_id, stage):
                 st.session_state.frozen = state.get('frozen', False)
                 st.session_state.uploaded_images = state.get('uploaded_images', [])
                 st.session_state.round = state.get('round', 0)
+                st.session_state.interpretation = state.get('interpretation', None)
     except Exception as e:
         pass
     st.rerun()
@@ -215,6 +228,7 @@ def save_design_state(project_id):
         'frozen': st.session_state.frozen,
         'uploaded_images': st.session_state.uploaded_images,
         'round': st.session_state.round,
+        'interpretation': st.session_state.interpretation,
         'last_modified': datetime.now().isoformat()
     }
     try:
@@ -253,6 +267,7 @@ def delete_design_data(project_id):
         st.session_state.frozen = False
         st.session_state.uploaded_images = []
         st.session_state.round = 0
+        st.session_state.interpretation = None
         st.success("✅ All design data deleted. Project metadata preserved.")
         st.rerun()
     except Exception as e:
@@ -309,12 +324,108 @@ def export_images_zip(project_id):
         return None, str(e)
 
 # ============================================================================
+# Design Interpreter (Natural Language Parser + Optional AI)
+# ============================================================================
+
+def call_deepseek_api(prompt, api_key):
+    """Call DeepSeek API for interpretation."""
+    url = "https://api.deepseek.com/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "You are a structural engineering design interpreter. Extract the following parameters from the user's description: structure_type (Saddle Span, Single Pole, Canopy, Sail Structure), span (m), rise (m), laa or width (m), height (m), radius (m), supports (number), beams (number). Return ONLY a JSON object."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2,
+        "max_tokens": 500
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=30)
+        if response.status_code == 200:
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            return content, None
+        else:
+            return None, f"API Error {response.status_code}: {response.text}"
+    except Exception as e:
+        return None, f"Request Error: {str(e)}"
+
+def interpret_description(description):
+    """Simple parser to extract design parameters from description."""
+    params = {
+        'structure_type': 'Saddle Span',
+        'span': 15.0,
+        'rise': 6.5,
+        'laa': 6.0,
+        'height': 0,
+        'radius': 0,
+        'supports': 2,
+        'beams': 2,
+        'confidence': 'low'
+    }
+    
+    text = description.lower()
+    
+    # Extract structure type
+    if 'saddle' in text or 'two curved' in text or 'parallel beams' in text:
+        params['structure_type'] = 'Saddle Span'
+    elif 'single pole' in text or 'central pole' in text:
+        params['structure_type'] = 'Single Pole'
+    elif 'canopy' in text or 'four columns' in text or '4 columns' in text:
+        params['structure_type'] = 'Canopy'
+    elif 'sail' in text or 'anchors' in text or 'membrane sail' in text:
+        params['structure_type'] = 'Sail Structure'
+    
+    # Extract numbers with units
+    import re
+    span_matches = re.findall(r'(\d+\.?\d*)\s*(?:m|meter|meters)\s*(?:span|long|length)', text)
+    if span_matches:
+        params['span'] = float(span_matches[0])
+        params['confidence'] = 'medium'
+    
+    rise_matches = re.findall(r'(\d+\.?\d*)\s*(?:m|meter|meters)\s*(?:rise|height|tall|high)', text)
+    if rise_matches:
+        params['rise'] = float(rise_matches[0])
+        params['confidence'] = 'medium'
+    
+    width_matches = re.findall(r'(\d+\.?\d*)\s*(?:m|meter|meters)\s*(?:wide|width|apart|separation)', text)
+    if width_matches:
+        params['laa'] = float(width_matches[0])
+        params['confidence'] = 'medium'
+    
+    # Extract support/beam count
+    if 'two supports' in text or '2 supports' in text:
+        params['supports'] = 2
+    elif 'four supports' in text or '4 supports' in text:
+        params['supports'] = 4
+    
+    return params
+
+def parse_ai_interpretation(response_text):
+    """Parse AI interpretation response."""
+    try:
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        if json_match:
+            json_str = json_match.group()
+            data = json.loads(json_str)
+            return data, None
+        else:
+            return None, "No JSON found in response."
+    except json.JSONDecodeError as e:
+        return None, f"JSON parsing error: {str(e)}"
+
+# ============================================================================
 # Flexible Geometry Engine
 # ============================================================================
 
 def generate_geometry(structure_type, params):
-    """Generate 3D geometry based on structure type and parameters."""
-    
     if structure_type == "Saddle Span":
         return generate_saddle_span(params)
     elif structure_type == "Single Pole":
@@ -329,23 +440,23 @@ def generate_geometry(structure_type, params):
 def generate_saddle_span(params):
     span = params.get('span', 15.0)
     rise = params.get('rise', 6.5)
-    width = params.get('width', 6.0)
+    laa = params.get('laa', 6.0)
     num_points = 30
     
     x1 = np.linspace(-span/2, span/2, num_points)
     z1 = rise * (1 - (2 * x1 / span)**2)
-    y1 = np.zeros_like(x1)
+    y1 = np.full_like(x1, -laa/2)
     
     x2 = np.linspace(-span/2, span/2, num_points)
     z2 = rise * (1 - (2 * x2 / span)**2)
-    y2 = np.full_like(x2, width)
+    y2 = np.full_like(x2, laa/2)
     
-    apex1 = (0, 0, rise)
-    apex2 = (0, width, rise)
+    apex1 = (0, -laa/2, rise)
+    apex2 = (0, laa/2, rise)
     
     supports = [
-        (-span/2, width/2, 0),
-        (span/2, width/2, 0)
+        (-span/2, 0, 0),
+        (span/2, 0, 0)
     ]
     
     u = np.linspace(0, 1, num_points)
@@ -357,7 +468,7 @@ def generate_saddle_span(params):
     for i, u_val in enumerate(u):
         for j, v_val in enumerate(v):
             x_pos = -span/2 + u_val * span
-            y_pos = v_val * width
+            y_pos = -laa/2 + v_val * laa
             z_beam1 = rise * (1 - (2 * x_pos / span)**2) if abs(x_pos) <= span/2 else 0
             z_beam2 = rise * (1 - (2 * x_pos / span)**2) if abs(x_pos) <= span/2 else 0
             z_surface = z_beam1 * (1 - v_val) + z_beam2 * v_val
@@ -375,7 +486,7 @@ def generate_saddle_span(params):
         'apexes': [apex1, apex2],
         'supports': supports,
         'surface': (X_surf.tolist(), Y_surf.tolist(), Z_surf.tolist()),
-        'dimensions': {'span': span, 'rise': rise, 'width': width}
+        'dimensions': {'span': span, 'rise': rise, 'laa': laa}
     }
 
 def generate_single_pole(params):
@@ -409,7 +520,6 @@ def generate_single_pole(params):
     }
 
 def generate_canopy(params):
-    """Generate a canopy structure (was 4 Poles)."""
     length = params.get('length', 10.0)
     width = params.get('width', 8.0)
     height = params.get('height', 4.0)
@@ -538,7 +648,7 @@ def plot_flexible_geometry(geometry, view_mode='3D'):
 col_title, col_fs = st.columns([4, 1])
 with col_title:
     st.title("🏗️ SDS Design Portal")
-    st.caption("Structural Design | Upload, Describe, Visualize, Refine")
+    st.caption("Structural Design | Describe, Interpret, Visualize, Refine")
 with col_fs:
     if st.button("⛶ Full Screen" if not st.session_state.fullscreen else "⛶ Normal", key="fullscreen_toggle"):
         st.session_state.fullscreen = not st.session_state.fullscreen
@@ -679,6 +789,7 @@ elif st.session_state.stage == 0.5:
                     st.session_state.frozen = state.get('frozen', False)
                     st.session_state.uploaded_images = state.get('uploaded_images', [])
                     st.session_state.round = state.get('round', 0)
+                    st.session_state.interpretation = state.get('interpretation', None)
                 if state.get('frozen', False):
                     stage = 5
                 elif state.get('confirmed', False):
@@ -703,6 +814,7 @@ elif st.session_state.stage == 0.5:
             st.session_state.frozen = False
             st.session_state.uploaded_images = []
             st.session_state.round = 0
+            st.session_state.interpretation = None
             st.session_state.stage = 2
             st.success("✅ Design data deleted. Starting fresh.")
             st.rerun()
@@ -727,18 +839,21 @@ elif st.session_state.stage == 0.5:
             keep_parameters = st.checkbox("📐 Parameters", value=True, key="keep_parameters")
             keep_feedback = st.checkbox("📝 Feedback History", value=True, key="keep_feedback")
             keep_images = st.checkbox("🖼️ Uploaded Images", value=True, key="keep_images")
+            keep_interpretation = st.checkbox("🧠 Interpretation", value=True, key="keep_interpretation")
             if st.form_submit_button("✅ Load Selected", type="primary"):
                 new_state = {}
                 if keep_description:
                     new_state['parameters'] = current_state.get('parameters', {})
                 if keep_parameters:
-                    for key in ['span', 'rise', 'width', 'height', 'radius', 'length']:
+                    for key in ['span', 'rise', 'laa', 'width', 'height', 'radius', 'length']:
                         if key in current_state.get('parameters', {}):
                             new_state['parameters'][key] = current_state['parameters'][key]
                 if keep_feedback and current_state.get('feedback_history'):
                     new_state['feedback_history'] = current_state['feedback_history']
                 if keep_images and current_state.get('uploaded_images'):
                     new_state['uploaded_images'] = current_state['uploaded_images']
+                if keep_interpretation and current_state.get('interpretation'):
+                    new_state['interpretation'] = current_state['interpretation']
                 new_state['iteration_count'] = current_state.get('iteration_count', 0)
                 new_state['frozen'] = current_state.get('frozen', False)
                 new_state['round'] = current_state.get('round', 0)
@@ -750,6 +865,7 @@ elif st.session_state.stage == 0.5:
                 st.session_state.frozen = new_state.get('frozen', False)
                 st.session_state.uploaded_images = new_state.get('uploaded_images', [])
                 st.session_state.round = new_state.get('round', 0)
+                st.session_state.interpretation = new_state.get('interpretation', None)
                 if new_state.get('frozen', False):
                     stage = 5
                 elif new_state.get('confirmed', False):
@@ -818,7 +934,7 @@ elif st.session_state.stage == 1:
                         st.error(f"❌ Registration error: {str(e)}")
 
 # ============================================================================
-# STAGE 2: DESIGN INPUT
+# STAGE 2: DESIGN INPUT (Natural Language + Interpretation)
 # ============================================================================
 
 elif st.session_state.stage == 2:
@@ -832,7 +948,7 @@ elif st.session_state.stage == 2:
     st.markdown("""
     <div style="background-color: #2A3A4A; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #00B4D8;">
         <strong style="color: #FFFFFF;">📋 How It Works</strong><br>
-        <span style="color: #D0D0D0;">1. Upload images → 2. Describe your design → 3. Choose structure type → 4. Enter parameters → 5. Generate 3D model</span>
+        <span style="color: #D0D0D0;">1. Upload images (optional) → 2. Describe your design → 3. Interpret → 4. Confirm → 5. Generate 3D model</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -854,116 +970,200 @@ elif st.session_state.stage == 2:
         st.subheader("📝 Describe Your Design")
         description = st.text_area(
             "Describe your design concept in natural language",
-            placeholder="e.g., A saddle span tensile membrane structure covering a community gathering space. Two curved primary beams with a PVC/PTFE membrane roof. The structure spans 15 meters with a rise of 6.5 meters.",
+            placeholder="e.g., A saddle span tensile membrane structure spanning 15 meters with a rise of 6.5 meters. Two curved beams with separate apexes, 6 meters apart. The membrane is PVC/PTFE and attached continuously along the beams. Two pinned supports at the base.",
             key="description",
-            height=150,
+            height=200,
             value=st.session_state.design_parameters.get('description', '')
         )
         st.caption("💡 Be as detailed as possible. Include dimensions, materials, and structural elements.")
         
-        st.subheader("🏗️ Structure Type")
-        structure_type = st.selectbox(
-            "Select the structure type:",
-            ["Saddle Span", "Single Pole", "Canopy", "Sail Structure"],
-            key="structure_type",
-            index=["Saddle Span", "Single Pole", "Canopy", "Sail Structure"].index(
-                st.session_state.design_parameters.get('structure_type', 'Saddle Span')
-            ) if st.session_state.design_parameters.get('structure_type', 'Saddle Span') in ["Saddle Span", "Single Pole", "Canopy", "Sail Structure"] else 0
-        )
+        # Optional AI interpretation
+        use_ai = st.checkbox("🧠 Use AI for interpretation (optional)", key="use_ai_interpretation")
         
-        st.subheader("📐 Parameters")
+        col1, col2 = st.columns(2)
+        with col1:
+            submitted = st.form_submit_button("📤 Interpret Design", type="primary")
+        with col2:
+            if use_ai:
+                st.caption("📡 AI will analyze your description for more accurate parameters.")
         
-        params = {}
-        if structure_type == "Saddle Span":
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                params['span'] = st.number_input("Span (m)", value=15.0, step=0.5, key="param_span")
-            with col2:
-                params['rise'] = st.number_input("Rise (m)", value=6.5, step=0.5, key="param_rise")
-            with col3:
-                params['width'] = st.number_input("Width between beams (m)", value=6.0, step=0.5, key="param_width")
-        
-        elif structure_type == "Single Pole":
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                params['height'] = st.number_input("Height (m)", value=8.0, step=0.5, key="param_height")
-            with col2:
-                params['radius'] = st.number_input("Canopy Radius (m)", value=5.0, step=0.5, key="param_radius")
-            with col3:
-                params['tilt'] = st.number_input("Tilt Angle (degrees)", value=0.0, step=1.0, key="param_tilt")
-        
-        elif structure_type == "Canopy":
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                params['length'] = st.number_input("Length (m)", value=10.0, step=0.5, key="param_length")
-            with col2:
-                params['width'] = st.number_input("Width (m)", value=8.0, step=0.5, key="param_width")
-            with col3:
-                params['height'] = st.number_input("Height (m)", value=4.0, step=0.5, key="param_height")
-        
-        elif structure_type == "Sail Structure":
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                params['span'] = st.number_input("Span (m)", value=12.0, step=0.5, key="param_span")
-            with col2:
-                params['n_anchors'] = st.number_input("Number of Anchors", value=4, step=1, min_value=3, max_value=12, key="param_anchors")
-            with col3:
-                params['height'] = st.number_input("Height (m)", value=5.0, step=0.5, key="param_height")
-        
-        st.caption("📐 These parameters define the primary geometry of the structure.")
-        
-        submitted = st.form_submit_button("📤 Generate 3D Model", type="primary")
         if submitted:
             if not description:
                 st.error("❌ Please describe your design.")
             else:
+                # Step 1: Run the simple parser
+                params = interpret_description(description)
+                
+                # Step 2: If AI is enabled, try to get a better interpretation
+                if use_ai:
+                    try:
+                        api_key = st.secrets["DEEPSEEK_API_KEY"]
+                        st.session_state.interpretation_source = 'AI'
+                        with st.spinner("🧠 Consulting AI for interpretation..."):
+                            # Build AI prompt
+                            ai_prompt = f"""Interpret this design description and extract the following parameters:
+                            Description: {description}
+                            Return ONLY a JSON object with: structure_type, span (m), rise (m), laa (m), width (m), height (m), radius (m), supports (number), beams (number).
+                            If a parameter is not mentioned, use a reasonable default."""
+                            
+                            result, error = call_deepseek_api(ai_prompt, api_key)
+                            if result:
+                                ai_data, parse_error = parse_ai_interpretation(result)
+                                if ai_data:
+                                    # Merge AI data with parser data (AI overrides)
+                                    for key, value in ai_data.items():
+                                        if value is not None:
+                                            params[key] = value
+                                    st.session_state.interpretation_source = 'AI'
+                                else:
+                                    st.warning(f"⚠️ AI parsing issue: {parse_error}. Using simple parser instead.")
+                                    st.session_state.interpretation_source = 'Parser'
+                            else:
+                                st.warning(f"⚠️ AI not available: {error}. Using simple parser instead.")
+                                st.session_state.interpretation_source = 'Parser'
+                    except:
+                        st.session_state.interpretation_source = 'Parser'
+                        st.info("💡 AI not configured. Using simple parser.")
+                else:
+                    st.session_state.interpretation_source = 'Parser'
+                
+                st.session_state.interpretation = params
                 st.session_state.design_parameters = {
                     'description': description,
-                    'structure_type': structure_type,
-                    **params
+                    'interpretation': params,
+                    'structure_type': params.get('structure_type', 'Saddle Span'),
+                    'span': params.get('span', 15.0),
+                    'rise': params.get('rise', 6.5),
+                    'laa': params.get('laa', 6.0),
+                    'height': params.get('height', 0),
+                    'radius': params.get('radius', 0),
+                    'supports': params.get('supports', 2),
+                    'beams': params.get('beams', 2)
                 }
                 st.session_state.iteration_count = 0
                 st.session_state.feedback_history = []
                 st.session_state.understanding_locked = False
                 st.session_state.round = 0
+                st.session_state.stage = 2.5
                 save_design_state(st.session_state.project_id)
                 save_project_metadata(st.session_state.project_id)
-                st.session_state.stage = 2.5
                 st.rerun()
 
 # ============================================================================
-# STAGE 2.5: 3D MODEL VIEW
+# STAGE 2.5: INTERPRETATION REVIEW
 # ============================================================================
 
 elif st.session_state.stage == 2.5:
-    st.subheader("🏗️ 3D Design Model")
+    st.subheader("🧠 Design Interpretation")
     if st.button("⬅️ Back to Design Input"):
         st.session_state.stage = 2
         st.rerun()
-    if st.button("💾 Save Progress", key="save_progress_25"):
+    
+    params = st.session_state.interpretation
+    source = st.session_state.interpretation_source
+    
+    st.markdown(f"""
+    <div class="interpretation-card">
+        <strong style="color: #FFFFFF;">📋 Interpretation Summary</strong><br>
+        <span style="color: #D0D0D0;">Source: {source}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown(f"""
+    <div style="background-color: #2A2A2A; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+        <strong style="color: #FFFFFF;">📐 Extracted Parameters:</strong><br>
+        <span style="color: #D0D0D0;">Structure Type: {params.get('structure_type', 'N/A')}</span><br>
+        <span style="color: #D0D0D0;">Span: {params.get('span', 15.0):.1f} m</span><br>
+        <span style="color: #D0D0D0;">Rise: {params.get('rise', 6.5):.1f} m</span><br>
+        <span style="color: #D0D0D0;">LAA / Width: {params.get('laa', 6.0):.1f} m</span><br>
+        <span style="color: #D0D0D0;">Supports: {params.get('supports', 2)}</span><br>
+        <span style="color: #D0D0D0;">Beams: {params.get('beams', 2)}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### ✏️ Confirm or Modify")
+    st.caption("Adjust any parameter if the interpretation is not correct.")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        structure_type = st.selectbox(
+            "Structure Type",
+            ["Saddle Span", "Single Pole", "Canopy", "Sail Structure"],
+            index=["Saddle Span", "Single Pole", "Canopy", "Sail Structure"].index(params.get('structure_type', 'Saddle Span'))
+        )
+    with col2:
+        span = st.number_input("Span (m)", value=params.get('span', 15.0), step=0.5)
+    with col3:
+        rise = st.number_input("Rise (m)", value=params.get('rise', 6.5), step=0.5)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        laa = st.number_input("LAA / Width (m)", value=params.get('laa', 6.0), step=0.5)
+    with col2:
+        supports = st.number_input("Supports", value=params.get('supports', 2), step=1, min_value=1, max_value=20)
+    with col3:
+        beams = st.number_input("Beams", value=params.get('beams', 2), step=1, min_value=0, max_value=10)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Confirm Interpretation", type="primary"):
+            # Update parameters
+            st.session_state.design_parameters = {
+                'description': st.session_state.design_parameters.get('description', ''),
+                'structure_type': structure_type,
+                'span': span,
+                'rise': rise,
+                'laa': laa,
+                'height': 0,
+                'radius': 0,
+                'supports': supports,
+                'beams': beams
+            }
+            st.session_state.interpretation = {
+                'structure_type': structure_type,
+                'span': span,
+                'rise': rise,
+                'laa': laa,
+                'height': 0,
+                'radius': 0,
+                'supports': supports,
+                'beams': beams
+            }
+            save_design_state(st.session_state.project_id)
+            st.success("✅ Interpretation confirmed! Generating 3D model...")
+            st.session_state.stage = 3.0
+            st.rerun()
+    
+    with col2:
+        if st.button("🔁 Go Back to Modify", type="secondary"):
+            st.session_state.stage = 2
+            st.rerun()
+
+# ============================================================================
+# STAGE 3.0: 3D MODEL VIEW
+# ============================================================================
+
+elif st.session_state.stage == 3.0:
+    st.subheader("🏗️ 3D Design Model")
+    if st.button("⬅️ Back to Interpretation"):
+        st.session_state.stage = 2.5
+        st.rerun()
+    if st.button("💾 Save Progress", key="save_progress_30"):
         save_design_state(st.session_state.project_id)
         st.success("✅ Progress saved!")
     
     params = st.session_state.design_parameters
     structure_type = params.get('structure_type', 'Saddle Span')
     
-    param_display = []
-    for key, value in params.items():
-        if key not in ['description', 'structure_type']:
-            if isinstance(value, (int, float)):
-                param_display.append(f"{key} = {value:.1f}")
-            else:
-                param_display.append(f"{key} = {value}")
-    
     st.markdown(f"""
     <div style="background-color: #2A2A2A; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
         <strong style="color: #FFFFFF;">📐 {structure_type}</strong><br>
-        <span style="color: #D0D0D0;">{', '.join(param_display)}</span>
+        <span style="color: #D0D0D0;">Span = {params.get('span', 15.0):.1f}m | Rise = {params.get('rise', 6.5):.1f}m | LAA = {params.get('laa', 6.0):.1f}m</span>
     </div>
     """, unsafe_allow_html=True)
     
     view_modes = ['3D Perspective', 'Plan (Top)', 'Front Elevation', 'Side Elevation']
-    selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_25")
+    selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_30")
     
     with st.spinner("Building 3D model..."):
         geometry = generate_geometry(structure_type, params)
@@ -976,46 +1176,20 @@ elif st.session_state.stage == 2.5:
     st.subheader("🔄 Refine Design")
     st.caption("Make adjustments to the design parameters.")
     
-    ref_params = {}
-    cols = st.columns(3)
-    
-    if structure_type == "Saddle Span":
-        with cols[0]:
-            ref_params['span'] = st.number_input("Span (m)", value=params.get('span', 15.0), step=0.5, key="ref_span")
-        with cols[1]:
-            ref_params['rise'] = st.number_input("Rise (m)", value=params.get('rise', 6.5), step=0.5, key="ref_rise")
-        with cols[2]:
-            ref_params['width'] = st.number_input("Width (m)", value=params.get('width', 6.0), step=0.5, key="ref_width")
-    
-    elif structure_type == "Single Pole":
-        with cols[0]:
-            ref_params['height'] = st.number_input("Height (m)", value=params.get('height', 8.0), step=0.5, key="ref_height")
-        with cols[1]:
-            ref_params['radius'] = st.number_input("Radius (m)", value=params.get('radius', 5.0), step=0.5, key="ref_radius")
-        with cols[2]:
-            ref_params['tilt'] = st.number_input("Tilt (deg)", value=params.get('tilt', 0.0), step=1.0, key="ref_tilt")
-    
-    elif structure_type == "Canopy":
-        with cols[0]:
-            ref_params['length'] = st.number_input("Length (m)", value=params.get('length', 10.0), step=0.5, key="ref_length")
-        with cols[1]:
-            ref_params['width'] = st.number_input("Width (m)", value=params.get('width', 8.0), step=0.5, key="ref_width")
-        with cols[2]:
-            ref_params['height'] = st.number_input("Height (m)", value=params.get('height', 4.0), step=0.5, key="ref_height")
-    
-    elif structure_type == "Sail Structure":
-        with cols[0]:
-            ref_params['span'] = st.number_input("Span (m)", value=params.get('span', 12.0), step=0.5, key="ref_span")
-        with cols[1]:
-            ref_params['n_anchors'] = st.number_input("Anchors", value=params.get('n_anchors', 4), step=1, min_value=3, max_value=12, key="ref_anchors")
-        with cols[2]:
-            ref_params['height'] = st.number_input("Height (m)", value=params.get('height', 5.0), step=0.5, key="ref_height")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        new_span = st.number_input("Span (m)", value=params.get('span', 15.0), step=0.5, key="ref_span")
+    with col2:
+        new_rise = st.number_input("Rise (m)", value=params.get('rise', 6.5), step=0.5, key="ref_rise")
+    with col3:
+        new_laa = st.number_input("LAA (m)", value=params.get('laa', 6.0), step=0.5, key="ref_laa")
     
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🔄 Update Model", type="primary"):
-            for key, value in ref_params.items():
-                st.session_state.design_parameters[key] = value
+            st.session_state.design_parameters['span'] = new_span
+            st.session_state.design_parameters['rise'] = new_rise
+            st.session_state.design_parameters['laa'] = new_laa
             st.session_state.round += 1
             save_design_state(st.session_state.project_id)
             st.success("✅ Parameters updated! Rebuilding model...")
@@ -1061,7 +1235,7 @@ elif st.session_state.stage == 3:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("⬅️ Back to 3D Model"):
-            st.session_state.stage = 2.5
+            st.session_state.stage = 3.0
             st.rerun()
     with col2:
         if st.button("📌 Freeze Concept"):
