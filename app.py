@@ -428,7 +428,6 @@ def generate_saddle_span(params):
     laa = params.get('laa', 0.0)
     num_points = 40
 
-    # Validate all parameters are positive
     if span <= 0 or rise <= 0 or laa <= 0:
         st.error("❌ Invalid parameters. Span, Rise, and LAA must be greater than 0.")
         return None
@@ -465,7 +464,8 @@ def generate_saddle_span(params):
             y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
             
             # z position: beam height, reduced in the middle (saddle effect)
-            saddle_factor = 1 - 0.3 * (2 * v_val - 1)**2
+            # Correct factor: edges at beam height, center lower
+            saddle_factor = 1 - 0.3 * (1 - (2 * v_val - 1)**2)
             z_pos = z_at_x * saddle_factor
             
             X_surf[i, j] = x_pos
@@ -621,7 +621,7 @@ def plot_flexible_geometry(geometry, view_mode='3D'):
         fig.add_trace(go.Surface(
             x=X_surf, y=Y_surf, z=Z_surf,
             colorscale=[[0, '#E8E8E8'], [1, '#F5F5F5']],
-            opacity=0.7,
+            opacity=0.8,
             name='Membrane',
             showscale=False,
             lighting=dict(ambient=0.6, diffuse=0.8, specular=0.3)
