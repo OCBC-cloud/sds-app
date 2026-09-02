@@ -259,10 +259,13 @@ def generate_ai_consultant_prompt(description, parameters):
     
     prompt = f"""You are an expert structural engineering design consultant specializing in tensile membrane structures.
 
-**Your Role:**
-Engage with the user to fully understand their design. Ask clarifying questions, resolve ambiguities, and ensure you have a complete picture before providing a Design Brief.
+**IMPORTANT INSTRUCTION:**
+You MUST output ONLY valid JSON. Do NOT include any conversational text, explanations, or markdown. ONLY the JSON object.
 
-**Current Design Context:**
+**Your Role:**
+Understand the user's design and produce a complete Design Brief in JSON format.
+
+**Design Context:**
 - Typology: {typology}
 - Rise/Height (A): {A:.1f} m
 - Plan/Horizontal (B): {B:.1f} m
@@ -271,19 +274,7 @@ Engage with the user to fully understand their design. Ask clarifying questions,
 **User's Description:**
 {description}
 
-**Process:**
-1. Ask questions to clarify:
-   - Beam orientation (parallel or diverging?)
-   - Support conditions (pinned, fixed, or mixed?)
-   - Membrane attachment (continuous slot, batten, or rope-and-groove?)
-   - Material preferences for beams and membrane
-   - Any specific constraints or requirements
-2. Follow up based on answers.
-3. Synthesize all information into a complete Design Brief.
-4. Present the Design Brief to the user for confirmation.
-5. If confirmed, output the Design Brief in JSON format.
-
-**Required JSON Schema for Final Design Brief:**
+**Required JSON Structure:**
 {{
   "typology": "{typology}",
   "parameters": {{
@@ -292,7 +283,7 @@ Engage with the user to fully understand their design. Ask clarifying questions,
     "LAA": {LAA:.1f}
   }},
   "beams": {{
-    "orientation": "parallel",  // or "diverging"
+    "orientation": "parallel",
     "section": "CHS 219 x 6.3",
     "material": "Steel"
   }},
@@ -302,7 +293,7 @@ Engage with the user to fully understand their design. Ask clarifying questions,
     "attachment": "continuous_slot"
   }},
   "supports": {{
-    "type": "pinned",  // or "fixed", "mixed"
+    "type": "pinned",
     "base_plate": "steel"
   }},
   "columns": {{
@@ -315,24 +306,23 @@ Engage with the user to fully understand their design. Ask clarifying questions,
   }}
 }}
 
-Begin your consultation now."""
+**OUTPUT ONLY THE JSON OBJECT. NO OTHER TEXT.**"""
     return prompt
 
+# --- Smarter Parser: Extracts JSON from any text ---
 def parse_design_brief(response_text):
-    """Parse JSON from AI response."""
+    """Extract and parse JSON from AI response."""
     try:
-        # Try to find JSON in the response
+        # Try to find JSON block
         json_match = re.search(r'\{[\s\S]*\}', response_text)
         if json_match:
             json_str = json_match.group()
             data = json.loads(json_str)
             return data, None
         else:
-            # Try to parse the entire response as JSON
-            data = json.loads(response_text)
-            return data, None
+            return None, "No JSON found in response. Please ensure the AI outputs valid JSON."
     except json.JSONDecodeError as e:
-        return None, f"Could not parse JSON: {str(e)}"
+        return None, f"JSON parsing error: {str(e)}. Please check the format."
 
 # --- Parametric 3D Engine (Saddle Span) ---
 def generate_saddle_span_geometry(A, B, LAA, num_points=30):
@@ -461,7 +451,7 @@ if st.session_state.stage == 0:
                         if state.get('frozen', False):
                             stage = 5  # Concept Freeze
                         elif state.get('confirmed', False):
-                            stage = 2.7  # 3D Model
+                            stage = 2.8  # 3D Model
                         elif state.get('iteration_count', 0) > 0:
                             stage = 2.6  # AI Consultation
                         else:
@@ -615,7 +605,7 @@ elif st.session_state.stage == 2.5:
     """, unsafe_allow_html=True)
     
     st.markdown("### 🤖 AI Consultant")
-    st.caption("Copy this prompt to your AI agent (DeepSeek, ChatGPT, Kimi, Claude, Gemini). The AI will engage with you to understand your design and produce a Design Brief.")
+    st.caption("Copy this prompt to your AI agent (DeepSeek, ChatGPT, Kimi, Claude, Gemini). The AI will output a Design Brief in JSON format.")
     
     # Show iteration count
     st.info(f"🔄 Iteration {st.session_state.iteration_count + 1}")
@@ -638,8 +628,8 @@ elif st.session_state.stage == 2.5:
     
     st.markdown("---")
     st.markdown("### 📥 Paste AI Response")
-    st.caption("After your AI consultation, paste the AI's response here (including the Design Brief):")
-    ai_response = st.text_area("AI Response", placeholder="Paste the AI's response with the Design Brief...", height=200, key="ai_response_input")
+    st.caption("After your AI outputs the Design Brief, paste the response here:")
+    ai_response = st.text_area("AI Response", placeholder="Paste the AI's response here...", height=200, key="ai_response_input")
     
     col1, col2 = st.columns(2)
     with col1:
