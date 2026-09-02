@@ -407,7 +407,7 @@ def parse_ai_interpretation(response_text):
         return None, f"JSON parsing error: {str(e)}"
 
 # ============================================================================
-# Geometry Engine – CORRECTED SADDLE SPAN (Defaults = 0)
+# Geometry Engine – CORRECTED SADDLE SPAN
 # ============================================================================
 
 def generate_geometry(structure_type, params):
@@ -426,25 +426,23 @@ def generate_saddle_span(params):
     span = params.get('span', 0.0)
     rise = params.get('rise', 0.0)
     laa = params.get('laa', 0.0)
-    num_points = 30
+    num_points = 40
 
     # Validate all parameters are positive
     if span <= 0 or rise <= 0 or laa <= 0:
         st.error("❌ Invalid parameters. Span, Rise, and LAA must be greater than 0.")
-        st.info("Please go back and confirm your design interpretation with valid values.")
         return None
 
-    # --- Beams ---
+    # --- X positions along the span ---
     x = np.linspace(-span/2, span/2, num_points)
-    z = rise * (1 - (2 * x / span)**2)
-    
-    # Beam 1 (left side)
-    y1 = -laa/2 * (1 - (2 * x / span)**2)
-    # Beam 2 (right side)
-    y2 = laa/2 * (1 - (2 * x / span)**2)
 
-    # --- Membrane Surface (SADDLE between beams) ---
-    u = np.linspace(0, 1, num_points)  # along the span
+    # --- Beam 1 (left) and Beam 2 (right) ---
+    z_beam = rise * (1 - (2 * x / span)**2)
+    y1 = -laa/2 * (1 - (2 * x / span)**2)   # Beam 1 y-position
+    y2 = laa/2 * (1 - (2 * x / span)**2)    # Beam 2 y-position
+
+    # --- Membrane Surface: BETWEEN the beams, at each x ---
+    u = np.linspace(0, 1, num_points)  # along span
     v = np.linspace(0, 1, num_points)  # between beams
 
     X_surf = np.zeros((num_points, num_points))
@@ -452,25 +450,31 @@ def generate_saddle_span(params):
     Z_surf = np.zeros((num_points, num_points))
 
     for i, u_val in enumerate(u):
+        # x position along the span
+        x_pos = -span/2 + u_val * span
+        
+        # Get the y positions of both beams at this x
+        y_beam1 = y1[i]
+        y_beam2 = y2[i]
+        
+        # Get the z height of the beams at this x
+        z_at_x = rise * (1 - (2 * x_pos / span)**2) if abs(x_pos) <= span/2 else 0
+
         for j, v_val in enumerate(v):
-            # X position along span
-            x_pos = -span/2 + u_val * span
+            # y position: interpolate between beam y1 and y2
+            y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
             
-            # Y position: interpolate between beam y1 and y2 at this x
-            y_pos = y1[i] * (1 - v_val) + y2[i] * v_val
-            
-            # Z position: beam height at this x, then saddle effect
-            z_beam = rise * (1 - (2 * x_pos / span)**2) if abs(x_pos) <= span/2 else 0
-            # Saddle: lower in the middle between beams
-            z_pos = z_beam * (1 - 0.3 * (2 * v_val - 1)**2)
+            # z position: beam height, reduced in the middle (saddle effect)
+            saddle_factor = 1 - 0.3 * (2 * v_val - 1)**2
+            z_pos = z_at_x * saddle_factor
             
             X_surf[i, j] = x_pos
             Y_surf[i, j] = y_pos
             Z_surf[i, j] = z_pos
 
     # --- Apexes ---
-    apex1 = (0, -laa/2, rise)
-    apex2 = (0, laa/2, rise)
+    apex1 = (0, y1[num_points//2], rise)
+    apex2 = (0, y2[num_points//2], rise)
 
     # --- Supports ---
     supports = [(-span/2, 0, 0), (span/2, 0, 0)]
@@ -478,8 +482,8 @@ def generate_saddle_span(params):
     return {
         'type': 'Saddle Span',
         'beams': [
-            {'x': x.tolist(), 'y': y1.tolist(), 'z': z.tolist(), 'color': '#FF6B6B'},
-            {'x': x.tolist(), 'y': y2.tolist(), 'z': z.tolist(), 'color': '#FF6B6B'}
+            {'x': x.tolist(), 'y': y1.tolist(), 'z': z_beam.tolist(), 'color': '#FF6B6B'},
+            {'x': x.tolist(), 'y': y2.tolist(), 'z': z_beam.tolist(), 'color': '#FF6B6B'}
         ],
         'apexes': [apex1, apex2],
         'supports': supports,
