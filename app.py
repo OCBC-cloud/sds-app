@@ -328,7 +328,6 @@ def export_images_zip(project_id):
 # ============================================================================
 
 def call_deepseek_api(prompt, api_key):
-    """Call DeepSeek API for interpretation."""
     url = "https://api.deepseek.com/v1/chat/completions"
     
     headers = {
@@ -358,7 +357,6 @@ def call_deepseek_api(prompt, api_key):
         return None, f"Request Error: {str(e)}"
 
 def interpret_description(description):
-    """Simple parser to extract design parameters from description."""
     params = {
         'structure_type': 'Saddle Span',
         'span': 15.0,
@@ -383,7 +381,6 @@ def interpret_description(description):
     elif 'sail' in text or 'anchors' in text or 'membrane sail' in text:
         params['structure_type'] = 'Sail Structure'
     
-    # Extract numbers with units
     import re
     span_matches = re.findall(r'(\d+\.?\d*)\s*(?:m|meter|meters)\s*(?:span|long|length)', text)
     if span_matches:
@@ -400,7 +397,6 @@ def interpret_description(description):
         params['laa'] = float(width_matches[0])
         params['confidence'] = 'medium'
     
-    # Extract support/beam count
     if 'two supports' in text or '2 supports' in text:
         params['supports'] = 2
     elif 'four supports' in text or '4 supports' in text:
@@ -409,7 +405,6 @@ def interpret_description(description):
     return params
 
 def parse_ai_interpretation(response_text):
-    """Parse AI interpretation response."""
     try:
         json_match = re.search(r'\{[\s\S]*\}', response_text)
         if json_match:
@@ -422,7 +417,7 @@ def parse_ai_interpretation(response_text):
         return None, f"JSON parsing error: {str(e)}"
 
 # ============================================================================
-# Flexible Geometry Engine
+# Flexible Geometry Engine – CORRECTED SADDLE SPAN
 # ============================================================================
 
 def generate_geometry(structure_type, params):
@@ -438,29 +433,44 @@ def generate_geometry(structure_type, params):
         return generate_saddle_span(params)
 
 def generate_saddle_span(params):
+    """
+    Saddle span with two curved beams that CONVERGE at the supports.
+    The beams start at the two support points and diverge toward the apex.
+    """
     span = params.get('span', 15.0)
     rise = params.get('rise', 6.5)
-    laa = params.get('laa', 6.0)
+    laa = params.get('laa', 6.0)  # Apex-to-Apex distance
     num_points = 30
+    
+    # Beam 1: converges from left support to apex to right support
+    # At x = -span/2 (left support): y = 0
+    # At x = 0 (apex): y = -laa/2
+    # At x = span/2 (right support): y = 0
     
     x1 = np.linspace(-span/2, span/2, num_points)
     z1 = rise * (1 - (2 * x1 / span)**2)
-    y1 = np.full_like(x1, -laa/2)
+    # Y position: parabolic curve from 0 at ends to -laa/2 at center
+    y1 = -laa/2 * (1 - (2 * x1 / span)**2)
     
+    # Beam 2: same x and z, but y goes to +laa/2 at apex
     x2 = np.linspace(-span/2, span/2, num_points)
     z2 = rise * (1 - (2 * x2 / span)**2)
-    y2 = np.full_like(x2, laa/2)
+    y2 = laa/2 * (1 - (2 * x2 / span)**2)
     
+    # Apex points (highest point of each beam)
     apex1 = (0, -laa/2, rise)
     apex2 = (0, laa/2, rise)
     
+    # Support points (shared at the center of each end)
     supports = [
-        (-span/2, 0, 0),
-        (span/2, 0, 0)
+        (-span/2, 0, 0),   # Left support
+        (span/2, 0, 0)     # Right support
     ]
     
-    u = np.linspace(0, 1, num_points)
-    v = np.linspace(0, 1, num_points)
+    # Membrane surface (between beams)
+    u = np.linspace(0, 1, num_points)  # along length
+    v = np.linspace(0, 1, num_points)  # between beams
+    
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
@@ -468,14 +478,21 @@ def generate_saddle_span(params):
     for i, u_val in enumerate(u):
         for j, v_val in enumerate(v):
             x_pos = -span/2 + u_val * span
-            y_pos = -laa/2 + v_val * laa
-            z_beam1 = rise * (1 - (2 * x_pos / span)**2) if abs(x_pos) <= span/2 else 0
-            z_beam2 = rise * (1 - (2 * x_pos / span)**2) if abs(x_pos) <= span/2 else 0
-            z_surface = z_beam1 * (1 - v_val) + z_beam2 * v_val
-            z_saddle = z_surface + 0.1 * rise * v_val * (1 - v_val) * (1 - (2 * u_val - 1)**2)
+            
+            # Y at this x position for both beams
+            y_beam1 = -laa/2 * (1 - (2 * x_pos / span)**2)
+            y_beam2 = laa/2 * (1 - (2 * x_pos / span)**2)
+            
+            # Interpolate between beams
+            y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
+            
+            # Z height
+            z_pos = rise * (1 - (2 * x_pos / span)**2) if abs(x_pos) <= span/2 else 0
+            z_pos = z_pos * 0.95  # Slightly lower than beams for saddle effect
+            
             X_surf[i, j] = x_pos
             Y_surf[i, j] = y_pos
-            Z_surf[i, j] = z_saddle
+            Z_surf[i, j] = z_pos
     
     return {
         'type': 'Saddle Span',
@@ -934,7 +951,7 @@ elif st.session_state.stage == 1:
                         st.error(f"❌ Registration error: {str(e)}")
 
 # ============================================================================
-# STAGE 2: DESIGN INPUT (Natural Language + Interpretation)
+# STAGE 2: DESIGN INPUT
 # ============================================================================
 
 elif st.session_state.stage == 2:
@@ -977,7 +994,6 @@ elif st.session_state.stage == 2:
         )
         st.caption("💡 Be as detailed as possible. Include dimensions, materials, and structural elements.")
         
-        # Optional AI interpretation
         use_ai = st.checkbox("🧠 Use AI for interpretation (optional)", key="use_ai_interpretation")
         
         col1, col2 = st.columns(2)
@@ -991,16 +1007,13 @@ elif st.session_state.stage == 2:
             if not description:
                 st.error("❌ Please describe your design.")
             else:
-                # Step 1: Run the simple parser
                 params = interpret_description(description)
                 
-                # Step 2: If AI is enabled, try to get a better interpretation
                 if use_ai:
                     try:
                         api_key = st.secrets["DEEPSEEK_API_KEY"]
                         st.session_state.interpretation_source = 'AI'
                         with st.spinner("🧠 Consulting AI for interpretation..."):
-                            # Build AI prompt
                             ai_prompt = f"""Interpret this design description and extract the following parameters:
                             Description: {description}
                             Return ONLY a JSON object with: structure_type, span (m), rise (m), laa (m), width (m), height (m), radius (m), supports (number), beams (number).
@@ -1010,7 +1023,6 @@ elif st.session_state.stage == 2:
                             if result:
                                 ai_data, parse_error = parse_ai_interpretation(result)
                                 if ai_data:
-                                    # Merge AI data with parser data (AI overrides)
                                     for key, value in ai_data.items():
                                         if value is not None:
                                             params[key] = value
@@ -1107,7 +1119,6 @@ elif st.session_state.stage == 2.5:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("✅ Confirm Interpretation", type="primary"):
-            # Update parameters
             st.session_state.design_parameters = {
                 'description': st.session_state.design_parameters.get('description', ''),
                 'structure_type': structure_type,
