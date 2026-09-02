@@ -1154,7 +1154,7 @@ elif st.session_state.stage == 2.5:
             st.rerun()
 
 # ============================================================================
-# STAGE 2.6: MANUAL FALLBACK (with Prompt Regeneration)
+# STAGE 2.6: MANUAL FALLBACK (with Prompt Generation)
 # ============================================================================
 
 elif st.session_state.stage == 2.6:
@@ -1163,24 +1163,22 @@ elif st.session_state.stage == 2.6:
         st.session_state.stage = 2.5
         st.rerun()
     
-    # --- FIX: Regenerate the prompt if it is empty ---
-    if not st.session_state.ai_bridge_prompt:
-        description = st.session_state.design_parameters.get('description', '')
-        images = st.session_state.uploaded_images
-        st.session_state.ai_bridge_prompt = generate_design_prompt(description, images)
-        st.caption("✅ Prompt regenerated.")
+    # --- FORCE prompt regeneration ---
+    description = st.session_state.design_parameters.get('description', '')
+    images = st.session_state.uploaded_images
+    st.session_state.ai_bridge_prompt = generate_design_prompt(description, images)
     
     st.markdown("""
     <div style="background-color: #2A3A4A; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #00B4D8;">
         <strong style="color: #FFFFFF;">📋 How It Works</strong><br>
-        <span style="color: #D0D0D0;">1. Copy the prompt → 2. Paste it into your design tool → 3. Copy the response → 4. Paste it back here</span>
+        <span style="color: #D0D0D0;">1. Copy the prompt below → 2. Paste it into your design tool → 3. Copy the response → 4. Paste it back here</span>
     </div>
     """, unsafe_allow_html=True)
     
     # Step 1: Copy Prompt
     st.markdown("### 📋 Step 1: Copy the Prompt")
     prompt = st.session_state.ai_bridge_prompt
-    st.text_area("Design Prompt", prompt, height=200, key="ai_prompt_fallback", disabled=True)
+    st.text_area("Design Prompt (Copy this to your design tool)", prompt, height=300, key="ai_prompt_fallback", disabled=True)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -1192,12 +1190,12 @@ elif st.session_state.stage == 2.6:
     
     # Step 2: Paste Response
     st.markdown("### 📋 Step 2: Paste the Design Brief")
-    st.caption("Paste the JSON response from your design tool here.")
+    st.caption("After your design tool returns the JSON response, paste it below.")
     
     response = st.text_area(
-        "Design Brief Response",
+        "Design Brief Response (JSON)",
         placeholder="Paste the JSON response here...",
-        height=150,
+        height=200,
         key="ai_response_fallback"
     )
     
@@ -1232,23 +1230,30 @@ elif st.session_state.stage == 2.6:
     
     st.markdown("---")
     
-    if st.button("🔄 Process Design Brief", type="primary"):
-        if response:
-            data, error = parse_design_brief(response)
-            if data:
-                st.session_state.design_brief = data
-                st.session_state.design_brief_confirmed = False
-                st.session_state.iteration_count += 1
-                st.session_state.round += 1
-                save_design_state(st.session_state.project_id)
-                st.success("✅ Design Brief extracted successfully!")
-                st.session_state.stage = 3.0
-                st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Process Design Brief", type="primary"):
+            if response:
+                data, error = parse_design_brief(response)
+                if data:
+                    st.session_state.design_brief = data
+                    st.session_state.design_brief_confirmed = False
+                    st.session_state.iteration_count += 1
+                    st.session_state.round += 1
+                    save_design_state(st.session_state.project_id)
+                    st.success("✅ Design Brief extracted successfully!")
+                    st.session_state.stage = 3.0
+                    st.rerun()
+                else:
+                    st.error(f"❌ Error parsing Design Brief: {error}")
+                    st.info("💡 Please ensure the response is valid JSON.")
             else:
-                st.error(f"❌ Error parsing Design Brief: {error}")
-                st.info("💡 Please ensure the response is valid JSON.")
-        else:
-            st.error("❌ Please paste the design brief response first.")
+                st.error("❌ Please paste the design brief response first.")
+    
+    with col2:
+        if st.button("💾 Save Progress", type="secondary"):
+            save_design_state(st.session_state.project_id)
+            st.success("✅ Progress saved!")
     
     st.markdown("---")
     st.caption("💡 If you need a reference, here is the expected JSON structure:")
