@@ -1163,7 +1163,7 @@ elif st.session_state.stage == 2.6:
         st.session_state.stage = 2.5
         st.rerun()
     
-    # --- FORCE prompt regeneration ---
+    # --- FORCE prompt regeneration from description and images ---
     description = st.session_state.design_parameters.get('description', '')
     images = st.session_state.uploaded_images
     st.session_state.ai_bridge_prompt = generate_design_prompt(description, images)
