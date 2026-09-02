@@ -359,9 +359,9 @@ def call_deepseek_api(prompt, api_key):
 def interpret_description(description):
     params = {
         'structure_type': 'Saddle Span',
-        'span': 10.0,
-        'rise': 6.5,
-        'laa': 15.0,
+        'span': 0.0,
+        'rise': 0.0,
+        'laa': 0.0,
         'height': 0,
         'radius': 0,
         'supports': 2,
@@ -407,7 +407,7 @@ def parse_ai_interpretation(response_text):
         return None, f"JSON parsing error: {str(e)}"
 
 # ============================================================================
-# Geometry Engine – CORRECTED SADDLE SPAN
+# Geometry Engine – CORRECTED SADDLE SPAN (Defaults = 0)
 # ============================================================================
 
 def generate_geometry(structure_type, params):
@@ -423,10 +423,16 @@ def generate_geometry(structure_type, params):
         return generate_saddle_span(params)
 
 def generate_saddle_span(params):
-    span = params.get('span', 10.0)   # Correct default
-    rise = params.get('rise', 6.5)    # Correct
-    laa = params.get('laa', 15.0)     # Correct default
+    span = params.get('span', 0.0)
+    rise = params.get('rise', 0.0)
+    laa = params.get('laa', 0.0)
     num_points = 30
+
+    # Validate all parameters are positive
+    if span <= 0 or rise <= 0 or laa <= 0:
+        st.error("❌ Invalid parameters. Span, Rise, and LAA must be greater than 0.")
+        st.info("Please go back and confirm your design interpretation with valid values.")
+        return None
 
     # --- Beams ---
     x = np.linspace(-span/2, span/2, num_points)
@@ -482,9 +488,13 @@ def generate_saddle_span(params):
     }
 
 def generate_single_pole(params):
-    height = params.get('height', 8.0)
-    radius = params.get('radius', 5.0)
+    height = params.get('height', 0.0)
+    radius = params.get('radius', 0.0)
     num_points = 20
+    
+    if height <= 0 or radius <= 0:
+        st.error("❌ Invalid parameters. Height and Radius must be greater than 0.")
+        return None
     
     x = np.zeros(num_points * 2)
     y = np.zeros(num_points * 2)
@@ -512,9 +522,13 @@ def generate_single_pole(params):
     }
 
 def generate_canopy(params):
-    length = params.get('length', 10.0)
-    width = params.get('width', 8.0)
-    height = params.get('height', 4.0)
+    length = params.get('length', 0.0)
+    width = params.get('width', 0.0)
+    height = params.get('height', 0.0)
+    
+    if length <= 0 or width <= 0 or height <= 0:
+        st.error("❌ Invalid parameters. Length, Width, and Height must be greater than 0.")
+        return None
     
     corners = [
         (-length/2, -width/2, 0),
@@ -539,9 +553,13 @@ def generate_canopy(params):
     }
 
 def generate_sail(params):
-    span = params.get('span', 12.0)
+    span = params.get('span', 0.0)
     n_anchors = params.get('n_anchors', 4)
-    height = params.get('height', 5.0)
+    height = params.get('height', 0.0)
+    
+    if span <= 0 or n_anchors <= 0 or height <= 0:
+        st.error("❌ Invalid parameters. Span, Anchors, and Height must be greater than 0.")
+        return None
     
     anchors = []
     for i in range(n_anchors):
@@ -561,6 +579,9 @@ def generate_sail(params):
     }
 
 def plot_flexible_geometry(geometry, view_mode='3D'):
+    if geometry is None:
+        return go.Figure()
+    
     fig = go.Figure()
     
     for beam in geometry.get('beams', []):
@@ -1018,9 +1039,9 @@ elif st.session_state.stage == 2:
                     'description': description,
                     'interpretation': params,
                     'structure_type': params.get('structure_type', 'Saddle Span'),
-                    'span': params.get('span', 10.0),
-                    'rise': params.get('rise', 6.5),
-                    'laa': params.get('laa', 15.0),
+                    'span': params.get('span', 0.0),
+                    'rise': params.get('rise', 0.0),
+                    'laa': params.get('laa', 0.0),
                     'height': 0,
                     'radius': 0,
                     'supports': params.get('supports', 2),
@@ -1059,9 +1080,9 @@ elif st.session_state.stage == 2.5:
     <div style="background-color: #2A2A2A; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
         <strong style="color: #FFFFFF;">📐 Extracted Parameters:</strong><br>
         <span style="color: #D0D0D0;">Structure Type: {params.get('structure_type', 'N/A')}</span><br>
-        <span style="color: #D0D0D0;">Span: {params.get('span', 10.0):.1f} m</span><br>
-        <span style="color: #D0D0D0;">Rise: {params.get('rise', 6.5):.1f} m</span><br>
-        <span style="color: #D0D0D0;">LAA: {params.get('laa', 15.0):.1f} m</span><br>
+        <span style="color: #D0D0D0;">Span: {params.get('span', 0.0):.1f} m</span><br>
+        <span style="color: #D0D0D0;">Rise: {params.get('rise', 0.0):.1f} m</span><br>
+        <span style="color: #D0D0D0;">LAA: {params.get('laa', 0.0):.1f} m</span><br>
         <span style="color: #D0D0D0;">Supports: {params.get('supports', 2)}</span><br>
         <span style="color: #D0D0D0;">Beams: {params.get('beams', 2)}</span>
     </div>
@@ -1078,13 +1099,13 @@ elif st.session_state.stage == 2.5:
             index=["Saddle Span", "Single Pole", "Canopy", "Sail Structure"].index(params.get('structure_type', 'Saddle Span'))
         )
     with col2:
-        span = st.number_input("Span (m)", value=params.get('span', 10.0), step=0.5)
+        span = st.number_input("Span (m)", value=params.get('span', 0.0), step=0.5)
     with col3:
-        rise = st.number_input("Rise (m)", value=params.get('rise', 6.5), step=0.5)
+        rise = st.number_input("Rise (m)", value=params.get('rise', 0.0), step=0.5)
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        laa = st.number_input("LAA (m)", value=params.get('laa', 15.0), step=0.5)
+        laa = st.number_input("LAA (m)", value=params.get('laa', 0.0), step=0.5)
     with col2:
         supports = st.number_input("Supports", value=params.get('supports', 2), step=1, min_value=1, max_value=20)
     with col3:
@@ -1146,10 +1167,23 @@ elif st.session_state.stage == 3.0:
         structure_type = "Saddle Span"
         st.warning("⚠️ Structure type reset to Saddle Span.")
     
+    # Check for valid parameters
+    span = params.get('span', 0.0)
+    rise = params.get('rise', 0.0)
+    laa = params.get('laa', 0.0)
+    
+    if span <= 0 or rise <= 0 or laa <= 0:
+        st.error("❌ Invalid parameters. Span, Rise, and LAA must be greater than 0.")
+        st.info("Please go back to the Interpretation stage and confirm valid values.")
+        if st.button("⬅️ Go Back to Interpretation"):
+            st.session_state.stage = 2.5
+            st.rerun()
+        st.stop()
+    
     st.markdown(f"""
     <div style="background-color: #2A2A2A; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
         <strong style="color: #FFFFFF;">📐 {structure_type}</strong><br>
-        <span style="color: #D0D0D0;">Span = {params.get('span', 10.0):.1f}m | Rise = {params.get('rise', 6.5):.1f}m | LAA = {params.get('laa', 15.0):.1f}m</span>
+        <span style="color: #D0D0D0;">Span = {span:.1f}m | Rise = {rise:.1f}m | LAA = {laa:.1f}m</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1158,6 +1192,8 @@ elif st.session_state.stage == 3.0:
     
     with st.spinner("Building 3D model..."):
         geometry = generate_geometry(structure_type, params)
+        if geometry is None:
+            st.stop()
         fig = plot_flexible_geometry(geometry, selected_view)
         st.plotly_chart(fig, use_container_width=True, key="design_3d")
     
@@ -1169,11 +1205,11 @@ elif st.session_state.stage == 3.0:
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        new_span = st.number_input("Span (m)", value=params.get('span', 10.0), step=0.5, key="ref_span")
+        new_span = st.number_input("Span (m)", value=span, step=0.5, key="ref_span")
     with col2:
-        new_rise = st.number_input("Rise (m)", value=params.get('rise', 6.5), step=0.5, key="ref_rise")
+        new_rise = st.number_input("Rise (m)", value=rise, step=0.5, key="ref_rise")
     with col3:
-        new_laa = st.number_input("LAA (m)", value=params.get('laa', 15.0), step=0.5, key="ref_laa")
+        new_laa = st.number_input("LAA (m)", value=laa, step=0.5, key="ref_laa")
     
     col1, col2 = st.columns(2)
     with col1:
