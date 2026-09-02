@@ -164,6 +164,8 @@ if 'project_date' not in st.session_state:
     st.session_state.project_date = datetime.now().date()
 if 'load_options' not in st.session_state:
     st.session_state.load_options = None
+if 'uploaded_images' not in st.session_state:
+    st.session_state.uploaded_images = []
 
 # ============================================================================
 # Helper Functions
@@ -174,7 +176,7 @@ def clear_stage_fields(stage):
     if stage == 1:
         keys_to_clear = ['proj_name', 'client_name', 'main_contractor', 'contact_phone', 'contact_email', 'project_date']
     elif stage == 2:
-        keys_to_clear = ['description', 'typology']
+        keys_to_clear = ['description', 'typology', 'uploaded_images']
     elif stage == 3:
         keys_to_clear = ['stakeholder', 'message']
     for key in keys_to_clear:
@@ -196,7 +198,6 @@ def load_project(project_id, iteration_id, stage):
             st.session_state.contact_phone = data.get('contact_phone', '')
             st.session_state.contact_email = data.get('contact_email', '')
             st.session_state.project_date = data.get('project_date', datetime.now().date())
-            
             state = data.get('design_state', {})
             if isinstance(state, dict):
                 st.session_state.design_parameters = state.get('parameters', {})
@@ -206,6 +207,7 @@ def load_project(project_id, iteration_id, stage):
                 st.session_state.design_brief_confirmed = state.get('confirmed', False)
                 st.session_state.frozen = state.get('frozen', False)
                 st.session_state.ai_bridge_prompt = state.get('ai_prompt', '')
+                st.session_state.uploaded_images = state.get('uploaded_images', [])
     except Exception as e:
         pass
     st.rerun()
@@ -227,6 +229,7 @@ def save_design_state(project_id):
         'confirmed': st.session_state.design_brief_confirmed,
         'frozen': st.session_state.frozen,
         'ai_prompt': st.session_state.ai_bridge_prompt,
+        'uploaded_images': st.session_state.uploaded_images,
         'last_modified': datetime.now().isoformat()
     }
     try:
@@ -257,11 +260,8 @@ def unlock_project(project_id):
         st.error(f"❌ Error unlocking project: {str(e)}")
 
 def delete_design_data(project_id):
-    """Delete all design data from the project (keep metadata)."""
     try:
-        # Reset design state
         supabase.table('projects').update({'design_state': {}}).eq('id', project_id).execute()
-        # Reset session state
         st.session_state.design_parameters = {}
         st.session_state.iteration_count = 0
         st.session_state.feedback_history = []
@@ -270,6 +270,7 @@ def delete_design_data(project_id):
         st.session_state.frozen = False
         st.session_state.ai_bridge_prompt = ''
         st.session_state.ai_bridge_response = ''
+        st.session_state.uploaded_images = []
         st.success("✅ All design data deleted. Project metadata preserved.")
         st.rerun()
     except Exception as e:
@@ -326,18 +327,75 @@ def export_images_zip(project_id):
         return None, str(e)
 
 # ============================================================================
-# DeepSeek API Integration
+# Typology-specific Parameter Definitions
+# ============================================================================
+
+def get_typology_params(typology):
+    """Return list of parameter definitions for the given typology."""
+    params = {
+        "Saddle Span": [
+            {"key": "A", "label": "Rise/Height (m)", "default": 6.5, "step": 0.5},
+            {"key": "B", "label": "Plan/Horizontal (m)", "default": 6.0, "step": 0.5},
+            {"key": "LAA", "label": "Apex-to-Apex (m)", "default": 15.0, "step": 0.5}
+        ],
+        "Single Pole": [
+            {"key": "H", "label": "Height of Pole (m)", "default": 8.0, "step": 0.5},
+            {"key": "R", "label": "Radius of Canopy (m)", "default": 5.0, "step": 0.5},
+            {"key": "Tilt", "label": "Tilt Angle (degrees)", "default": 0.0, "step": 1.0}
+        ],
+        "4 Poles": [
+            {"key": "L", "label": "Length (m)", "default": 10.0, "step": 0.5},
+            {"key": "W", "label": "Width (m)", "default": 8.0, "step": 0.5},
+            {"key": "H", "label": "Height of Poles (m)", "default": 4.0, "step": 0.5}
+        ],
+        "Sail Structure": [
+            {"key": "Span", "label": "Span (m)", "default": 12.0, "step": 0.5},
+            {"key": "NumAnchors", "label": "Number of Anchors", "default": 4, "step": 1},
+            {"key": "H", "label": "Height (m)", "default": 5.0, "step": 0.5}
+        ]
+    }
+    return params.get(typology, [])
+
+def get_typology_ai_prompt(typology, parameters, description):
+    """Generate a tailored AI prompt for the chosen typology."""
+    param_text = "\n".join([f"- {k}: {v}" for k, v in parameters.items()])
+    prompt = f"""You are an expert structural engineering design consultant specializing in {typology} structures.
+
+Your Role:
+Understand the user's design and produce a complete Design Brief in JSON format.
+
+Design Context:
+- Typology: {typology}
+Parameters:
+{param_text}
+
+User's Description:
+{description}
+
+Required JSON Structure (ONLY OUTPUT THIS EXACT FORMAT):
+{{
+  "typology": "{typology}",
+  "parameters": {parameters},
+  "structure": {{
+    "material": "Steel",
+    "finish": "Galvanized",
+    "additional": {{}}
+  }}
+}}
+
+OUTPUT ONLY THE JSON OBJECT. NO OTHER TEXT."""
+    return prompt
+
+# ============================================================================
+# AI Integration (DeepSeek API + Manual Fallback)
 # ============================================================================
 
 def call_deepseek_api(prompt, api_key):
-    """Call DeepSeek API with the given prompt."""
     url = "https://api.deepseek.com/v1/chat/completions"
-    
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
-    
     data = {
         "model": "deepseek-chat",
         "messages": [
@@ -347,7 +405,6 @@ def call_deepseek_api(prompt, api_key):
         "temperature": 0.2,
         "max_tokens": 2000
     }
-    
     try:
         response = requests.post(url, headers=headers, json=data, timeout=30)
         if response.status_code == 200:
@@ -359,63 +416,7 @@ def call_deepseek_api(prompt, api_key):
     except Exception as e:
         return None, f"Request Error: {str(e)}"
 
-def generate_ai_consultant_prompt(description, parameters):
-    typology = parameters.get('typology', 'Saddle Span')
-    A = parameters.get('A', 10.0)
-    B = parameters.get('B', 5.0)
-    LAA = parameters.get('LAA', 10.0)
-    
-    prompt = f"""You are an expert structural engineering design consultant specializing in tensile membrane structures.
-
-**Your Role:**
-Understand the user's design and produce a complete Design Brief in JSON format.
-
-**Design Context:**
-- Typology: {typology}
-- Rise/Height (A): {A:.1f} m
-- Plan/Horizontal (B): {B:.1f} m
-- Apex-to-Apex (LAA): {LAA:.1f} m
-
-**User's Description:**
-{description}
-
-**Required JSON Structure (ONLY OUTPUT THIS EXACT FORMAT):**
-{{
-  "typology": "{typology}",
-  "parameters": {{
-    "A": {A:.1f},
-    "B": {B:.1f},
-    "LAA": {LAA:.1f}
-  }},
-  "beams": {{
-    "orientation": "parallel",
-    "section": "CHS 219 x 6.3",
-    "material": "Steel"
-  }},
-  "membrane": {{
-    "type": "PVC/PTFE",
-    "prestress": "3.0 kN/m",
-    "attachment": "continuous_slot"
-  }},
-  "supports": {{
-    "type": "pinned",
-    "base_plate": "steel"
-  }},
-  "columns": {{
-    "count": 4,
-    "heights": [3.0, 3.0, 3.0, 3.0]
-  }},
-  "refinements": {{
-    "add_beams": false,
-    "adjust_apex": false
-  }}
-}}
-
-**OUTPUT ONLY THE JSON OBJECT. NO OTHER TEXT.**"""
-    return prompt
-
 def parse_design_brief(response_text):
-    """Extract and parse JSON from AI response."""
     try:
         json_match = re.search(r'\{[\s\S]*\}', response_text)
         if json_match:
@@ -428,10 +429,26 @@ def parse_design_brief(response_text):
         return None, f"JSON parsing error: {str(e)}. Please check the format."
 
 # ============================================================================
-# Parametric 3D Engine (Saddle Span)
+# Geometry Engines for Each Typology
 # ============================================================================
 
-def generate_saddle_span_geometry(A, B, LAA, num_points=30):
+def generate_geometry(typology, params):
+    if typology == "Saddle Span":
+        return generate_saddle_span_geometry(params)
+    elif typology == "Single Pole":
+        return generate_single_pole_geometry(params)
+    elif typology == "4 Poles":
+        return generate_4_poles_geometry(params)
+    elif typology == "Sail Structure":
+        return generate_sail_geometry(params)
+    else:
+        return generate_saddle_span_geometry(params)  # fallback
+
+def generate_saddle_span_geometry(params):
+    A = params.get('A', 6.5)
+    B = params.get('B', 6.0)
+    LAA = params.get('LAA', 15.0)
+    num_points = 30
     x1 = np.linspace(-LAA/2, LAA/2, num_points)
     z1 = A * (1 - (2 * x1 / LAA)**2)
     y1 = np.zeros_like(x1)
@@ -469,7 +486,67 @@ def generate_saddle_span_geometry(A, B, LAA, num_points=30):
         'surface': (X_surf, Y_surf, Z_surf)
     }
 
-def plot_saddle_span_geometry(geometry, view_mode='3D'):
+def generate_single_pole_geometry(params):
+    H = params.get('H', 8.0)
+    R = params.get('R', 5.0)
+    # Simple pole + conical canopy
+    x = [0, 0]
+    y = [0, 0]
+    z = [0, H]
+    # canopy as a circle
+    theta = np.linspace(0, 2*np.pi, 20)
+    cx = R * np.cos(theta)
+    cy = R * np.sin(theta)
+    cz = np.full_like(cx, H*0.9)
+    return {'pole': (x, y, z), 'canopy': (cx, cy, cz)}
+
+def generate_4_poles_geometry(params):
+    L = params.get('L', 10.0)
+    W = params.get('W', 8.0)
+    H = params.get('H', 4.0)
+    # 4 poles at corners, roof surface
+    poles = [
+        (-L/2, -W/2, 0), (-L/2, W/2, 0),
+        (L/2, -W/2, 0), (L/2, W/2, 0)
+    ]
+    # roof as a flat surface at height H
+    x = [-L/2, L/2, L/2, -L/2, -L/2]
+    y = [-W/2, -W/2, W/2, W/2, -W/2]
+    z = [H, H, H, H, H]
+    return {'poles': poles, 'roof': (x, y, z)}
+
+def generate_sail_geometry(params):
+    # Simplified sail with anchors and cables
+    span = params.get('Span', 12.0)
+    n_anchors = params.get('NumAnchors', 4)
+    H = params.get('H', 5.0)
+    anchors = []
+    for i in range(n_anchors):
+        angle = 2 * np.pi * i / n_anchors
+        r = span/2
+        anchors.append((r*np.cos(angle), r*np.sin(angle), 0))
+    # Sail surface as a conical shape
+    return {'anchors': anchors, 'height': H}
+
+# ============================================================================
+# Plotting Functions (Unified)
+# ============================================================================
+
+def plot_geometry(geometry, typology, view_mode='3D'):
+    fig = go.Figure()
+    if typology == "Saddle Span":
+        fig = plot_saddle_span(geometry, view_mode)
+    elif typology == "Single Pole":
+        fig = plot_single_pole(geometry, view_mode)
+    elif typology == "4 Poles":
+        fig = plot_4_poles(geometry, view_mode)
+    elif typology == "Sail Structure":
+        fig = plot_sail(geometry, view_mode)
+    else:
+        fig = plot_saddle_span(geometry, view_mode)
+    return fig
+
+def plot_saddle_span(geometry, view_mode):
     x1, y1, z1 = geometry['beam1']
     x2, y2, z2 = geometry['beam2']
     apex1 = geometry['apex1']
@@ -523,6 +600,50 @@ def plot_saddle_span_geometry(geometry, view_mode='3D'):
     )
     return fig
 
+def plot_single_pole(geometry, view_mode):
+    fig = go.Figure()
+    pole_x, pole_y, pole_z = geometry['pole']
+    fig.add_trace(go.Scatter3d(x=pole_x, y=pole_y, z=pole_z, mode='lines', line=dict(color='#8B8B8B', width=6), name='Pole'))
+    cx, cy, cz = geometry['canopy']
+    fig.add_trace(go.Scatter3d(x=cx, y=cy, z=cz, mode='markers', marker=dict(color='#F5F5F5', size=5), name='Canopy'))
+    fig.update_layout(
+        scene=dict(bgcolor='#1E1E1E', xaxis=dict(color='#B0B0B0'), yaxis=dict(color='#B0B0B0'), zaxis=dict(color='#B0B0B0')),
+        paper_bgcolor='#1E1E1E',
+        plot_bgcolor='#1E1E1E',
+        height=550
+    )
+    return fig
+
+def plot_4_poles(geometry, view_mode):
+    fig = go.Figure()
+    for p in geometry['poles']:
+        fig.add_trace(go.Scatter3d(x=[p[0], p[0]], y=[p[1], p[1]], z=[0, p[2]], mode='lines', line=dict(color='#8B8B8B', width=6), showlegend=False))
+    x, y, z = geometry['roof']
+    fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode='lines', line=dict(color='#F5F5F5', width=4), name='Roof'))
+    fig.update_layout(
+        scene=dict(bgcolor='#1E1E1E', xaxis=dict(color='#B0B0B0'), yaxis=dict(color='#B0B0B0'), zaxis=dict(color='#B0B0B0')),
+        paper_bgcolor='#1E1E1E',
+        plot_bgcolor='#1E1E1E',
+        height=550
+    )
+    return fig
+
+def plot_sail(geometry, view_mode):
+    fig = go.Figure()
+    anchors = geometry['anchors']
+    for i, a in enumerate(anchors):
+        fig.add_trace(go.Scatter3d(x=[a[0]], y=[a[1]], z=[a[2]], mode='markers', marker=dict(color='#4ECDC4', size=10), name=f'Anchor {i+1}'))
+    # Add a simple sail surface (delaunay-like)
+    # For simplicity, just a scatter of points
+    fig.add_trace(go.Scatter3d(x=[a[0] for a in anchors], y=[a[1] for a in anchors], z=[geometry['height']]*len(anchors), mode='markers', marker=dict(color='#F5F5F5', size=5), name='Sail'))
+    fig.update_layout(
+        scene=dict(bgcolor='#1E1E1E', xaxis=dict(color='#B0B0B0'), yaxis=dict(color='#B0B0B0'), zaxis=dict(color='#B0B0B0')),
+        paper_bgcolor='#1E1E1E',
+        plot_bgcolor='#1E1E1E',
+        height=550
+    )
+    return fig
+
 # ============================================================================
 # App Layout – Title + Fullscreen Toggle
 # ============================================================================
@@ -530,7 +651,7 @@ def plot_saddle_span_geometry(geometry, view_mode='3D'):
 col_title, col_fs = st.columns([4, 1])
 with col_title:
     st.title("🏗️ SDS Design Portal")
-    st.caption("Tensile Membrane Structure Design | Multi-Stage Input Portal")
+    st.caption("Configurable Tensile Membrane & Structure Design")
 with col_fs:
     if st.button("⛶ Full Screen" if not st.session_state.fullscreen else "⛶ Normal", key="fullscreen_toggle"):
         st.session_state.fullscreen = not st.session_state.fullscreen
@@ -564,7 +685,6 @@ else:
 
 if st.session_state.stage == 0:
     st.subheader("📋 Project Dashboard")
-    
     try:
         projects = supabase.table('projects').select('id, name, client_name, project_date, created_by, design_state').order('created_at', desc=True).execute()
         projects_data = projects.data
@@ -584,14 +704,12 @@ if st.session_state.stage == 0:
                     <span>Status: {status} | Iterations: {state.get('iteration_count', 0)}</span>
                 </div>
                 """, unsafe_allow_html=True)
-                
-                # Load Options – With User Control
                 cols = st.columns([1, 1, 1, 1, 1])
                 with cols[0]:
                     if st.button("📂 Load", key=f"load_{proj['id']}"):
                         st.session_state.load_project_id = proj['id']
                         st.session_state.load_project_name = proj['name']
-                        st.session_state.stage = 0.5  # Load Options Stage
+                        st.session_state.stage = 0.5
                         st.rerun()
                 with cols[1]:
                     if st.button("🔓 Unlock", key=f"unlock_{proj['id']}"):
@@ -633,217 +751,168 @@ if st.session_state.stage == 0:
         st.rerun()
 
 # ============================================================================
-# STAGE 0.5: LOAD OPTIONS (User-Controlled Restoration)
+# STAGE 0.5: LOAD OPTIONS
 # ============================================================================
 
 elif st.session_state.stage == 0.5:
     st.subheader("📂 Load Project Options")
-    
     if st.button("⬅️ Back to Dashboard"):
         st.session_state.stage = 0
         st.rerun()
-    
     project_id = st.session_state.get('load_project_id', None)
     project_name = st.session_state.get('load_project_name', 'Unknown Project')
-    
     if not project_id:
-        st.error("Project ID not found. Please go back and try again.")
+        st.error("Project ID not found.")
         st.session_state.stage = 0
         st.rerun()
-    
     st.markdown(f"""
     <div class="load-options-card">
         <strong style="color: #FFFFFF;">📂 Project: {project_name}</strong><br>
         <span style="color: #D0D0D0;">Choose how you want to load this project.</span>
     </div>
     """, unsafe_allow_html=True)
-    
     st.markdown("### 🔄 What would you like to do?")
-    
-    # Option 1: Continue
-    with st.container():
-        st.markdown("**1. Continue from where you left off**")
-        st.caption("Restore all data – description, parameters, AI prompts, Design Brief, 3D model, feedback history.")
-        if st.button("✅ Continue", key="load_continue"):
-            # Load all data
-            try:
-                result = supabase.table('projects').select('*').eq('id', project_id).execute()
-                if result.data:
-                    data = result.data[0]
-                    state = data.get('design_state', {})
-                    st.session_state.project_id = project_id
-                    st.session_state.project_name = data.get('name', '')
-                    st.session_state.client_name = data.get('client_name', '')
-                    st.session_state.main_contractor = data.get('main_contractor', '')
-                    st.session_state.contact_phone = data.get('contact_phone', '')
-                    st.session_state.contact_email = data.get('contact_email', '')
-                    st.session_state.project_date = data.get('project_date', datetime.now().date())
-                    
-                    if isinstance(state, dict):
-                        st.session_state.design_parameters = state.get('parameters', {})
-                        st.session_state.iteration_count = state.get('iteration_count', 0)
-                        st.session_state.feedback_history = state.get('feedback_history', [])
-                        st.session_state.design_brief = state.get('design_brief', None)
-                        st.session_state.design_brief_confirmed = state.get('confirmed', False)
-                        st.session_state.frozen = state.get('frozen', False)
-                        st.session_state.ai_bridge_prompt = state.get('ai_prompt', '')
-                    
-                    # Determine stage
-                    if state.get('frozen', False):
-                        stage = 5
-                    elif state.get('confirmed', False):
-                        stage = 2.9
-                    elif state.get('iteration_count', 0) > 0:
-                        stage = 2.5
-                    else:
-                        stage = 2
-                    
-                    st.session_state.stage = stage
-                    st.success("✅ Project loaded successfully!")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error loading project: {str(e)}")
-    
-    st.markdown("---")
-    
-    # Option 2: Start Fresh
-    with st.container():
-        st.markdown("**2. Start fresh (keep project name only)**")
-        st.caption("Delete all design data (description, parameters, AI responses, Design Brief, 3D model). Only project metadata will remain.")
-        st.warning("⚠️ This action cannot be undone.")
-        if st.button("🔄 Start Fresh", key="load_fresh"):
-            # Delete design data, keep metadata
-            try:
-                supabase.table('projects').update({'design_state': {}}).eq('id', project_id).execute()
-                
-                # Reset session state
-                st.session_state.project_id = project_id
-                st.session_state.design_parameters = {}
-                st.session_state.iteration_count = 0
-                st.session_state.feedback_history = []
-                st.session_state.design_brief = None
-                st.session_state.design_brief_confirmed = False
-                st.session_state.frozen = False
-                st.session_state.ai_bridge_prompt = ''
-                st.session_state.ai_bridge_response = ''
-                st.session_state.stage = 2
-                st.success("✅ Design data deleted. Starting fresh.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error deleting design data: {str(e)}")
-    
-    st.markdown("---")
-    
-    # Option 3: Choose What to Keep
-    with st.container():
-        st.markdown("**3. Choose what to keep**")
-        st.caption("Select which design data to restore. Unchecked items will be deleted.")
-        
-        # Fetch current design state
+    if st.button("✅ Continue", key="load_continue"):
         try:
-            result = supabase.table('projects').select('design_state').eq('id', project_id).execute()
-            current_state = result.data[0].get('design_state', {}) if result.data else {}
-        except:
-            current_state = {}
-        
-        # Check if there is any data
-        has_data = any([
-            current_state.get('parameters', {}),
-            current_state.get('design_brief'),
-            current_state.get('feedback_history', []),
-            current_state.get('ai_prompt'),
-            current_state.get('iteration_count', 0) > 0
-        ])
-        
-        if has_data:
-            with st.form("load_selective"):
-                st.markdown("**Select what to restore:**")
-                
-                keep_description = st.checkbox("📝 Description", value=True, key="keep_description")
-                keep_parameters = st.checkbox("📐 Parameters (A, B, LAA)", value=True, key="keep_parameters")
-                keep_typology = st.checkbox("🏗️ Typology", value=True, key="keep_typology")
-                keep_ai_prompt = st.checkbox("🤖 AI Prompt", value=True, key="keep_ai_prompt")
-                keep_design_brief = st.checkbox("📋 Design Brief", value=True, key="keep_design_brief")
-                keep_feedback = st.checkbox("📝 Feedback History", value=True, key="keep_feedback")
-                
-                st.caption("📌 Project metadata (name, client, contractor, contact info) will always be restored.")
-                
-                if st.form_submit_button("✅ Load Selected", type="primary"):
-                    # Build new state from selected items
-                    new_state = {}
-                    
-                    if keep_description and 'description' in current_state.get('parameters', {}):
-                        new_state['parameters'] = new_state.get('parameters', {})
-                        new_state['parameters']['description'] = current_state['parameters'].get('description')
-                    if keep_parameters:
-                        new_state['parameters'] = new_state.get('parameters', {})
-                        for key in ['A', 'B', 'LAA']:
-                            if key in current_state.get('parameters', {}):
-                                new_state['parameters'][key] = current_state['parameters'][key]
-                    if keep_typology and 'typology' in current_state.get('parameters', {}):
-                        new_state['parameters'] = new_state.get('parameters', {})
-                        new_state['parameters']['typology'] = current_state['parameters'].get('typology')
-                    
-                    if keep_ai_prompt and current_state.get('ai_prompt'):
-                        new_state['ai_prompt'] = current_state['ai_prompt']
-                    
-                    if keep_design_brief and current_state.get('design_brief'):
-                        new_state['design_brief'] = current_state['design_brief']
-                        new_state['confirmed'] = True
-                    
-                    if keep_feedback and current_state.get('feedback_history'):
-                        new_state['feedback_history'] = current_state['feedback_history']
-                    
-                    # Keep iteration count and frozen status
-                    new_state['iteration_count'] = current_state.get('iteration_count', 0)
-                    new_state['frozen'] = current_state.get('frozen', False)
-                    new_state['last_modified'] = datetime.now().isoformat()
-                    
-                    # Update project
-                    supabase.table('projects').update({'design_state': new_state}).eq('id', project_id).execute()
-                    
-                    # Update session state
-                    st.session_state.project_id = project_id
-                    st.session_state.design_parameters = new_state.get('parameters', {})
-                    st.session_state.iteration_count = new_state.get('iteration_count', 0)
-                    st.session_state.feedback_history = new_state.get('feedback_history', [])
-                    st.session_state.design_brief = new_state.get('design_brief', None)
-                    st.session_state.design_brief_confirmed = new_state.get('confirmed', False)
-                    st.session_state.frozen = new_state.get('frozen', False)
-                    st.session_state.ai_bridge_prompt = new_state.get('ai_prompt', '')
-                    
-                    # Determine stage
-                    if new_state.get('frozen', False):
-                        stage = 5
-                    elif new_state.get('confirmed', False):
-                        stage = 2.9
-                    elif new_state.get('iteration_count', 0) > 0:
-                        stage = 2.5
-                    else:
-                        stage = 2
-                    
-                    st.session_state.stage = stage
-                    st.success("✅ Selected data restored successfully!")
-                    st.rerun()
-        else:
-            st.info("📭 No design data found for this project. You can start fresh.")
-            if st.button("📤 Start Fresh", key="load_fresh_empty"):
-                try:
-                    supabase.table('projects').update({'design_state': {}}).eq('id', project_id).execute()
-                    st.session_state.project_id = project_id
-                    st.session_state.design_parameters = {}
-                    st.session_state.iteration_count = 0
-                    st.session_state.feedback_history = []
-                    st.session_state.design_brief = None
-                    st.session_state.design_brief_confirmed = False
-                    st.session_state.frozen = False
-                    st.session_state.ai_bridge_prompt = ''
-                    st.session_state.ai_bridge_response = ''
-                    st.session_state.stage = 2
-                    st.success("✅ Starting fresh.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
+            result = supabase.table('projects').select('*').eq('id', project_id).execute()
+            if result.data:
+                data = result.data[0]
+                state = data.get('design_state', {})
+                st.session_state.project_id = project_id
+                st.session_state.project_name = data.get('name', '')
+                st.session_state.client_name = data.get('client_name', '')
+                st.session_state.main_contractor = data.get('main_contractor', '')
+                st.session_state.contact_phone = data.get('contact_phone', '')
+                st.session_state.contact_email = data.get('contact_email', '')
+                st.session_state.project_date = data.get('project_date', datetime.now().date())
+                if isinstance(state, dict):
+                    st.session_state.design_parameters = state.get('parameters', {})
+                    st.session_state.iteration_count = state.get('iteration_count', 0)
+                    st.session_state.feedback_history = state.get('feedback_history', [])
+                    st.session_state.design_brief = state.get('design_brief', None)
+                    st.session_state.design_brief_confirmed = state.get('confirmed', False)
+                    st.session_state.frozen = state.get('frozen', False)
+                    st.session_state.ai_bridge_prompt = state.get('ai_prompt', '')
+                    st.session_state.uploaded_images = state.get('uploaded_images', [])
+                if state.get('frozen', False):
+                    stage = 5
+                elif state.get('confirmed', False):
+                    stage = 2.9
+                elif state.get('iteration_count', 0) > 0:
+                    stage = 2.5
+                else:
+                    stage = 2
+                st.session_state.stage = stage
+                st.success("✅ Project loaded successfully!")
+                st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error loading project: {str(e)}")
+    st.markdown("---")
+    if st.button("🔄 Start Fresh", key="load_fresh"):
+        try:
+            supabase.table('projects').update({'design_state': {}}).eq('id', project_id).execute()
+            st.session_state.project_id = project_id
+            st.session_state.design_parameters = {}
+            st.session_state.iteration_count = 0
+            st.session_state.feedback_history = []
+            st.session_state.design_brief = None
+            st.session_state.design_brief_confirmed = False
+            st.session_state.frozen = False
+            st.session_state.ai_bridge_prompt = ''
+            st.session_state.ai_bridge_response = ''
+            st.session_state.uploaded_images = []
+            st.session_state.stage = 2
+            st.success("✅ Design data deleted. Starting fresh.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+    st.markdown("---")
+    st.markdown("**3. Choose what to keep**")
+    st.caption("Select which design data to restore. Unchecked items will be deleted.")
+    try:
+        result = supabase.table('projects').select('design_state').eq('id', project_id).execute()
+        current_state = result.data[0].get('design_state', {}) if result.data else {}
+    except:
+        current_state = {}
+    has_data = any([
+        current_state.get('parameters', {}),
+        current_state.get('design_brief'),
+        current_state.get('feedback_history', []),
+        current_state.get('ai_prompt'),
+        current_state.get('iteration_count', 0) > 0
+    ])
+    if has_data:
+        with st.form("load_selective"):
+            keep_description = st.checkbox("📝 Description", value=True, key="keep_description")
+            keep_parameters = st.checkbox("📐 Parameters", value=True, key="keep_parameters")
+            keep_typology = st.checkbox("🏗️ Typology", value=True, key="keep_typology")
+            keep_ai_prompt = st.checkbox("🤖 AI Prompt", value=True, key="keep_ai_prompt")
+            keep_design_brief = st.checkbox("📋 Design Brief", value=True, key="keep_design_brief")
+            keep_feedback = st.checkbox("📝 Feedback History", value=True, key="keep_feedback")
+            keep_images = st.checkbox("🖼️ Uploaded Images", value=True, key="keep_images")
+            if st.form_submit_button("✅ Load Selected", type="primary"):
+                new_state = {}
+                if keep_description and 'description' in current_state.get('parameters', {}):
+                    new_state['parameters'] = new_state.get('parameters', {})
+                    new_state['parameters']['description'] = current_state['parameters'].get('description')
+                if keep_parameters:
+                    new_state['parameters'] = new_state.get('parameters', {})
+                    for k, v in current_state.get('parameters', {}).items():
+                        if k not in ['description', 'typology']:
+                            new_state['parameters'][k] = v
+                if keep_typology and 'typology' in current_state.get('parameters', {}):
+                    new_state['parameters'] = new_state.get('parameters', {})
+                    new_state['parameters']['typology'] = current_state['parameters'].get('typology')
+                if keep_ai_prompt and current_state.get('ai_prompt'):
+                    new_state['ai_prompt'] = current_state['ai_prompt']
+                if keep_design_brief and current_state.get('design_brief'):
+                    new_state['design_brief'] = current_state['design_brief']
+                    new_state['confirmed'] = True
+                if keep_feedback and current_state.get('feedback_history'):
+                    new_state['feedback_history'] = current_state['feedback_history']
+                if keep_images and current_state.get('uploaded_images'):
+                    new_state['uploaded_images'] = current_state['uploaded_images']
+                new_state['iteration_count'] = current_state.get('iteration_count', 0)
+                new_state['frozen'] = current_state.get('frozen', False)
+                new_state['last_modified'] = datetime.now().isoformat()
+                supabase.table('projects').update({'design_state': new_state}).eq('id', project_id).execute()
+                st.session_state.project_id = project_id
+                st.session_state.design_parameters = new_state.get('parameters', {})
+                st.session_state.iteration_count = new_state.get('iteration_count', 0)
+                st.session_state.feedback_history = new_state.get('feedback_history', [])
+                st.session_state.design_brief = new_state.get('design_brief', None)
+                st.session_state.design_brief_confirmed = new_state.get('confirmed', False)
+                st.session_state.frozen = new_state.get('frozen', False)
+                st.session_state.ai_bridge_prompt = new_state.get('ai_prompt', '')
+                st.session_state.uploaded_images = new_state.get('uploaded_images', [])
+                if new_state.get('frozen', False):
+                    stage = 5
+                elif new_state.get('confirmed', False):
+                    stage = 2.9
+                elif new_state.get('iteration_count', 0) > 0:
+                    stage = 2.5
+                else:
+                    stage = 2
+                st.session_state.stage = stage
+                st.success("✅ Selected data restored successfully!")
+                st.rerun()
+    else:
+        st.info("📭 No design data found. Start fresh.")
+        if st.button("📤 Start Fresh", key="load_fresh_empty"):
+            supabase.table('projects').update({'design_state': {}}).eq('id', project_id).execute()
+            st.session_state.project_id = project_id
+            st.session_state.design_parameters = {}
+            st.session_state.iteration_count = 0
+            st.session_state.feedback_history = []
+            st.session_state.design_brief = None
+            st.session_state.design_brief_confirmed = False
+            st.session_state.frozen = False
+            st.session_state.ai_bridge_prompt = ''
+            st.session_state.ai_bridge_response = ''
+            st.session_state.uploaded_images = []
+            st.session_state.stage = 2
+            st.success("✅ Starting fresh.")
+            st.rerun()
 
 # ============================================================================
 # STAGE 1: PROJECT REGISTRATION
@@ -899,7 +968,7 @@ elif st.session_state.stage == 1:
                         st.error(f"❌ Registration error: {str(e)}")
 
 # ============================================================================
-# STAGE 2: DESIGN INPUT
+# STAGE 2: DESIGN INPUT (with Image Upload)
 # ============================================================================
 
 elif st.session_state.stage == 2:
@@ -910,14 +979,6 @@ elif st.session_state.stage == 2:
     if st.button("🗑️ Clear All Fields", key="clear_stage2"):
         clear_stage_fields(2)
     
-    # Pre-fill from session state if available
-    params = st.session_state.design_parameters
-    default_desc = params.get('description', '')
-    default_typology = params.get('typology', 'Saddle Span')
-    default_A = params.get('A', 10.0)
-    default_B = params.get('B', 5.0)
-    default_LAA = params.get('LAA', 10.0)
-    
     with st.form("design_input"):
         st.subheader("📝 General Description")
         description = st.text_area(
@@ -925,22 +986,45 @@ elif st.session_state.stage == 2:
             placeholder="e.g., Two curved primary beams with a membrane roof...",
             key="description",
             height=150,
-            value=default_desc
+            value=st.session_state.design_parameters.get('description', '')
         )
         st.subheader("🏗️ Structural Typology")
         typology = st.selectbox(
             "Select Typology",
-            ["Saddle Span", "Aluminium Free Span Tent", "Factory Warehouse", "Canopy (4 Columns)", "Sail Structure"],
+            ["Saddle Span", "Single Pole", "4 Poles", "Sail Structure"],
             key="typology",
-            index=["Saddle Span", "Aluminium Free Span Tent", "Factory Warehouse", "Canopy (4 Columns)", "Sail Structure"].index(default_typology) if default_typology in ["Saddle Span", "Aluminium Free Span Tent", "Factory Warehouse", "Canopy (4 Columns)", "Sail Structure"] else 0
+            index=["Saddle Span", "Single Pole", "4 Poles", "Sail Structure"].index(
+                st.session_state.design_parameters.get('typology', 'Saddle Span')
+            ) if st.session_state.design_parameters.get('typology', 'Saddle Span') in ["Saddle Span", "Single Pole", "4 Poles", "Sail Structure"] else 0
         )
+        
         st.subheader("📐 Parameters")
-        col1, col2 = st.columns(2)
-        with col1:
-            A = st.number_input("Rise/Height (m)", value=default_A, step=0.5, key="A")
-            B = st.number_input("Plan/Horizontal (m)", value=default_B, step=0.5, key="B")
-        with col2:
-            LAA = st.number_input("Apex-to-Apex (m)", value=default_LAA, step=0.5, key="LAA")
+        param_defs = get_typology_params(typology)
+        params = {}
+        cols = st.columns(2)
+        for i, pdef in enumerate(param_defs):
+            with cols[i % 2]:
+                if pdef.get('key') in st.session_state.design_parameters:
+                    default_val = st.session_state.design_parameters[pdef['key']]
+                else:
+                    default_val = pdef['default']
+                if isinstance(default_val, int):
+                    val = st.number_input(pdef['label'], value=float(default_val), step=float(pdef['step']), key=f"param_{pdef['key']}")
+                else:
+                    val = st.number_input(pdef['label'], value=float(default_val), step=float(pdef['step']), key=f"param_{pdef['key']}")
+                params[pdef['key']] = val
+        
+        # Image Upload
+        st.subheader("🖼️ Upload Images (Sketches, Photos, GPS Images)")
+        uploaded_files = st.file_uploader(
+            "Choose images (JPG/PNG, max 10MB each)",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=True,
+            key="design_images",
+            help="Upload sketches, photos of existing structures, or site inspiration"
+        )
+        if st.session_state.uploaded_images:
+            st.caption(f"📸 {len(st.session_state.uploaded_images)} image(s) already uploaded.")
         
         st.caption("📐 These parameters define the primary geometry of the structure.")
         submitted = st.form_submit_button("📤 Proceed to AI Consultation", type="primary")
@@ -948,12 +1032,16 @@ elif st.session_state.stage == 2:
             if not description:
                 st.error("❌ Please enter a description.")
             else:
+                # Save parameters and uploaded images
                 st.session_state.design_parameters = {
                     'description': description,
                     'typology': typology,
-                    'A': A, 'B': B, 'LAA': LAA
+                    **params
                 }
-                st.session_state.ai_bridge_prompt = generate_ai_consultant_prompt(description, st.session_state.design_parameters)
+                if uploaded_files:
+                    st.session_state.uploaded_images = [f.name for f in uploaded_files]
+                    # In production, we would upload to Supabase Storage here.
+                st.session_state.ai_bridge_prompt = get_typology_ai_prompt(typology, params, description)
                 st.session_state.iteration_count = 0
                 st.session_state.feedback_history = []
                 st.session_state.design_brief = None
@@ -964,7 +1052,7 @@ elif st.session_state.stage == 2:
                 st.rerun()
 
 # ============================================================================
-# STAGE 2.5: AI CONSULTANT (AUTO-CALL + FALLBACK)
+# STAGE 2.5: AI CONSULTANT
 # ============================================================================
 
 elif st.session_state.stage == 2.5:
@@ -982,7 +1070,6 @@ elif st.session_state.stage == 2.5:
     
     st.markdown("### 🤖 AI Consultant")
     st.caption("The app will automatically call DeepSeek to generate the Design Brief.")
-    
     st.info(f"🔄 Iteration {st.session_state.iteration_count + 1}")
     
     if st.session_state.feedback_history:
@@ -999,8 +1086,7 @@ elif st.session_state.stage == 2.5:
         has_api_key = True
     except:
         has_api_key = False
-        st.warning("⚠️ DeepSeek API key not found. Please add it to Streamlit Secrets.")
-        st.info("💡 If you prefer, you can still use the manual copy-paste method below.")
+        st.warning("⚠️ DeepSeek API key not found. You can use the manual fallback below.")
     
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -1038,16 +1124,8 @@ elif st.session_state.stage == 2.5:
     if st.button("📝 Skip to Manual Design", key="skip_ai"):
         st.session_state.design_brief = {
             'typology': st.session_state.design_parameters.get('typology', 'Saddle Span'),
-            'parameters': {
-                'A': st.session_state.design_parameters.get('A', 10.0),
-                'B': st.session_state.design_parameters.get('B', 5.0),
-                'LAA': st.session_state.design_parameters.get('LAA', 10.0)
-            },
-            'beams': {'orientation': 'parallel', 'section': 'CHS 219 x 6.3', 'material': 'Steel'},
-            'membrane': {'type': 'PVC/PTFE', 'prestress': '3.0 kN/m', 'attachment': 'continuous_slot'},
-            'supports': {'type': 'pinned', 'base_plate': 'steel'},
-            'columns': {'count': 4, 'heights': [3.0, 3.0, 3.0, 3.0]},
-            'refinements': {'add_beams': False, 'adjust_apex': False}
+            'parameters': st.session_state.design_parameters,
+            'structure': {'material': 'Steel', 'finish': 'Galvanized', 'additional': {}}
         }
         st.session_state.design_brief_confirmed = True
         st.session_state.stage = 2.7
@@ -1064,20 +1142,16 @@ elif st.session_state.stage == 2.6:
         st.rerun()
     
     st.caption("Copy the prompt below, paste it into your AI, and paste the response back.")
-    
     prompt = st.session_state.ai_bridge_prompt
     st.text_area("AI Consultant Prompt", prompt, height=200, key="ai_prompt_fallback")
-    
     col1, col2 = st.columns(2)
     with col1:
         if st.button("📋 Copy Prompt", key="copy_prompt_fallback"):
             st.code(prompt, language="text")
             st.caption("✅ Prompt copied!")
-    
     st.markdown("---")
     st.markdown("### 📥 Paste AI Response")
     ai_response = st.text_area("AI Response", placeholder="Paste the AI's response here...", height=150, key="ai_response_fallback")
-    
     if st.button("🔄 Process Design Brief", type="primary"):
         if ai_response:
             data, error = parse_design_brief(ai_response)
@@ -1110,7 +1184,6 @@ elif st.session_state.stage == 2.7:
     if st.session_state.design_brief:
         st.markdown("**Design Brief:**")
         st.json(st.session_state.design_brief)
-        
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔁 Modify with Feedback", type="secondary"):
@@ -1135,16 +1208,11 @@ elif st.session_state.stage == 2.8:
     if st.button("⬅️ Back to Review"):
         st.session_state.stage = 2.7
         st.rerun()
-    
     st.markdown("### 🔄 Feedback to AI Consultant")
     st.caption("Provide feedback on the Design Brief. The AI will refine it based on your feedback.")
-    
     if st.session_state.design_brief:
-        st.markdown("**Current Design Brief:**")
         st.json(st.session_state.design_brief)
-    
-    feedback = st.text_area("Your Feedback", placeholder="e.g., The beams should be diverging, not parallel. The rise should be 8m instead of 10m.", height=150, key="feedback_input")
-    
+    feedback = st.text_area("Your Feedback", placeholder="e.g., The beams should be diverging, not parallel.", height=150, key="feedback_input")
     if st.button("🔄 Submit Feedback & Regenerate", type="primary"):
         if feedback:
             st.session_state.feedback_history.append(feedback)
@@ -1160,11 +1228,11 @@ elif st.session_state.stage == 2.8:
             st.error("❌ Please enter feedback.")
 
 # ============================================================================
-# STAGE 2.9: PARAMETRIC 3D MODEL
+# STAGE 2.9: 3D MODEL
 # ============================================================================
 
 elif st.session_state.stage == 2.9:
-    st.subheader("🏗️ Parametric 3D Model")
+    st.subheader("🏗️ 3D Design Model")
     if st.button("⬅️ Back to Design Brief"):
         st.session_state.stage = 2.7
         st.rerun()
@@ -1175,24 +1243,22 @@ elif st.session_state.stage == 2.9:
         save_design_state(st.session_state.project_id)
         st.success("✅ Progress saved!")
     
+    # Get parameters and typology
     if st.session_state.design_brief:
         params = st.session_state.design_brief.get('parameters', {})
-        A = params.get('A', 10.0)
-        B = params.get('B', 5.0)
-        LAA = params.get('LAA', 10.0)
         typology = st.session_state.design_brief.get('typology', 'Saddle Span')
     else:
         params = st.session_state.design_parameters
-        A = params.get('A', 10.0)
-        B = params.get('B', 5.0)
-        LAA = params.get('LAA', 10.0)
         typology = params.get('typology', 'Saddle Span')
+        # Remove description and typology from params for display
+        params = {k: v for k, v in params.items() if k not in ['description', 'typology']}
     
+    # Display parameters
+    param_display = " | ".join([f"{k} = {v:.1f}" for k, v in params.items() if isinstance(v, (int, float))])
     st.markdown(f"""
     <div style="background-color: #2A2A2A; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
-        <strong style="color: #FFFFFF;">📐 Confirmed Parameters:</strong><br>
-        <span style="color: #D0D0D0;">Rise (A) = {A:.1f}m | Plan (B) = {B:.1f}m | LAA = {LAA:.1f}m</span><br>
-        <span style="color: #D0D0D0;">Typology: {typology}</span>
+        <strong style="color: #FFFFFF;">📐 {typology}</strong><br>
+        <span style="color: #D0D0D0;">{param_display}</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1200,8 +1266,8 @@ elif st.session_state.stage == 2.9:
     selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_29")
     
     with st.spinner("Generating 3D model..."):
-        geometry = generate_saddle_span_geometry(A, B, LAA)
-        fig = plot_saddle_span_geometry(geometry, selected_view)
+        geometry = generate_geometry(typology, params)
+        fig = plot_geometry(geometry, typology, selected_view)
         st.plotly_chart(fig, use_container_width=True, key="parametric_3d")
     
     st.info("✅ 3D model generated. Use the controls above to change view.")
@@ -1229,35 +1295,29 @@ elif st.session_state.stage == 3.0:
         st.session_state.stage = 2.9
         st.rerun()
     
-    params = st.session_state.design_brief.get('parameters', {}) if st.session_state.design_brief else st.session_state.design_parameters
+    params = st.session_state.design_parameters
+    param_defs = get_typology_params(params.get('typology', 'Saddle Span'))
     st.subheader("⚙️ Edit Geometry")
     with st.form("refinement_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            A_new = st.number_input("Rise/Height (m)", value=params.get('A', 10.0), step=0.5, key="A_edit")
-            B_new = st.number_input("Plan/Horizontal (m)", value=params.get('B', 5.0), step=0.5, key="B_edit")
-        with col2:
-            LAA_new = st.number_input("Apex-to-Apex (m)", value=params.get('LAA', 10.0), step=0.5, key="LAA_edit")
-        st.subheader("🏗️ Columns")
+        cols = st.columns(2)
+        new_params = {}
+        for i, pdef in enumerate(param_defs):
+            with cols[i % 2]:
+                val = st.number_input(pdef['label'], value=float(params.get(pdef['key'], pdef['default'])), step=float(pdef['step']), key=f"refine_{pdef['key']}")
+                new_params[pdef['key']] = val
         col_count = st.number_input("Number of Columns", min_value=0, max_value=10, value=4, step=1, key="col_count")
         col_heights = []
         for i in range(int(col_count)):
             col_heights.append(st.number_input(f"Column {i+1} Height (m)", value=3.0, step=0.5, key=f"col_h_{i}"))
-        st.subheader("🔧 Refinement Options")
         add_beams = st.checkbox("Add Intermediate Beams", key="add_beams")
         adjust_apex = st.checkbox("Adjust Apex Position", key="adjust_apex")
         submitted = st.form_submit_button("🔄 Apply Refinements", type="primary")
         if submitted:
-            if st.session_state.design_brief:
-                st.session_state.design_brief['parameters']['A'] = A_new
-                st.session_state.design_brief['parameters']['B'] = B_new
-                st.session_state.design_brief['parameters']['LAA'] = LAA_new
-                st.session_state.design_brief['columns'] = {'count': col_count, 'heights': col_heights}
-                st.session_state.design_brief['refinements'] = {'add_beams': add_beams, 'adjust_apex': adjust_apex}
-            else:
-                st.session_state.design_parameters['A'] = A_new
-                st.session_state.design_parameters['B'] = B_new
-                st.session_state.design_parameters['LAA'] = LAA_new
+            # Update parameters
+            st.session_state.design_parameters.update(new_params)
+            st.session_state.design_parameters['columns'] = col_heights
+            st.session_state.design_parameters['add_beams'] = add_beams
+            st.session_state.design_parameters['adjust_apex'] = adjust_apex
             save_design_state(st.session_state.project_id)
             st.success("✅ Refinements applied!")
             st.session_state.stage = 2.9
@@ -1344,4 +1404,4 @@ elif st.session_state.stage == 5:
 
 st.divider()
 st.caption("🧬 Knowledge may evolve. 🌱 Identity shall remain.")
-st.caption("SDS Chamber 002 – Tensile Membrane Design Portal (Phase 1.1 POC)")
+st.caption("SDS Chamber 002 – Configurable Design Portal")
