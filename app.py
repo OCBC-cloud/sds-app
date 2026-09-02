@@ -30,7 +30,7 @@ st.set_page_config(
 )
 
 # ============================================================================
-# Custom Dark Theme CSS – High Contrast Labels
+# Custom Dark Theme CSS
 # ============================================================================
 
 st.markdown("""
@@ -165,7 +165,7 @@ def clear_stage_fields(stage):
     if stage == 1:
         keys_to_clear = ['proj_name', 'client_name', 'main_contractor', 'contact_phone', 'contact_email', 'project_date']
     elif stage == 2:
-        keys_to_clear = ['description', 'uploaded_images', 'span', 'rise', 'width', 'height']
+        keys_to_clear = ['description', 'structure_type', 'uploaded_images']
     elif stage == 3:
         keys_to_clear = ['stakeholder', 'message']
     for key in keys_to_clear:
@@ -309,41 +309,45 @@ def export_images_zip(project_id):
         return None, str(e)
 
 # ============================================================================
-# Parametric 3D Engine (Direct from Parameters)
+# Flexible Geometry Engine
 # ============================================================================
 
-def generate_geometry(span, rise, width, height, num_points=30):
-    """
-    Generate a simple saddle span geometry from parameters.
+def generate_geometry(structure_type, params):
+    """Generate 3D geometry based on structure type and parameters."""
     
-    Parameters:
-    - span: Total span length (m)
-    - rise: Rise at the center (m)
-    - width: Width between beams (m)
-    - height: Column height (m)
-    """
+    if structure_type == "Saddle Span":
+        return generate_saddle_span(params)
+    elif structure_type == "Single Pole":
+        return generate_single_pole(params)
+    elif structure_type == "Canopy":
+        return generate_canopy(params)
+    elif structure_type == "Sail Structure":
+        return generate_sail(params)
+    else:
+        return generate_saddle_span(params)
+
+def generate_saddle_span(params):
+    span = params.get('span', 15.0)
+    rise = params.get('rise', 6.5)
+    width = params.get('width', 6.0)
+    num_points = 30
     
-    # Beam 1 (at y=0)
     x1 = np.linspace(-span/2, span/2, num_points)
     z1 = rise * (1 - (2 * x1 / span)**2)
     y1 = np.zeros_like(x1)
     
-    # Beam 2 (at y=width)
     x2 = np.linspace(-span/2, span/2, num_points)
     z2 = rise * (1 - (2 * x2 / span)**2)
     y2 = np.full_like(x2, width)
     
-    # Apex points
     apex1 = (0, 0, rise)
     apex2 = (0, width, rise)
     
-    # Support points
-    support1 = (-span/2, 0, 0)
-    support2 = (span/2, 0, 0)
-    support3 = (-span/2, width, 0)
-    support4 = (span/2, width, 0)
+    supports = [
+        (-span/2, width/2, 0),
+        (span/2, width/2, 0)
+    ]
     
-    # Membrane surface (between beams)
     u = np.linspace(0, 1, num_points)
     v = np.linspace(0, 1, num_points)
     X_surf = np.zeros((num_points, num_points))
@@ -363,66 +367,138 @@ def generate_geometry(span, rise, width, height, num_points=30):
             Z_surf[i, j] = z_saddle
     
     return {
-        'beam1': (x1, y1, z1),
-        'beam2': (x2, y2, z2),
-        'apex1': apex1,
-        'apex2': apex2,
-        'supports': [support1, support2, support3, support4],
-        'surface': (X_surf, Y_surf, Z_surf)
+        'type': 'Saddle Span',
+        'beams': [
+            {'x': x1.tolist(), 'y': y1.tolist(), 'z': z1.tolist(), 'color': '#FF6B6B'},
+            {'x': x2.tolist(), 'y': y2.tolist(), 'z': z2.tolist(), 'color': '#FF6B6B'}
+        ],
+        'apexes': [apex1, apex2],
+        'supports': supports,
+        'surface': (X_surf.tolist(), Y_surf.tolist(), Z_surf.tolist()),
+        'dimensions': {'span': span, 'rise': rise, 'width': width}
     }
 
-def plot_geometry(geometry, view_mode='3D'):
-    x1, y1, z1 = geometry['beam1']
-    x2, y2, z2 = geometry['beam2']
-    apex1 = geometry['apex1']
-    apex2 = geometry['apex2']
-    supports = geometry['supports']
-    X_surf, Y_surf, Z_surf = geometry['surface']
+def generate_single_pole(params):
+    height = params.get('height', 8.0)
+    radius = params.get('radius', 5.0)
+    num_points = 20
     
+    x = np.zeros(num_points * 2)
+    y = np.zeros(num_points * 2)
+    z = np.zeros(num_points * 2)
+    
+    x[:num_points] = 0
+    y[:num_points] = 0
+    z[:num_points] = np.linspace(0, height, num_points)
+    
+    theta = np.linspace(0, 2*np.pi, num_points)
+    x[num_points:] = radius * np.cos(theta)
+    y[num_points:] = radius * np.sin(theta)
+    z[num_points:] = height * 0.95
+    
+    supports = [(0, 0, 0)]
+    apexes = [(0, 0, height)]
+    
+    return {
+        'type': 'Single Pole',
+        'beams': [{'x': x.tolist(), 'y': y.tolist(), 'z': z.tolist(), 'color': '#8B8B8B'}],
+        'apexes': apexes,
+        'supports': supports,
+        'surface': None,
+        'dimensions': {'height': height, 'radius': radius}
+    }
+
+def generate_canopy(params):
+    """Generate a canopy structure (was 4 Poles)."""
+    length = params.get('length', 10.0)
+    width = params.get('width', 8.0)
+    height = params.get('height', 4.0)
+    
+    corners = [
+        (-length/2, -width/2, 0),
+        (-length/2, width/2, 0),
+        (length/2, -width/2, 0),
+        (length/2, width/2, 0)
+    ]
+    
+    supports = corners
+    
+    x = [-length/2, length/2, length/2, -length/2, -length/2]
+    y = [-width/2, -width/2, width/2, width/2, -width/2]
+    z = [height, height, height, height, height]
+    
+    return {
+        'type': 'Canopy',
+        'beams': [{'x': x, 'y': y, 'z': z, 'color': '#F5F5F5'}],
+        'apexes': [],
+        'supports': supports,
+        'surface': None,
+        'dimensions': {'length': length, 'width': width, 'height': height}
+    }
+
+def generate_sail(params):
+    span = params.get('span', 12.0)
+    n_anchors = params.get('n_anchors', 4)
+    height = params.get('height', 5.0)
+    
+    anchors = []
+    for i in range(n_anchors):
+        angle = 2 * np.pi * i / n_anchors
+        r = span / 2
+        anchors.append((r * np.cos(angle), r * np.sin(angle), 0))
+    
+    apex = (0, 0, height)
+    
+    return {
+        'type': 'Sail Structure',
+        'beams': [],
+        'apexes': [apex],
+        'supports': anchors,
+        'surface': None,
+        'dimensions': {'span': span, 'n_anchors': n_anchors, 'height': height}
+    }
+
+def plot_flexible_geometry(geometry, view_mode='3D'):
     fig = go.Figure()
     
-    # Membrane
-    fig.add_trace(go.Surface(
-        x=X_surf, y=Y_surf, z=Z_surf,
-        colorscale=[[0, '#E8E8E8'], [1, '#F5F5F5']],
-        opacity=0.7, name='Membrane', showscale=False,
-        lighting=dict(ambient=0.6, diffuse=0.8, specular=0.3)
-    ))
+    for beam in geometry.get('beams', []):
+        x = beam['x']
+        y = beam['y']
+        z = beam['z']
+        color = beam.get('color', '#FF6B6B')
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='lines',
+            line=dict(color=color, width=6),
+            name='Beam'
+        ))
     
-    # Beams
-    fig.add_trace(go.Scatter3d(x=x1, y=y1, z=z1, mode='lines', line=dict(color='#FF6B6B', width=8), name='Beam 1'))
-    fig.add_trace(go.Scatter3d(x=x2, y=y2, z=z2, mode='lines', line=dict(color='#FF6B6B', width=8), name='Beam 2'))
+    for i, apex in enumerate(geometry.get('apexes', [])):
+        fig.add_trace(go.Scatter3d(
+            x=[apex[0]], y=[apex[1]], z=[apex[2]],
+            mode='markers',
+            marker=dict(color='#FFD93D', size=12, symbol='diamond'),
+            name=f'Apex {i+1}'
+        ))
     
-    # Apexes
-    fig.add_trace(go.Scatter3d(x=[apex1[0]], y=[apex1[1]], z=[apex1[2]], mode='markers', marker=dict(color='#FFD93D', size=12, symbol='diamond'), name='Apex 1'))
-    fig.add_trace(go.Scatter3d(x=[apex2[0]], y=[apex2[1]], z=[apex2[2]], mode='markers', marker=dict(color='#FFD93D', size=12, symbol='diamond'), name='Apex 2'))
+    for i, supp in enumerate(geometry.get('supports', [])):
+        fig.add_trace(go.Scatter3d(
+            x=[supp[0]], y=[supp[1]], z=[supp[2]],
+            mode='markers',
+            marker=dict(color='#4ECDC4', size=12, symbol='circle'),
+            name=f'Support {i+1}'
+        ))
     
-    # Supports
-    for i, supp in enumerate(supports):
-        fig.add_trace(go.Scatter3d(x=[supp[0]], y=[supp[1]], z=[supp[2]], mode='markers', marker=dict(color='#4ECDC4', size=10), name=f'Support {i+1}'))
-    
-    # Dimension lines
-    fig.add_trace(go.Scatter3d(x=[apex1[0], apex1[0]], y=[apex1[1], apex1[1]], z=[0, apex1[2]], mode='lines', line=dict(color='#FFD93D', width=2, dash='dash'), name='Rise'))
-    fig.add_trace(go.Scatter3d(x=[apex1[0]+0.5], y=[apex1[1]+0.5], z=[apex1[2]/2], mode='text', text=[f"Rise = {apex1[2]:.1f}m"], textfont=dict(color='#FFD93D', size=12), showlegend=False))
-    
-    fig.add_trace(go.Scatter3d(x=[supports[0][0], supports[2][0]], y=[supports[0][1], supports[2][1]], z=[0, 0], mode='lines', line=dict(color='#4ECDC4', width=2, dash='dash'), name='Width'))
-    fig.add_trace(go.Scatter3d(x=[supports[0][0]+0.5], y=[supports[0][1]+0.5], z=[0.5], mode='text', text=[f"Width = {abs(supports[2][1]):.1f}m"], textfont=dict(color='#4ECDC4', size=12), showlegend=False))
-    
-    fig.add_trace(go.Scatter3d(x=[apex1[0], apex2[0]], y=[apex1[1], apex2[1]], z=[apex1[2], apex2[2]], mode='lines', line=dict(color='#FF6B6B', width=2, dash='dash'), name='Span'))
-    fig.add_trace(go.Scatter3d(x=[(apex1[0]+apex2[0])/2], y=[(apex1[1]+apex2[1])/2+0.5], z=[apex1[2]], mode='text', text=[f"Span = {abs(apex1[0]-apex2[0]):.1f}m"], textfont=dict(color='#FF6B6B', size=12), showlegend=False))
-    
-    # Columns (if height > 0)
-    if geometry.get('height', 0) > 0:
-        h = geometry.get('height', 4.0)
-        for supp in supports[:2]:
-            fig.add_trace(go.Scatter3d(
-                x=[supp[0], supp[0]],
-                y=[supp[1], supp[1]],
-                z=[0, h],
-                mode='lines',
-                line=dict(color='#8B8B8B', width=4, dash='dot'),
-                name='Column'
-            ))
+    if geometry.get('surface'):
+        X_surf, Y_surf, Z_surf = geometry['surface']
+        fig.add_trace(go.Surface(
+            x=X_surf, y=Y_surf, z=Z_surf,
+            colorscale=[[0, '#E8E8E8'], [1, '#F5F5F5']],
+            opacity=0.7,
+            name='Membrane',
+            showscale=False,
+            lighting=dict(ambient=0.6, diffuse=0.8, specular=0.3)
+        ))
     
     scene_config = dict(
         bgcolor='#1E1E1E',
@@ -648,7 +724,7 @@ elif st.session_state.stage == 0.5:
     if has_data:
         with st.form("load_selective"):
             keep_description = st.checkbox("📝 Description", value=True, key="keep_description")
-            keep_parameters = st.checkbox("📐 Parameters (Span, Rise, Width)", value=True, key="keep_parameters")
+            keep_parameters = st.checkbox("📐 Parameters", value=True, key="keep_parameters")
             keep_feedback = st.checkbox("📝 Feedback History", value=True, key="keep_feedback")
             keep_images = st.checkbox("🖼️ Uploaded Images", value=True, key="keep_images")
             if st.form_submit_button("✅ Load Selected", type="primary"):
@@ -656,7 +732,7 @@ elif st.session_state.stage == 0.5:
                 if keep_description:
                     new_state['parameters'] = current_state.get('parameters', {})
                 if keep_parameters:
-                    for key in ['span', 'rise', 'width', 'height']:
+                    for key in ['span', 'rise', 'width', 'height', 'radius', 'length']:
                         if key in current_state.get('parameters', {}):
                             new_state['parameters'][key] = current_state['parameters'][key]
                 if keep_feedback and current_state.get('feedback_history'):
@@ -756,7 +832,7 @@ elif st.session_state.stage == 2:
     st.markdown("""
     <div style="background-color: #2A3A4A; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #00B4D8;">
         <strong style="color: #FFFFFF;">📋 How It Works</strong><br>
-        <span style="color: #D0D0D0;">1. Upload images (optional) → 2. Describe your design → 3. Enter dimensions → 4. Generate 3D model</span>
+        <span style="color: #D0D0D0;">1. Upload images → 2. Describe your design → 3. Choose structure type → 4. Enter parameters → 5. Generate 3D model</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -785,16 +861,56 @@ elif st.session_state.stage == 2:
         )
         st.caption("💡 Be as detailed as possible. Include dimensions, materials, and structural elements.")
         
-        st.subheader("📐 Dimensions")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            span = st.number_input("Span (m)", value=15.0, step=0.5, key="span")
-        with col2:
-            rise = st.number_input("Rise (m)", value=6.5, step=0.5, key="rise")
-        with col3:
-            width = st.number_input("Width between beams (m)", value=6.0, step=0.5, key="width")
+        st.subheader("🏗️ Structure Type")
+        structure_type = st.selectbox(
+            "Select the structure type:",
+            ["Saddle Span", "Single Pole", "Canopy", "Sail Structure"],
+            key="structure_type",
+            index=["Saddle Span", "Single Pole", "Canopy", "Sail Structure"].index(
+                st.session_state.design_parameters.get('structure_type', 'Saddle Span')
+            ) if st.session_state.design_parameters.get('structure_type', 'Saddle Span') in ["Saddle Span", "Single Pole", "Canopy", "Sail Structure"] else 0
+        )
         
-        st.caption("📐 These dimensions define the primary geometry of the structure.")
+        st.subheader("📐 Parameters")
+        
+        params = {}
+        if structure_type == "Saddle Span":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                params['span'] = st.number_input("Span (m)", value=15.0, step=0.5, key="param_span")
+            with col2:
+                params['rise'] = st.number_input("Rise (m)", value=6.5, step=0.5, key="param_rise")
+            with col3:
+                params['width'] = st.number_input("Width between beams (m)", value=6.0, step=0.5, key="param_width")
+        
+        elif structure_type == "Single Pole":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                params['height'] = st.number_input("Height (m)", value=8.0, step=0.5, key="param_height")
+            with col2:
+                params['radius'] = st.number_input("Canopy Radius (m)", value=5.0, step=0.5, key="param_radius")
+            with col3:
+                params['tilt'] = st.number_input("Tilt Angle (degrees)", value=0.0, step=1.0, key="param_tilt")
+        
+        elif structure_type == "Canopy":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                params['length'] = st.number_input("Length (m)", value=10.0, step=0.5, key="param_length")
+            with col2:
+                params['width'] = st.number_input("Width (m)", value=8.0, step=0.5, key="param_width")
+            with col3:
+                params['height'] = st.number_input("Height (m)", value=4.0, step=0.5, key="param_height")
+        
+        elif structure_type == "Sail Structure":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                params['span'] = st.number_input("Span (m)", value=12.0, step=0.5, key="param_span")
+            with col2:
+                params['n_anchors'] = st.number_input("Number of Anchors", value=4, step=1, min_value=3, max_value=12, key="param_anchors")
+            with col3:
+                params['height'] = st.number_input("Height (m)", value=5.0, step=0.5, key="param_height")
+        
+        st.caption("📐 These parameters define the primary geometry of the structure.")
         
         submitted = st.form_submit_button("📤 Generate 3D Model", type="primary")
         if submitted:
@@ -803,10 +919,8 @@ elif st.session_state.stage == 2:
             else:
                 st.session_state.design_parameters = {
                     'description': description,
-                    'span': span,
-                    'rise': rise,
-                    'width': width,
-                    'height': 0  # placeholder for columns
+                    'structure_type': structure_type,
+                    **params
                 }
                 st.session_state.iteration_count = 0
                 st.session_state.feedback_history = []
@@ -831,15 +945,20 @@ elif st.session_state.stage == 2.5:
         st.success("✅ Progress saved!")
     
     params = st.session_state.design_parameters
-    span = params.get('span', 15.0)
-    rise = params.get('rise', 6.5)
-    width = params.get('width', 6.0)
-    height = params.get('height', 0)
+    structure_type = params.get('structure_type', 'Saddle Span')
+    
+    param_display = []
+    for key, value in params.items():
+        if key not in ['description', 'structure_type']:
+            if isinstance(value, (int, float)):
+                param_display.append(f"{key} = {value:.1f}")
+            else:
+                param_display.append(f"{key} = {value}")
     
     st.markdown(f"""
     <div style="background-color: #2A2A2A; padding: 16px; border-radius: 8px; margin-bottom: 16px;">
-        <strong style="color: #FFFFFF;">📐 Design Parameters:</strong><br>
-        <span style="color: #D0D0D0;">Span = {span:.1f}m | Rise = {rise:.1f}m | Width = {width:.1f}m</span>
+        <strong style="color: #FFFFFF;">📐 {structure_type}</strong><br>
+        <span style="color: #D0D0D0;">{', '.join(param_display)}</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -847,8 +966,8 @@ elif st.session_state.stage == 2.5:
     selected_view = st.radio("View Mode", view_modes, horizontal=True, key="view_mode_25")
     
     with st.spinner("Building 3D model..."):
-        geometry = generate_geometry(span, rise, width, height)
-        fig = plot_geometry(geometry, selected_view)
+        geometry = generate_geometry(structure_type, params)
+        fig = plot_flexible_geometry(geometry, selected_view)
         st.plotly_chart(fig, use_container_width=True, key="design_3d")
     
     st.info("✅ 3D model generated. Use the controls above to change view.")
@@ -857,20 +976,46 @@ elif st.session_state.stage == 2.5:
     st.subheader("🔄 Refine Design")
     st.caption("Make adjustments to the design parameters.")
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        new_span = st.number_input("Span (m)", value=span, step=0.5, key="refine_span")
-    with col2:
-        new_rise = st.number_input("Rise (m)", value=rise, step=0.5, key="refine_rise")
-    with col3:
-        new_width = st.number_input("Width (m)", value=width, step=0.5, key="refine_width")
+    ref_params = {}
+    cols = st.columns(3)
+    
+    if structure_type == "Saddle Span":
+        with cols[0]:
+            ref_params['span'] = st.number_input("Span (m)", value=params.get('span', 15.0), step=0.5, key="ref_span")
+        with cols[1]:
+            ref_params['rise'] = st.number_input("Rise (m)", value=params.get('rise', 6.5), step=0.5, key="ref_rise")
+        with cols[2]:
+            ref_params['width'] = st.number_input("Width (m)", value=params.get('width', 6.0), step=0.5, key="ref_width")
+    
+    elif structure_type == "Single Pole":
+        with cols[0]:
+            ref_params['height'] = st.number_input("Height (m)", value=params.get('height', 8.0), step=0.5, key="ref_height")
+        with cols[1]:
+            ref_params['radius'] = st.number_input("Radius (m)", value=params.get('radius', 5.0), step=0.5, key="ref_radius")
+        with cols[2]:
+            ref_params['tilt'] = st.number_input("Tilt (deg)", value=params.get('tilt', 0.0), step=1.0, key="ref_tilt")
+    
+    elif structure_type == "Canopy":
+        with cols[0]:
+            ref_params['length'] = st.number_input("Length (m)", value=params.get('length', 10.0), step=0.5, key="ref_length")
+        with cols[1]:
+            ref_params['width'] = st.number_input("Width (m)", value=params.get('width', 8.0), step=0.5, key="ref_width")
+        with cols[2]:
+            ref_params['height'] = st.number_input("Height (m)", value=params.get('height', 4.0), step=0.5, key="ref_height")
+    
+    elif structure_type == "Sail Structure":
+        with cols[0]:
+            ref_params['span'] = st.number_input("Span (m)", value=params.get('span', 12.0), step=0.5, key="ref_span")
+        with cols[1]:
+            ref_params['n_anchors'] = st.number_input("Anchors", value=params.get('n_anchors', 4), step=1, min_value=3, max_value=12, key="ref_anchors")
+        with cols[2]:
+            ref_params['height'] = st.number_input("Height (m)", value=params.get('height', 5.0), step=0.5, key="ref_height")
     
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🔄 Update Model", type="primary"):
-            st.session_state.design_parameters['span'] = new_span
-            st.session_state.design_parameters['rise'] = new_rise
-            st.session_state.design_parameters['width'] = new_width
+            for key, value in ref_params.items():
+                st.session_state.design_parameters[key] = value
             st.session_state.round += 1
             save_design_state(st.session_state.project_id)
             st.success("✅ Parameters updated! Rebuilding model...")
