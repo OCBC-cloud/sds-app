@@ -15,11 +15,13 @@ from io import BytesIO
 import numpy as np
 import re
 
-# --- Initialize Session State (BEFORE page config) ---
+# ============================================================================
+# Page Configuration & Session State
+# ============================================================================
+
 if 'fullscreen' not in st.session_state:
     st.session_state.fullscreen = False
 
-# --- Page Configuration ---
 st.set_page_config(
     page_title="SDS Design Portal",
     page_icon="🏗️",
@@ -27,10 +29,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Custom Dark Theme CSS + Fullscreen Support ---
+# ============================================================================
+# Custom Dark Theme CSS + Fullscreen Support
+# ============================================================================
+
 st.markdown("""
 <style>
-    /* Base dark theme */
     .stApp { background-color: #1E1E1E; }
     .css-1d391kg { background-color: #2A2A2A; }
     .stTextInput label, .stTextArea label, .stNumberInput label, 
@@ -97,12 +101,18 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Supabase Credentials ---
+# ============================================================================
+# Supabase Setup
+# ============================================================================
+
 SUPABASE_URL = "https://pcijgufnjeijqqywubpu.supabase.co"
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Initialize Session State ---
+# ============================================================================
+# Session State Initialization
+# ============================================================================
+
 if 'stage' not in st.session_state:
     st.session_state.stage = 0
 if 'project_id' not in st.session_state:
@@ -129,7 +139,6 @@ if 'iteration_count' not in st.session_state:
     st.session_state.iteration_count = 0
 if 'feedback_history' not in st.session_state:
     st.session_state.feedback_history = []
-# AI Bridge
 if 'ai_bridge_response' not in st.session_state:
     st.session_state.ai_bridge_response = ''
 if 'ai_bridge_prompt' not in st.session_state:
@@ -139,7 +148,10 @@ if 'design_brief' not in st.session_state:
 if 'design_brief_confirmed' not in st.session_state:
     st.session_state.design_brief_confirmed = False
 
-# --- Helper Functions ---
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
 def clear_stage_fields(stage):
     keys_to_clear = []
     if stage == 1:
@@ -157,7 +169,6 @@ def load_project(project_id, iteration_id, stage):
     st.session_state.project_id = project_id
     st.session_state.iteration_id = iteration_id
     st.session_state.stage = stage
-    # Load design state from database
     try:
         result = supabase.table('projects').select('design_state').eq('id', project_id).execute()
         if result.data and result.data[0].get('design_state'):
@@ -255,7 +266,10 @@ def export_images_zip(project_id):
     except Exception as e:
         return None, str(e)
 
-# --- AI Consultant Prompt Generator ---
+# ============================================================================
+# AI Consultant – Prompt Generator & Parser
+# ============================================================================
+
 def generate_ai_consultant_prompt(description, parameters):
     typology = parameters.get('typology', 'Saddle Span')
     A = parameters.get('A', 10.0)
@@ -314,7 +328,6 @@ Understand the user's design and produce a complete Design Brief in JSON format.
 **OUTPUT ONLY THE JSON OBJECT. NO OTHER TEXT.**"""
     return prompt
 
-# --- Smarter Parser: Extracts JSON from any text ---
 def parse_design_brief(response_text):
     """Extract and parse JSON from AI response."""
     try:
@@ -328,7 +341,10 @@ def parse_design_brief(response_text):
     except json.JSONDecodeError as e:
         return None, f"JSON parsing error: {str(e)}. Please check the format."
 
-# --- Parametric 3D Engine (Saddle Span) ---
+# ============================================================================
+# Parametric 3D Engine (Saddle Span)
+# ============================================================================
+
 def generate_saddle_span_geometry(A, B, LAA, num_points=30):
     x1 = np.linspace(-LAA/2, LAA/2, num_points)
     z1 = A * (1 - (2 * x1 / LAA)**2)
@@ -421,65 +437,41 @@ def plot_saddle_span_geometry(geometry, view_mode='3D'):
     )
     return fig
 
-# --- App Title with Full-Screen Toggle ---
-# Top bar with title and full-screen button
+# ============================================================================
+# App Layout – Title + Fullscreen Toggle
+# ============================================================================
+
 col_title, col_fs = st.columns([4, 1])
 with col_title:
     st.title("🏗️ SDS Design Portal")
     st.caption("Tensile Membrane Structure Design | Multi-Stage Input Portal")
 with col_fs:
-    # Full-screen toggle button
     if st.button("⛶ Full Screen" if not st.session_state.fullscreen else "⛶ Normal", key="fullscreen_toggle"):
         st.session_state.fullscreen = not st.session_state.fullscreen
         st.rerun()
 
-# --- Inject CSS to control sidebar visibility based on fullscreen state ---
 if st.session_state.fullscreen:
     st.markdown("""
     <style>
-        /* Hide sidebar */
-        section[data-testid="stSidebar"] {
-            display: none !important;
-        }
-        /* Expand main content */
-        .main {
-            max-width: 100% !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-        }
-        /* Remove sidebar gap */
-        .stApp {
-            margin-left: 0 !important;
-        }
-        /* Center content */
-        .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 1rem !important;
-            max-width: 100% !important;
-        }
-        /* Fix the title bar position */
-        .st-emotion-cache-1v0mbdj {
-            padding-top: 0.5rem !important;
-        }
+        section[data-testid="stSidebar"] { display: none !important; }
+        .main { max-width: 100% !important; padding-left: 1rem !important; padding-right: 1rem !important; }
+        .stApp { margin-left: 0 !important; }
+        .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; max-width: 100% !important; }
+        .st-emotion-cache-1v0mbdj { padding-top: 0.5rem !important; }
     </style>
     """, unsafe_allow_html=True)
 else:
-    # Default sidebar visible
     st.markdown("""
     <style>
-        /* Ensure sidebar is visible by default */
-        section[data-testid="stSidebar"] {
-            display: block !important;
-        }
-        /* Normal content width */
-        .block-container {
-            max-width: 1200px !important;
-            padding-top: 2rem !important;
-        }
+        section[data-testid="stSidebar"] { display: block !important; }
+        .block-container { max-width: 1200px !important; padding-top: 2rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- STAGE 0: PROJECT DASHBOARD ---
+# ============================================================================
+# STAGE 0: PROJECT DASHBOARD
+# ============================================================================
+
 if st.session_state.stage == 0:
     st.subheader("📋 Project Dashboard")
     
@@ -510,7 +502,7 @@ if st.session_state.stage == 0:
                         elif state.get('confirmed', False):
                             stage = 2.8
                         elif state.get('iteration_count', 0) > 0:
-                            stage = 2.6
+                            stage = 2.5
                         else:
                             stage = 2
                         load_project(proj['id'], None, stage)
@@ -552,7 +544,10 @@ if st.session_state.stage == 0:
         st.session_state.stage = 1
         st.rerun()
 
-# --- STAGE 1: Project Registration ---
+# ============================================================================
+# STAGE 1: PROJECT REGISTRATION
+# ============================================================================
+
 elif st.session_state.stage == 1:
     st.subheader("📋 Project Registration")
     if st.button("⬅️ Back to Dashboard"):
@@ -596,7 +591,10 @@ elif st.session_state.stage == 1:
                     except Exception as e:
                         st.error(f"❌ Registration error: {str(e)}")
 
-# --- STAGE 2: Design Input ---
+# ============================================================================
+# STAGE 2: DESIGN INPUT
+# ============================================================================
+
 elif st.session_state.stage == 2:
     st.subheader("📐 Design Input")
     if st.button("⬅️ Back to Dashboard"):
@@ -647,7 +645,10 @@ elif st.session_state.stage == 2:
                 st.session_state.stage = 2.5
                 st.rerun()
 
-# --- STAGE 2.5: AI Consultant ---
+# ============================================================================
+# STAGE 2.5: AI CONSULTANT (Option B – Platform Selector + Fallback)
+# ============================================================================
+
 elif st.session_state.stage == 2.5:
     st.subheader("🧠 AI Consultant")
     if st.button("⬅️ Back to Design Input"):
@@ -662,7 +663,14 @@ elif st.session_state.stage == 2.5:
     """, unsafe_allow_html=True)
     
     st.markdown("### 🤖 AI Consultant")
-    st.caption("Copy this prompt to your AI agent (DeepSeek, ChatGPT, Kimi, Claude, Gemini). The AI will output a Design Brief in JSON format.")
+    st.caption("Select your preferred AI platform. The app will try to open it with the pre-filled prompt.")
+    
+    # AI Platform Selector
+    ai_platform = st.selectbox(
+        "Select your AI platform:",
+        ["DeepSeek", "ChatGPT", "Kimi", "Claude", "Gemini", "Manual (Copy-Paste)"],
+        key="ai_platform"
+    )
     
     st.info(f"🔄 Iteration {st.session_state.iteration_count + 1}")
     
@@ -671,19 +679,43 @@ elif st.session_state.stage == 2.5:
         for i, fb in enumerate(st.session_state.feedback_history):
             st.caption(f"Iteration {i+1}: {fb[:100]}...")
     
+    # Generate the prompt
     prompt = st.session_state.ai_bridge_prompt
-    st.text_area("AI Consultant Prompt", prompt, height=250, key="ai_prompt_display")
     
-    col1, col2 = st.columns(2)
+    # Deep link generation based on platform
+    deep_links = {
+        "DeepSeek": f"https://chat.deepseek.com/?q={prompt[:2000]}",
+        "ChatGPT": f"https://chat.openai.com/?q={prompt[:2000]}",
+        "Kimi": f"https://kimi.moonshot.cn/?q={prompt[:2000]}",
+        "Claude": f"https://claude.ai/new?q={prompt[:2000]}",
+        "Gemini": f"https://gemini.google.com/?q={prompt[:2000]}",
+        "Manual (Copy-Paste)": None
+    }
+    
+    col1, col2 = st.columns([1, 1])
     with col1:
+        if st.button("🚀 Open AI Platform", type="primary"):
+            if ai_platform == "Manual (Copy-Paste)":
+                st.info("📝 Manual mode selected. Please copy the prompt and paste it into your AI.")
+            else:
+                link = deep_links.get(ai_platform)
+                if link:
+                    st.markdown(f"[🔗 Click here to open {ai_platform}]({link})")
+                    st.caption("✅ Click the link above to open the AI platform with the pre-filled prompt.")
+                    st.caption("💡 After you get the response, copy it and return to this page. Then paste it below.")
+    
+    with col2:
         if st.button("📋 Copy Prompt", key="copy_prompt"):
             st.code(prompt, language="text")
             st.caption("✅ Prompt copied! You can highlight and copy from the box above.")
     
+    # Show the prompt
+    st.text_area("AI Consultant Prompt", prompt, height=200, key="ai_prompt_display")
+    
     st.markdown("---")
-    st.markdown("### 📥 Paste AI Response")
-    st.caption("After your AI outputs the Design Brief, paste the response here:")
-    ai_response = st.text_area("AI Response", placeholder="Paste the AI's response here...", height=200, key="ai_response_input")
+    st.markdown("### 📥 Paste AI Response (Manual Fallback)")
+    st.caption("If the auto-detection doesn't work, paste the AI's response here manually:")
+    ai_response = st.text_area("AI Response", placeholder="Paste the AI's response here...", height=150, key="ai_response_input")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -727,7 +759,10 @@ elif st.session_state.stage == 2.5:
         st.session_state.stage = 2.7
         st.rerun()
 
-# --- STAGE 2.6: Provide Feedback ---
+# ============================================================================
+# STAGE 2.6: PROVIDE FEEDBACK
+# ============================================================================
+
 elif st.session_state.stage == 2.6:
     st.subheader("📝 Provide Feedback")
     if st.button("⬅️ Back to AI Consultant"):
@@ -757,7 +792,10 @@ elif st.session_state.stage == 2.6:
         else:
             st.error("❌ Please enter feedback.")
 
-# --- STAGE 2.7: Confirm Design Brief ---
+# ============================================================================
+# STAGE 2.7: CONFIRM DESIGN BRIEF
+# ============================================================================
+
 elif st.session_state.stage == 2.7:
     st.subheader("📋 Review Design Brief")
     if st.button("⬅️ Back to AI Consultant"):
@@ -786,7 +824,10 @@ elif st.session_state.stage == 2.7:
     else:
         st.warning("No Design Brief found. Please go back to AI Consultant.")
 
-# --- STAGE 2.8: Parametric 3D Model ---
+# ============================================================================
+# STAGE 2.8: PARAMETRIC 3D MODEL
+# ============================================================================
+
 elif st.session_state.stage == 2.8:
     st.subheader("🏗️ Parametric 3D Model")
     if st.button("⬅️ Back to Design Brief"):
@@ -843,7 +884,10 @@ elif st.session_state.stage == 2.8:
         st.session_state.stage = 3
         st.rerun()
 
-# --- STAGE 2.9: Redesign & Refinement ---
+# ============================================================================
+# STAGE 2.9: REDESIGN & REFINEMENT
+# ============================================================================
+
 elif st.session_state.stage == 2.9:
     st.subheader("📐 Redesign & Refinement")
     if st.button("⬅️ Back to 3D Model"):
@@ -885,7 +929,10 @@ elif st.session_state.stage == 2.9:
             st.rerun()
     st.warning("⚠️ Refinements will regenerate the 3D model with new parameters.")
 
-# --- STAGE 3: Collaboration ---
+# ============================================================================
+# STAGE 3: COLLABORATION
+# ============================================================================
+
 elif st.session_state.stage == 3:
     st.subheader("💬 Collaboration")
     if st.button("⬅️ Back to Dashboard"):
@@ -921,7 +968,10 @@ elif st.session_state.stage == 3:
             st.session_state.stage = 5
             st.rerun()
 
-# --- STAGE 5: Concept Freeze ---
+# ============================================================================
+# STAGE 5: CONCEPT FREEZE
+# ============================================================================
+
 elif st.session_state.stage == 5:
     st.subheader("📌 Freeze Concept")
     if st.button("⬅️ Back to Dashboard"):
@@ -953,7 +1003,10 @@ elif st.session_state.stage == 5:
                 del st.session_state[key]
             st.rerun()
 
-# --- Footer ---
+# ============================================================================
+# FOOTER
+# ============================================================================
+
 st.divider()
 st.caption("🧬 Knowledge may evolve. 🌱 Identity shall remain.")
 st.caption("SDS Chamber 002 – Tensile Membrane Design Portal (Phase 1.1 POC)")
