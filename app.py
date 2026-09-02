@@ -522,6 +522,21 @@ def generate_geometry_from_brief(brief):
                 'section': beam.get('section', 'CHS 219 x 6.3'),
                 'height': height
             })
+        elif beam.get('type') == 'curved' and beam.get('curve') == 'path':
+            path = beam.get('path', [])
+            if len(path) >= 2:
+                x = [p[0] for p in path]
+                y = [p[1] for p in path]
+                z = [p[2] for p in path]
+                geometry['beams'].append({
+                    'id': beam.get('id', 'B1'),
+                    'x': x,
+                    'y': y,
+                    'z': z,
+                    'material': beam.get('material', 'Steel'),
+                    'section': beam.get('section', 'CHS 219 x 6.3'),
+                    'height': max(z) if z else 0
+                })
     
     for support in elements.get('supports', []):
         geometry['supports'].append({
@@ -575,6 +590,12 @@ def generate_geometry_from_brief(brief):
                     'prestress': membrane.get('prestress', '3.0 kN/m')
                 })
     
+    for anchor in elements.get('anchors', []):
+        geometry['anchors'].append({
+            'position': anchor.get('position', [0, 0, 0]),
+            'type': anchor.get('type', 'base plate')
+        })
+    
     return geometry
 
 def plot_geometry(geometry, view_mode='3D'):
@@ -597,7 +618,7 @@ def plot_geometry(geometry, view_mode='3D'):
         fig.add_trace(go.Scatter3d(
             x=[pos[0]], y=[pos[1]], z=[pos[2]],
             mode='markers',
-            marker=dict(color='#4ECDC4', size=10, symbol='circle'),
+            marker=dict(color='#4ECDC4', size=12, symbol='circle'),
             name=f"Support {i+1}"
         ))
     
@@ -611,6 +632,15 @@ def plot_geometry(geometry, view_mode='3D'):
             mode='lines',
             line=dict(color='#8B8B8B', width=6),
             name=f"Column {i+1}"
+        ))
+    
+    for i, anchor in enumerate(geometry['anchors']):
+        pos = anchor['position']
+        fig.add_trace(go.Scatter3d(
+            x=[pos[0]], y=[pos[1]], z=[pos[2]],
+            mode='markers',
+            marker=dict(color='#FFD93D', size=8, symbol='star'),
+            name=f"Anchor {i+1}"
         ))
     
     for membrane in geometry['membranes']:
@@ -1128,26 +1158,77 @@ elif st.session_state.stage == 2.5:
             st.rerun()
 
 # ============================================================================
-# STAGE 2.6: MANUAL FALLBACK
+# STAGE 2.6: MANUAL FALLBACK (with Copy + Auto-Paste)
 # ============================================================================
 
 elif st.session_state.stage == 2.6:
-    st.subheader("📝 Manual Fallback")
+    st.subheader("📝 Manual Design Brief")
     if st.button("⬅️ Back to Design Interpretation"):
         st.session_state.stage = 2.5
         st.rerun()
     
-    st.caption("Copy the prompt below, paste it into your preferred design tool, and paste the response back.")
+    st.markdown("""
+    <div style="background-color: #2A3A4A; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #00B4D8;">
+        <strong style="color: #FFFFFF;">📋 How It Works</strong><br>
+        <span style="color: #D0D0D0;">1. Copy the prompt → 2. Paste it into your design tool → 3. Copy the response → 4. Paste it back here</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Step 1: Copy Prompt
+    st.markdown("### 📋 Step 1: Copy the Prompt")
     prompt = st.session_state.ai_bridge_prompt
-    st.text_area("Design Prompt", prompt, height=200, key="ai_prompt_fallback")
+    st.text_area("Design Prompt", prompt, height=200, key="ai_prompt_fallback", disabled=True)
+    
     col1, col2 = st.columns(2)
     with col1:
         if st.button("📋 Copy Prompt", key="copy_prompt_fallback"):
             st.code(prompt, language="text")
-            st.caption("✅ Prompt copied!")
+            st.caption("✅ Prompt copied! You can highlight and copy from the box above.")
+    
     st.markdown("---")
-    st.markdown("### 📥 Paste Design Brief")
-    response = st.text_area("Design Brief Response", placeholder="Paste the design brief response here...", height=150, key="ai_response_fallback")
+    
+    # Step 2: Paste Response
+    st.markdown("### 📋 Step 2: Paste the Design Brief")
+    st.caption("Paste the JSON response from your design tool here.")
+    
+    response = st.text_area(
+        "Design Brief Response",
+        placeholder="Paste the JSON response here...",
+        height=150,
+        key="ai_response_fallback"
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📋 Copy Design Brief", key="copy_response"):
+            if response:
+                st.code(response, language="json")
+                st.caption("✅ Design Brief copied! You can highlight and copy from the box above.")
+            else:
+                st.warning("⚠️ No response to copy. Please paste the JSON first.")
+    
+    with col2:
+        if st.button("📋 Paste Response", key="paste_response"):
+            st.markdown("""
+            <script>
+            navigator.clipboard.readText().then(text => {
+                const textareas = document.querySelectorAll('textarea');
+                for (let textarea of textareas) {
+                    if (textarea.placeholder && textarea.placeholder.includes('Paste the JSON response here')) {
+                        textarea.value = text;
+                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                        break;
+                    }
+                }
+            }).catch(err => {
+                alert('Could not paste from clipboard. Please paste manually.');
+            });
+            </script>
+            """, unsafe_allow_html=True)
+            st.caption("✅ Paste attempt triggered. If it doesn't work, please paste manually (Ctrl+V / Cmd+V).")
+    
+    st.markdown("---")
+    
     if st.button("🔄 Process Design Brief", type="primary"):
         if response:
             data, error = parse_design_brief(response)
@@ -1162,8 +1243,53 @@ elif st.session_state.stage == 2.6:
                 st.rerun()
             else:
                 st.error(f"❌ Error parsing Design Brief: {error}")
+                st.info("💡 Please ensure the response is valid JSON.")
         else:
-            st.error("❌ Please paste the design brief response.")
+            st.error("❌ Please paste the design brief response first.")
+    
+    st.markdown("---")
+    st.caption("💡 If you need a reference, here is the expected JSON structure:")
+    with st.expander("📋 JSON Structure Reference"):
+        st.code("""
+{
+  "version": "1.0",
+  "project": {
+    "name": "Project Name",
+    "description": "Design description",
+    "images": []
+  },
+  "elements": {
+    "beams": [
+      {
+        "id": "B1",
+        "type": "curved",
+        "curve": "parabolic",
+        "path": [[-10, 0, 0], [0, 0, 6], [10, 0, 0]],
+        "material": "Steel",
+        "section": "CHS 219 x 6.3",
+        "finish": "Galvanized"
+      }
+    ],
+    "supports": [
+      {"position": [-10, 0, 0], "type": "pinned"}
+    ],
+    "columns": [],
+    "membranes": [
+      {
+        "id": "M1",
+        "type": "saddle",
+        "attachments": ["B1", "B2"],
+        "material": "PVC-coated polyester",
+        "thickness": "0.8 mm",
+        "prestress": "3.0 kN/m"
+      }
+    ],
+    "anchors": [
+      {"position": [-10, 0, 0], "type": "base plate with 4 bolts"}
+    ]
+  }
+}
+        """, language="json")
 
 # ============================================================================
 # STAGE 3.0: 3D MODEL + REFINEMENT
