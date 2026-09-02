@@ -14,7 +14,7 @@ import zipfile
 from io import BytesIO
 import numpy as np
 import re
-import requests  # For API calls
+import requests
 
 # ============================================================================
 # Page Configuration & Session State
@@ -31,7 +31,7 @@ st.set_page_config(
 )
 
 # ============================================================================
-# Custom Dark Theme CSS + Fullscreen Support
+# Custom Dark Theme CSS
 # ============================================================================
 
 st.markdown("""
@@ -92,6 +92,13 @@ st.markdown("""
     }
     .project-card strong { color: #FFFFFF !important; }
     .project-card span { color: #B0B0B0 !important; }
+    .load-options-card {
+        background-color: #2A3A4A;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #4A6A7A;
+        margin-bottom: 16px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -143,6 +150,20 @@ if 'design_brief_confirmed' not in st.session_state:
     st.session_state.design_brief_confirmed = False
 if 'is_loading' not in st.session_state:
     st.session_state.is_loading = False
+if 'project_name' not in st.session_state:
+    st.session_state.project_name = ''
+if 'client_name' not in st.session_state:
+    st.session_state.client_name = ''
+if 'main_contractor' not in st.session_state:
+    st.session_state.main_contractor = ''
+if 'contact_phone' not in st.session_state:
+    st.session_state.contact_phone = ''
+if 'contact_email' not in st.session_state:
+    st.session_state.contact_email = ''
+if 'project_date' not in st.session_state:
+    st.session_state.project_date = datetime.now().date()
+if 'load_options' not in st.session_state:
+    st.session_state.load_options = None
 
 # ============================================================================
 # Helper Functions
@@ -166,9 +187,17 @@ def load_project(project_id, iteration_id, stage):
     st.session_state.iteration_id = iteration_id
     st.session_state.stage = stage
     try:
-        result = supabase.table('projects').select('design_state').eq('id', project_id).execute()
-        if result.data and result.data[0].get('design_state'):
-            state = result.data[0]['design_state']
+        result = supabase.table('projects').select('*').eq('id', project_id).execute()
+        if result.data:
+            data = result.data[0]
+            st.session_state.project_name = data.get('name', '')
+            st.session_state.client_name = data.get('client_name', '')
+            st.session_state.main_contractor = data.get('main_contractor', '')
+            st.session_state.contact_phone = data.get('contact_phone', '')
+            st.session_state.contact_email = data.get('contact_email', '')
+            st.session_state.project_date = data.get('project_date', datetime.now().date())
+            
+            state = data.get('design_state', {})
             if isinstance(state, dict):
                 st.session_state.design_parameters = state.get('parameters', {})
                 st.session_state.iteration_count = state.get('iteration_count', 0)
@@ -176,6 +205,7 @@ def load_project(project_id, iteration_id, stage):
                 st.session_state.design_brief = state.get('design_brief', None)
                 st.session_state.design_brief_confirmed = state.get('confirmed', False)
                 st.session_state.frozen = state.get('frozen', False)
+                st.session_state.ai_bridge_prompt = state.get('ai_prompt', '')
     except Exception as e:
         pass
     st.rerun()
@@ -196,12 +226,26 @@ def save_design_state(project_id):
         'design_brief': st.session_state.design_brief,
         'confirmed': st.session_state.design_brief_confirmed,
         'frozen': st.session_state.frozen,
+        'ai_prompt': st.session_state.ai_bridge_prompt,
         'last_modified': datetime.now().isoformat()
     }
     try:
         supabase.table('projects').update({'design_state': state}).eq('id', project_id).execute()
     except Exception as e:
         st.error(f"❌ Error saving design state: {str(e)}")
+
+def save_project_metadata(project_id):
+    try:
+        supabase.table('projects').update({
+            'name': st.session_state.project_name,
+            'client_name': st.session_state.client_name,
+            'main_contractor': st.session_state.main_contractor,
+            'contact_phone': st.session_state.contact_phone,
+            'contact_email': st.session_state.contact_email,
+            'project_date': str(st.session_state.project_date)
+        }).eq('id', project_id).execute()
+    except Exception as e:
+        st.error(f"❌ Error saving project metadata: {str(e)}")
 
 def unlock_project(project_id):
     try:
@@ -211,6 +255,25 @@ def unlock_project(project_id):
         st.rerun()
     except Exception as e:
         st.error(f"❌ Error unlocking project: {str(e)}")
+
+def delete_design_data(project_id):
+    """Delete all design data from the project (keep metadata)."""
+    try:
+        # Reset design state
+        supabase.table('projects').update({'design_state': {}}).eq('id', project_id).execute()
+        # Reset session state
+        st.session_state.design_parameters = {}
+        st.session_state.iteration_count = 0
+        st.session_state.feedback_history = []
+        st.session_state.design_brief = None
+        st.session_state.design_brief_confirmed = False
+        st.session_state.frozen = False
+        st.session_state.ai_bridge_prompt = ''
+        st.session_state.ai_bridge_response = ''
+        st.success("✅ All design data deleted. Project metadata preserved.")
+        st.rerun()
+    except Exception as e:
+        st.error(f"❌ Error deleting design data: {str(e)}")
 
 def export_project_json(project_id, project_name):
     try:
@@ -521,18 +584,15 @@ if st.session_state.stage == 0:
                     <span>Status: {status} | Iterations: {state.get('iteration_count', 0)}</span>
                 </div>
                 """, unsafe_allow_html=True)
-                cols = st.columns([1, 1, 1, 1])
+                
+                # Load Options – With User Control
+                cols = st.columns([1, 1, 1, 1, 1])
                 with cols[0]:
                     if st.button("📂 Load", key=f"load_{proj['id']}"):
-                        if state.get('frozen', False):
-                            stage = 5
-                        elif state.get('confirmed', False):
-                            stage = 2.8
-                        elif state.get('iteration_count', 0) > 0:
-                            stage = 2.5
-                        else:
-                            stage = 2
-                        load_project(proj['id'], None, stage)
+                        st.session_state.load_project_id = proj['id']
+                        st.session_state.load_project_name = proj['name']
+                        st.session_state.stage = 0.5  # Load Options Stage
+                        st.rerun()
                 with cols[1]:
                     if st.button("🔓 Unlock", key=f"unlock_{proj['id']}"):
                         unlock_project(proj['id'])
@@ -550,16 +610,17 @@ if st.session_state.stage == 0:
                 with cols[3]:
                     if st.button("🗑️", key=f"delete_{proj['id']}"):
                         delete_project(proj['id'])
-                if st.button("🖼️ Export Images (ZIP)", key=f"export_images_{proj['id']}"):
-                    zip_data, error = export_images_zip(proj['id'])
-                    if zip_data:
-                        st.download_button(
-                            label="⬇️ Download Images ZIP",
-                            data=zip_data,
-                            file_name=f"{proj['name']}_images.zip",
-                            mime="application/zip",
-                            key=f"download_zip_{proj['id']}"
-                        )
+                with cols[4]:
+                    if st.button("🖼️ Export Images", key=f"export_images_{proj['id']}"):
+                        zip_data, error = export_images_zip(proj['id'])
+                        if zip_data:
+                            st.download_button(
+                                label="⬇️ Download Images ZIP",
+                                data=zip_data,
+                                file_name=f"{proj['name']}_images.zip",
+                                mime="application/zip",
+                                key=f"download_zip_{proj['id']}"
+                            )
                 st.divider()
         else:
             st.info("No projects found. Create your first project below.")
@@ -570,6 +631,219 @@ if st.session_state.stage == 0:
     if st.button("📤 New Project", type="primary"):
         st.session_state.stage = 1
         st.rerun()
+
+# ============================================================================
+# STAGE 0.5: LOAD OPTIONS (User-Controlled Restoration)
+# ============================================================================
+
+elif st.session_state.stage == 0.5:
+    st.subheader("📂 Load Project Options")
+    
+    if st.button("⬅️ Back to Dashboard"):
+        st.session_state.stage = 0
+        st.rerun()
+    
+    project_id = st.session_state.get('load_project_id', None)
+    project_name = st.session_state.get('load_project_name', 'Unknown Project')
+    
+    if not project_id:
+        st.error("Project ID not found. Please go back and try again.")
+        st.session_state.stage = 0
+        st.rerun()
+    
+    st.markdown(f"""
+    <div class="load-options-card">
+        <strong style="color: #FFFFFF;">📂 Project: {project_name}</strong><br>
+        <span style="color: #D0D0D0;">Choose how you want to load this project.</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### 🔄 What would you like to do?")
+    
+    # Option 1: Continue
+    with st.container():
+        st.markdown("**1. Continue from where you left off**")
+        st.caption("Restore all data – description, parameters, AI prompts, Design Brief, 3D model, feedback history.")
+        if st.button("✅ Continue", key="load_continue"):
+            # Load all data
+            try:
+                result = supabase.table('projects').select('*').eq('id', project_id).execute()
+                if result.data:
+                    data = result.data[0]
+                    state = data.get('design_state', {})
+                    st.session_state.project_id = project_id
+                    st.session_state.project_name = data.get('name', '')
+                    st.session_state.client_name = data.get('client_name', '')
+                    st.session_state.main_contractor = data.get('main_contractor', '')
+                    st.session_state.contact_phone = data.get('contact_phone', '')
+                    st.session_state.contact_email = data.get('contact_email', '')
+                    st.session_state.project_date = data.get('project_date', datetime.now().date())
+                    
+                    if isinstance(state, dict):
+                        st.session_state.design_parameters = state.get('parameters', {})
+                        st.session_state.iteration_count = state.get('iteration_count', 0)
+                        st.session_state.feedback_history = state.get('feedback_history', [])
+                        st.session_state.design_brief = state.get('design_brief', None)
+                        st.session_state.design_brief_confirmed = state.get('confirmed', False)
+                        st.session_state.frozen = state.get('frozen', False)
+                        st.session_state.ai_bridge_prompt = state.get('ai_prompt', '')
+                    
+                    # Determine stage
+                    if state.get('frozen', False):
+                        stage = 5
+                    elif state.get('confirmed', False):
+                        stage = 2.9
+                    elif state.get('iteration_count', 0) > 0:
+                        stage = 2.5
+                    else:
+                        stage = 2
+                    
+                    st.session_state.stage = stage
+                    st.success("✅ Project loaded successfully!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error loading project: {str(e)}")
+    
+    st.markdown("---")
+    
+    # Option 2: Start Fresh
+    with st.container():
+        st.markdown("**2. Start fresh (keep project name only)**")
+        st.caption("Delete all design data (description, parameters, AI responses, Design Brief, 3D model). Only project metadata will remain.")
+        st.warning("⚠️ This action cannot be undone.")
+        if st.button("🔄 Start Fresh", key="load_fresh"):
+            # Delete design data, keep metadata
+            try:
+                supabase.table('projects').update({'design_state': {}}).eq('id', project_id).execute()
+                
+                # Reset session state
+                st.session_state.project_id = project_id
+                st.session_state.design_parameters = {}
+                st.session_state.iteration_count = 0
+                st.session_state.feedback_history = []
+                st.session_state.design_brief = None
+                st.session_state.design_brief_confirmed = False
+                st.session_state.frozen = False
+                st.session_state.ai_bridge_prompt = ''
+                st.session_state.ai_bridge_response = ''
+                st.session_state.stage = 2
+                st.success("✅ Design data deleted. Starting fresh.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error deleting design data: {str(e)}")
+    
+    st.markdown("---")
+    
+    # Option 3: Choose What to Keep
+    with st.container():
+        st.markdown("**3. Choose what to keep**")
+        st.caption("Select which design data to restore. Unchecked items will be deleted.")
+        
+        # Fetch current design state
+        try:
+            result = supabase.table('projects').select('design_state').eq('id', project_id).execute()
+            current_state = result.data[0].get('design_state', {}) if result.data else {}
+        except:
+            current_state = {}
+        
+        # Check if there is any data
+        has_data = any([
+            current_state.get('parameters', {}),
+            current_state.get('design_brief'),
+            current_state.get('feedback_history', []),
+            current_state.get('ai_prompt'),
+            current_state.get('iteration_count', 0) > 0
+        ])
+        
+        if has_data:
+            with st.form("load_selective"):
+                st.markdown("**Select what to restore:**")
+                
+                keep_description = st.checkbox("📝 Description", value=True, key="keep_description")
+                keep_parameters = st.checkbox("📐 Parameters (A, B, LAA)", value=True, key="keep_parameters")
+                keep_typology = st.checkbox("🏗️ Typology", value=True, key="keep_typology")
+                keep_ai_prompt = st.checkbox("🤖 AI Prompt", value=True, key="keep_ai_prompt")
+                keep_design_brief = st.checkbox("📋 Design Brief", value=True, key="keep_design_brief")
+                keep_feedback = st.checkbox("📝 Feedback History", value=True, key="keep_feedback")
+                
+                st.caption("📌 Project metadata (name, client, contractor, contact info) will always be restored.")
+                
+                if st.form_submit_button("✅ Load Selected", type="primary"):
+                    # Build new state from selected items
+                    new_state = {}
+                    
+                    if keep_description and 'description' in current_state.get('parameters', {}):
+                        new_state['parameters'] = new_state.get('parameters', {})
+                        new_state['parameters']['description'] = current_state['parameters'].get('description')
+                    if keep_parameters:
+                        new_state['parameters'] = new_state.get('parameters', {})
+                        for key in ['A', 'B', 'LAA']:
+                            if key in current_state.get('parameters', {}):
+                                new_state['parameters'][key] = current_state['parameters'][key]
+                    if keep_typology and 'typology' in current_state.get('parameters', {}):
+                        new_state['parameters'] = new_state.get('parameters', {})
+                        new_state['parameters']['typology'] = current_state['parameters'].get('typology')
+                    
+                    if keep_ai_prompt and current_state.get('ai_prompt'):
+                        new_state['ai_prompt'] = current_state['ai_prompt']
+                    
+                    if keep_design_brief and current_state.get('design_brief'):
+                        new_state['design_brief'] = current_state['design_brief']
+                        new_state['confirmed'] = True
+                    
+                    if keep_feedback and current_state.get('feedback_history'):
+                        new_state['feedback_history'] = current_state['feedback_history']
+                    
+                    # Keep iteration count and frozen status
+                    new_state['iteration_count'] = current_state.get('iteration_count', 0)
+                    new_state['frozen'] = current_state.get('frozen', False)
+                    new_state['last_modified'] = datetime.now().isoformat()
+                    
+                    # Update project
+                    supabase.table('projects').update({'design_state': new_state}).eq('id', project_id).execute()
+                    
+                    # Update session state
+                    st.session_state.project_id = project_id
+                    st.session_state.design_parameters = new_state.get('parameters', {})
+                    st.session_state.iteration_count = new_state.get('iteration_count', 0)
+                    st.session_state.feedback_history = new_state.get('feedback_history', [])
+                    st.session_state.design_brief = new_state.get('design_brief', None)
+                    st.session_state.design_brief_confirmed = new_state.get('confirmed', False)
+                    st.session_state.frozen = new_state.get('frozen', False)
+                    st.session_state.ai_bridge_prompt = new_state.get('ai_prompt', '')
+                    
+                    # Determine stage
+                    if new_state.get('frozen', False):
+                        stage = 5
+                    elif new_state.get('confirmed', False):
+                        stage = 2.9
+                    elif new_state.get('iteration_count', 0) > 0:
+                        stage = 2.5
+                    else:
+                        stage = 2
+                    
+                    st.session_state.stage = stage
+                    st.success("✅ Selected data restored successfully!")
+                    st.rerun()
+        else:
+            st.info("📭 No design data found for this project. You can start fresh.")
+            if st.button("📤 Start Fresh", key="load_fresh_empty"):
+                try:
+                    supabase.table('projects').update({'design_state': {}}).eq('id', project_id).execute()
+                    st.session_state.project_id = project_id
+                    st.session_state.design_parameters = {}
+                    st.session_state.iteration_count = 0
+                    st.session_state.feedback_history = []
+                    st.session_state.design_brief = None
+                    st.session_state.design_brief_confirmed = False
+                    st.session_state.frozen = False
+                    st.session_state.ai_bridge_prompt = ''
+                    st.session_state.ai_bridge_response = ''
+                    st.session_state.stage = 2
+                    st.success("✅ Starting fresh.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
 
 # ============================================================================
 # STAGE 1: PROJECT REGISTRATION
@@ -585,13 +859,13 @@ elif st.session_state.stage == 1:
     with st.form("project_registration"):
         col1, col2 = st.columns(2)
         with col1:
-            project_name = st.text_input("Project Name *", placeholder="e.g., Taman Megah Canopy", key="proj_name")
-            client_name = st.text_input("Client Name", placeholder="e.g., Tuan Haji Ahmad", key="client_name")
-            main_contractor = st.text_input("Main Contractor", placeholder="e.g., Bina Sdn Bhd", key="main_contractor")
+            project_name = st.text_input("Project Name *", placeholder="e.g., Taman Megah Canopy", key="proj_name", value=st.session_state.get('project_name', ''))
+            client_name = st.text_input("Client Name", placeholder="e.g., Tuan Haji Ahmad", key="client_name", value=st.session_state.get('client_name', ''))
+            main_contractor = st.text_input("Main Contractor", placeholder="e.g., Bina Sdn Bhd", key="main_contractor", value=st.session_state.get('main_contractor', ''))
         with col2:
-            contact_phone = st.text_input("Contact Phone", placeholder="e.g., 012-3456789", key="contact_phone")
-            contact_email = st.text_input("Contact Email", placeholder="e.g., client@email.com", key="contact_email")
-            project_date = st.date_input("Project Date", value=datetime.now().date(), key="project_date")
+            contact_phone = st.text_input("Contact Phone", placeholder="e.g., 012-3456789", key="contact_phone", value=st.session_state.get('contact_phone', ''))
+            contact_email = st.text_input("Contact Email", placeholder="e.g., client@email.com", key="contact_email", value=st.session_state.get('contact_email', ''))
+            project_date = st.date_input("Project Date", value=st.session_state.get('project_date', datetime.now().date()), key="project_date")
             st.caption("📅 Auto-set to today")
         submitted = st.form_submit_button("📤 Register Project", type="primary")
         if submitted:
@@ -612,6 +886,12 @@ elif st.session_state.stage == 1:
                         }
                         result = supabase.table('projects').insert(project_data).execute()
                         st.session_state.project_id = result.data[0]['id']
+                        st.session_state.project_name = project_name
+                        st.session_state.client_name = client_name
+                        st.session_state.main_contractor = main_contractor
+                        st.session_state.contact_phone = contact_phone
+                        st.session_state.contact_email = contact_email
+                        st.session_state.project_date = project_date
                         st.session_state.stage = 2
                         st.success(f"✅ Project '{project_name}' registered successfully!")
                         st.rerun()
@@ -630,27 +910,37 @@ elif st.session_state.stage == 2:
     if st.button("🗑️ Clear All Fields", key="clear_stage2"):
         clear_stage_fields(2)
     
+    # Pre-fill from session state if available
+    params = st.session_state.design_parameters
+    default_desc = params.get('description', '')
+    default_typology = params.get('typology', 'Saddle Span')
+    default_A = params.get('A', 10.0)
+    default_B = params.get('B', 5.0)
+    default_LAA = params.get('LAA', 10.0)
+    
     with st.form("design_input"):
         st.subheader("📝 General Description")
         description = st.text_area(
             "Describe your design concept",
             placeholder="e.g., Two curved primary beams with a membrane roof...",
             key="description",
-            height=150
+            height=150,
+            value=default_desc
         )
         st.subheader("🏗️ Structural Typology")
         typology = st.selectbox(
             "Select Typology",
             ["Saddle Span", "Aluminium Free Span Tent", "Factory Warehouse", "Canopy (4 Columns)", "Sail Structure"],
-            key="typology"
+            key="typology",
+            index=["Saddle Span", "Aluminium Free Span Tent", "Factory Warehouse", "Canopy (4 Columns)", "Sail Structure"].index(default_typology) if default_typology in ["Saddle Span", "Aluminium Free Span Tent", "Factory Warehouse", "Canopy (4 Columns)", "Sail Structure"] else 0
         )
         st.subheader("📐 Parameters")
         col1, col2 = st.columns(2)
         with col1:
-            A = st.number_input("Rise/Height (m)", value=10.0, step=0.5, key="A")
-            B = st.number_input("Plan/Horizontal (m)", value=5.0, step=0.5, key="B")
+            A = st.number_input("Rise/Height (m)", value=default_A, step=0.5, key="A")
+            B = st.number_input("Plan/Horizontal (m)", value=default_B, step=0.5, key="B")
         with col2:
-            LAA = st.number_input("Apex-to-Apex (m)", value=10.0, step=0.5, key="LAA")
+            LAA = st.number_input("Apex-to-Apex (m)", value=default_LAA, step=0.5, key="LAA")
         
         st.caption("📐 These parameters define the primary geometry of the structure.")
         submitted = st.form_submit_button("📤 Proceed to AI Consultation", type="primary")
@@ -669,6 +959,7 @@ elif st.session_state.stage == 2:
                 st.session_state.design_brief = None
                 st.session_state.design_brief_confirmed = False
                 save_design_state(st.session_state.project_id)
+                save_project_metadata(st.session_state.project_id)
                 st.session_state.stage = 2.5
                 st.rerun()
 
@@ -699,12 +990,10 @@ elif st.session_state.stage == 2.5:
         for i, fb in enumerate(st.session_state.feedback_history):
             st.caption(f"Iteration {i+1}: {fb[:100]}...")
     
-    # Show the prompt (for transparency)
     prompt = st.session_state.ai_bridge_prompt
     with st.expander("📋 View Prompt (Advanced)"):
         st.text_area("AI Consultant Prompt", prompt, height=200, key="ai_prompt_display")
     
-    # Check if API key is available
     try:
         api_key = st.secrets["DEEPSEEK_API_KEY"]
         has_api_key = True
@@ -713,7 +1002,6 @@ elif st.session_state.stage == 2.5:
         st.warning("⚠️ DeepSeek API key not found. Please add it to Streamlit Secrets.")
         st.info("💡 If you prefer, you can still use the manual copy-paste method below.")
     
-    # Auto-call button
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("🚀 Generate Design Brief", type="primary"):
@@ -860,7 +1148,6 @@ elif st.session_state.stage == 2.8:
     if st.button("🔄 Submit Feedback & Regenerate", type="primary"):
         if feedback:
             st.session_state.feedback_history.append(feedback)
-            # Update prompt with feedback
             current_prompt = st.session_state.ai_bridge_prompt
             updated_prompt = current_prompt + f"\n\n**User Feedback:**\n{feedback}\n\nPlease update the Design Brief based on this feedback."
             st.session_state.ai_bridge_prompt = updated_prompt
