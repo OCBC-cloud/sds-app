@@ -37,18 +37,14 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* Main background */
     .stApp { background-color: #1E1E1E; }
-    /* Sidebar */
     .css-1d391kg { background-color: #2A2A2A; }
-    /* All labels – WHITE, bold, readable */
     .stTextInput label, .stTextArea label, .stNumberInput label, 
     .stSelectbox label, .stDateInput label, .stRadio label {
         color: #FFFFFF !important;
         font-weight: 600 !important;
         font-size: 14px !important;
     }
-    /* Input fields */
     .stTextInput input, .stTextArea textarea, .stNumberInput input {
         background-color: #3A3A3A !important;
         color: #FFFFFF !important;
@@ -1158,7 +1154,7 @@ elif st.session_state.stage == 2.5:
             st.rerun()
 
 # ============================================================================
-# STAGE 2.6: MANUAL FALLBACK (with Copy + Auto-Paste)
+# STAGE 2.6: MANUAL FALLBACK (with Prompt Regeneration)
 # ============================================================================
 
 elif st.session_state.stage == 2.6:
@@ -1166,6 +1162,13 @@ elif st.session_state.stage == 2.6:
     if st.button("⬅️ Back to Design Interpretation"):
         st.session_state.stage = 2.5
         st.rerun()
+    
+    # --- FIX: Regenerate the prompt if it is empty ---
+    if not st.session_state.ai_bridge_prompt:
+        description = st.session_state.design_parameters.get('description', '')
+        images = st.session_state.uploaded_images
+        st.session_state.ai_bridge_prompt = generate_design_prompt(description, images)
+        st.caption("✅ Prompt regenerated.")
     
     st.markdown("""
     <div style="background-color: #2A3A4A; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #00B4D8;">
