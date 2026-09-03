@@ -674,7 +674,7 @@ def calculate_steel_weight(grade, section_type, section_size, length):
         "I-100": 10.0, "I-150": 18.0, "I-200": 26.0,
         "Pipe 100x5": 11.7, "Pipe 150x6": 21.3
     }
-    return weight_per_m.get(section_size, 20.0) * length  # returns kg
+    return weight_per_m.get(section_size, 20.0) * length
 
 def calculate_fabric_weight(fabric_type, thickness, area):
     weight_per_m2 = {
@@ -682,12 +682,12 @@ def calculate_fabric_weight(fabric_type, thickness, area):
         "PTFE-coated Fiberglass": {0.5: 1.0, 0.8: 1.4, 1.0: 1.8, 1.2: 2.2},
         "ETFE": {0.5: 0.5, 0.8: 0.8, 1.0: 1.0, 1.2: 1.2}
     }
-    return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area  # returns kg
+    return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area
 
 def calculate_wind_load(wind_speed, area, drag_coefficient=1.2):
     rho = 1.225
     q = 0.5 * rho * wind_speed**2 / 1000
-    return q * drag_coefficient * area  # returns kN
+    return q * drag_coefficient * area
 
 def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, angle_deg, safety_factor=1.5):
     uplift = wind_load * 0.8
@@ -1187,9 +1187,6 @@ def render_export_section():
         st.session_state.show_proposal = True
         st.rerun()
 
-# ============================================================
-# BULLETPROOF PROPOSAL DRAWINGS RENDER — CORRECTED
-# ============================================================
 def render_proposal_drawings():
     if not st.session_state.show_proposal:
         return
@@ -1198,12 +1195,10 @@ def render_proposal_drawings():
     materials = st.session_state.materials
     fig = generate_proposal_drawings(params, materials)
     
-    # Save figure to buffer
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=120, facecolor='#0a0e17')
     buf.seek(0)
     
-    # Convert to PIL Image and then to array
     try:
         img = Image.open(buf)
         img_array = np.array(img)
@@ -1211,7 +1206,6 @@ def render_proposal_drawings():
     except Exception as e:
         st.error(f"Failed to display image: {e}. Please try the download link below.")
     
-    # Download link (always available)
     link = get_proposal_download_link(fig)
     st.markdown(link, unsafe_allow_html=True)
     
@@ -1281,11 +1275,11 @@ def render_materials_section():
     save_cache()
 
 # ============================================================
-# TOP BAR
+# TOP BAR — INCLUDES UNLOCK BUTTON
 # ============================================================
 
 def render_top_bar():
-    cols = st.columns([0.8, 1.5, 0.8, 0.8, 0.8, 1, 1, 1, 1])
+    cols = st.columns([0.8, 1.5, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
     with cols[0]:
         if st.button("🏗️", key="sds_logo", help="Go to Dashboard"):
             go_to_dashboard()
@@ -1332,8 +1326,16 @@ def render_top_bar():
                     st.session_state.mode = "design"
                     st.rerun()
     with cols[8]:
-        if st.session_state.project_registered and st.session_state.typology:
-            if st.button("📤 Export", use_container_width=True, help="Export current project data and image"):
+        # === UNLOCK BUTTON (Always visible when locked) ===
+        if st.session_state.locked and st.session_state.typology:
+            if st.button("🔓 Unlock", use_container_width=True, type="primary", help="Unlock the design to make changes"):
+                st.session_state.locked = False
+                st.session_state.mode = "design"
+                st.session_state.design_phase = "review"
+                save_cache()
+                st.rerun()
+        else:
+            if st.button("📤 Exp", use_container_width=True, help="Export current project"):
                 st.session_state.show_export = not st.session_state.show_export
                 st.rerun()
 
@@ -1554,12 +1556,11 @@ if st.session_state.design_phase == "input":
         save_cache()
         st.rerun()
 
-# ---- SDS-UNDERSTAND BOARD (High-Res Card Layout) ----
+# ---- SDS-UNDERSTAND BOARD ----
 elif st.session_state.design_phase == "review":
     st.subheader("🧠 SDS-UNDERSTAND — Engineering Understanding & Model Confirmation")
     st.caption("Review the interpretation summary and confirm your design assumptions before proceeding to engineering investigation.")
     
-    # Card: Summary Table
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     st.markdown('<div class="title">📊 Current Interpretation Summary</div>', unsafe_allow_html=True)
     m = st.session_state.materials
@@ -1581,7 +1582,6 @@ elif st.session_state.design_phase == "review":
                     f'</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Card: Legend
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     st.markdown('<div class="title">📌 Legend (Data Identity)</div>', unsafe_allow_html=True)
     st.markdown(f'<span class="badge badge-confirmed">CONFIRMED</span> <span style="color:#b0c4de;">Confirmed by User</span> &nbsp;|&nbsp; '
@@ -1591,7 +1591,6 @@ elif st.session_state.design_phase == "review":
                 f'<span class="badge badge-autogen">AUTO-GEN</span> <span style="color:#b0c4de;">Auto-Generated</span>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Card: Structured Questions
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     st.markdown('<div class="title">❓ Structured Questions</div>', unsafe_allow_html=True)
     st.caption("Confirm the following assumptions. These will be locked and stored in the engineering report.")
@@ -1607,7 +1606,6 @@ elif st.session_state.design_phase == "review":
     save_cache()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Card: Comments
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     st.markdown('<div class="title">💬 Comments / Instructions</div>', unsafe_allow_html=True)
     comments = st.text_area("", value=st.session_state.comments, height=80, key="understand_comments", placeholder="Type your comment here...")
@@ -1615,7 +1613,6 @@ elif st.session_state.design_phase == "review":
     save_cache()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Lock & Modify buttons
     col_lock1, col_lock2 = st.columns([3, 1])
     with col_lock1:
         if st.button("🔒 LOCK & PROCEED TO INVESTIGATION", use_container_width=True, type="primary"):
@@ -1691,4 +1688,81 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
                 fig = GENERATORS[typ_key](params)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
     
-    # ---- STRUCTURAL CALCULATIONS WITH CORRECT UNITS ----
+    # ---- STRUCTURAL CALCULATIONS (FIXED UNITS) ----
+    if typ_key == "saddle_span":
+        st.subheader("📊 Preliminary Structural Checks")
+        m = st.session_state.materials
+        span = params.get("B", 10.0)
+        laa = params.get("LAA", 15.0)
+        rise = params.get("A", 6.0)
+        membrane_area = span * laa * 1.1
+        steel_weight_kg = calculate_steel_weight(m.get("steel_grade", "S355"), m.get("section_type", "CHS"), m.get("section_size", "CHS 150x6"), span * 2)
+        fabric_weight_kg = calculate_fabric_weight(m.get("fabric_type", "PVC-coated Polyester"), m.get("fabric_thickness", 0.8), membrane_area)
+        total_weight_kg = steel_weight_kg + fabric_weight_kg
+        total_weight_kn = total_weight_kg / 100  # Convert kg to kN (1 kN = 100 kg approx)
+        wind_load = calculate_wind_load(m.get("wind_speed", 40), membrane_area)
+        tie_down_force = calculate_tie_down_force(wind_load, total_weight_kn, m.get("num_anchors", 2), m.get("anchor_angle", 30))
+        rope_breaking_load = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 20: 220}
+        rope_capacity = rope_breaking_load.get(m.get("wire_rope_diameter", 10), 55)
+        rope_check = tie_down_force < rope_capacity / 1.5
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Self-Weight", f"{total_weight_kn:.1f} kN")
+            st.metric("Membrane Area", f"{membrane_area:.1f} m²")
+        with col2:
+            st.metric("Wind Load", f"{wind_load:.1f} kN")
+            st.metric("Tie-Down Force/Anchor", f"{tie_down_force:.1f} kN")
+        with col3:
+            st.metric("Wire Rope Capacity", f"{rope_capacity:.1f} kN")
+            st.metric("✅ Rope Check", "✅ PASS" if rope_check else "❌ FAIL", delta="Required < Capacity" if rope_check else "Required > Capacity", delta_color="normal" if rope_check else "inverse")
+        if not rope_check:
+            st.error(f"⚠️ Tie-down force ({tie_down_force:.1f} kN) exceeds wire rope capacity ({rope_capacity:.1f} kN). Please increase rope diameter or add more anchors.")
+        else:
+            st.success(f"✅ All preliminary checks passed. Structure is stable under wind loads.")
+    
+    # ---- EXPORT & PROPOSAL ----
+    st.subheader("📤 Export & Proposal")
+    col_e1, col_e2 = st.columns(2)
+    with col_e1:
+        if st.button("📥 Export Package (Image + Data)", use_container_width=True):
+            st.session_state.show_export = not st.session_state.show_export
+            st.rerun()
+    with col_e2:
+        if st.button("📐 Proposal Drawings", use_container_width=True, type="primary"):
+            st.session_state.show_proposal = True
+            st.session_state.show_export = True
+            st.rerun()
+    
+    if st.session_state.show_export:
+        render_export_section()
+    
+    if st.session_state.show_proposal:
+        render_proposal_drawings()
+    
+    with st.expander("📋 Design Summary"):
+        st.write(f"**Project:** {info.get('name', 'N/A')}")
+        st.write(f"**Client:** {info.get('client', 'N/A')}")
+        if info.get('architect'):
+            st.write(f"**Architect:** {info.get('architect')}")
+        if info.get('engineer'):
+            st.write(f"**Engineer:** {info.get('engineer')}")
+        st.write("---")
+        for i, q in enumerate(typ["qa"]):
+            ans = st.session_state.qa_answers.get(f"qa_{i}", "Not answered")
+            st.write(f"**{q}** → {ans}")
+        if st.session_state.comments:
+            st.write("---")
+            st.write(f"**💬 Comments:** {st.session_state.comments}")
+    
+    # ---- UNLOCK BUTTON (Bottom) ----
+    if st.session_state.locked:
+        if st.button("🔓 Unlock Design", use_container_width=True):
+            st.session_state.locked = False
+            st.session_state.mode = "design"
+            st.session_state.design_phase = "review"
+            save_cache()
+            st.rerun()
+
+st.caption("SDS Platform v3.0 | Unlock Button in Top Bar | Fixed Weight Units")
+save_cache()
