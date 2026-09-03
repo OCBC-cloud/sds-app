@@ -24,7 +24,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM DARK MODE CSS — Professional
+# CUSTOM DARK MODE CSS
 # ============================================================
 dark_mode_css = """
     <style>
@@ -1187,6 +1187,9 @@ def render_export_section():
         st.session_state.show_proposal = True
         st.rerun()
 
+# ============================================================
+# BULLETPROOF PROPOSAL DRAWINGS RENDER
+# ============================================================
 def render_proposal_drawings():
     if not st.session_state.show_proposal:
         return
@@ -1195,16 +1198,26 @@ def render_proposal_drawings():
     materials = st.session_state.materials
     fig = generate_proposal_drawings(params, materials)
     
-    # FIX: Save to buffer and reset pointer to beginning
+    # Save figure to buffer
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=120, facecolor='#0a0e17')
     buf.seek(0)
     
-    st.image(buf, caption="Plan, Front Elevation, Side Elevation, Perspective", use_column_width=True)
+    # ================ FIX: Convert to PIL Image and then to array ================
+    try:
+        # Open the image from buffer
+        img = Image.open(buf)
+        # Convert to numpy array (this is the most reliable format for st.image)
+        img_array = np.array(img)
+        # Display using st.image
+        st.image(img_array, caption="Plan, Front Elevation, Side Elevation, Perspective", use_column_width=True)
+    except Exception as e:
+        st.error(f"Failed to display image: {e}. Please try the download link below.")
     
-    # Download link
+    # Download link (always available)
     link = get_proposal_download_link(fig)
     st.markdown(link, unsafe_allow_html=True)
+    
     if st.button("🔒 Close Drawings", use_container_width=True):
         st.session_state.show_proposal = False
         st.rerun()
