@@ -163,7 +163,6 @@ dark_mode_css = """
     header {visibility: hidden !important;}
     .stDeployButton {display: none !important;}
     
-    /* Dashboard Cards */
     .dashboard-card {
         background-color: #141e2b;
         border-radius: 12px;
@@ -190,7 +189,6 @@ dark_mode_css = """
         font-weight: 600;
     }
     
-    /* SDS-UNDERSTAND Cards */
     .sds-card {
         background-color: #141e2b;
         border-radius: 12px;
@@ -222,7 +220,6 @@ dark_mode_css = """
     .badge-provided { background-color: #1e3a5f; color: #93c5fd; }
     .badge-autogen { background-color: #3b3b6b; color: #c4b5fd; }
     
-    /* Export Section */
     .export-section {
         background-color: #141e2b;
         border-radius: 12px;
@@ -239,7 +236,6 @@ dark_mode_css = """
         color: #f39c12 !important;
     }
     
-    /* Proposal Drawings */
     .proposal-drawings {
         background-color: #0a0e17;
         border-radius: 12px;
@@ -656,30 +652,39 @@ def generate_bracing_positions(span, num_bays):
     else:
         return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
 
+# ============================================================
+# FIXED TIE-DOWN — 2 PER BEAM, ATTACHED TO BEAM SURFACE
+# ============================================================
 def generate_tie_down_anchors_full(span, laa, height, vertical_angle_deg, horizontal_spread_deg):
+    """
+    Generate 2 tie-downs per beam (quarter and three-quarter points).
+    Each tie-down has ONE ground anchor (centered, not left/right).
+    Total: 4 anchors for the structure.
+    """
     vertical_rad = np.radians(vertical_angle_deg)
     horizontal_rad = np.radians(horizontal_spread_deg)
     distance = height * np.tan(vertical_rad)
     quarter = span / 4
     three_quarter = 3 * span / 4
     anchors = []
-    beam_ys = [-laa/2, laa/2]
+    beam_ys = [-laa/2, laa/2]  # Beam 1 (y negative), Beam 2 (y positive)
+    
     for beam_idx, beam_y in enumerate(beam_ys):
+        # Two positions: quarter and three-quarter
         for beam_x in [quarter, three_quarter]:
-            for side in [-1, 1]:
-                anchor_x = beam_x + distance * side * np.sin(horizontal_rad)
-                anchor_y = beam_y + distance * np.cos(horizontal_rad)
-                anchor_z = 0
-                anchors.append({
-                    "beam_x": beam_x,
-                    "beam_y": beam_y,
-                    "anchor_x": anchor_x,
-                    "anchor_y": anchor_y,
-                    "anchor_z": anchor_z,
-                    "beam": beam_idx + 1,
-                    "position": "quarter" if beam_x == quarter else "three_quarter",
-                    "side": "left" if side == -1 else "right"
-                })
+            # ONE anchor per position (centered, not left/right)
+            anchor_x = beam_x + distance * np.sin(horizontal_rad)  # Spread outward
+            anchor_y = beam_y  # Same y as beam point (no left/right spread)
+            anchor_z = 0
+            anchors.append({
+                "beam_x": beam_x,
+                "beam_y": beam_y,
+                "anchor_x": anchor_x,
+                "anchor_y": anchor_y,
+                "anchor_z": anchor_z,
+                "beam": beam_idx + 1,
+                "position": "quarter" if beam_x == quarter else "three_quarter"
+            })
     return anchors
 
 def calculate_steel_weight(grade, section_type, section_size, length):
@@ -695,16 +700,16 @@ def calculate_fabric_weight(fabric_type, thickness, area):
     weight_per_m2 = {
         "PVC-coated Polyester": {0.5: 0.6, 0.8: 0.9, 1.0: 1.2, 1.2: 1.4},
         "PTFE-coated Fiberglass": {0.5: 1.0, 0.8: 1.4, 1.0: 1.8, 1.2: 2.2},
-        "ETFE": {0.5: 0.5, 0.8: 0.8, 1.0: 1.0, 1.2: 1.2}
-    }
-    return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area
+        "ETFE": {0.5: 0.5, 0.8: 0.8, 1
+
+.0: 1.0, def1.2: 1.2 calculate}
+_t    }
+    return weight_per_m2ie.get(fabric_type, {}).get(thickness, 1.0) * area
 
 def calculate_wind_load(wind_speed, area, drag_coefficient=1.2):
     rho = 1.225
     q = 0.5 * rho * wind_speed**2 / 1000
-    return q * drag_coefficient * area
-
-def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_angle_deg, safety_factor=1.5):
+    return q * drag_coefficient * area_down_force(wind_load, self_weight_kn, num_anchors, vertical_angle_deg, safety_factor=1.5):
     uplift = wind_load * 0.8
     net_uplift = max(0, uplift - self_weight_kn * 0.5)
     per_anchor = net_uplift / num_anchors * safety_factor
@@ -712,7 +717,7 @@ def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_an
     return cable_force
 
 # ============================================================
-# PROPOSAL DRAWINGS (Matplotlib) — CORRECTED SYNTAX
+# PROPOSAL DRAWINGS (Matplotlib)
 # ============================================================
 
 def generate_proposal_drawings(params, materials):
@@ -723,7 +728,6 @@ def generate_proposal_drawings(params, materials):
     fig, axes = plt.subplots(2, 2, figsize=(10, 8))
     fig.patch.set_facecolor('#0a0e17')
     
-    # ---- Plan View (Top) ----
     ax = axes[0, 0]
     ax.set_facecolor('#141e2b')
     ax.set_title("Plan View", color='#ffffff', fontsize=10)
@@ -739,8 +743,8 @@ def generate_proposal_drawings(params, materials):
     
     anchors = generate_tie_down_anchors_full(span, laa, rise, materials.get("tie_down_vertical_angle", 45), materials.get("tie_down_horizontal_spread", 25))
     for a in anchors:
-        ax.scatter(a["beam_x"], a["beam_y"], color='#FFD93D', s=30, zorder=5, marker='^', label='Tie-down' if a == anchors[0] else "")
-        ax.scatter(a["anchor_x"], a["anchor_y"], color='#FF6B6B', s=30, zorder=5, marker='s', label='Anchor' if a == anchors[0] else "")
+        ax.scatter(a["beam_x"], a["beam_y"], color='#FFD93D', s=25, zorder=5, marker='^')
+        ax.scatter(a["anchor_x"], a["anchor_y"], color='#FF6B6B', s=25, zorder=5, marker='s')
     
     ax.annotate(f'B = {span:.1f}m', xy=(0, -laa/2 - 1), color='#ffffff', fontsize=8, ha='center')
     ax.annotate(f'LAA = {laa:.1f}m', xy=(span/2 + 0.5, 0), color='#ffffff', fontsize=8, va='center')
@@ -750,7 +754,6 @@ def generate_proposal_drawings(params, materials):
     ax.grid(True, color='#1a2a3a', linestyle='--', linewidth=0.5)
     ax.legend(loc='upper right', fontsize=6, facecolor='#141e2b', edgecolor='#2a3a4f')
     
-    # ---- Front Elevation ----
     ax = axes[0, 1]
     ax.set_facecolor('#141e2b')
     ax.set_title("Front Elevation", color='#ffffff', fontsize=10)
@@ -769,7 +772,6 @@ def generate_proposal_drawings(params, materials):
     ax.set_ylim(-1, rise * 1.2)
     ax.legend(loc='upper right', fontsize=6, facecolor='#141e2b', edgecolor='#2a3a4f')
     
-    # ---- Side Elevation ----
     ax = axes[1, 0]
     ax.set_facecolor('#141e2b')
     ax.set_title("Side Elevation", color='#ffffff', fontsize=10)
@@ -792,7 +794,6 @@ def generate_proposal_drawings(params, materials):
     ax.set_ylim(-rise * 0.3, rise * 1.2)
     ax.legend(loc='upper right', fontsize=6, facecolor='#141e2b', edgecolor='#2a3a4f')
     
-    # ---- Perspective View ----
     ax = axes[1, 1]
     ax.set_facecolor('#141e2b')
     ax.set_title("Perspective View", color='#ffffff', fontsize=10)
@@ -833,7 +834,7 @@ def get_proposal_download_link(fig, filename="proposal_drawings.png"):
     return href
 
 # ============================================================
-# 3D GENERATORS
+# 3D GENERATORS — FIXED TIE-DOWN
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -882,17 +883,17 @@ def generate_saddle_span(params, materials=None, annotations=None):
                              colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
                              opacity=0.7, showscale=False))
 
-    # Apex markers
+    # Apex markers — SMALLER
     fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
-                               mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=6, symbol='diamond')))
+                               mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
     fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], 
-                               mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=6, symbol='diamond')))
+                               mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
 
-    # Support markers
+    # Support markers — SMALLER
     fig.add_trace(go.Scatter3d(x=[-span/2], y=[0], z=[0], 
-                               mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=6, symbol='square')))
+                               mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=4, symbol='square')))
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
-                               mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=6, symbol='square')))
+                               mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=4, symbol='square')))
 
     # Cross Bracing
     if materials and annotations and annotations.get("show_bracing", True):
@@ -916,43 +917,54 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 showlegend=False
             ))
             fig.add_trace(go.Scatter3d(
-                x=[bx], y=[(y1_pos + y2_pos)/2], z=[z_pos + 0.3],
-                mode='text', text=[f'▲ {num_bays} bays'],
-                textfont=dict(color='#FF6B6B', size=7),
+                x=[bx], y=[(y1_pos + y2_pos)/2], z=[z_pos + 0.2],
+                mode='text', text=[f'▲ {num_bays}b'],
+                textfont=dict(color='#FF6B6B', size=6),
                 showlegend=False
             ))
 
-    # Tie-Downs
+    # ============================================================
+    # FIXED TIE-DOWN — ATTACHED TO BEAM SURFACE
+    # ============================================================
     if materials and annotations and annotations.get("show_tie_down", True):
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
         horizontal_spread = materials.get("tie_down_horizontal_spread", 25)
         anchors = generate_tie_down_anchors_full(span, laa, rise, vertical_angle, horizontal_spread)
+        
         for a in anchors:
+            # Find the exact beam surface Z at this X position
+            # The beam is at y = a["beam_y"], we need z_beam at the same x
+            idx = np.argmin(np.abs(x - a["beam_x"]))
+            beam_z = z_beam[idx]  # Actual beam height at this X
+            
+            # Draw wire rope from BEAM SURFACE to ground anchor
             fig.add_trace(go.Scatter3d(
                 x=[a["beam_x"], a["anchor_x"]],
                 y=[a["beam_y"], a["anchor_y"]],
-                z=[rise * 0.5, a["anchor_z"]],
+                z=[beam_z, a["anchor_z"]],
                 mode='lines',
                 name='Tie-Down Rope',
                 line=dict(color='#FFD93D', width=2),
                 showlegend=False
             ))
+            # Ground anchor marker — SMALLER
             fig.add_trace(go.Scatter3d(
                 x=[a["anchor_x"]],
                 y=[a["anchor_y"]],
                 z=[a["anchor_z"]],
                 mode='markers',
                 name='Ground Anchor',
-                marker=dict(color='#FF6B6B', size=5, symbol='x'),
+                marker=dict(color='#FF6B6B', size=4, symbol='x'),
                 showlegend=False
             ))
+            # Small label — SMALLER
             fig.add_trace(go.Scatter3d(
                 x=[a["beam_x"]],
                 y=[a["beam_y"]],
-                z=[rise * 0.5 + 0.2],
+                z=[beam_z + 0.15],
                 mode='text',
-                text=[f'▲ {a["position"]} {a["side"]}'],
-                textfont=dict(color='#FFD93D', size=6),
+                text=[f'•{a["position"][:4]}'],
+                textfont=dict(color='#FFD93D', size=5),
                 showlegend=False
             ))
 
@@ -994,7 +1006,7 @@ def generate_saddle_span(params, materials=None, annotations=None):
         paper_bgcolor='#0a0e17',
         margin=dict(l=0, r=0, b=0, t=0),
         legend=dict(
-            font=dict(color='#ffffff', size=7),
+            font=dict(color='#ffffff', size=6),
             orientation="h",
             yanchor="bottom",
             y=-0.15,
@@ -1032,7 +1044,7 @@ def generate_tent(params):
             bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
-        legend=dict(font=dict(color='#ffffff', size=7), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
+        legend=dict(font=dict(color='#ffffff', size=6), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
     )
     return fig
 
@@ -1062,7 +1074,7 @@ def generate_tensile(params):
             bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
-        legend=dict(font=dict(color='#ffffff', size=7), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
+        legend=dict(font=dict(color='#ffffff', size=6), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
     )
     return fig
 
@@ -1094,7 +1106,7 @@ def generate_portal(params):
             bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
-        legend=dict(font=dict(color='#ffffff', size=7), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
+        legend=dict(font=dict(color='#ffffff', size=6), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
     )
     return fig
 
@@ -1271,7 +1283,7 @@ def render_materials_section():
         m["prestress"] = st.selectbox("Prestress Level (kN/m)", [1.0, 3.0, 5.0], index=[1.0, 3.0, 5.0].index(m.get("prestress", 3.0)))
     
     st.markdown("### 🔗 Wind Bracing & Tie-Downs")
-    st.caption("📐 Tie-downs are automatically placed at 1/4 and 3/4 points of each beam. Two tie-downs per beam (left and right sides).")
+    st.caption("📐 Tie-downs are automatically placed at 1/4 and 3/4 points of each beam. One anchor per tie-down point.")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -1285,13 +1297,13 @@ def render_materials_section():
         m["tie_down_vertical_angle"] = st.slider(
             "Vertical Angle (°)",
             min_value=20, max_value=70, step=5, value=m.get("tie_down_vertical_angle", 45),
-            help="Angle of tie-down rope from horizontal (steeper = more uplift resistance)"
+            help="Angle of tie-down rope from horizontal"
         )
     with col4:
         m["tie_down_horizontal_spread"] = st.slider(
             "Horizontal Spread (°)",
             min_value=10, max_value=60, step=5, value=m.get("tie_down_horizontal_spread", 25),
-            help="Angle of tie-down spread outward from beam (wider = more lateral stability)"
+            help="Angle of tie-down spread outward from beam"
         )
     
     st.markdown("### 🌬️ Environmental Loads")
@@ -1716,7 +1728,6 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
                 fig = GENERATORS[typ_key](params)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
     
-    # ---- STRUCTURAL CALCULATIONS ----
     if typ_key == "saddle_span":
         st.subheader("📊 Preliminary Structural Checks")
         m = st.session_state.materials
@@ -1790,5 +1801,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v3.0 | New Tie-Down System (1/4 Points + Dual Angles) | Fixed Syntax")
+st.caption("SDS Platform v3.0 | Fixed Tie-Downs — 2 per beam, attached to beam surface | Smaller markers")
 save_cache()
