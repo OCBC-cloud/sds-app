@@ -1740,3 +1740,4 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
 
 st.caption("SDS Platform v3.0 | High-Res SDS-UNDERSTAND | Proposal Drawings | Auto-Generated Bracing & Tie-Downs")
 save_cache()
+# Force rebuild 2026-09-03
