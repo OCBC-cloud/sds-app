@@ -8,7 +8,7 @@ import random
 import string
 
 # ============================================================
-# PAGE CONFIG (Mobile-Friendly | Dark Mode)
+# PAGE CONFIG
 # ============================================================
 st.set_page_config(
     page_title="SDS Design Studio",
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM DARK MODE CSS (BRIGHTER TEXT FOR READABILITY)
+# CUSTOM DARK MODE CSS — RADIO TEXT FULLY FIXED
 # ============================================================
 dark_mode_css = """
     <style>
@@ -36,14 +36,48 @@ dark_mode_css = """
     .stSubheader {
         color: #e0e8f0 !important;
     }
+    
+    /* ALL LABELS — FORCE WHITE */
     label, .stTextInput label, .stTextArea label, .stSelectbox label, .stNumberInput label {
-        color: #e8edf5 !important;
+        color: #ffffff !important;
         font-weight: 400 !important;
         font-size: 1rem !important;
     }
+    
+    /* CAPTIONS AND TEXT */
     .stCaption, .stMarkdown, .stInfo, .stWarning {
         color: #e0e8f0 !important;
     }
+    
+    /* ============================================
+       RADIO BUTTON TEXT — ULTRA BRIGHT FIX
+       ============================================ */
+    /* Target the radio label text directly */
+    .stRadio label {
+        color: #ffffff !important;
+        font-weight: 500 !important;
+        font-size: 1rem !important;
+        text-shadow: 0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.6) !important;
+    }
+    /* Radio container background */
+    .stRadio > div {
+        background-color: #141e2b !important;
+        padding: 0.75rem !important;
+        border-radius: 8px !important;
+        border: 1px solid #2a3a4f !important;
+    }
+    /* Radio button circles — make them pop */
+    .stRadio div[role="radiogroup"] {
+        background-color: #141e2b !important;
+    }
+    .stRadio div[role="radiogroup"] label {
+        color: #ffffff !important;
+        font-weight: 500 !important;
+    }
+    
+    /* ============================================
+       BUTTONS
+       ============================================ */
     .stButton > button {
         background-color: #1e2a3a;
         color: #ffffff;
@@ -69,6 +103,10 @@ dark_mode_css = """
         background-color: #f1c40f;
         color: #0a0e17;
     }
+    
+    /* ============================================
+       NUMBER INPUTS
+       ============================================ */
     .stNumberInput > div > div > input {
         background-color: #141e2b !important;
         color: #ffffff !important;
@@ -81,6 +119,10 @@ dark_mode_css = """
         border-color: #f39c12 !important;
         box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2) !important;
     }
+    
+    /* ============================================
+       TEXT INPUTS
+       ============================================ */
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea,
     .stSelectbox > div > div > div {
@@ -89,6 +131,10 @@ dark_mode_css = """
         border: 1px solid #2a3a4f !important;
         border-radius: 8px !important;
     }
+    
+    /* ============================================
+       EXPANDERS (Sub-windows)
+       ============================================ */
     .streamlit-expanderHeader {
         background-color: #141e2b !important;
         border-radius: 8px !important;
@@ -102,6 +148,15 @@ dark_mode_css = """
         border-radius: 0 0 8px 8px !important;
         color: #f0f4fa !important;
     }
+    .streamlit-expanderContent p, 
+    .streamlit-expanderContent span, 
+    .streamlit-expanderContent label {
+        color: #f0f4fa !important;
+    }
+    
+    /* ============================================
+       ALERTS
+       ============================================ */
     .stAlert {
         background-color: #1e2a3a !important;
         border-left: 4px solid #f39c12 !important;
@@ -112,14 +167,10 @@ dark_mode_css = """
         border-left: 4px solid #4a7a9c !important;
         color: #f0f4fa !important;
     }
-    .stRadio > div {
-        background-color: #141e2b !important;
-        padding: 0.5rem;
-        border-radius: 8px;
-    }
-    .stRadio label {
-        color: #f0f4fa !important;
-    }
+    
+    /* ============================================
+       HIDE STREAMLIT DEFAULTS
+       ============================================ */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -756,5 +807,5 @@ if st.session_state.mode == "engineer" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v1.0 | Dark Mode | Number Input | Clean Parameters")
+st.caption("SDS Platform v1.0 | Dark Mode | Radio Text ULTRA BRIGHT")
 save_cache()
