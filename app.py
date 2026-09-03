@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM DARK MODE CSS — FIXED TOP BAR & COMMENTS
+# CUSTOM DARK MODE CSS
 # ============================================================
 dark_mode_css = """
     <style>
@@ -122,7 +122,6 @@ dark_mode_css = """
         border: 1px solid #2a3a4f !important;
         border-radius: 8px !important;
     }
-    /* FORCE TEXT AREA TEXT COLOR TO WHITE */
     .stTextArea textarea {
         color: #ffffff !important;
         background-color: #141e2b !important;
@@ -183,6 +182,17 @@ dark_mode_css = """
         color: #ffffff;
         font-size: 1.2rem;
         font-weight: 600;
+    }
+    /* Top bar logo clickable */
+    .sds-logo {
+        cursor: pointer;
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 1.1rem;
+        text-decoration: none;
+    }
+    .sds-logo:hover {
+        color: #f39c12;
     }
     </style>
 """
@@ -300,15 +310,13 @@ def load_project_from_file(filename):
             st.session_state.comments = data.get("comments", "")
             st.session_state.mode = "design"
             st.session_state.show_registration = False
+            st.session_state.show_project_browser = False
             save_cache()
             return True
     return False
 
-def clear_cache():
-    # Only delete current session, leave saved projects
-    if os.path.exists(CACHE_FILE):
-        os.remove(CACHE_FILE)
-    # Reset state
+def go_to_dashboard():
+    """Reset to main dashboard view without deleting saved projects"""
     st.session_state.project_registered = False
     st.session_state.project_info = {}
     st.session_state.typology = None
@@ -318,11 +326,27 @@ def clear_cache():
     st.session_state.locked = False
     st.session_state.custom_image = None
     st.session_state.custom_description = ""
-    st.session_state.engineering_annotations = {
-        "show_wind": True,
-        "show_tie_down": True,
-        "show_load_path": True
-    }
+    st.session_state.design_phase = "input"
+    st.session_state.comments = ""
+    st.session_state.show_project_browser = False
+    st.session_state.show_registration = False
+    if os.path.exists(CACHE_FILE):
+        os.remove(CACHE_FILE)
+    save_cache()
+
+def clear_cache():
+    # Only delete current session, leave saved projects
+    if os.path.exists(CACHE_FILE):
+        os.remove(CACHE_FILE)
+    st.session_state.project_registered = False
+    st.session_state.project_info = {}
+    st.session_state.typology = None
+    st.session_state.params = {}
+    st.session_state.mode = "design"
+    st.session_state.qa_answers = {}
+    st.session_state.locked = False
+    st.session_state.custom_image = None
+    st.session_state.custom_description = ""
     st.session_state.design_phase = "input"
     st.session_state.comments = ""
     st.session_state.show_project_browser = False
@@ -338,7 +362,6 @@ def save_project_as_new():
     if not ref:
         ref = f"SDS-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
     
-    # CHECK FOR DUPLICATE REFERENCE IN EXISTING PROJECTS
     projects = get_projects_list()
     existing_file = None
     for proj in projects:
@@ -361,13 +384,11 @@ def save_project_as_new():
     }
     
     if existing_file:
-        # OVERWRITE existing file
         filepath = os.path.join(CACHE_DIR, existing_file)
         with open(filepath, "w") as f:
             json.dump(data, f)
         st.success(f"✅ Project updated: {existing_file}")
     else:
-        # CREATE new file
         filename = f"project_{ref}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         filepath = os.path.join(CACHE_DIR, filename)
         with open(filepath, "w") as f:
@@ -800,39 +821,55 @@ def get_json_download_link(data, filename="project_data.json"):
     return href
 
 # ============================================================
-# TOP BAR
+# TOP BAR — WITH CLICKABLE LOGO & DASHBOARD BUTTON
 # ============================================================
 def render_top_bar():
-    cols = st.columns([1, 1.5, 0.8, 1, 1, 1.2, 1.2])
+    cols = st.columns([0.8, 1.5, 0.8, 0.8, 0.8, 1, 1, 1])
+    
+    # Column 0: Clickable SDS Logo -> Back to Dashboard
     with cols[0]:
-        st.markdown("🏗️ **SDS**")
+        if st.button("🏗️", key="sds_logo", help="Go to Dashboard"):
+            go_to_dashboard()
+            st.rerun()
+        st.caption("SDS")
+    
     with cols[1]:
         if st.session_state.project_registered and st.session_state.project_info:
-            st.caption(f"📌 {st.session_state.project_info.get('name', 'Project')[:20]}")
+            st.caption(f"📌 {st.session_state.project_info.get('name', 'Project')[:15]}")
         else:
             st.caption("📌 No Project")
+    
     with cols[2]:
         if st.session_state.typology:
             typ = TYPOLOGIES.get(st.session_state.typology, {})
             st.caption(f"{typ.get('icon', '')} {typ.get('name', '')[:10]}")
         else:
             st.caption("")
+    
     with cols[3]:
+        if st.button("🏠 Dash", use_container_width=True, help="Return to Main Dashboard"):
+            go_to_dashboard()
+            st.rerun()
+    
+    with cols[4]:
         if st.session_state.project_registered:
-            if st.button("📂 Projects", use_container_width=True, help="View saved projects"):
+            if st.button("📂 Proj", use_container_width=True, help="View saved projects"):
                 st.session_state.show_project_browser = not st.session_state.show_project_browser
                 st.rerun()
-    with cols[4]:
+    
+    with cols[5]:
         if st.session_state.project_registered and st.session_state.typology:
             if st.button("💾 Save", use_container_width=True, help="Save current project"):
                 save_project_as_new()
                 st.rerun()
-    with cols[5]:
+    
+    with cols[6]:
         if st.session_state.project_registered:
             if st.button("📋 New", use_container_width=True, help="Start new project"):
                 clear_cache()
                 st.rerun()
-    with cols[6]:
+    
+    with cols[7]:
         if st.session_state.project_registered and st.session_state.typology:
             if st.session_state.mode == "design":
                 if st.button("🔍 Pro", use_container_width=True, type="primary", help="Switch to engineering view"):
@@ -844,10 +881,16 @@ def render_top_bar():
                     st.rerun()
 
 # ============================================================
-# PROJECT BROWSER (WITH CLEAR LABELS)
+# PROJECT BROWSER (WITH CLEAR LABELS & BACK BUTTON)
 # ============================================================
 def render_project_browser():
     st.subheader("📂 Saved Projects")
+    
+    # Back button
+    if st.button("⬅ Back to Dashboard", use_container_width=True):
+        go_to_dashboard()
+        st.rerun()
+    
     projects = get_projects_list()
     if not projects:
         st.info("No saved projects found. Click 'Save' to save your current design.")
@@ -856,7 +899,6 @@ def render_project_browser():
     projects.sort(key=lambda x: x.get("date", ""), reverse=True)
     
     for proj in projects:
-        # Clear labels for readability
         st.markdown(f"""
         <div style="background-color:#141e2b; padding:0.5rem 1rem; border-radius:8px; margin-bottom:0.5rem; border-left:3px solid #4a7a9c;">
             <span style="color:#ffffff; font-weight:600;">📌 Name:</span> <span style="color:#b0c4de;">{proj.get('name', 'Untitled')}</span><br>
@@ -877,10 +919,6 @@ def render_project_browser():
                 else:
                     st.error("⚠️ Failed to load project.")
         st.divider()
-    
-    if st.button("🔒 Close Projects", use_container_width=True):
-        st.session_state.show_project_browser = False
-        st.rerun()
 
 # ============================================================
 # DASHBOARD
@@ -959,14 +997,22 @@ if st.session_state.show_project_browser:
     render_project_browser()
     st.stop()
 
+# If no project registered and not showing registration, show dashboard
 if not st.session_state.project_registered and not st.session_state.show_registration:
     render_dashboard()
     st.stop()
 
+# Registration screen
 if st.session_state.show_registration or (st.session_state.project_registered and not st.session_state.typology):
     if st.session_state.show_registration or not st.session_state.project_registered:
         st.subheader("📋 New Project Registration")
         st.caption("Fill in the project details to get started.")
+        
+        # Back to Dashboard button
+        if st.button("⬅ Back to Dashboard", use_container_width=True):
+            go_to_dashboard()
+            st.rerun()
+        
         with st.form("project_registration_form"):
             col1, col2 = st.columns(2)
             with col1:
@@ -980,13 +1026,7 @@ if st.session_state.show_registration or (st.session_state.project_registered an
             ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
             project_ref = st.text_input("🔑 Project Reference", value=f"SDS-{ref}")
             
-            col_submit1, col_submit2 = st.columns([3, 1])
-            with col_submit1:
-                submitted = st.form_submit_button("🚀 Start Design Studio", use_container_width=True, type="primary")
-            with col_submit2:
-                if st.form_submit_button("⬅ Back", use_container_width=True):
-                    st.session_state.show_registration = False
-                    st.rerun()
+            submitted = st.form_submit_button("🚀 Start Design Studio", use_container_width=True, type="primary")
             if submitted:
                 if not project_name or not client_name:
                     st.error("⚠️ Project Name and Client Name are required.")
@@ -1252,5 +1292,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v1.0 | NO DUPLICATES | CLEAR LABELS")
+st.caption("SDS Platform v1.0 | Dashboard-First | Click Logo to Return")
 save_cache()
