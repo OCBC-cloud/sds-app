@@ -247,14 +247,19 @@ def save_project_metadata(project_id):
             'project_date': str(st.session_state.project_date)
         }).eq('id', project_id).execute()
     except Exception as e:
-        st.error(f"❌ Error saving project metadata: {str(e)}")
+        st.error(f"❌ Error saving_id project metadata: {str(e)}")
 
-def unlock_project(project_id):
+def unlock_project(project):
     try:
-        supabase.table('projects').update({'design_state->>frozen': 'false'}).eq('id', project_id).execute()
-        st.session_state.frozen = False
-        st.success("✅ Project unlocked. You can now make changes.")
-        st.rerun()
+        # Get current design state
+        result = supabase.table('projects').select('design_state').eq('id', project_id).execute()
+        if result.data:
+            state = result.data[0].get('design_state', {})
+            state['frozen'] = False
+            supabase.table('projects').update({'design_state': state}).eq('id', project_id).execute()
+            st.session_state.frozen = False
+            st.success("✅ Project unlocked. You can now make changes.")
+            st.rerun()
     except Exception as e:
         st.error(f"❌ Error unlocking project: {str(e)}")
 
@@ -723,7 +728,23 @@ if st.session_state.stage == 0:
                     if st.button("📂 Load", key=f"load_{proj['id']}"):
                         st.session_state.load_project_id = proj['id']
                         st.session_state.load_project_name = proj['name']
-                        st.session_state.stage = 0.5
+                        
+                        # Auto-load to 3D model if parameters are valid
+                        params = state.get('parameters', {})
+                        span = params.get('span', 0.0)
+                        rise = params.get('rise', 0.0)
+                        laa = params.get('laa', 0.0)
+                        
+                        if span > 0 and rise > 0 and laa > 0:
+                            # Load directly to 3D model
+                            load_project(proj['id'], None, 3.0)
+                            st.session_state.design_parameters = params
+                            st.session_state.stage = 3.0
+                            st.rerun()
+                        elif state.get('iteration_count', 0) > 0:
+                            load_project(proj['id'], None, 2.5)
+                        else:
+                            load_project(proj['id'], None, 2)
                         st.rerun()
                 with cols[1]:
                     if st.button("🔓 Unlock", key=f"unlock_{proj['id']}"):
@@ -1294,7 +1315,7 @@ elif st.session_state.stage == 5:
         if st.button("✅ Confirm Freeze", type="primary"):
             with st.spinner("Freezing concept..."):
                 try:
-                    supabase.table('projects').update({'design_state->>frozen': 'true'}).eq('id', st.session_state.project_id).execute()
+                    supabase.table('projects').update({'design_state': st.session_state.design_state}).eq('id', st.session_state.project_id).execute()
                     st.session_state.frozen = True
                     save_design_state(st.session_state.project_id)
                     st.success("✅ Concept frozen successfully!")
