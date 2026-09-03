@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM DARK MODE CSS — CLEAN, NO WHITE PATCH
+# CUSTOM DARK MODE CSS — FIX COMMENT TEXT COLOR
 # ============================================================
 dark_mode_css = """
     <style>
@@ -119,6 +119,11 @@ dark_mode_css = """
         border: 1px solid #2a3a4f !important;
         border-radius: 8px !important;
     }
+    /* FORCE TEXT AREA TEXT COLOR TO WHITE */
+    .stTextArea textarea {
+        color: #ffffff !important;
+        background-color: #141e2b !important;
+    }
     .streamlit-expanderHeader {
         background-color: #141e2b !important;
         border-radius: 8px !important;
@@ -175,6 +180,12 @@ dark_mode_css = """
         color: #ffffff;
         font-size: 1.2rem;
         font-weight: 600;
+    }
+    /* Top bar buttons – ensure labels are visible */
+    .stButton button {
+        font-size: 0.8rem !important;
+        padding: 0.4rem 0.6rem !important;
+        white-space: nowrap !important;
     }
     </style>
 """
@@ -297,10 +308,11 @@ def load_project_from_file(filename):
     return False
 
 def clear_cache():
-    if os.path.exists(CACHE_DIR):
-        shutil.rmtree(CACHE_DIR)
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    
+    """Reset only the current session, keep saved projects intact"""
+    # Delete only the current session file, not the whole cache directory
+    if os.path.exists(CACHE_FILE):
+        os.remove(CACHE_FILE)
+    # Reset session state
     st.session_state.project_registered = False
     st.session_state.project_info = {}
     st.session_state.typology = None
@@ -319,7 +331,8 @@ def clear_cache():
     st.session_state.comments = ""
     st.session_state.show_project_browser = False
     st.session_state.show_registration = False
-    save_cache()
+    # Update index (removes any orphan references, but keeps project files)
+    update_projects_index()
 
 def save_project_as_new():
     if not st.session_state.project_info.get("name"):
@@ -354,6 +367,7 @@ def get_projects_list():
             return json.load(f)
     return []
 
+# Load cache on boot
 cached = load_cache()
 if cached:
     st.session_state.project_registered = cached.get("project_registered", False)
@@ -468,7 +482,7 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# 3D GENERATORS
+# 3D GENERATORS (unchanged)
 # ============================================================
 
 def generate_saddle_span(params, annotations=None):
@@ -781,10 +795,10 @@ def get_json_download_link(data, filename="project_data.json"):
     return href
 
 # ============================================================
-# NAVIGATION: TOP BAR (Clean, No White Patch)
+# NAVIGATION: TOP BAR — CLEAR LABELS
 # ============================================================
 def render_top_bar():
-    cols = st.columns([1, 2, 1, 1, 1.2, 1.2, 1])
+    cols = st.columns([1, 2, 0.8, 1, 1, 1.2, 1.2])
     
     with cols[0]:
         st.markdown("🏗️ **SDS**")
@@ -798,7 +812,7 @@ def render_top_bar():
     with cols[2]:
         if st.session_state.typology:
             typ = TYPOLOGIES.get(st.session_state.typology, {})
-            st.caption(f"{typ.get('icon', '')} {typ.get('name', '')[:15]}")
+            st.caption(f"{typ.get('icon', '')} {typ.get('name', '')[:12]}")
         else:
             st.caption("")
     
@@ -816,18 +830,18 @@ def render_top_bar():
     
     with cols[5]:
         if st.session_state.project_registered:
-            if st.button("📋 New Project", use_container_width=True, help="Start a completely new project"):
+            if st.button("📋 New Project", use_container_width=True, help="Start a new project (current work will be cleared)"):
                 clear_cache()
                 st.rerun()
     
     with cols[6]:
         if st.session_state.project_registered and st.session_state.typology:
             if st.session_state.mode == "design":
-                if st.button("🔍 Pro View", use_container_width=True, type="primary"):
+                if st.button("🔍 Pro View", use_container_width=True, type="primary", help="Switch to engineering view"):
                     st.session_state.mode = "engineer"
                     st.rerun()
             else:
-                if st.button("✏️ Edit", use_container_width=True):
+                if st.button("✏️ Edit", use_container_width=True, help="Switch back to design mode"):
                     st.session_state.mode = "design"
                     st.rerun()
 
@@ -944,7 +958,7 @@ if st.session_state.show_project_browser:
     render_project_browser()
     st.stop()
 
-# ---- DASHBOARD (Landing page — shown first) ----
+# ---- DASHBOARD (Landing page) ----
 if not st.session_state.project_registered and not st.session_state.show_registration:
     render_dashboard()
     st.stop()
@@ -1000,8 +1014,7 @@ if st.session_state.show_registration or (st.session_state.project_registered an
         st.caption("All data is cached locally. Your project will resume where you left off.")
         st.stop()
 
-# ---- At this point, project is registered and we need to show catalog or workflow ----
-# Define info for use in subsequent sections
+# ---- After registration, show catalog if no typology selected ----
 info = st.session_state.project_info
 
 if st.session_state.project_registered and st.session_state.typology is None:
@@ -1269,5 +1282,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v1.0 | Dashboard-First | Clean Navigation | No White Patch")
+st.caption("SDS Platform v1.0 | Save Works | Comments Visible | Clean Navigation")
 save_cache()
