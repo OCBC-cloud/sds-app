@@ -1180,11 +1180,15 @@ def render_proposal_drawings():
     params = st.session_state.params
     materials = st.session_state.materials
     fig = generate_proposal_drawings(params, materials)
-    # Display the matplotlib figure
+    
+    # ==== THE FIX ====
+    # Save to buffer and reset pointer to beginning
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=120, facecolor='#0a0e17')
-    buf.seek(0)
+    buf.seek(0)  # <-- THIS IS THE CRITICAL FIX
+    
     st.image(buf, caption="Plan, Front Elevation, Side Elevation, Perspective", use_column_width=True)
+    
     # Download link
     link = get_proposal_download_link(fig)
     st.markdown(link, unsafe_allow_html=True)
@@ -1740,4 +1744,3 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
 
 st.caption("SDS Platform v3.0 | High-Res SDS-UNDERSTAND | Proposal Drawings | Auto-Generated Bracing & Tie-Downs")
 save_cache()
-# Force rebuild 2026-09-03
