@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM DARK MODE CSS — RADIO TEXT FULLY FIXED
+# CUSTOM DARK MODE CSS — RADIO TEXT FULLY WHITE
 # ============================================================
 dark_mode_css = """
     <style>
@@ -50,27 +50,32 @@ dark_mode_css = """
     }
     
     /* ============================================
-       RADIO BUTTON TEXT — ULTRA BRIGHT FIX
+       RADIO BUTTON TEXT — TARGET SPAN INSIDE
        ============================================ */
-    /* Target the radio label text directly */
     .stRadio label {
         color: #ffffff !important;
         font-weight: 500 !important;
         font-size: 1rem !important;
-        text-shadow: 0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.6) !important;
+        text-shadow: 0 0 4px rgba(0,0,0,0.8) !important;
     }
-    /* Radio container background */
+    .stRadio label span {
+        color: #ffffff !important;
+        font-weight: 500 !important;
+    }
     .stRadio > div {
         background-color: #141e2b !important;
         padding: 0.75rem !important;
         border-radius: 8px !important;
         border: 1px solid #2a3a4f !important;
     }
-    /* Radio button circles — make them pop */
     .stRadio div[role="radiogroup"] {
         background-color: #141e2b !important;
     }
     .stRadio div[role="radiogroup"] label {
+        color: #ffffff !important;
+        font-weight: 500 !important;
+    }
+    .stRadio div[role="radiogroup"] label span {
         color: #ffffff !important;
         font-weight: 500 !important;
     }
@@ -133,7 +138,7 @@ dark_mode_css = """
     }
     
     /* ============================================
-       EXPANDERS (Sub-windows)
+       EXPANDERS
        ============================================ */
     .streamlit-expanderHeader {
         background-color: #141e2b !important;
@@ -807,5 +812,5 @@ if st.session_state.mode == "engineer" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v1.0 | Dark Mode | Radio Text ULTRA BRIGHT")
+st.caption("SDS Platform v1.0 | Radio Text FINAL FIX")
 save_cache()
