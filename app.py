@@ -20,18 +20,33 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM DARK MODE CSS
+# CUSTOM DARK MODE CSS — CLEAN, NO WHITE PATCH
 # ============================================================
 dark_mode_css = """
     <style>
+    /* FULL DARK BACKGROUND — KILL ALL WHITE PATCHES */
     .stApp {
-        background-color: #0a0e17;
-        color: #f0f4fa;
+        background-color: #0a0e17 !important;
+        color: #f0f4fa !important;
     }
+    .stApp > header {
+        background-color: transparent !important;
+        display: none !important;
+    }
+    .stApp > header > div {
+        display: none !important;
+    }
+    .stApp > div > div {
+        background-color: #0a0e17 !important;
+    }
+    
     .block-container {
-        padding-top: 0.5rem;
-        padding-bottom: 0rem;
+        padding-top: 0.5rem !important;
+        padding-bottom: 0rem !important;
+        max-width: 100% !important;
     }
+    
+    /* ALL TEXT — BRIGHT WHITE */
     h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
         font-weight: 600 !important;
@@ -68,29 +83,29 @@ dark_mode_css = """
     
     /* BUTTONS */
     .stButton > button {
-        background-color: #1e2a3a;
-        color: #ffffff;
-        border: 1px solid #2a3a4f;
-        border-radius: 12px;
-        padding: 0.75rem 1rem;
-        font-weight: 500;
-        transition: all 0.2s;
-        width: 100%;
+        background-color: #1e2a3a !important;
+        color: #ffffff !important;
+        border: 1px solid #2a3a4f !important;
+        border-radius: 12px !important;
+        padding: 0.75rem 1rem !important;
+        font-weight: 500 !important;
+        transition: all 0.2s !important;
+        width: 100% !important;
     }
     .stButton > button:hover {
-        background-color: #2a3a4f;
-        border-color: #4a7a9c;
-        color: white;
+        background-color: #2a3a4f !important;
+        border-color: #4a7a9c !important;
+        color: white !important;
     }
     .stButton > button[kind="primary"] {
-        background-color: #f39c12;
-        color: #0a0e17;
-        border: none;
-        font-weight: 600;
+        background-color: #f39c12 !important;
+        color: #0a0e17 !important;
+        border: none !important;
+        font-weight: 600 !important;
     }
     .stButton > button[kind="primary"]:hover {
-        background-color: #f1c40f;
-        color: #0a0e17;
+        background-color: #f1c40f !important;
+        color: #0a0e17 !important;
     }
     
     /* NUMBER INPUTS */
@@ -105,6 +120,16 @@ dark_mode_css = """
     .stNumberInput > div > div > input:focus {
         border-color: #f39c12 !important;
         box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2) !important;
+    }
+    
+    /* TEXT INPUTS */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea,
+    .stSelectbox > div > div > div {
+        background-color: #141e2b !important;
+        color: #ffffff !important;
+        border: 1px solid #2a3a4f !important;
+        border-radius: 8px !important;
     }
     
     /* EXPANDERS */
@@ -140,9 +165,37 @@ dark_mode_css = """
     }
     
     /* HIDE STREAMLIT DEFAULTS */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
+    #MainMenu {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    header {visibility: hidden !important;}
+    .stDeployButton {display: none !important;}
+    
+    /* DASHBOARD CARDS */
+    .dashboard-card {
+        background-color: #141e2b;
+        border-radius: 12px;
+        padding: 1.5rem 1rem;
+        border: 1px solid #1e2a3a;
+        text-align: center;
+        transition: all 0.2s;
+    }
+    .dashboard-card:hover {
+        border-color: #4a7a9c;
+        background-color: #1a2a3a;
+    }
+    .dashboard-card .icon {
+        font-size: 2.5rem;
+    }
+    .dashboard-card .label {
+        color: #8a9aaa;
+        font-size: 0.8rem;
+        margin-top: 0.5rem;
+    }
+    .dashboard-card .value {
+        color: #ffffff;
+        font-size: 1.2rem;
+        font-weight: 600;
+    }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -180,6 +233,8 @@ if "comments" not in st.session_state:
     st.session_state.comments = ""
 if "show_project_browser" not in st.session_state:
     st.session_state.show_project_browser = False
+if "show_registration" not in st.session_state:
+    st.session_state.show_registration = False
 
 # ============================================================
 # CACHE HANDLER
@@ -205,8 +260,6 @@ def save_cache():
     }
     with open(CACHE_FILE, "w") as f:
         json.dump(data, f)
-    
-    # Update projects index
     update_projects_index()
 
 def load_cache():
@@ -216,7 +269,6 @@ def load_cache():
     return None
 
 def update_projects_index():
-    """Maintain a list of all saved projects with metadata"""
     projects_index = []
     if os.path.exists(CACHE_DIR):
         for f in glob.glob(os.path.join(CACHE_DIR, "project_*.json")):
@@ -239,7 +291,6 @@ def update_projects_index():
         json.dump(projects_index, f, indent=2)
 
 def load_project_from_file(filename):
-    """Load a specific project file"""
     filepath = os.path.join(CACHE_DIR, filename)
     if os.path.exists(filepath):
         with open(filepath, "r") as f:
@@ -260,12 +311,12 @@ def load_project_from_file(filename):
             st.session_state.design_phase = data.get("design_phase", "input")
             st.session_state.comments = data.get("comments", "")
             st.session_state.mode = "design"
+            st.session_state.show_registration = False
             save_cache()
             return True
     return False
 
 def clear_cache():
-    """Completely reset the app state and delete cache"""
     if os.path.exists(CACHE_DIR):
         shutil.rmtree(CACHE_DIR)
     os.makedirs(CACHE_DIR, exist_ok=True)
@@ -287,10 +338,10 @@ def clear_cache():
     st.session_state.design_phase = "input"
     st.session_state.comments = ""
     st.session_state.show_project_browser = False
+    st.session_state.show_registration = False
     save_cache()
 
 def save_project_as_new():
-    """Save current project as a named file"""
     if not st.session_state.project_info.get("name"):
         st.error("⚠️ Project name is required to save.")
         return
@@ -318,13 +369,11 @@ def save_project_as_new():
     st.success(f"✅ Project saved as: {filename}")
 
 def get_projects_list():
-    """Get list of saved projects"""
     if os.path.exists(PROJECTS_LIST_FILE):
         with open(PROJECTS_LIST_FILE, "r") as f:
             return json.load(f)
     return []
 
-# Auto-load cache on boot
 cached = load_cache()
 if cached:
     st.session_state.project_registered = cached.get("project_registered", False)
@@ -752,23 +801,27 @@ def get_json_download_link(data, filename="project_data.json"):
     return href
 
 # ============================================================
-# NAVIGATION: TOP BAR
+# NAVIGATION: TOP BAR (Clean, No White Patch)
 # ============================================================
-def render_navigation_bar():
-    """Render the top navigation bar with clear labels"""
-    cols = st.columns([1, 1, 1, 1.5, 1.5, 1])
+def render_top_bar():
+    """Clean top bar — no white patch, just dark navigation"""
+    cols = st.columns([1, 2, 1, 1, 1.2, 1.2, 1])
     
     with cols[0]:
         st.markdown("🏗️ **SDS**")
     
     with cols[1]:
         if st.session_state.project_registered and st.session_state.project_info:
-            st.caption(f"📌 {st.session_state.project_info.get('name', 'Project')[:20]}")
+            st.caption(f"📌 {st.session_state.project_info.get('name', 'Project')[:25]}")
+        else:
+            st.caption("📌 No Project")
     
     with cols[2]:
         if st.session_state.typology:
             typ = TYPOLOGIES.get(st.session_state.typology, {})
             st.caption(f"{typ.get('icon', '')} {typ.get('name', '')[:15]}")
+        else:
+            st.caption("")
     
     with cols[3]:
         if st.session_state.project_registered:
@@ -777,21 +830,32 @@ def render_navigation_bar():
                 st.rerun()
     
     with cols[4]:
-        if st.session_state.project_registered:
-            if st.button("💾 Save", use_container_width=True, help="Save current project as a named file"):
+        if st.session_state.project_registered and st.session_state.typology:
+            if st.button("💾 Save", use_container_width=True, help="Save current project"):
                 save_project_as_new()
                 st.rerun()
     
     with cols[5]:
-        if st.button("➕ New Project", use_container_width=True, help="Start a completely new project. All current data will be cleared."):
-            clear_cache()
-            st.rerun()
+        if st.session_state.project_registered:
+            if st.button("📋 New Project", use_container_width=True, help="Start a completely new project"):
+                clear_cache()
+                st.rerun()
+    
+    with cols[6]:
+        if st.session_state.project_registered and st.session_state.typology:
+            if st.session_state.mode == "design":
+                if st.button("🔍 Pro View", use_container_width=True, type="primary"):
+                    st.session_state.mode = "engineer"
+                    st.rerun()
+            else:
+                if st.button("✏️ Edit", use_container_width=True):
+                    st.session_state.mode = "design"
+                    st.rerun()
 
 # ============================================================
 # PROJECT BROWSER
 # ============================================================
 def render_project_browser():
-    """Show a list of saved projects that can be loaded"""
     st.subheader("📂 Saved Projects")
     
     projects = get_projects_list()
@@ -799,7 +863,6 @@ def render_project_browser():
         st.info("No saved projects found. Click 'Save' to save your current design.")
         return
     
-    # Sort by date (newest first)
     projects.sort(key=lambda x: x.get("date", ""), reverse=True)
     
     for proj in projects:
@@ -813,89 +876,159 @@ def render_project_browser():
         with col4:
             if st.button("📂 Load", key=f"load_{proj.get('file')}", use_container_width=True):
                 if load_project_from_file(proj.get('file')):
-                    st.success("✅ Project loaded successfully!")
+                    st.success("✅ Project loaded!")
                     st.session_state.show_project_browser = False
                     st.rerun()
                 else:
                     st.error("⚠️ Failed to load project.")
         st.divider()
+    
+    if st.button("🔒 Close Projects", use_container_width=True):
+        st.session_state.show_project_browser = False
+        st.rerun()
+
+# ============================================================
+# DASHBOARD — LANDING PAGE
+# ============================================================
+def render_dashboard():
+    """Main dashboard — shown first when user opens the app"""
+    st.title("🏗️ SDS Design Studio")
+    st.caption("Parametric design for tensile structures, membrane roofs, and steel frames.")
+    
+    # Stats row
+    projects = get_projects_list()
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">📂</div>
+            <div class="value">{len(projects)}</div>
+            <div class="label">Saved Projects</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">🏕️</div>
+            <div class="value">{len(TYPOLOGIES)}</div>
+            <div class="label">Structure Types</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        locked_count = sum(1 for p in projects if p.get("locked", False))
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">🔒</div>
+            <div class="value">{locked_count}</div>
+            <div class="label">Locked Designs</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Main actions
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("➕ New Design", use_container_width=True, type="primary"):
+            st.session_state.show_registration = True
+            st.rerun()
+    with col2:
+        if projects:
+            if st.button("📂 Open Saved Project", use_container_width=True):
+                st.session_state.show_project_browser = True
+                st.rerun()
+        else:
+            st.button("📂 No Saved Projects", use_container_width=True, disabled=True)
+    
+    # Show recent projects
+    if projects:
+        st.subheader("📋 Recent Projects")
+        for proj in projects[:3]:
+            col1, col2, col3 = st.columns([2, 2, 1])
+            with col1:
+                st.write(f"**{proj.get('name', 'Untitled')}**")
+            with col2:
+                st.caption(f"👤 {proj.get('client', 'N/A')} | {proj.get('typology', 'Unknown')}")
+            with col3:
+                if st.button("Open", key=f"dash_load_{proj.get('file')}", use_container_width=True):
+                    if load_project_from_file(proj.get('file')):
+                        st.rerun()
+            st.divider()
+    
+    st.caption("💡 Select 'New Design' to start a project, or open an existing project from the list above.")
 
 # ============================================================
 # UI RENDERING
 # ============================================================
 
-# ---- NAVIGATION BAR (Always visible) ----
-render_navigation_bar()
+# ---- TOP BAR (Always visible, clean) ----
+render_top_bar()
 
 # ---- PROJECT BROWSER (Toggle) ----
 if st.session_state.show_project_browser:
     render_project_browser()
     st.stop()
 
-# ---- PROJECT REGISTRATION ----
-if not st.session_state.project_registered:
-    # Check if there are any saved projects to load
-    projects = get_projects_list()
-    if projects:
-        st.info("📂 You have saved projects. Click '📂 Projects' above to load one.")
-    
-    st.title("🏗️ SDS Design Studio")
-    st.subheader("📋 New Project Registration")
-    st.caption("Fill in the project details to get started.")
-    
-    with st.form("project_registration_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            project_name = st.text_input("📌 Project Name *", placeholder="e.g., Marina Bay Canopy")
-            client_name = st.text_input("👤 Client Name *", placeholder="e.g., Marina Bay Sands")
-        with col2:
-            architect = st.text_input("🏛️ Architect (optional)", placeholder="e.g., Foster + Partners")
-            engineer = st.text_input("🔧 Engineer (optional)", placeholder="e.g., Arup")
-        
-        location = st.text_input("📍 Location", placeholder="e.g., Singapore")
-        project_date = st.date_input("📅 Date", value=datetime.today())
-        
-        ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        project_ref = st.text_input("🔑 Project Reference", value=f"SDS-{ref}")
-        
-        submitted = st.form_submit_button("🚀 Start Design Studio", use_container_width=True, type="primary")
-        
-        if submitted:
-            if not project_name or not client_name:
-                st.error("⚠️ Project Name and Client Name are required.")
-            else:
-                st.session_state.project_info = {
-                    "name": project_name,
-                    "client": client_name,
-                    "architect": architect,
-                    "engineer": engineer,
-                    "location": location,
-                    "date": project_date.isoformat(),
-                    "reference": project_ref
-                }
-                st.session_state.project_registered = True
-                st.session_state.design_phase = "input"
-                save_cache()
-                st.rerun()
-    
-    st.caption("All data is cached locally. Your project will resume where you left off.")
+# ---- DASHBOARD (Landing page — shown first) ----
+if not st.session_state.project_registered and not st.session_state.show_registration:
+    render_dashboard()
     st.stop()
 
-# ---- MAIN DASHBOARD ----
-info = st.session_state.project_info
+# ---- PROJECT REGISTRATION ----
+if st.session_state.show_registration or (st.session_state.project_registered and not st.session_state.typology):
+    # Only show registration form if no project exists or user clicked New Design
+    if st.session_state.show_registration or not st.session_state.project_registered:
+        st.subheader("📋 New Project Registration")
+        st.caption("Fill in the project details to get started.")
+        
+        with st.form("project_registration_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                project_name = st.text_input("📌 Project Name *", placeholder="e.g., Marina Bay Canopy")
+                client_name = st.text_input("👤 Client Name *", placeholder="e.g., Marina Bay Sands")
+            with col2:
+                architect = st.text_input("🏛️ Architect (optional)", placeholder="e.g., Foster + Partners")
+                engineer = st.text_input("🔧 Engineer (optional)", placeholder="e.g., Arup")
+            
+            location = st.text_input("📍 Location", placeholder="e.g., Singapore")
+            project_date = st.date_input("📅 Date", value=datetime.today())
+            
+            ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            project_ref = st.text_input("🔑 Project Reference", value=f"SDS-{ref}")
+            
+            col_submit1, col_submit2 = st.columns([3, 1])
+            with col_submit1:
+                submitted = st.form_submit_button("🚀 Start Design Studio", use_container_width=True, type="primary")
+            with col_submit2:
+                if st.form_submit_button("⬅ Back", use_container_width=True):
+                    st.session_state.show_registration = False
+                    st.rerun()
+            
+            if submitted:
+                if not project_name or not client_name:
+                    st.error("⚠️ Project Name and Client Name are required.")
+                else:
+                    st.session_state.project_info = {
+                        "name": project_name,
+                        "client": client_name,
+                        "architect": architect,
+                        "engineer": engineer,
+                        "location": location,
+                        "date": project_date.isoformat(),
+                        "reference": project_ref
+                    }
+                    st.session_state.project_registered = True
+                    st.session_state.design_phase = "input"
+                    st.session_state.show_registration = False
+                    save_cache()
+                    st.rerun()
+        
+        st.caption("All data is cached locally. Your project will resume where you left off.")
+        st.stop()
 
-st.markdown(f"""
-<div style="background-color:#141e2b; padding:0.75rem 1rem; border-radius:12px; margin-bottom:1rem; border-left:4px solid #f39c12;">
-    <span style="color:#b0c4de; font-size:0.8rem;">🔑 {info.get('reference', 'N/A')}</span>
-    <span style="color:#ffffff; font-weight:600; margin-left:1rem;">{info.get('name', 'Untitled')}</span>
-    <span style="color:#8a9aaa; margin-left:1rem;">👤 {info.get('client', 'N/A')}</span>
-    <span style="color:#8a9aaa; margin-left:1rem;">🏛️ {info.get('architect', '—')}</span>
-    <span style="color:#8a9aaa; margin-left:1rem;">🔧 {info.get('engineer', '—')}</span>
-</div>
-""", unsafe_allow_html=True)
-
-# ---- TYPOLOGY CATALOG ----
-if st.session_state.typology is None:
+# ---- MAIN PROJECT WORKFLOW ----
+if st.session_state.project_registered and st.session_state.typology is None:
+    # Show catalog after registration
     st.subheader("Choose a structure type:")
     cols = st.columns(2)
     idx = 0
@@ -911,10 +1044,10 @@ if st.session_state.typology is None:
                 save_cache()
                 st.rerun()
         idx += 1
-    st.caption("💡 Select a structure type to begin designing. Use '📂 Projects' above to load saved designs.")
+    st.caption("💡 Select a structure type to begin designing.")
     st.stop()
 
-# ---- ACTIVE TYPOLOGY ----
+# ---- ACTIVE TYPOLOGY VIEW ----
 typ_key = st.session_state.typology
 typ = TYPOLOGIES[typ_key]
 params = st.session_state.params
@@ -1035,39 +1168,10 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
         st.session_state.mode = "engineer"
         save_cache()
     
-    col1, col2, col3, col4 = st.columns([1, 4, 2, 2])
-    with col1:
-        if st.button("⬅", help="Back to catalog"):
-            st.session_state.typology = None
-            st.session_state.mode = "design"
-            st.session_state.locked = False
-            st.session_state.design_phase = "input"
-            save_cache()
-            st.rerun()
-    with col2:
-        st.subheader(f"{typ['icon']} {typ['name']} — Engineering Investigation")
-    with col3:
-        if st.session_state.mode == "design":
-            if st.button("🔍 Pro View", use_container_width=True, type="primary"):
-                st.session_state.mode = "engineer"
-                save_cache()
-                st.rerun()
-        else:
-            if st.button("✏️ Edit", use_container_width=True):
-                st.session_state.mode = "design"
-                save_cache()
-                st.rerun()
-    with col4:
-        if st.session_state.locked:
-            if st.button("🔓 Unlock", use_container_width=True):
-                st.session_state.locked = False
-                st.session_state.mode = "design"
-                st.session_state.design_phase = "review"
-                save_cache()
-                st.rerun()
-
+    st.subheader(f"{typ['icon']} {typ['name']} — Engineering Investigation")
+    
     if st.session_state.locked:
-        st.warning("🔒 Design is LOCKED. Click 'Unlock' to make changes.")
+        st.warning("🔒 Design is LOCKED. Click 'Unlock' below to make changes.")
     
     if typ_key == "custom":
         st.subheader("📋 Design Brief")
@@ -1103,102 +1207,92 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             params["height"] = height
         
         st.info("📝 This is a custom design. The 3D view shows a bounding box placeholder.")
-    else:
-        if st.session_state.mode == "design" and not st.session_state.locked:
-            st.subheader("📐 Dimensions")
-            cols = st.columns(2)
-            col_idx = 0
-            for p_key, p_def in typ["params"].items():
-                with cols[col_idx % 2]:
-                    val = st.number_input(
-                        p_def["label"],
-                        min_value=float(p_def["min"]),
-                        max_value=float(p_def["max"]),
-                        step=float(p_def["step"]),
-                        value=float(params.get(p_key, p_def["default"])),
-                        format="%.1f"
-                    )
-                    params[p_key] = val
-                col_idx += 1
-            save_cache()
     
-    if st.session_state.mode == "engineer" or st.session_state.locked:
-        st.subheader("🔬 Engineering View")
+    st.subheader("🔬 Engineering View")
+    
+    if st.session_state.mode == "engineer":
+        st.caption("Toggle engineering annotations:")
+        anno_cols = st.columns(3)
+        with anno_cols[0]:
+            st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind Load", value=st.session_state.engineering_annotations.get("show_wind", True))
+        with anno_cols[1]:
+            st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie-Down Anchors", value=st.session_state.engineering_annotations.get("show_tie_down", True))
+        with anno_cols[2]:
+            st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load Path", value=st.session_state.engineering_annotations.get("show_load_path", True))
+        save_cache()
+    
+    if typ_key == "custom":
+        fig = generate_custom_bounding_box(params)
+        if st.session_state.custom_image:
+            st.image(st.session_state.custom_image, caption="Design Reference", use_column_width=True)
+        if st.session_state.custom_description:
+            st.caption(f"📝 {st.session_state.custom_description}")
+    else:
+        if typ_key in GENERATORS:
+            if st.session_state.mode == "engineer" and typ_key == "saddle_span":
+                fig = generate_saddle_span(params, st.session_state.engineering_annotations)
+            else:
+                fig = GENERATORS[typ_key](params)
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
+    
+    with st.expander("📋 Design Summary & Export"):
+        st.write(f"**Project:** {info.get('name', 'N/A')}")
+        st.write(f"**Client:** {info.get('client', 'N/A')}")
+        if info.get('architect'):
+            st.write(f"**Architect:** {info.get('architect')}")
+        if info.get('engineer'):
+            st.write(f"**Engineer:** {info.get('engineer')}")
+        st.write("---")
+        for i, q in enumerate(typ["qa"]):
+            ans = st.session_state.qa_answers.get(f"qa_{i}", "Not answered")
+            st.write(f"**{q}** → {ans}")
         
-        if st.session_state.mode == "engineer":
-            st.caption("Toggle engineering annotations:")
-            anno_cols = st.columns(3)
-            with anno_cols[0]:
-                st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind Load", value=st.session_state.engineering_annotations.get("show_wind", True))
-            with anno_cols[1]:
-                st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie-Down Anchors", value=st.session_state.engineering_annotations.get("show_tie_down", True))
-            with anno_cols[2]:
-                st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load Path", value=st.session_state.engineering_annotations.get("show_load_path", True))
+        if st.session_state.comments:
+            st.write("---")
+            st.write(f"**💬 Comments:** {st.session_state.comments}")
+        
+        st.write("---")
+        st.subheader("📤 Export")
+        
+        col_exp1, col_exp2 = st.columns(2)
+        with col_exp1:
+            if typ_key != "custom" and typ_key in GENERATORS:
+                try:
+                    if st.session_state.mode == "engineer" and typ_key == "saddle_span":
+                        fig_export = generate_saddle_span(params, st.session_state.engineering_annotations)
+                    else:
+                        fig_export = GENERATORS[typ_key](params)
+                    img_link = get_image_download_link(fig_export)
+                    st.markdown(img_link, unsafe_allow_html=True)
+                except Exception as e:
+                    st.warning(f"⚠️ Image export requires additional setup: {str(e)}")
+            else:
+                st.info("📸 Image export available for standard typologies.")
+        
+        with col_exp2:
+            export_data = {
+                "project": info,
+                "typology": typ_key,
+                "parameters": params,
+                "qa_answers": st.session_state.qa_answers,
+                "comments": st.session_state.comments,
+                "locked": st.session_state.locked,
+                "export_date": datetime.now().isoformat()
+            }
+            if typ_key == "custom":
+                export_data["custom_image"] = st.session_state.custom_image is not None
+                export_data["custom_description"] = st.session_state.custom_description
+            json_link = get_json_download_link(export_data)
+            st.markdown(json_link, unsafe_allow_html=True)
+    
+    # Unlock button at bottom
+    if st.session_state.locked:
+        if st.button("🔓 Unlock Design", use_container_width=True):
+            st.session_state.locked = False
+            st.session_state.mode = "design"
+            st.session_state.design_phase = "review"
             save_cache()
-        
-        if typ_key == "custom":
-            fig = generate_custom_bounding_box(params)
-            if st.session_state.custom_image:
-                st.image(st.session_state.custom_image, caption="Design Reference", use_column_width=True)
-            if st.session_state.custom_description:
-                st.caption(f"📝 {st.session_state.custom_description}")
-        else:
-            if typ_key in GENERATORS:
-                if st.session_state.mode == "engineer" and typ_key == "saddle_span":
-                    fig = generate_saddle_span(params, st.session_state.engineering_annotations)
-                else:
-                    fig = GENERATORS[typ_key](params)
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
-        
-        with st.expander("📋 Design Summary & Export"):
-            st.write(f"**Project:** {info.get('name', 'N/A')}")
-            st.write(f"**Client:** {info.get('client', 'N/A')}")
-            if info.get('architect'):
-                st.write(f"**Architect:** {info.get('architect')}")
-            if info.get('engineer'):
-                st.write(f"**Engineer:** {info.get('engineer')}")
-            st.write("---")
-            for i, q in enumerate(typ["qa"]):
-                ans = st.session_state.qa_answers.get(f"qa_{i}", "Not answered")
-                st.write(f"**{q}** → {ans}")
-            
-            if st.session_state.comments:
-                st.write("---")
-                st.write(f"**💬 Comments:** {st.session_state.comments}")
-            
-            st.write("---")
-            st.subheader("📤 Export")
-            
-            col_exp1, col_exp2 = st.columns(2)
-            with col_exp1:
-                if typ_key != "custom" and typ_key in GENERATORS:
-                    try:
-                        if st.session_state.mode == "engineer" and typ_key == "saddle_span":
-                            fig_export = generate_saddle_span(params, st.session_state.engineering_annotations)
-                        else:
-                            fig_export = GENERATORS[typ_key](params)
-                        img_link = get_image_download_link(fig_export)
-                        st.markdown(img_link, unsafe_allow_html=True)
-                    except Exception as e:
-                        st.warning(f"⚠️ Image export requires additional setup: {str(e)}")
-                else:
-                    st.info("📸 Image export available for standard typologies.")
-            
-            with col_exp2:
-                export_data = {
-                    "project": info,
-                    "typology": typ_key,
-                    "parameters": params,
-                    "qa_answers": st.session_state.qa_answers,
-                    "comments": st.session_state.comments,
-                    "locked": st.session_state.locked,
-                    "export_date": datetime.now().isoformat()
-                }
-                if typ_key == "custom":
-                    export_data["custom_image"] = st.session_state.custom_image is not None
-                    export_data["custom_description"] = st.session_state.custom_description
-                json_link = get_json_download_link(export_data)
-                st.markdown(json_link, unsafe_allow_html=True)
+            st.rerun()
 
-st.caption("SDS Platform v1.0 | Full Navigation | Project Browser | Save & Load")
+st.caption("SDS Platform v1.0 | Dashboard-First | Clean Navigation | No White Patch")
 save_cache()
