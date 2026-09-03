@@ -652,29 +652,18 @@ def generate_bracing_positions(span, num_bays):
     else:
         return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
 
-# ============================================================
-# FIXED TIE-DOWN — 2 PER BEAM, ATTACHED TO BEAM SURFACE
-# ============================================================
 def generate_tie_down_anchors_full(span, laa, height, vertical_angle_deg, horizontal_spread_deg):
-    """
-    Generate 2 tie-downs per beam (quarter and three-quarter points).
-    Each tie-down has ONE ground anchor (centered, not left/right).
-    Total: 4 anchors for the structure.
-    """
     vertical_rad = np.radians(vertical_angle_deg)
     horizontal_rad = np.radians(horizontal_spread_deg)
     distance = height * np.tan(vertical_rad)
     quarter = span / 4
     three_quarter = 3 * span / 4
     anchors = []
-    beam_ys = [-laa/2, laa/2]  # Beam 1 (y negative), Beam 2 (y positive)
-    
+    beam_ys = [-laa/2, laa/2]
     for beam_idx, beam_y in enumerate(beam_ys):
-        # Two positions: quarter and three-quarter
         for beam_x in [quarter, three_quarter]:
-            # ONE anchor per position (centered, not left/right)
-            anchor_x = beam_x + distance * np.sin(horizontal_rad)  # Spread outward
-            anchor_y = beam_y  # Same y as beam point (no left/right spread)
+            anchor_x = beam_x + distance * np.sin(horizontal_rad)
+            anchor_y = beam_y
             anchor_z = 0
             anchors.append({
                 "beam_x": beam_x,
@@ -687,6 +676,9 @@ def generate_tie_down_anchors_full(span, laa, height, vertical_angle_deg, horizo
             })
     return anchors
 
+# ============================================================
+# FIXED: Complete dictionary for fabric weight
+# ============================================================
 def calculate_steel_weight(grade, section_type, section_size, length):
     weight_per_m = {
         "CHS 100x5": 11.7, "CHS 150x6": 21.3, "CHS 200x8": 37.9,
@@ -700,16 +692,16 @@ def calculate_fabric_weight(fabric_type, thickness, area):
     weight_per_m2 = {
         "PVC-coated Polyester": {0.5: 0.6, 0.8: 0.9, 1.0: 1.2, 1.2: 1.4},
         "PTFE-coated Fiberglass": {0.5: 1.0, 0.8: 1.4, 1.0: 1.8, 1.2: 2.2},
-        "ETFE": {0.5: 0.5, 0.8: 0.8, 1
-
-.0: 1.0, def1.2: 1.2 calculate}
-_t    }
-    return weight_per_m2ie.get(fabric_type, {}).get(thickness, 1.0) * area
+        "ETFE": {0.5: 0.5, 0.8: 0.8, 1.0: 1.0, 1.2: 1.2}
+    }
+    return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area
 
 def calculate_wind_load(wind_speed, area, drag_coefficient=1.2):
     rho = 1.225
     q = 0.5 * rho * wind_speed**2 / 1000
-    return q * drag_coefficient * area_down_force(wind_load, self_weight_kn, num_anchors, vertical_angle_deg, safety_factor=1.5):
+    return q * drag_coefficient * area
+
+def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_angle_deg, safety_factor=1.5):
     uplift = wind_load * 0.8
     net_uplift = max(0, uplift - self_weight_kn * 0.5)
     per_anchor = net_uplift / num_anchors * safety_factor
@@ -834,7 +826,7 @@ def get_proposal_download_link(fig, filename="proposal_drawings.png"):
     return href
 
 # ============================================================
-# 3D GENERATORS — FIXED TIE-DOWN
+# 3D GENERATORS
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -874,28 +866,21 @@ def generate_saddle_span(params, materials=None, annotations=None):
 
     fig = go.Figure()
 
-    # Beams
     fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=6)))
     fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=6)))
-
-    # Membrane
     fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, 
                              colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
                              opacity=0.7, showscale=False))
 
-    # Apex markers — SMALLER
     fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
                                mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
     fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], 
                                mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
-
-    # Support markers — SMALLER
     fig.add_trace(go.Scatter3d(x=[-span/2], y=[0], z=[0], 
                                mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=4, symbol='square')))
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
                                mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=4, symbol='square')))
 
-    # Cross Bracing
     if materials and annotations and annotations.get("show_bracing", True):
         num_bays = materials.get("num_bays", 2)
         bracing_x = generate_bracing_positions(span, num_bays)
@@ -923,21 +908,13 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 showlegend=False
             ))
 
-    # ============================================================
-    # FIXED TIE-DOWN — ATTACHED TO BEAM SURFACE
-    # ============================================================
     if materials and annotations and annotations.get("show_tie_down", True):
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
         horizontal_spread = materials.get("tie_down_horizontal_spread", 25)
         anchors = generate_tie_down_anchors_full(span, laa, rise, vertical_angle, horizontal_spread)
-        
         for a in anchors:
-            # Find the exact beam surface Z at this X position
-            # The beam is at y = a["beam_y"], we need z_beam at the same x
             idx = np.argmin(np.abs(x - a["beam_x"]))
-            beam_z = z_beam[idx]  # Actual beam height at this X
-            
-            # Draw wire rope from BEAM SURFACE to ground anchor
+            beam_z = z_beam[idx]
             fig.add_trace(go.Scatter3d(
                 x=[a["beam_x"], a["anchor_x"]],
                 y=[a["beam_y"], a["anchor_y"]],
@@ -947,7 +924,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 line=dict(color='#FFD93D', width=2),
                 showlegend=False
             ))
-            # Ground anchor marker — SMALLER
             fig.add_trace(go.Scatter3d(
                 x=[a["anchor_x"]],
                 y=[a["anchor_y"]],
@@ -957,7 +933,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 marker=dict(color='#FF6B6B', size=4, symbol='x'),
                 showlegend=False
             ))
-            # Small label — SMALLER
             fig.add_trace(go.Scatter3d(
                 x=[a["beam_x"]],
                 y=[a["beam_y"]],
@@ -968,7 +943,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 showlegend=False
             ))
 
-    # Wind Arrows
     if annotations and annotations.get("show_wind", True):
         fig.add_trace(go.Scatter3d(
             x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
@@ -983,7 +957,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
             showlegend=False
         ))
 
-    # Load Path
     if annotations and annotations.get("show_load_path", True):
         fig.add_trace(go.Scatter3d(
             x=[0, 0], y=[0, 0], z=[rise, rise-2],
@@ -1801,5 +1774,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v3.0 | Fixed Tie-Downs — 2 per beam, attached to beam surface | Smaller markers")
+st.caption("SDS Platform v3.0 | Fixed Syntax Error in Fabric Weight Dictionary")
 save_cache()
