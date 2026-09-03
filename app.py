@@ -7,8 +7,6 @@ from datetime import datetime
 import random
 import string
 import base64
-from io import BytesIO
-from PIL import Image
 
 # ============================================================
 # PAGE CONFIG
@@ -376,41 +374,42 @@ def generate_saddle_span(params, annotations=None):
                                mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=10, symbol='square')))
 
     # ============================================
-    # ENGINEERING ANNOTATIONS (Wind, Tie-Down, Load)
+    # ENGINEERING ANNOTATIONS (FIXED — NO INVALID SYMBOLS)
     # ============================================
     if annotations:
-        # Wind arrows (red arrows showing wind direction)
+        # Wind arrows (red dashed lines)
         if annotations.get("show_wind", True):
             fig.add_trace(go.Scatter3d(
                 x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
-                mode='lines+markers', name='Wind Load',
-                line=dict(color='#FF6B6B', width=4, dash='dash'),
-                marker=dict(size=8, symbol='arrow-bar-up', color='#FF6B6B')
+                mode='lines',
+                name='Wind Load',
+                line=dict(color='#FF6B6B', width=4, dash='dash')
             ))
             fig.add_trace(go.Scatter3d(
                 x=[span/4, span/4], y=[laa/4, laa/4], z=[rise*0.8, rise*1.2],
-                mode='lines+markers', name='Wind Load',
-                line=dict(color='#FF6B6B', width=4, dash='dash'),
-                marker=dict(size=8, symbol='arrow-bar-up', color='#FF6B6B')
+                mode='lines',
+                name='Wind Load',
+                line=dict(color='#FF6B6B', width=4, dash='dash')
             ))
 
-        # Tie-down markers (green anchors at supports)
+        # Tie-down anchors (green X markers)
         if annotations.get("show_tie_down", True):
             fig.add_trace(go.Scatter3d(
                 x=[-span/2, -span/2, span/2, span/2],
                 y=[-1, 1, -1, 1],
                 z=[-0.5, -0.5, -0.5, -0.5],
-                mode='markers', name='Tie-Down Anchors',
+                mode='markers',
+                name='Tie-Down Anchors',
                 marker=dict(color='#4ECDC4', size=14, symbol='x')
             ))
 
-        # Load path arrows (yellow arrows showing force direction)
+        # Load path (yellow line)
         if annotations.get("show_load_path", True):
             fig.add_trace(go.Scatter3d(
                 x=[0, 0], y=[0, 0], z=[rise, rise-2],
-                mode='lines+markers', name='Load Path',
-                line=dict(color='#FFD93D', width=5),
-                marker=dict(size=10, symbol='arrow-down', color='#FFD93D')
+                mode='lines',
+                name='Load Path',
+                line=dict(color='#FFD93D', width=5)
             ))
 
     # Layout
@@ -842,7 +841,7 @@ else:
 if st.session_state.mode == "engineer" or st.session_state.locked:
     st.subheader("🔬 Engineering View")
     
-    # Annotation controls
+    # Annotation controls (only when in engineer mode)
     if st.session_state.mode == "engineer":
         st.caption("Toggle engineering annotations:")
         anno_cols = st.columns(3)
@@ -863,7 +862,7 @@ if st.session_state.mode == "engineer" or st.session_state.locked:
             st.caption(f"📝 {st.session_state.custom_description}")
     else:
         if typ_key in GENERATORS:
-            # Pass annotations only if in engineer mode
+            # Pass annotations only if in engineer mode and saddle_span
             if st.session_state.mode == "engineer" and typ_key == "saddle_span":
                 fig = generate_saddle_span(params, st.session_state.engineering_annotations)
             else:
@@ -924,5 +923,5 @@ if st.session_state.mode == "engineer" or st.session_state.locked:
         json_link = get_json_download_link(export_data)
         st.markdown(json_link, unsafe_allow_html=True)
 
-st.caption("SDS Platform v1.0 | Engineering Mode | Export Ready")
+st.caption("SDS Platform v1.0 | Engineering Mode | Export Ready (Fixed Arrows)")
 save_cache()
