@@ -9,6 +9,10 @@ import string
 import base64
 import shutil
 import glob
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import io
+from PIL import Image
 
 # ============================================================
 # PAGE CONFIG
@@ -20,7 +24,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM DARK MODE CSS
+# CUSTOM DARK MODE CSS — Professional
 # ============================================================
 dark_mode_css = """
     <style>
@@ -158,6 +162,8 @@ dark_mode_css = """
     footer {visibility: hidden !important;}
     header {visibility: hidden !important;}
     .stDeployButton {display: none !important;}
+    
+    /* Dashboard Cards */
     .dashboard-card {
         background-color: #141e2b;
         border-radius: 12px;
@@ -183,16 +189,40 @@ dark_mode_css = """
         font-size: 1.2rem;
         font-weight: 600;
     }
-    .sds-logo {
-        cursor: pointer;
+    
+    /* SDS-UNDERSTAND Cards */
+    .sds-card {
+        background-color: #141e2b;
+        border-radius: 12px;
+        padding: 1rem 1.2rem;
+        border: 1px solid #1e2a3a;
+        margin-bottom: 0.8rem;
+    }
+    .sds-card .title {
         color: #ffffff;
-        font-weight: 700;
-        font-size: 1.1rem;
-        text-decoration: none;
+        font-weight: 600;
+        font-size: 1rem;
+        margin-bottom: 0.4rem;
     }
-    .sds-logo:hover {
-        color: #f39c12;
+    .sds-card .content {
+        color: #b0c4de;
+        font-size: 0.9rem;
     }
+    .sds-card .badge {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 500;
+        margin-left: 0.5rem;
+    }
+    .badge-confirmed { background-color: #2d6a4f; color: #a7f3d0; }
+    .badge-inferred { background-color: #7d5a2d; color: #fcd34d; }
+    .badge-unknown { background-color: #6b2d2d; color: #fca5a5; }
+    .badge-provided { background-color: #1e3a5f; color: #93c5fd; }
+    .badge-autogen { background-color: #3b3b6b; color: #c4b5fd; }
+    
+    /* Export Section */
     .export-section {
         background-color: #141e2b;
         border-radius: 12px;
@@ -208,14 +238,14 @@ dark_mode_css = """
     .export-section a:hover {
         color: #f39c12 !important;
     }
-    .bracing-bay-indicator {
-        display: inline-block;
-        padding: 0.2rem 0.6rem;
-        border-radius: 20px;
-        background-color: #1e2a3a;
-        color: #b0c4de;
-        font-size: 0.7rem;
-        margin-right: 0.3rem;
+    
+    /* Proposal Drawings */
+    .proposal-drawings {
+        background-color: #0a0e17;
+        border-radius: 12px;
+        padding: 0.5rem;
+        border: 1px solid #1e2a3a;
+        margin: 0.5rem 0;
     }
     </style>
 """
@@ -259,6 +289,8 @@ if "show_registration" not in st.session_state:
     st.session_state.show_registration = False
 if "show_export" not in st.session_state:
     st.session_state.show_export = False
+if "show_proposal" not in st.session_state:
+    st.session_state.show_proposal = False
 
 # Materials State
 if "materials" not in st.session_state:
@@ -375,6 +407,7 @@ def load_project_from_file(filename):
             st.session_state.show_registration = False
             st.session_state.show_project_browser = False
             st.session_state.show_export = False
+            st.session_state.show_proposal = False
             save_cache()
             return True
     return False
@@ -402,6 +435,7 @@ def go_to_dashboard():
     st.session_state.show_project_browser = False
     st.session_state.show_registration = False
     st.session_state.show_export = False
+    st.session_state.show_proposal = False
     if os.path.exists(CACHE_FILE):
         os.remove(CACHE_FILE)
     save_cache()
@@ -423,24 +457,22 @@ def clear_cache():
     st.session_state.show_project_browser = False
     st.session_state.show_registration = False
     st.session_state.show_export = False
+    st.session_state.show_proposal = False
     update_projects_index()
 
 def save_project_as_new():
     if not st.session_state.project_info.get("name"):
         st.error("⚠️ Project name is required to save.")
         return
-    
     ref = st.session_state.project_info.get("reference")
     if not ref:
         ref = f"SDS-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
-    
     projects = get_projects_list()
     existing_file = None
     for proj in projects:
         if proj.get("reference") == ref:
             existing_file = proj.get("file")
             break
-    
     data = {
         "project_registered": st.session_state.project_registered,
         "project_info": st.session_state.project_info,
@@ -455,7 +487,6 @@ def save_project_as_new():
         "comments": st.session_state.comments,
         "materials": st.session_state.materials
     }
-    
     if existing_file:
         filepath = os.path.join(CACHE_DIR, existing_file)
         with open(filepath, "w") as f:
@@ -467,7 +498,6 @@ def save_project_as_new():
         with open(filepath, "w") as f:
             json.dump(data, f)
         st.success(f"✅ Project saved as: {filename}")
-    
     update_projects_index()
 
 def get_projects_list():
@@ -527,7 +557,7 @@ TYPOLOGIES = {
             "Are these the two primary structural beams?",
             "Are both beams supported at their lower ends?",
             "Is the membrane attached continuously along the curved beams?",
-            "Is the circled point (P_A) the apex/high point of the structure?",
+            "Is the apex/high point correctly identified at the top of the structure?",
             "Is dimension A (rise) the vertical height from support level to apex as shown?",
             "Is dimension B the horizontal plan width between supports as shown?",
             "Is LAA the distance between apex of Beam 1 and apex of Beam 2?"
@@ -607,11 +637,10 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# AUTO-GENERATION FUNCTIONS (Bracing & Tie-Downs)
+# AUTO-GENERATION FUNCTIONS
 # ============================================================
 
 def generate_bracing_positions(span, num_bays):
-    """Generate X-coordinates for cross-bracing bays along the span"""
     if num_bays == 1:
         return [0.0]
     elif num_bays == 2:
@@ -619,37 +648,26 @@ def generate_bracing_positions(span, num_bays):
     elif num_bays == 3:
         return [-span/4, 0.0, span/4]
     else:
-        # For more bays, distribute evenly
         return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
 
 def generate_tie_down_anchors(support_x, support_y, height, num_anchors, angle_deg):
-    """Generate ground anchor coordinates for tie-downs"""
     angle_rad = np.radians(angle_deg)
     distance = height * np.tan(angle_rad)
     anchors = []
-    
     if num_anchors == 1:
         anchors.append((support_x + distance * 0.7, support_y, 0))
     elif num_anchors == 2:
-        # Radiating outward from support at ±45 degrees
-        offsets = [(0.7, 0.7), (0.7, -0.7)]
-        for dx, dy in offsets:
+        for dx, dy in [(0.7, 0.7), (0.7, -0.7)]:
             anchors.append((support_x + distance * dx, support_y + distance * dy, 0))
     elif num_anchors == 4:
-        # Four cardinal directions
-        offsets = [(1, 0), (-1, 0), (0, 1), (0, -1)]
-        for dx, dy in offsets:
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
             anchors.append((support_x + distance * dx, support_y + distance * dy, 0))
     else:
-        # Default: 2 anchors
         anchors.append((support_x + distance * 0.7, support_y + distance * 0.7, 0))
         anchors.append((support_x + distance * 0.7, support_y - distance * 0.7, 0))
-    
     return anchors
 
 def calculate_steel_weight(grade, section_type, section_size, length):
-    """Approximate steel weight per meter based on section type and size"""
-    # Simplified lookup — in production, this would come from a database
     weight_per_m = {
         "CHS 100x5": 11.7, "CHS 150x6": 21.3, "CHS 200x8": 37.9,
         "RHS 150x100x6": 22.2, "RHS 200x150x8": 39.3,
@@ -659,7 +677,6 @@ def calculate_steel_weight(grade, section_type, section_size, length):
     return weight_per_m.get(section_size, 20.0) * length
 
 def calculate_fabric_weight(fabric_type, thickness, area):
-    """Approximate fabric weight per m²"""
     weight_per_m2 = {
         "PVC-coated Polyester": {0.5: 0.6, 0.8: 0.9, 1.0: 1.2, 1.2: 1.4},
         "PTFE-coated Fiberglass": {0.5: 1.0, 0.8: 1.4, 1.0: 1.8, 1.2: 2.2},
@@ -668,22 +685,142 @@ def calculate_fabric_weight(fabric_type, thickness, area):
     return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area
 
 def calculate_wind_load(wind_speed, area, drag_coefficient=1.2):
-    """Calculate wind load (kN)"""
-    rho = 1.225  # Air density (kg/m³)
-    q = 0.5 * rho * wind_speed**2 / 1000  # kN/m²
+    rho = 1.225
+    q = 0.5 * rho * wind_speed**2 / 1000
     return q * drag_coefficient * area
 
 def calculate_tie_down_force(wind_load, self_weight, num_anchors, angle_deg, safety_factor=1.5):
-    """Calculate required tie-down force per anchor (kN)"""
-    uplift = wind_load * 0.8  # Conservative suction coefficient
-    net_uplift = max(0, uplift - self_weight * 0.5)  # Partial self-weight counteracts uplift
+    uplift = wind_load * 0.8
+    net_uplift = max(0, uplift - self_weight * 0.5)
     per_anchor = net_uplift / num_anchors * safety_factor
-    # Account for angle: vertical component = cable_force * cos(angle)
     cable_force = per_anchor / np.cos(np.radians(angle_deg))
     return cable_force
 
 # ============================================================
-# 3D GENERATORS
+# PROPOSAL DRAWINGS (Matplotlib)
+# ============================================================
+
+def generate_proposal_drawings(params, materials):
+    """Generate Plan, Elevation, Side, Perspective views with dimensions"""
+    span = params.get("B", 10.0)
+    rise = params.get("A", 6.0)
+    laa = params.get("LAA", 15.0)
+    
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+    fig.patch.set_facecolor('#0a0e17')
+    
+    # ---- Plan View (Top) ----
+    ax = axes[0, 0]
+    ax.set_facecolor('#141e2b')
+    ax.set_title("Plan View", color='#ffffff', fontsize=10)
+    x = np.linspace(-span/2, span/2, 30)
+    y1 = -laa/2 * (1 - (2 * x / span)**2)
+    y2 = laa/2 * (1 - (2 * x / span)**2)
+    ax.plot(x, y1, color='#FF6B6B', linewidth=2, label='Beam 1')
+    ax.plot(x, y2, color='#FF6B6B', linewidth=2, label='Beam 2')
+    ax.scatter(0, y1[len(y1)//2], color='#FFD93D', s=50, zorder=5, label='Apex 1')
+    ax.scatter(0, y2[len(y2)//2], color='#FFD93D', s=50, zorder=5, label='Apex 2')
+    ax.scatter(-span/2, 0, color='#4ECDC4', s=50, zorder=5, label='Support 1')
+    ax.scatter(span/2, 0, color='#4ECDC4', s=50, zorder=5, label='Support 2')
+    # Dimensions
+    ax.annotate(f'B = {span:.1f}m', xy=(0, -laa/2 - 1), color='#ffffff', fontsize=8, ha='center')
+    ax.annotate(f'LAA = {laa:.1f}m', xy=(span/2 + 0.5, 0), color='#ffffff', fontsize=8, va='center')
+    ax.set_xlabel('Span (m)', color='#b0c4de', fontsize=8)
+    ax.set_ylabel('Width (m)', color='#b0c4de', fontsize=8)
+    ax.tick_params(colors='#b0c4de', labelsize=7)
+    ax.grid(True, color='#1a2a3a', linestyle='--', linewidth=0.5)
+    ax.legend(loc='upper right', fontsize=6, facecolor='#141e2b', edgecolor='#2a3a4f')
+    
+    # ---- Front Elevation ----
+    ax = axes[0, 1]
+    ax.set_facecolor('#141e2b')
+    ax.set_title("Front Elevation", color='#ffffff', fontsize=10)
+    x = np.linspace(-span/2, span/2, 50)
+    z = rise * (1 - (2 * x / span)**2)
+    ax.plot(x, z, color='#FF6B6B', linewidth=2)
+    ax.scatter(0, rise, color='#FFD93D', s=50, zorder=5, label='Apex')
+    ax.scatter(-span/2, 0, color='#4ECDC4', s=50, zorder=5, label='Support')
+    ax.scatter(span/2, 0, color='#4ECDC4', s=50, zorder=5, label='Support')
+    # Dimensions
+    ax.annotate(f'Rise (A) = {rise:.1f}m', xy=(0, rise/2), color='#ffffff', fontsize=8, ha='right')
+    ax.annotate(f'Span (B) = {span:.1f}m', xy=(0, -0.5), color='#ffffff', fontsize=8, ha='center')
+    ax.set_xlabel('Span (m)', color='#b0c4de', fontsize=8)
+    ax.set_ylabel('Height (m)', color='#b0c4de', fontsize=8)
+    ax.tick_params(colors='#b0c4de', labelsize=7)
+    ax.grid(True, color='#1a2a3a', linestyle='--', linewidth=0.5)
+    ax.set_ylim(-1, rise * 1.2)
+    ax.legend(loc='upper right', fontsize=6, facecolor='#141e2b', edgecolor='#2a3a4f')
+    
+    # ---- Side Elevation ----
+    ax = axes[1, 0]
+    ax.set_facecolor('#141e2b')
+    ax.set_title("Side Elevation", color='#ffffff', fontsize=10)
+    x = np.linspace(-span/2, span/2, 50)
+    z = rise * (1 - (2 * x / span)**2)
+    ax.plot(x, z, color='#FF6B6B', linewidth=2)
+    ax.scatter(0, rise, color='#FFD93D', s=50, zorder=5)
+    ax.scatter(-span/2, 0, color='#4ECDC4', s=50, zorder=5)
+    ax.scatter(span/2, 0, color='#4ECDC4', s=50, zorder=5)
+    # Tie-down angle indicator
+    angle = materials.get("anchor_angle", 30)
+    distance = rise * np.tan(np.radians(angle))
+    ax.plot([-span/2, -span/2 + distance], [0, -rise * 0.2], color='#FFD93D', linewidth=1.5, linestyle='--', label=f'Tie-down {angle}°')
+    ax.plot([span/2, span/2 - distance], [0, -rise * 0.2], color='#FFD93D', linewidth=1.5, linestyle='--')
+    ax.annotate(f'A = {rise:.1f}m', xy=(0, rise/2), color='#ffffff', fontsize=8, ha='right')
+    ax.annotate(f'B = {span:.1f}m', xy=(0, -0.5), color='#ffffff', fontsize=8, ha='center')
+    ax.set_xlabel('Span (m)', color='#b0c4de', fontsize=8)
+    ax.set_ylabel('Height (m)', color='#b0c4de', fontsize=8)
+    ax.tick_params(colors='#b0c4de', labelsize=7)
+    ax.grid(True, color='#1a2a3a', linestyle='--', linewidth=0.5)
+    ax.set_ylim(-rise * 0.3, rise * 1.2)
+    ax.legend(loc='upper right', fontsize=6, facecolor='#141e2b', edgecolor='#2a3a4f')
+    
+    # ---- Perspective View ----
+    ax = axes[1, 1]
+    ax.set_facecolor('#141e2b')
+    ax.set_title("Perspective View", color='#ffffff', fontsize=10)
+    # Simple 3D-like projection
+    x = np.linspace(-span/2, span/2, 30)
+    y1 = -laa/2 * (1 - (2 * x / span)**2) * 0.5
+    y2 = laa/2 * (1 - (2 * x / span)**2) * 0.5
+    z = rise * (1 - (2 * x / span)**2)
+    # Offset for perspective effect
+    offset = 0.3 * span
+    ax.plot(x + offset, z + y1, color='#FF6B6B', linewidth=2, label='Beam 1')
+    ax.plot(x + offset, z + y2, color='#FF6B6B', linewidth=2, label='Beam 2')
+    # Membrane fill (approximate)
+    ax.fill_between(x + offset, z + y1, z + y2, color='#4a7a9c', alpha=0.3)
+    ax.scatter(offset, rise, color='#FFD93D', s=50, zorder=5, label='Apex')
+    ax.scatter(-span/2 + offset, 0, color='#4ECDC4', s=50, zorder=5, label='Support')
+    ax.scatter(span/2 + offset, 0, color='#4ECDC4', s=50, zorder=5, label='Support')
+    ax.annotate(f'A={rise:.1f}m', xy=(offset + 0.5, rise/2), color='#ffffff', fontsize=8)
+    ax.annotate(f'B={span:.1f}m', xy=(0 + offset, -0.5), color='#ffffff', fontsize=8, ha='center')
+    ax.annotate(f'LAA={laa:.1f}m', xy=(span/2 + offset + 0.5, 0), color='#ffffff', fontsize=8)
+    ax.set_xlabel('Width', color='#b0c4de', fontsize=8)
+    ax.set_ylabel('Height', color='#b0c4de', fontsize=8)
+    ax.tick_params(colors='#b0c4de', labelsize=7)
+    ax.grid(True, color='#1a2a3a', linestyle='--', linewidth=0.5)
+    ax.set_xlim(-span/2 + offset - 1, span/2 + offset + 1)
+    ax.set_ylim(-1, rise * 1.2)
+    ax.legend(loc='upper right', fontsize=6, facecolor='#141e2b', edgecolor='#2a3a4f')
+    
+    plt.tight_layout()
+    return fig
+
+def get_proposal_download_link(fig, filename="proposal_drawings.png"):
+    """Convert matplotlib figure to PNG and return base64 download link"""
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=150, facecolor='#0a0e17')
+    buf.seek(0)
+    img = Image.open(buf)
+    buf2 = io.BytesIO()
+    img.save(buf2, format='PNG')
+    b64 = base64.b64encode(buf2.getvalue()).decode()
+    href = f'<a href="data:image/png;base64,{b64}" download="{filename}">📄 Download Proposal Drawings (PNG)</a>'
+    return href
+
+# ============================================================
+# 3D GENERATORS (Saddle Span with Legend at Bottom)
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -744,104 +881,67 @@ def generate_saddle_span(params, materials=None, annotations=None):
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
                                mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=10, symbol='square')))
 
-    # ---- CROSS BRACING (Auto-Generated) ----
+    # Cross Bracing
     if materials and annotations and annotations.get("show_bracing", True):
         num_bays = materials.get("num_bays", 2)
         bracing_x = generate_bracing_positions(span, num_bays)
-        
         for bx in bracing_x:
-            # Find closest indices on the beams
             idx = np.argmin(np.abs(x - bx))
             y1_pos = y1[idx]
             y2_pos = y2[idx]
             z_pos = z_beam[idx]
-            
-            # Draw crossed diagonal cables between beams at this X position
-            # Cable 1: from Beam 1 (y1_pos) to Beam 2 (y2_pos) — diagonal crossing
             fig.add_trace(go.Scatter3d(
-                x=[bx, bx],
-                y=[y1_pos, y2_pos],
-                z=[z_pos, z_pos],
-                mode='lines',
-                name=f'Cross Bracing (x={bx:.1f}m)',
+                x=[bx, bx], y=[y1_pos, y2_pos], z=[z_pos, z_pos],
+                mode='lines', name='Cross Bracing',
                 line=dict(color='#FF6B6B', width=3, dash='dash')
             ))
-            # Cable 2: crossing in opposite direction
             fig.add_trace(go.Scatter3d(
-                x=[bx, bx],
-                y=[y2_pos, y1_pos],
-                z=[z_pos, z_pos],
-                mode='lines',
-                name=f'Cross Bracing (x={bx:.1f}m)',
+                x=[bx, bx], y=[y2_pos, y1_pos], z=[z_pos, z_pos],
+                mode='lines', name='Cross Bracing',
                 line=dict(color='#FF6B6B', width=3, dash='dash')
-            ))
-            
-            # Add small labels on bracing points
-            fig.add_trace(go.Scatter3d(
-                x=[bx],
-                y=[(y1_pos + y2_pos)/2],
-                z=[z_pos + 0.3],
-                mode='text',
-                text=[f'▲ Bracing {len(bracing_x)} bays'],
-                textfont=dict(color='#FF6B6B', size=10),
-                showlegend=False
             ))
 
-    # ---- TIE-DOWN WIRE ROPES (Auto-Generated) ----
+    # Tie-Down Wire Ropes
     if materials and annotations and annotations.get("show_tie_down", True):
         num_anchors = materials.get("num_anchors", 2)
         anchor_angle = materials.get("anchor_angle", 30)
         height = rise
-        
-        # Generate anchors for both supports
         for support_x, support_y in [(-span/2, 0), (span/2, 0)]:
             anchors = generate_tie_down_anchors(support_x, support_y, height, num_anchors, anchor_angle)
-            
             for ax, ay, az in anchors:
-                # Draw wire rope from support to anchor
                 fig.add_trace(go.Scatter3d(
-                    x=[support_x, ax],
-                    y=[support_y, ay],
-                    z=[0, az],
-                    mode='lines',
-                    name='Tie-Down Rope',
+                    x=[support_x, ax], y=[support_y, ay], z=[0, az],
+                    mode='lines', name='Tie-Down Rope',
                     line=dict(color='#FFD93D', width=4)
                 ))
-                # Anchor marker at ground
                 fig.add_trace(go.Scatter3d(
-                    x=[ax],
-                    y=[ay],
-                    z=[az],
-                    mode='markers',
-                    name='Ground Anchor',
+                    x=[ax], y=[ay], z=[az],
+                    mode='markers', name='Ground Anchor',
                     marker=dict(color='#FF6B6B', size=12, symbol='x')
                 ))
 
-    # ---- WIND ARROWS ----
+    # Wind Arrows
     if annotations and annotations.get("show_wind", True):
         fig.add_trace(go.Scatter3d(
             x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
-            mode='lines',
-            name='Wind Load',
+            mode='lines', name='Wind Load',
             line=dict(color='#FF6B6B', width=4, dash='dash')
         ))
         fig.add_trace(go.Scatter3d(
             x=[span/4, span/4], y=[laa/4, laa/4], z=[rise*0.8, rise*1.2],
-            mode='lines',
-            name='Wind Load',
+            mode='lines', name='Wind Load',
             line=dict(color='#FF6B6B', width=4, dash='dash')
         ))
 
-    # ---- LOAD PATH ----
+    # Load Path
     if annotations and annotations.get("show_load_path", True):
         fig.add_trace(go.Scatter3d(
             x=[0, 0], y=[0, 0], z=[rise, rise-2],
-            mode='lines',
-            name='Load Path',
+            mode='lines', name='Load Path',
             line=dict(color='#FFD93D', width=5)
         ))
 
-    # Layout
+    # Layout with legend at bottom
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
@@ -856,10 +956,16 @@ def generate_saddle_span(params, materials=None, annotations=None):
         paper_bgcolor='#0a0e17',
         margin=dict(l=0, r=0, b=0, t=0),
         legend=dict(
-            font=dict(color='#ffffff'),
-            bgcolor='rgba(10,14,23,0.8)',
+            font=dict(color='#ffffff', size=8),
+            orientation="h",
+            yanchor="bottom",
+            y=-0.15,
+            xanchor="center",
+            x=0.5,
+            bgcolor='rgba(10,14,23,0.7)',
             bordercolor='#2a3a4f',
-            borderwidth=1
+            borderwidth=1,
+            itemsizing='constant'
         )
     )
     return fig
@@ -881,17 +987,14 @@ def generate_tent(params):
     fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.5, colorscale='Reds', showscale=False))
     fig.update_layout(
         scene=dict(
-            xaxis_title='Width',
-            yaxis_title='Length',
-            zaxis_title='Height',
+            xaxis_title='Width', yaxis_title='Length', zaxis_title='Height',
             xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
-        paper_bgcolor='#0a0e17',
-        margin=dict(l=0,r=0,b=0,t=0)
+        paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
+        legend=dict(font=dict(color='#ffffff', size=8), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
     )
     return fig
 
@@ -914,17 +1017,14 @@ def generate_tensile(params):
         fig.add_trace(go.Scatter3d(x=[0, x_end], y=[0, y_end], z=[mast, 0], mode='lines', line=dict(width=4, color='#4a7a9c')))
     fig.update_layout(
         scene=dict(
-            xaxis_title='Length',
-            yaxis_title='Width',
-            zaxis_title='Height',
+            xaxis_title='Length', yaxis_title='Width', zaxis_title='Height',
             xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
-        paper_bgcolor='#0a0e17',
-        margin=dict(l=0,r=0,b=0,t=0)
+        paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
+        legend=dict(font=dict(color='#ffffff', size=8), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
     )
     return fig
 
@@ -949,17 +1049,14 @@ def generate_portal(params):
     fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.3, colorscale='Greys', showscale=False))
     fig.update_layout(
         scene=dict(
-            xaxis_title='Width',
-            yaxis_title='Length',
-            zaxis_title='Height',
+            xaxis_title='Width', yaxis_title='Length', zaxis_title='Height',
             xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
-        paper_bgcolor='#0a0e17',
-        margin=dict(l=0,r=0,b=0,t=0)
+        paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
+        legend=dict(font=dict(color='#ffffff', size=8), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
     )
     return fig
 
@@ -967,68 +1064,34 @@ def generate_custom_bounding_box(params):
     width = params.get("width", 10.0)
     length = params.get("length", 15.0)
     height = params.get("height", 8.0)
-    
     fig = go.Figure()
     corners = [
-        [-width/2, -length/2, 0],
-        [width/2, -length/2, 0],
-        [width/2, length/2, 0],
-        [-width/2, length/2, 0],
-        [-width/2, -length/2, height],
-        [width/2, -length/2, height],
-        [width/2, length/2, height],
-        [-width/2, length/2, height]
+        [-width/2, -length/2, 0], [width/2, -length/2, 0],
+        [width/2, length/2, 0], [-width/2, length/2, 0],
+        [-width/2, -length/2, height], [width/2, -length/2, height],
+        [width/2, length/2, height], [-width/2, length/2, height]
     ]
-    edges = [
-        (0,1), (1,2), (2,3), (3,0),
-        (4,5), (5,6), (6,7), (7,4),
-        (0,4), (1,5), (2,6), (3,7)
-    ]
+    edges = [(0,1), (1,2), (2,3), (3,0), (4,5), (5,6), (6,7), (7,4), (0,4), (1,5), (2,6), (3,7)]
     for i, j in edges:
         fig.add_trace(go.Scatter3d(
             x=[corners[i][0], corners[j][0]],
             y=[corners[i][1], corners[j][1]],
             z=[corners[i][2], corners[j][2]],
-            mode='lines',
-            line=dict(color='#4a7a9c', width=3),
-            showlegend=False
+            mode='lines', line=dict(color='#4a7a9c', width=3), showlegend=False
         ))
-    fig.add_trace(go.Scatter3d(
-        x=[0], y=[-length/2 - 1], z=[height/2],
-        mode='text',
-        text=[f"W: {width:.1f}m"],
-        textfont=dict(color='#FFD93D', size=14),
-        showlegend=False
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=[width/2 + 1], y=[0], z=[height/2],
-        mode='text',
-        text=[f"L: {length:.1f}m"],
-        textfont=dict(color='#4ECDC4', size=14),
-        showlegend=False
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=[width/2 + 0.5], y=[-length/2 - 0.5], z=[height/2],
-        mode='text',
-        text=[f"H: {height:.1f}m"],
-        textfont=dict(color='#FF6B6B', size=14),
-        showlegend=False
-    ))
+    fig.add_trace(go.Scatter3d(x=[0], y=[-length/2 - 1], z=[height/2], mode='text', text=[f"W: {width:.1f}m"], textfont=dict(color='#FFD93D', size=14), showlegend=False))
+    fig.add_trace(go.Scatter3d(x=[width/2 + 1], y=[0], z=[height/2], mode='text', text=[f"L: {length:.1f}m"], textfont=dict(color='#4ECDC4', size=14), showlegend=False))
+    fig.add_trace(go.Scatter3d(x=[width/2 + 0.5], y=[-length/2 - 0.5], z=[height/2], mode='text', text=[f"H: {height:.1f}m"], textfont=dict(color='#FF6B6B', size=14), showlegend=False))
     fig.update_layout(
         scene=dict(
-            xaxis_title='Width (m)',
-            yaxis_title='Length (m)',
-            zaxis_title='Height (m)',
-            aspectmode='manual',
-            aspectratio=dict(x=1.5, y=2.0, z=0.8),
+            xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
+            aspectmode='manual', aspectratio=dict(x=1.5, y=2.0, z=0.8),
             xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
-        paper_bgcolor='#0a0e17',
-        margin=dict(l=0, r=0, b=0, t=0)
+        paper_bgcolor='#0a0e17', margin=dict(l=0, r=0, b=0, t=0)
     )
     return fig
 
@@ -1051,7 +1114,7 @@ def get_image_download_link(fig, filename="design_3d.png"):
         href = f'<a href="data:image/png;base64,{b64}" download="{filename}">📥 Download 3D Image (PNG)</a>'
         return href
     except Exception as e:
-        return f"⚠️ Image export failed: {str(e)}. Please use the screenshot feature on your device."
+        return f"⚠️ Image export failed: {str(e)}. Please use screenshot or Proposal Drawings."
 
 def get_json_download_link(data, filename="project_data.json"):
     json_str = json.dumps(data, indent=2)
@@ -1063,17 +1126,14 @@ def render_export_section():
     if not st.session_state.typology or not st.session_state.project_registered:
         st.info("No active project to export.")
         return
-    
     st.markdown('<div class="export-section">', unsafe_allow_html=True)
     st.subheader("📤 Export Current Project")
-    
     typ_key = st.session_state.typology
     params = st.session_state.params
     info = st.session_state.project_info
     materials = st.session_state.materials
     
     col1, col2 = st.columns(2)
-    
     with col1:
         if typ_key in GENERATORS and typ_key != "custom":
             try:
@@ -1084,10 +1144,9 @@ def render_export_section():
                 img_link = get_image_download_link(fig)
                 st.markdown(img_link, unsafe_allow_html=True)
             except Exception as e:
-                st.warning(f"⚠️ Image export failed: {e}")
+                st.info("📸 Use 'Proposal Drawings' button below for guaranteed export.")
         else:
             st.info("Image export available for standard typologies.")
-    
     with col2:
         export_data = {
             "project": info,
@@ -1104,36 +1163,51 @@ def render_export_section():
             export_data["custom_description"] = st.session_state.custom_description
         json_link = get_json_download_link(export_data)
         st.markdown(json_link, unsafe_allow_html=True)
-    
     st.caption("Exports include geometry, materials, bracing, and tie-down configuration.")
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # Proposal Drawings Button
+    st.subheader("📐 Proposal Drawings Package")
+    st.caption("Generate a complete set of technical drawings: Plan, Front Elevation, Side Elevation, Perspective with dimensions.")
+    if st.button("📊 Generate Proposal Drawings", use_container_width=True, type="primary"):
+        st.session_state.show_proposal = True
+        st.rerun()
+
+def render_proposal_drawings():
+    if not st.session_state.show_proposal:
+        return
+    st.subheader("📐 Proposal Drawings Package")
+    params = st.session_state.params
+    materials = st.session_state.materials
+    fig = generate_proposal_drawings(params, materials)
+    # Display the matplotlib figure
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=120, facecolor='#0a0e17')
+    buf.seek(0)
+    st.image(buf, caption="Plan, Front Elevation, Side Elevation, Perspective", use_column_width=True)
+    # Download link
+    link = get_proposal_download_link(fig)
+    st.markdown(link, unsafe_allow_html=True)
+    if st.button("🔒 Close Drawings", use_container_width=True):
+        st.session_state.show_proposal = False
+        st.rerun()
+    plt.close(fig)
 
 # ============================================================
 # MATERIALS & BRACING UI
 # ============================================================
 
 def render_materials_section():
-    """Render the materials and bracing configuration section"""
     st.subheader("🏗️ Materials & Bracing")
     st.caption("Select materials and configure wind bracing and tie-downs. Positions are auto-generated based on your geometry.")
-    
     m = st.session_state.materials
     
-    # Row 1: Primary Structure
     st.markdown("### 🔩 Primary Structure")
     col1, col2, col3 = st.columns(3)
     with col1:
-        m["steel_grade"] = st.selectbox(
-            "Steel Grade",
-            ["S275", "S355", "S460", "6061-T6 (Aluminum)"],
-            index=["S275", "S355", "S460", "6061-T6 (Aluminum)"].index(m.get("steel_grade", "S355"))
-        )
+        m["steel_grade"] = st.selectbox("Steel Grade", ["S275", "S355", "S460", "6061-T6 (Aluminum)"], index=["S275", "S355", "S460", "6061-T6 (Aluminum)"].index(m.get("steel_grade", "S355")))
     with col2:
-        m["section_type"] = st.selectbox(
-            "Section Type",
-            ["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"],
-            index=["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"].index(m.get("section_type", "Circular Hollow Section (CHS)"))
-        )
+        m["section_type"] = st.selectbox("Section Type", ["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"], index=["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"].index(m.get("section_type", "Circular Hollow Section (CHS)")))
     with col3:
         section_sizes = {
             "Circular Hollow Section (CHS)": ["CHS 100x5", "CHS 150x6", "CHS 200x8", "CHS 250x10"],
@@ -1141,149 +1215,85 @@ def render_materials_section():
             "I-Beam": ["I-100", "I-150", "I-200", "I-250"],
             "Pipe": ["Pipe 100x5", "Pipe 150x6", "Pipe 200x8"]
         }
-        m["section_size"] = st.selectbox(
-            "Section Size",
-            section_sizes.get(m["section_type"], ["CHS 150x6"]),
-            index=0
-        )
+        m["section_size"] = st.selectbox("Section Size", section_sizes.get(m["section_type"], ["CHS 150x6"]), index=0)
     
-    # Row 2: Membrane
     st.markdown("### 🧵 Membrane Fabric")
     col1, col2, col3 = st.columns(3)
     with col1:
-        m["fabric_type"] = st.selectbox(
-            "Fabric Type",
-            ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"],
-            index=["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"].index(m.get("fabric_type", "PVC-coated Polyester"))
-        )
+        m["fabric_type"] = st.selectbox("Fabric Type", ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"], index=["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"].index(m.get("fabric_type", "PVC-coated Polyester")))
     with col2:
-        m["fabric_thickness"] = st.selectbox(
-            "Thickness (mm)",
-            [0.5, 0.8, 1.0, 1.2],
-            index=[0.5, 0.8, 1.0, 1.2].index(m.get("fabric_thickness", 0.8))
-        )
+        m["fabric_thickness"] = st.selectbox("Thickness (mm)", [0.5, 0.8, 1.0, 1.2], index=[0.5, 0.8, 1.0, 1.2].index(m.get("fabric_thickness", 0.8)))
     with col3:
-        m["prestress"] = st.selectbox(
-            "Prestress Level (kN/m)",
-            [1.0, 3.0, 5.0],
-            index=[1.0, 3.0, 5.0].index(m.get("prestress", 3.0))
-        )
+        m["prestress"] = st.selectbox("Prestress Level (kN/m)", [1.0, 3.0, 5.0], index=[1.0, 3.0, 5.0].index(m.get("prestress", 3.0)))
     
-    # Row 3: Wind Bracing & Tie-Downs
     st.markdown("### 🔗 Wind Bracing & Tie-Downs")
     st.caption("📐 Positions are automatically calculated based on span and rise")
-    
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        m["num_bays"] = st.selectbox(
-            "Bracing Bays",
-            [1, 2, 3],
-            index=[1, 2, 3].index(m.get("num_bays", 2)),
-            help="1=Apex only, 2=Third points, 3=Quarter points"
-        )
-        # Show what that means
+        m["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(m.get("num_bays", 2)), help="1=Apex only, 2=Third points, 3=Quarter points")
         span = st.session_state.params.get("B", 10.0)
         positions = generate_bracing_positions(span, m["num_bays"])
-        pos_str = ", ".join([f"{p:.1f}m" for p in positions])
-        st.caption(f"📍 Positions: {pos_str}")
-    
+        st.caption(f"📍 Positions: {', '.join([f'{p:.1f}m' for p in positions])}")
     with col2:
-        m["wire_rope_diameter"] = st.selectbox(
-            "Wire Rope Diameter (mm)",
-            [6, 8, 10, 12, 14, 16, 20],
-            index=[6, 8, 10, 12, 14, 16, 20].index(m.get("wire_rope_diameter", 10))
-        )
-    
+        m["wire_rope_diameter"] = st.selectbox("Wire Rope Diameter (mm)", [6, 8, 10, 12, 14, 16, 20], index=[6, 8, 10, 12, 14, 16, 20].index(m.get("wire_rope_diameter", 10)))
     with col3:
-        m["num_anchors"] = st.selectbox(
-            "Anchors per Support",
-            [1, 2, 4],
-            index=[1, 2, 4].index(m.get("num_anchors", 2)),
-            help="1=Single anchor, 2=Radiating at ±45°, 4=Four cardinal directions"
-        )
-    
+        m["num_anchors"] = st.selectbox("Anchors per Support", [1, 2, 4], index=[1, 2, 4].index(m.get("num_anchors", 2)), help="1=Single anchor, 2=Radiating at ±45°, 4=Four cardinal directions")
     with col4:
-        m["anchor_angle"] = st.selectbox(
-            "Anchor Angle (°)",
-            [15, 30, 45, 60],
-            index=[15, 30, 45, 60].index(m.get("anchor_angle", 30)),
-            help="Angle from vertical (smaller = wider spread)"
-        )
+        m["anchor_angle"] = st.selectbox("Anchor Angle (°)", [15, 30, 45, 60], index=[15, 30, 45, 60].index(m.get("anchor_angle", 30)), help="Angle from vertical")
     
-    # Row 4: Environmental Loads
     st.markdown("### 🌬️ Environmental Loads")
     col1, col2, col3 = st.columns(3)
     with col1:
-        m["wind_speed"] = st.number_input(
-            "Wind Speed (m/s)",
-            min_value=20, max_value=80, step=5, value=m.get("wind_speed", 40),
-            help="Regional wind speed (e.g., 40 m/s for coastal areas)"
-        )
+        m["wind_speed"] = st.number_input("Wind Speed (m/s)", min_value=20, max_value=80, step=5, value=m.get("wind_speed", 40))
     with col2:
-        m["snow_load"] = st.number_input(
-            "Snow Load (kN/m²)",
-            min_value=0.0, max_value=5.0, step=0.5, value=m.get("snow_load", 0.5),
-            help="Snow load per square meter"
-        )
+        m["snow_load"] = st.number_input("Snow Load (kN/m²)", min_value=0.0, max_value=5.0, step=0.5, value=m.get("snow_load", 0.5))
     with col3:
-        m["live_load"] = st.number_input(
-            "Live Load (kN/m²)",
-            min_value=0.0, max_value=5.0, step=0.5, value=m.get("live_load", 0.5),
-            help="Maintenance/access load"
-        )
+        m["live_load"] = st.number_input("Live Load (kN/m²)", min_value=0.0, max_value=5.0, step=0.5, value=m.get("live_load", 0.5))
     
-    # Save materials to session
     st.session_state.materials = m
     save_cache()
 
 # ============================================================
 # TOP BAR
 # ============================================================
+
 def render_top_bar():
     cols = st.columns([0.8, 1.5, 0.8, 0.8, 0.8, 1, 1, 1, 1])
-    
     with cols[0]:
         if st.button("🏗️", key="sds_logo", help="Go to Dashboard"):
             go_to_dashboard()
             st.rerun()
         st.caption("SDS")
-    
     with cols[1]:
         if st.session_state.project_registered and st.session_state.project_info:
             st.caption(f"📌 {st.session_state.project_info.get('name', 'Project')[:15]}")
         else:
             st.caption("📌 No Project")
-    
     with cols[2]:
         if st.session_state.typology:
             typ = TYPOLOGIES.get(st.session_state.typology, {})
             st.caption(f"{typ.get('icon', '')} {typ.get('name', '')[:10]}")
         else:
             st.caption("")
-    
     with cols[3]:
         if st.button("🏠 Dash", use_container_width=True, help="Return to Main Dashboard"):
             go_to_dashboard()
             st.rerun()
-    
     with cols[4]:
         if st.session_state.project_registered:
             if st.button("📂 Proj", use_container_width=True, help="View saved projects"):
                 st.session_state.show_project_browser = not st.session_state.show_project_browser
                 st.rerun()
-    
     with cols[5]:
         if st.session_state.project_registered and st.session_state.typology:
             if st.button("💾 Save", use_container_width=True, help="Save current project"):
                 save_project_as_new()
                 st.rerun()
-    
     with cols[6]:
         if st.session_state.project_registered:
             if st.button("📋 New", use_container_width=True, help="Start new project"):
                 clear_cache()
                 st.rerun()
-    
     with cols[7]:
         if st.session_state.project_registered and st.session_state.typology:
             if st.session_state.mode == "design":
@@ -1294,7 +1304,6 @@ def render_top_bar():
                 if st.button("✏️ Edit", use_container_width=True, help="Switch back to design"):
                     st.session_state.mode = "design"
                     st.rerun()
-    
     with cols[8]:
         if st.session_state.project_registered and st.session_state.typology:
             if st.button("📤 Export", use_container_width=True, help="Export current project data and image"):
@@ -1304,31 +1313,26 @@ def render_top_bar():
 # ============================================================
 # PROJECT BROWSER
 # ============================================================
+
 def render_project_browser():
     st.subheader("📂 Saved Projects")
-    
     if st.button("⬅ Back to Dashboard", use_container_width=True):
         go_to_dashboard()
         st.rerun()
-    
     projects = get_projects_list()
     if not projects:
         st.info("No saved projects found. Click 'Save' to save your current design.")
         return
-    
     projects.sort(key=lambda x: x.get("date", ""), reverse=True)
-    
     for proj in projects:
         st.markdown(f"""
         <div style="background-color:#141e2b; padding:0.5rem 1rem; border-radius:8px; margin-bottom:0.5rem; border-left:3px solid #4a7a9c;">
             <span style="color:#ffffff; font-weight:600;">📌 Name:</span> <span style="color:#b0c4de;">{proj.get('name', 'Untitled')}</span><br>
             <span style="color:#ffffff; font-weight:600;">👤 Client:</span> <span style="color:#b0c4de;">{proj.get('client', 'Unknown')}</span> &nbsp;|&nbsp; 
             <span style="color:#ffffff; font-weight:600;">🔑 Ref:</span> <span style="color:#b0c4de;">{proj.get('reference', 'N/A')}</span> &nbsp;|&nbsp; 
-            <span style="color:#ffffff; font-weight:600;">🏗️ Type:</span> <span style="color:#b0c4de;">{proj.get('typology', 'Unknown')}</span> 
-            {'🔒' if proj.get('locked') else '📝'}
+            <span style="color:#ffffff; font-weight:600;">🏗️ Type:</span> <span style="color:#b0c4de;">{proj.get('typology', 'Unknown')}</span> {'🔒' if proj.get('locked') else '📝'}
         </div>
         """, unsafe_allow_html=True)
-        
         col1, col2, col3 = st.columns([4, 1, 1])
         with col2:
             if st.button("📂 Load", key=f"load_{proj.get('file')}", use_container_width=True):
@@ -1350,10 +1354,10 @@ def render_project_browser():
 # ============================================================
 # DASHBOARD
 # ============================================================
+
 def render_dashboard():
     st.title("🏗️ SDS Design Studio")
     st.caption("Parametric design for tensile structures, membrane roofs, and steel frames.")
-    
     projects = get_projects_list()
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -1381,9 +1385,7 @@ def render_dashboard():
             <div class="label">Locked Designs</div>
         </div>
         """, unsafe_allow_html=True)
-    
     st.divider()
-    
     col1, col2 = st.columns(2)
     with col1:
         if st.button("➕ New Design", use_container_width=True, type="primary"):
@@ -1396,7 +1398,6 @@ def render_dashboard():
                 st.rerun()
         else:
             st.button("📂 No Saved Projects", use_container_width=True, disabled=True)
-    
     if projects:
         st.subheader("📋 Recent Projects")
         for proj in projects[:3]:
@@ -1411,7 +1412,6 @@ def render_dashboard():
                     if load_project_from_file(proj.get('file')):
                         st.rerun()
             st.divider()
-    
     st.caption("💡 Select 'New Design' to start a project, or open an existing project from the list above.")
 
 # ============================================================
@@ -1422,6 +1422,8 @@ render_top_bar()
 
 if st.session_state.show_export:
     render_export_section()
+    if st.session_state.show_proposal:
+        render_proposal_drawings()
 
 if st.session_state.show_project_browser:
     render_project_browser()
@@ -1435,11 +1437,9 @@ if st.session_state.show_registration or (st.session_state.project_registered an
     if st.session_state.show_registration or not st.session_state.project_registered:
         st.subheader("📋 New Project Registration")
         st.caption("Fill in the project details to get started.")
-        
         if st.button("⬅ Back to Dashboard", use_container_width=True):
             go_to_dashboard()
             st.rerun()
-        
         with st.form("project_registration_form"):
             col1, col2 = st.columns(2)
             with col1:
@@ -1452,7 +1452,6 @@ if st.session_state.show_registration or (st.session_state.project_registered an
             project_date = st.date_input("📅 Date", value=datetime.today())
             ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
             project_ref = st.text_input("🔑 Project Reference", value=f"SDS-{ref}")
-            
             submitted = st.form_submit_button("🚀 Start Design Studio", use_container_width=True, type="primary")
             if submitted:
                 if not project_name or not client_name:
@@ -1500,10 +1499,9 @@ typ_key = st.session_state.typology
 typ = TYPOLOGIES[typ_key]
 params = st.session_state.params
 
+# ---- DESIGN INPUT PHASE ----
 if st.session_state.design_phase == "input":
     st.subheader(f"{typ['icon']} {typ['name']} — Design Inputs")
-    
-    # Geometry Input
     st.subheader("📐 Geometry")
     cols = st.columns(2)
     col_idx = 0
@@ -1521,7 +1519,6 @@ if st.session_state.design_phase == "input":
         col_idx += 1
     save_cache()
     
-    # Materials & Bracing (Only for Saddle Span initially)
     if typ_key == "saddle_span":
         render_materials_section()
     
@@ -1530,73 +1527,68 @@ if st.session_state.design_phase == "input":
         save_cache()
         st.rerun()
 
+# ---- SDS-UNDERSTAND BOARD (High-Res Card Layout) ----
 elif st.session_state.design_phase == "review":
     st.subheader("🧠 SDS-UNDERSTAND — Engineering Understanding & Model Confirmation")
     st.caption("Review the interpretation summary and confirm your design assumptions before proceeding to engineering investigation.")
     
-    st.subheader("📊 Current Interpretation Summary")
-    
+    # Card: Summary Table
+    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">📊 Current Interpretation Summary</div>', unsafe_allow_html=True)
     m = st.session_state.materials
-    summary_data = {
-        "PRIMARY STRUCTURE": f"{m.get('steel_grade', 'S355')} {m.get('section_type', 'CHS')} {m.get('section_size', '150x6')} — 🟢 Provided",
-        "MEMBRANE": f"{m.get('fabric_type', 'PVC')} {m.get('fabric_thickness', 0.8)}mm, {m.get('prestress', 3.0)}kN/m — 🟢 Provided",
-        "APEX POINT (P_A)": f"High point at {params.get('A', 6.0)}m — 🟡 Inferred",
-        "SUPPORTS": "Two supports at beam bases — 🟡 Inferred",
-        "DIMENSIONS": f"A={params.get('A', 6.0)}m, B={params.get('B', 10.0)}m, LAA={params.get('LAA', 15.0)}m — 🟢 Provided",
-        "WIND BRACING": f"{m.get('num_bays', 2)} bays at {', '.join([f'{p:.1f}m' for p in generate_bracing_positions(params.get('B', 10.0), m.get('num_bays', 2))])} — 🟢 Auto-Generated",
-        "TIE-DOWNS": f"{m.get('num_anchors', 2)} anchors per support at {m.get('anchor_angle', 30)}° — 🟢 Auto-Generated",
-        "WIRE ROPE": f"{m.get('wire_rope_diameter', 10)}mm {m.get('wire_rope_type', 'Galvanized')} — 🟢 Provided",
-        "UNKNOWN ITEMS": "Foundations, Connection Details — 🔴 Unknown"
-    }
+    summary_items = [
+        ("PRIMARY STRUCTURE", f"{m.get('steel_grade', 'S355')} {m.get('section_type', 'CHS')} {m.get('section_size', '150x6')}", "badge-provided"),
+        ("MEMBRANE", f"{m.get('fabric_type', 'PVC')} {m.get('fabric_thickness', 0.8)}mm, {m.get('prestress', 3.0)}kN/m", "badge-provided"),
+        ("APEX POINT (P_A)", f"High point at {params.get('A', 6.0)}m", "badge-inferred"),
+        ("SUPPORTS", "Two supports at beam bases", "badge-inferred"),
+        ("DIMENSIONS", f"A={params.get('A', 6.0)}m, B={params.get('B', 10.0)}m, LAA={params.get('LAA', 15.0)}m", "badge-confirmed"),
+        ("WIND BRACING", f"{m.get('num_bays', 2)} bays at {', '.join([f'{p:.1f}m' for p in generate_bracing_positions(params.get('B', 10.0), m.get('num_bays', 2))])}", "badge-autogen"),
+        ("TIE-DOWNS", f"{m.get('num_anchors', 2)} anchors per support at {m.get('anchor_angle', 30)}°", "badge-autogen"),
+        ("WIRE ROPE", f"{m.get('wire_rope_diameter', 10)}mm {m.get('wire_rope_type', 'Galvanized')}", "badge-provided"),
+        ("UNKNOWN ITEMS", "Foundations, Connection Details", "badge-unknown")
+    ]
+    for label, value, badge in summary_items:
+        st.markdown(f'<div style="display:flex; justify-content:space-between; padding:0.1rem 0; border-bottom:1px solid #1a2a3a;">'
+                    f'<span style="color:#ffffff; font-weight:500;">{label}</span>'
+                    f'<span style="color:#b0c4de;">{value} <span class="badge {badge}">{badge.replace("badge-", "").upper()}</span></span>'
+                    f'</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    for key, value in summary_data.items():
-        st.markdown(f"**{key}:** {value}")
-    st.divider()
+    # Card: Legend
+    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">📌 Legend (Data Identity)</div>', unsafe_allow_html=True)
+    st.markdown(f'<span class="badge badge-confirmed">CONFIRMED</span> <span style="color:#b0c4de;">Confirmed by User</span> &nbsp;|&nbsp; '
+                f'<span class="badge badge-inferred">INFERRED</span> <span style="color:#b0c4de;">Inferred by SDS</span> &nbsp;|&nbsp; '
+                f'<span class="badge badge-unknown">UNKNOWN</span> <span style="color:#b0c4de;">Not Yet Defined</span> &nbsp;|&nbsp; '
+                f'<span class="badge badge-provided">PROVIDED</span> <span style="color:#b0c4de;">Provided by User</span> &nbsp;|&nbsp; '
+                f'<span class="badge badge-autogen">AUTO-GEN</span> <span style="color:#b0c4de;">Auto-Generated</span>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    st.subheader("📌 Legend (Data Identity)")
-    col_leg1, col_leg2, col_leg3 = st.columns(3)
-    with col_leg1:
-        st.markdown("🟢 **Confirmed by User**")
-    with col_leg2:
-        st.markdown("🟡 **Inferred by SDS** *(To be confirmed)*")
-    with col_leg3:
-        st.markdown("🔴 **Unknown / Not Yet Defined**")
-    st.divider()
-    
-    st.subheader("❓ Structured Questions")
-    st.caption("Confirm the following assumptions about your design. These will be locked and stored in the engineering report.")
+    # Card: Structured Questions
+    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">❓ Structured Questions</div>', unsafe_allow_html=True)
+    st.caption("Confirm the following assumptions. These will be locked and stored in the engineering report.")
     for i, q in enumerate(typ["qa"]):
         key = f"qa_{i}"
         default = st.session_state.qa_answers.get(key, "Yes")
         if "?" in q:
-            ans = st.radio(
-                f"{i+1}. {q}",
-                ["Yes", "No", "Not Sure"],
-                index=["Yes", "No", "Not Sure"].index(default),
-                key=f"understand_{i}"
-            )
+            ans = st.radio(f"{i+1}. {q}", ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"understand_{i}")
         else:
             options = ["Open", "Enclosed", "PVC", "PTFE", "Steel"]
-            ans = st.selectbox(
-                f"{i+1}. {q}",
-                options,
-                index=options.index(default) if default in options else 0,
-                key=f"understand_{i}"
-            )
+            ans = st.selectbox(f"{i+1}. {q}", options, index=options.index(default) if default in options else 0, key=f"understand_{i}")
         st.session_state.qa_answers[key] = ans
     save_cache()
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    st.subheader("💬 Add Comments / Instructions")
-    comments = st.text_area(
-        "Type your comment here...",
-        value=st.session_state.comments,
-        height=100,
-        key="understand_comments"
-    )
+    # Card: Comments
+    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">💬 Comments / Instructions</div>', unsafe_allow_html=True)
+    comments = st.text_area("", value=st.session_state.comments, height=80, key="understand_comments", placeholder="Type your comment here...")
     st.session_state.comments = comments
     save_cache()
-    st.divider()
+    st.markdown('</div>', unsafe_allow_html=True)
     
+    # Lock & Modify buttons
     col_lock1, col_lock2 = st.columns([3, 1])
     with col_lock1:
         if st.button("🔒 LOCK & PROCEED TO INVESTIGATION", use_container_width=True, type="primary"):
@@ -1612,6 +1604,7 @@ elif st.session_state.design_phase == "review":
             st.rerun()
     st.caption("Once you lock, the interpretation will be frozen and you will proceed to the Engineering Investigation phase.")
 
+# ---- ENGINEERING INVESTIGATION ----
 elif st.session_state.design_phase == "engineering" or st.session_state.locked:
     if not st.session_state.locked:
         st.session_state.locked = True
@@ -1624,20 +1617,11 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
     
     if typ_key == "custom":
         st.subheader("📋 Design Brief")
-        uploaded_file = st.file_uploader(
-            "Upload sketch or photo (JPG/PNG)",
-            type=["jpg", "jpeg", "png"],
-            help="Upload a sketch, photo, or reference image for your custom design."
-        )
+        uploaded_file = st.file_uploader("Upload sketch or photo (JPG/PNG)", type=["jpg", "jpeg", "png"])
         if uploaded_file:
             st.session_state.custom_image = uploaded_file.getvalue()
             st.image(uploaded_file, caption="Design Reference", use_column_width=True)
-        description = st.text_area(
-            "Describe your design:",
-            value=st.session_state.custom_description,
-            placeholder="e.g., Three curved steel beams meeting at a central ring...",
-            height=100
-        )
+        description = st.text_area("Describe your design:", value=st.session_state.custom_description, height=100, placeholder="e.g., Three curved steel beams meeting at a central ring...")
         st.session_state.custom_description = description
         st.subheader("📐 Bounding Box Dimensions")
         cols = st.columns(3)
@@ -1653,8 +1637,6 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
         st.info("📝 This is a custom design. The 3D view shows a bounding box placeholder.")
     
     st.subheader("🔬 Engineering View")
-    
-    # Annotation toggles
     if st.session_state.mode == "engineer":
         st.caption("Toggle engineering annotations:")
         anno_cols = st.columns(4)
@@ -1682,40 +1664,22 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
                 fig = GENERATORS[typ_key](params)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
     
-    # Structural Calculations Summary (Only for Saddle Span)
+    # Structural Calculations
     if typ_key == "saddle_span":
         st.subheader("📊 Preliminary Structural Checks")
         m = st.session_state.materials
-        
-        # Calculate area
         span = params.get("B", 10.0)
         laa = params.get("LAA", 15.0)
         rise = params.get("A", 6.0)
-        
-        # Approximate membrane area (simplified)
-        membrane_area = span * laa * 1.1  # Rough estimate
-        
-        # Self-weight
+        membrane_area = span * laa * 1.1
         steel_weight = calculate_steel_weight(m.get("steel_grade", "S355"), m.get("section_type", "CHS"), m.get("section_size", "CHS 150x6"), span * 2)
         fabric_weight = calculate_fabric_weight(m.get("fabric_type", "PVC-coated Polyester"), m.get("fabric_thickness", 0.8), membrane_area)
         total_weight = steel_weight + fabric_weight
-        
-        # Wind load
         wind_load = calculate_wind_load(m.get("wind_speed", 40), membrane_area)
-        
-        # Tie-down force
-        tie_down_force = calculate_tie_down_force(
-            wind_load, total_weight, 
-            m.get("num_anchors", 2), 
-            m.get("anchor_angle", 30)
-        )
-        
-        # Wire rope capacity (simplified)
-        rope_breaking_load = {
-            6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 20: 220
-        }
+        tie_down_force = calculate_tie_down_force(wind_load, total_weight, m.get("num_anchors", 2), m.get("anchor_angle", 30))
+        rope_breaking_load = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 20: 220}
         rope_capacity = rope_breaking_load.get(m.get("wire_rope_diameter", 10), 55)
-        rope_check = tie_down_force < rope_capacity / 1.5  # Safety factor 1.5
+        rope_check = tie_down_force < rope_capacity / 1.5
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -1726,16 +1690,32 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             st.metric("Tie-Down Force/Anchor", f"{tie_down_force:.1f} kN")
         with col3:
             st.metric("Wire Rope Capacity", f"{rope_capacity:.1f} kN")
-            st.metric("✅ Rope Check", "✅ PASS" if rope_check else "❌ FAIL", 
-                      delta="Required < Capacity" if rope_check else "Required > Capacity",
-                      delta_color="normal" if rope_check else "inverse")
-        
+            st.metric("✅ Rope Check", "✅ PASS" if rope_check else "❌ FAIL", delta="Required < Capacity" if rope_check else "Required > Capacity", delta_color="normal" if rope_check else "inverse")
         if not rope_check:
             st.error(f"⚠️ Tie-down force ({tie_down_force:.1f} kN) exceeds wire rope capacity ({rope_capacity:.1f} kN). Please increase rope diameter or add more anchors.")
         else:
             st.success(f"✅ All preliminary checks passed. Structure is stable under wind loads.")
     
-    with st.expander("📋 Design Summary & Export"):
+    # Export & Proposal Drawings
+    st.subheader("📤 Export & Proposal")
+    col_e1, col_e2 = st.columns(2)
+    with col_e1:
+        if st.button("📥 Export Package (Image + Data)", use_container_width=True):
+            st.session_state.show_export = not st.session_state.show_export
+            st.rerun()
+    with col_e2:
+        if st.button("📐 Proposal Drawings", use_container_width=True, type="primary"):
+            st.session_state.show_proposal = True
+            st.session_state.show_export = True
+            st.rerun()
+    
+    if st.session_state.show_export:
+        render_export_section()
+    
+    if st.session_state.show_proposal:
+        render_proposal_drawings()
+    
+    with st.expander("📋 Design Summary"):
         st.write(f"**Project:** {info.get('name', 'N/A')}")
         st.write(f"**Client:** {info.get('client', 'N/A')}")
         if info.get('architect'):
@@ -1749,38 +1729,6 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
         if st.session_state.comments:
             st.write("---")
             st.write(f"**💬 Comments:** {st.session_state.comments}")
-        st.write("---")
-        st.subheader("📤 Export")
-        col_exp1, col_exp2 = st.columns(2)
-        with col_exp1:
-            if typ_key != "custom" and typ_key in GENERATORS:
-                try:
-                    if typ_key == "saddle_span":
-                        fig_export = generate_saddle_span(params, st.session_state.materials, st.session_state.engineering_annotations)
-                    else:
-                        fig_export = GENERATORS[typ_key](params)
-                    img_link = get_image_download_link(fig_export)
-                    st.markdown(img_link, unsafe_allow_html=True)
-                except Exception as e:
-                    st.warning(f"⚠️ Image export requires additional setup: {str(e)}")
-            else:
-                st.info("📸 Image export available for standard typologies.")
-        with col_exp2:
-            export_data = {
-                "project": info,
-                "typology": typ_key,
-                "parameters": params,
-                "qa_answers": st.session_state.qa_answers,
-                "comments": st.session_state.comments,
-                "materials": st.session_state.materials,
-                "locked": st.session_state.locked,
-                "export_date": datetime.now().isoformat()
-            }
-            if typ_key == "custom":
-                export_data["custom_image"] = st.session_state.custom_image is not None
-                export_data["custom_description"] = st.session_state.custom_description
-            json_link = get_json_download_link(export_data)
-            st.markdown(json_link, unsafe_allow_html=True)
     
     if st.session_state.locked:
         if st.button("🔓 Unlock Design", use_container_width=True):
@@ -1790,5 +1738,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v2.0 | Materials + Bracing + Tie-Downs | Auto-Generated Positions")
+st.caption("SDS Platform v3.0 | High-Res SDS-UNDERSTAND | Proposal Drawings | Auto-Generated Bracing & Tie-Downs")
 save_cache()
