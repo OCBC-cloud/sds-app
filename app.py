@@ -24,7 +24,6 @@ st.set_page_config(
 # ============================================================
 dark_mode_css = """
     <style>
-    /* FULL DARK BACKGROUND — KILL ALL WHITE PATCHES */
     .stApp {
         background-color: #0a0e17 !important;
         color: #f0f4fa !important;
@@ -39,14 +38,11 @@ dark_mode_css = """
     .stApp > div > div {
         background-color: #0a0e17 !important;
     }
-    
     .block-container {
         padding-top: 0.5rem !important;
         padding-bottom: 0rem !important;
         max-width: 100% !important;
     }
-    
-    /* ALL TEXT — BRIGHT WHITE */
     h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
         font-weight: 600 !important;
@@ -62,8 +58,6 @@ dark_mode_css = """
     .stCaption, .stMarkdown, .stInfo, .stWarning {
         color: #e0e8f0 !important;
     }
-    
-    /* RADIO BUTTONS */
     .stRadio label {
         color: #ffffff !important;
         font-weight: 500 !important;
@@ -80,8 +74,6 @@ dark_mode_css = """
         border-radius: 8px !important;
         border: 1px solid #2a3a4f !important;
     }
-    
-    /* BUTTONS */
     .stButton > button {
         background-color: #1e2a3a !important;
         color: #ffffff !important;
@@ -107,8 +99,6 @@ dark_mode_css = """
         background-color: #f1c40f !important;
         color: #0a0e17 !important;
     }
-    
-    /* NUMBER INPUTS */
     .stNumberInput > div > div > input {
         background-color: #141e2b !important;
         color: #ffffff !important;
@@ -121,8 +111,6 @@ dark_mode_css = """
         border-color: #f39c12 !important;
         box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2) !important;
     }
-    
-    /* TEXT INPUTS */
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea,
     .stSelectbox > div > div > div {
@@ -131,8 +119,6 @@ dark_mode_css = """
         border: 1px solid #2a3a4f !important;
         border-radius: 8px !important;
     }
-    
-    /* EXPANDERS */
     .streamlit-expanderHeader {
         background-color: #141e2b !important;
         border-radius: 8px !important;
@@ -151,8 +137,6 @@ dark_mode_css = """
     .streamlit-expanderContent label {
         color: #f0f4fa !important;
     }
-    
-    /* ALERTS */
     .stAlert {
         background-color: #1e2a3a !important;
         border-left: 4px solid #f39c12 !important;
@@ -163,14 +147,10 @@ dark_mode_css = """
         border-left: 4px solid #4a7a9c !important;
         color: #f0f4fa !important;
     }
-    
-    /* HIDE STREAMLIT DEFAULTS */
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     header {visibility: hidden !important;}
     .stDeployButton {display: none !important;}
-    
-    /* DASHBOARD CARDS */
     .dashboard-card {
         background-color: #141e2b;
         border-radius: 12px;
@@ -804,7 +784,6 @@ def get_json_download_link(data, filename="project_data.json"):
 # NAVIGATION: TOP BAR (Clean, No White Patch)
 # ============================================================
 def render_top_bar():
-    """Clean top bar — no white patch, just dark navigation"""
     cols = st.columns([1, 2, 1, 1, 1.2, 1.2, 1])
     
     with cols[0]:
@@ -891,11 +870,9 @@ def render_project_browser():
 # DASHBOARD — LANDING PAGE
 # ============================================================
 def render_dashboard():
-    """Main dashboard — shown first when user opens the app"""
     st.title("🏗️ SDS Design Studio")
     st.caption("Parametric design for tensile structures, membrane roofs, and steel frames.")
     
-    # Stats row
     projects = get_projects_list()
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -926,7 +903,6 @@ def render_dashboard():
     
     st.divider()
     
-    # Main actions
     col1, col2 = st.columns(2)
     with col1:
         if st.button("➕ New Design", use_container_width=True, type="primary"):
@@ -940,7 +916,6 @@ def render_dashboard():
         else:
             st.button("📂 No Saved Projects", use_container_width=True, disabled=True)
     
-    # Show recent projects
     if projects:
         st.subheader("📋 Recent Projects")
         for proj in projects[:3]:
@@ -961,7 +936,7 @@ def render_dashboard():
 # UI RENDERING
 # ============================================================
 
-# ---- TOP BAR (Always visible, clean) ----
+# ---- TOP BAR (Always visible) ----
 render_top_bar()
 
 # ---- PROJECT BROWSER (Toggle) ----
@@ -976,7 +951,6 @@ if not st.session_state.project_registered and not st.session_state.show_registr
 
 # ---- PROJECT REGISTRATION ----
 if st.session_state.show_registration or (st.session_state.project_registered and not st.session_state.typology):
-    # Only show registration form if no project exists or user clicked New Design
     if st.session_state.show_registration or not st.session_state.project_registered:
         st.subheader("📋 New Project Registration")
         st.caption("Fill in the project details to get started.")
@@ -1026,9 +1000,11 @@ if st.session_state.show_registration or (st.session_state.project_registered an
         st.caption("All data is cached locally. Your project will resume where you left off.")
         st.stop()
 
-# ---- MAIN PROJECT WORKFLOW ----
+# ---- At this point, project is registered and we need to show catalog or workflow ----
+# Define info for use in subsequent sections
+info = st.session_state.project_info
+
 if st.session_state.project_registered and st.session_state.typology is None:
-    # Show catalog after registration
     st.subheader("Choose a structure type:")
     cols = st.columns(2)
     idx = 0
@@ -1285,7 +1261,6 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             json_link = get_json_download_link(export_data)
             st.markdown(json_link, unsafe_allow_html=True)
     
-    # Unlock button at bottom
     if st.session_state.locked:
         if st.button("🔓 Unlock Design", use_container_width=True):
             st.session_state.locked = False
