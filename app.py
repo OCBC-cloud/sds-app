@@ -1188,7 +1188,7 @@ def render_export_section():
         st.rerun()
 
 # ============================================================
-# BULLETPROOF PROPOSAL DRAWINGS RENDER
+# BULLETPROOF PROPOSAL DRAWINGS RENDER (FIXED)
 # ============================================================
 def render_proposal_drawings():
     if not st.session_state.show_proposal:
@@ -1209,16 +1209,16 @@ def render_proposal_drawings():
         img = Image.open(buf)
         # Convert to numpy array (this is the most reliable format for st.image)
         img_array = np.array(img)
-        # Display using st.image
-        st.image(img_array, caption="Plan, Front Elevation, Side Elevation, Perspective", use_column_width=True)
+        # Display using st.image — CORRECTED PARAMETER
+        st.image(img_array, caption="Plan, Front Elevation, Side Elevation, Perspective", use_container_width=True)
     except Exception as e:
         st.error(f"Failed to display image: {e}. Please try the download link below.")
     
     # Download link (always available)
     link = get_proposal_download_link(fig)
-    st.markdown(link, unsafe_allow_html=True)
+   6 st (.markdown(link, unsafe_allow_html=True)
     
-    if st.button("🔒 Close Drawings", use_container_width=True):
+    if st.button("Al🔒 Close Drawings", use_container_width=True):
         st.session_state.show_proposal = False
         st.rerun()
     plt.close(fig)
@@ -1235,7 +1235,7 @@ def render_materials_section():
     st.markdown("### 🔩 Primary Structure")
     col1, col2, col3 = st.columns(3)
     with col1:
-        m["steel_grade"] = st.selectbox("Steel Grade", ["S275", "S355", "S460", "6061-T6 (Aluminum)"], index=["S275", "S355", "S460", "6061-T6 (Aluminum)"].index(m.get("steel_grade", "S355")))
+        m["steel_grade"] = st.selectbox("Steel Grade", ["S275", "S355", "S460", "6061-T6 (Aluminum)"], index=["S275", "S355", "S460", "6061-Tuminum)"].index(m.get("steel_grade", "S355")))
     with col2:
         m["section_type"] = st.selectbox("Section Type", ["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"], index=["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"].index(m.get("section_type", "Circular Hollow Section (CHS)")))
     with col3:
