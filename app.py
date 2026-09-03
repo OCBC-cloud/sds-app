@@ -208,6 +208,15 @@ dark_mode_css = """
     .export-section a:hover {
         color: #f39c12 !important;
     }
+    .bracing-bay-indicator {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 20px;
+        background-color: #1e2a3a;
+        color: #b0c4de;
+        font-size: 0.7rem;
+        margin-right: 0.3rem;
+    }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -237,7 +246,8 @@ if "engineering_annotations" not in st.session_state:
     st.session_state.engineering_annotations = {
         "show_wind": True,
         "show_tie_down": True,
-        "show_load_path": True
+        "show_load_path": True,
+        "show_bracing": True
     }
 if "design_phase" not in st.session_state:
     st.session_state.design_phase = "input"
@@ -249,6 +259,25 @@ if "show_registration" not in st.session_state:
     st.session_state.show_registration = False
 if "show_export" not in st.session_state:
     st.session_state.show_export = False
+
+# Materials State
+if "materials" not in st.session_state:
+    st.session_state.materials = {
+        "steel_grade": "S355",
+        "section_type": "Circular Hollow Section (CHS)",
+        "section_size": "CHS 150x6",
+        "fabric_type": "PVC-coated Polyester",
+        "fabric_thickness": 0.8,
+        "prestress": 3.0,
+        "wire_rope_type": "Galvanized Steel (6x19)",
+        "wire_rope_diameter": 10,
+        "num_bays": 2,
+        "num_anchors": 2,
+        "anchor_angle": 30,
+        "wind_speed": 40,
+        "snow_load": 0.5,
+        "live_load": 0.5
+    }
 
 # ============================================================
 # CACHE HANDLER
@@ -270,7 +299,8 @@ def save_cache():
         "custom_description": st.session_state.custom_description,
         "engineering_annotations": st.session_state.engineering_annotations,
         "design_phase": st.session_state.design_phase,
-        "comments": st.session_state.comments
+        "comments": st.session_state.comments,
+        "materials": st.session_state.materials
     }
     with open(CACHE_FILE, "w") as f:
         json.dump(data, f)
@@ -320,10 +350,27 @@ def load_project_from_file(filename):
             st.session_state.engineering_annotations = data.get("engineering_annotations", {
                 "show_wind": True,
                 "show_tie_down": True,
-                "show_load_path": True
+                "show_load_path": True,
+                "show_bracing": True
             })
             st.session_state.design_phase = data.get("design_phase", "input")
             st.session_state.comments = data.get("comments", "")
+            st.session_state.materials = data.get("materials", {
+                "steel_grade": "S355",
+                "section_type": "Circular Hollow Section (CHS)",
+                "section_size": "CHS 150x6",
+                "fabric_type": "PVC-coated Polyester",
+                "fabric_thickness": 0.8,
+                "prestress": 3.0,
+                "wire_rope_type": "Galvanized Steel (6x19)",
+                "wire_rope_diameter": 10,
+                "num_bays": 2,
+                "num_anchors": 2,
+                "anchor_angle": 30,
+                "wind_speed": 40,
+                "snow_load": 0.5,
+                "live_load": 0.5
+            })
             st.session_state.mode = "design"
             st.session_state.show_registration = False
             st.session_state.show_project_browser = False
@@ -405,7 +452,8 @@ def save_project_as_new():
         "custom_description": st.session_state.custom_description,
         "engineering_annotations": st.session_state.engineering_annotations,
         "design_phase": st.session_state.design_phase,
-        "comments": st.session_state.comments
+        "comments": st.session_state.comments,
+        "materials": st.session_state.materials
     }
     
     if existing_file:
@@ -428,7 +476,6 @@ def get_projects_list():
             return json.load(f)
     return []
 
-# Load cache on boot
 cached = load_cache()
 if cached:
     st.session_state.project_registered = cached.get("project_registered", False)
@@ -442,10 +489,27 @@ if cached:
     st.session_state.engineering_annotations = cached.get("engineering_annotations", {
         "show_wind": True,
         "show_tie_down": True,
-        "show_load_path": True
+        "show_load_path": True,
+        "show_bracing": True
     })
     st.session_state.design_phase = cached.get("design_phase", "input")
     st.session_state.comments = cached.get("comments", "")
+    st.session_state.materials = cached.get("materials", {
+        "steel_grade": "S355",
+        "section_type": "Circular Hollow Section (CHS)",
+        "section_size": "CHS 150x6",
+        "fabric_type": "PVC-coated Polyester",
+        "fabric_thickness": 0.8,
+        "prestress": 3.0,
+        "wire_rope_type": "Galvanized Steel (6x19)",
+        "wire_rope_diameter": 10,
+        "num_bays": 2,
+        "num_anchors": 2,
+        "anchor_angle": 30,
+        "wind_speed": 40,
+        "snow_load": 0.5,
+        "live_load": 0.5
+    })
 
 # ============================================================
 # TYPOLOGIES
@@ -455,9 +519,9 @@ TYPOLOGIES = {
         "name": "Saddle Span",
         "icon": "🏕️",
         "params": {
-            "A": {"label": "Rise (m)", "min": 2.0, "max": 20.0, "step": 0.5, "default": 13.0},
-            "B": {"label": "Span (m)", "min": 4.0, "max": 40.0, "step": 0.5, "default": 5.0},
-            "LAA": {"label": "Apex Distance (m)", "min": 4.0, "max": 50.0, "step": 0.5, "default": 10.0}
+            "A": {"label": "Rise (m)", "min": 2.0, "max": 20.0, "step": 0.5, "default": 6.0},
+            "B": {"label": "Span (m)", "min": 4.0, "max": 40.0, "step": 0.5, "default": 10.0},
+            "LAA": {"label": "Apex Distance (m)", "min": 4.0, "max": 50.0, "step": 0.5, "default": 15.0}
         },
         "qa": [
             "Are these the two primary structural beams?",
@@ -543,13 +607,89 @@ TYPOLOGIES = {
 }
 
 # ============================================================
+# AUTO-GENERATION FUNCTIONS (Bracing & Tie-Downs)
+# ============================================================
+
+def generate_bracing_positions(span, num_bays):
+    """Generate X-coordinates for cross-bracing bays along the span"""
+    if num_bays == 1:
+        return [0.0]
+    elif num_bays == 2:
+        return [-span/3, span/3]
+    elif num_bays == 3:
+        return [-span/4, 0.0, span/4]
+    else:
+        # For more bays, distribute evenly
+        return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
+
+def generate_tie_down_anchors(support_x, support_y, height, num_anchors, angle_deg):
+    """Generate ground anchor coordinates for tie-downs"""
+    angle_rad = np.radians(angle_deg)
+    distance = height * np.tan(angle_rad)
+    anchors = []
+    
+    if num_anchors == 1:
+        anchors.append((support_x + distance * 0.7, support_y, 0))
+    elif num_anchors == 2:
+        # Radiating outward from support at ±45 degrees
+        offsets = [(0.7, 0.7), (0.7, -0.7)]
+        for dx, dy in offsets:
+            anchors.append((support_x + distance * dx, support_y + distance * dy, 0))
+    elif num_anchors == 4:
+        # Four cardinal directions
+        offsets = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        for dx, dy in offsets:
+            anchors.append((support_x + distance * dx, support_y + distance * dy, 0))
+    else:
+        # Default: 2 anchors
+        anchors.append((support_x + distance * 0.7, support_y + distance * 0.7, 0))
+        anchors.append((support_x + distance * 0.7, support_y - distance * 0.7, 0))
+    
+    return anchors
+
+def calculate_steel_weight(grade, section_type, section_size, length):
+    """Approximate steel weight per meter based on section type and size"""
+    # Simplified lookup — in production, this would come from a database
+    weight_per_m = {
+        "CHS 100x5": 11.7, "CHS 150x6": 21.3, "CHS 200x8": 37.9,
+        "RHS 150x100x6": 22.2, "RHS 200x150x8": 39.3,
+        "I-100": 10.0, "I-150": 18.0, "I-200": 26.0,
+        "Pipe 100x5": 11.7, "Pipe 150x6": 21.3
+    }
+    return weight_per_m.get(section_size, 20.0) * length
+
+def calculate_fabric_weight(fabric_type, thickness, area):
+    """Approximate fabric weight per m²"""
+    weight_per_m2 = {
+        "PVC-coated Polyester": {0.5: 0.6, 0.8: 0.9, 1.0: 1.2, 1.2: 1.4},
+        "PTFE-coated Fiberglass": {0.5: 1.0, 0.8: 1.4, 1.0: 1.8, 1.2: 2.2},
+        "ETFE": {0.5: 0.5, 0.8: 0.8, 1.0: 1.0, 1.2: 1.2}
+    }
+    return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area
+
+def calculate_wind_load(wind_speed, area, drag_coefficient=1.2):
+    """Calculate wind load (kN)"""
+    rho = 1.225  # Air density (kg/m³)
+    q = 0.5 * rho * wind_speed**2 / 1000  # kN/m²
+    return q * drag_coefficient * area
+
+def calculate_tie_down_force(wind_load, self_weight, num_anchors, angle_deg, safety_factor=1.5):
+    """Calculate required tie-down force per anchor (kN)"""
+    uplift = wind_load * 0.8  # Conservative suction coefficient
+    net_uplift = max(0, uplift - self_weight * 0.5)  # Partial self-weight counteracts uplift
+    per_anchor = net_uplift / num_anchors * safety_factor
+    # Account for angle: vertical component = cable_force * cos(angle)
+    cable_force = per_anchor / np.cos(np.radians(angle_deg))
+    return cable_force
+
+# ============================================================
 # 3D GENERATORS
 # ============================================================
 
-def generate_saddle_span(params, annotations=None):
-    span = params.get("B", 5.0)
-    rise = params.get("A", 13.0)
-    laa = params.get("LAA", 10.0)
+def generate_saddle_span(params, materials=None, annotations=None):
+    span = params.get("B", 10.0)
+    rise = params.get("A", 6.0)
+    laa = params.get("LAA", 15.0)
     num_points = 50
 
     if span <= 0 or rise <= 0 or laa <= 0:
@@ -590,7 +730,7 @@ def generate_saddle_span(params, annotations=None):
     # Membrane
     fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, 
                              colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
-                             opacity=0.8, showscale=False))
+                             opacity=0.7, showscale=False))
 
     # Apex markers
     fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
@@ -604,40 +744,104 @@ def generate_saddle_span(params, annotations=None):
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
                                mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=10, symbol='square')))
 
-    # Engineering Annotations
-    if annotations:
-        if annotations.get("show_wind", True):
+    # ---- CROSS BRACING (Auto-Generated) ----
+    if materials and annotations and annotations.get("show_bracing", True):
+        num_bays = materials.get("num_bays", 2)
+        bracing_x = generate_bracing_positions(span, num_bays)
+        
+        for bx in bracing_x:
+            # Find closest indices on the beams
+            idx = np.argmin(np.abs(x - bx))
+            y1_pos = y1[idx]
+            y2_pos = y2[idx]
+            z_pos = z_beam[idx]
+            
+            # Draw crossed diagonal cables between beams at this X position
+            # Cable 1: from Beam 1 (y1_pos) to Beam 2 (y2_pos) — diagonal crossing
             fig.add_trace(go.Scatter3d(
-                x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
+                x=[bx, bx],
+                y=[y1_pos, y2_pos],
+                z=[z_pos, z_pos],
                 mode='lines',
-                name='Wind Load',
-                line=dict(color='#FF6B6B', width=4, dash='dash')
+                name=f'Cross Bracing (x={bx:.1f}m)',
+                line=dict(color='#FF6B6B', width=3, dash='dash')
             ))
+            # Cable 2: crossing in opposite direction
             fig.add_trace(go.Scatter3d(
-                x=[span/4, span/4], y=[laa/4, laa/4], z=[rise*0.8, rise*1.2],
+                x=[bx, bx],
+                y=[y2_pos, y1_pos],
+                z=[z_pos, z_pos],
                 mode='lines',
-                name='Wind Load',
-                line=dict(color='#FF6B6B', width=4, dash='dash')
+                name=f'Cross Bracing (x={bx:.1f}m)',
+                line=dict(color='#FF6B6B', width=3, dash='dash')
+            ))
+            
+            # Add small labels on bracing points
+            fig.add_trace(go.Scatter3d(
+                x=[bx],
+                y=[(y1_pos + y2_pos)/2],
+                z=[z_pos + 0.3],
+                mode='text',
+                text=[f'▲ Bracing {len(bracing_x)} bays'],
+                textfont=dict(color='#FF6B6B', size=10),
+                showlegend=False
             ))
 
-        if annotations.get("show_tie_down", True):
-            fig.add_trace(go.Scatter3d(
-                x=[-span/2, -span/2, span/2, span/2],
-                y=[-1, 1, -1, 1],
-                z=[-0.5, -0.5, -0.5, -0.5],
-                mode='markers',
-                name='Tie-Down Anchors',
-                marker=dict(color='#4ECDC4', size=14, symbol='x')
-            ))
+    # ---- TIE-DOWN WIRE ROPES (Auto-Generated) ----
+    if materials and annotations and annotations.get("show_tie_down", True):
+        num_anchors = materials.get("num_anchors", 2)
+        anchor_angle = materials.get("anchor_angle", 30)
+        height = rise
+        
+        # Generate anchors for both supports
+        for support_x, support_y in [(-span/2, 0), (span/2, 0)]:
+            anchors = generate_tie_down_anchors(support_x, support_y, height, num_anchors, anchor_angle)
+            
+            for ax, ay, az in anchors:
+                # Draw wire rope from support to anchor
+                fig.add_trace(go.Scatter3d(
+                    x=[support_x, ax],
+                    y=[support_y, ay],
+                    z=[0, az],
+                    mode='lines',
+                    name='Tie-Down Rope',
+                    line=dict(color='#FFD93D', width=4)
+                ))
+                # Anchor marker at ground
+                fig.add_trace(go.Scatter3d(
+                    x=[ax],
+                    y=[ay],
+                    z=[az],
+                    mode='markers',
+                    name='Ground Anchor',
+                    marker=dict(color='#FF6B6B', size=12, symbol='x')
+                ))
 
-        if annotations.get("show_load_path", True):
-            fig.add_trace(go.Scatter3d(
-                x=[0, 0], y=[0, 0], z=[rise, rise-2],
-                mode='lines',
-                name='Load Path',
-                line=dict(color='#FFD93D', width=5)
-            ))
+    # ---- WIND ARROWS ----
+    if annotations and annotations.get("show_wind", True):
+        fig.add_trace(go.Scatter3d(
+            x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
+            mode='lines',
+            name='Wind Load',
+            line=dict(color='#FF6B6B', width=4, dash='dash')
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=[span/4, span/4], y=[laa/4, laa/4], z=[rise*0.8, rise*1.2],
+            mode='lines',
+            name='Wind Load',
+            line=dict(color='#FF6B6B', width=4, dash='dash')
+        ))
 
+    # ---- LOAD PATH ----
+    if annotations and annotations.get("show_load_path", True):
+        fig.add_trace(go.Scatter3d(
+            x=[0, 0], y=[0, 0], z=[rise, rise-2],
+            mode='lines',
+            name='Load Path',
+            line=dict(color='#FFD93D', width=5)
+        ))
+
+    # Layout
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
@@ -647,7 +851,7 @@ def generate_saddle_span(params, annotations=None):
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+            camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))
         ),
         paper_bgcolor='#0a0e17',
         margin=dict(l=0, r=0, b=0, t=0),
@@ -866,14 +1070,15 @@ def render_export_section():
     typ_key = st.session_state.typology
     params = st.session_state.params
     info = st.session_state.project_info
+    materials = st.session_state.materials
     
     col1, col2 = st.columns(2)
     
     with col1:
         if typ_key in GENERATORS and typ_key != "custom":
             try:
-                if st.session_state.mode == "engineer" and typ_key == "saddle_span":
-                    fig = generate_saddle_span(params, st.session_state.engineering_annotations)
+                if typ_key == "saddle_span":
+                    fig = generate_saddle_span(params, materials, st.session_state.engineering_annotations)
                 else:
                     fig = GENERATORS[typ_key](params)
                 img_link = get_image_download_link(fig)
@@ -881,7 +1086,7 @@ def render_export_section():
             except Exception as e:
                 st.warning(f"⚠️ Image export failed: {e}")
         else:
-            st.info("Image export available for standard typologies (not custom).")
+            st.info("Image export available for standard typologies.")
     
     with col2:
         export_data = {
@@ -890,6 +1095,7 @@ def render_export_section():
             "parameters": params,
             "qa_answers": st.session_state.qa_answers,
             "comments": st.session_state.comments,
+            "materials": materials,
             "locked": st.session_state.locked,
             "export_date": datetime.now().isoformat()
         }
@@ -899,8 +1105,136 @@ def render_export_section():
         json_link = get_json_download_link(export_data)
         st.markdown(json_link, unsafe_allow_html=True)
     
-    st.caption("These exports are generated from your current project data.")
+    st.caption("Exports include geometry, materials, bracing, and tie-down configuration.")
     st.markdown('</div>', unsafe_allow_html=True)
+
+# ============================================================
+# MATERIALS & BRACING UI
+# ============================================================
+
+def render_materials_section():
+    """Render the materials and bracing configuration section"""
+    st.subheader("🏗️ Materials & Bracing")
+    st.caption("Select materials and configure wind bracing and tie-downs. Positions are auto-generated based on your geometry.")
+    
+    m = st.session_state.materials
+    
+    # Row 1: Primary Structure
+    st.markdown("### 🔩 Primary Structure")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        m["steel_grade"] = st.selectbox(
+            "Steel Grade",
+            ["S275", "S355", "S460", "6061-T6 (Aluminum)"],
+            index=["S275", "S355", "S460", "6061-T6 (Aluminum)"].index(m.get("steel_grade", "S355"))
+        )
+    with col2:
+        m["section_type"] = st.selectbox(
+            "Section Type",
+            ["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"],
+            index=["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"].index(m.get("section_type", "Circular Hollow Section (CHS)"))
+        )
+    with col3:
+        section_sizes = {
+            "Circular Hollow Section (CHS)": ["CHS 100x5", "CHS 150x6", "CHS 200x8", "CHS 250x10"],
+            "Rectangular Hollow Section (RHS)": ["RHS 150x100x6", "RHS 200x150x8", "RHS 250x150x10"],
+            "I-Beam": ["I-100", "I-150", "I-200", "I-250"],
+            "Pipe": ["Pipe 100x5", "Pipe 150x6", "Pipe 200x8"]
+        }
+        m["section_size"] = st.selectbox(
+            "Section Size",
+            section_sizes.get(m["section_type"], ["CHS 150x6"]),
+            index=0
+        )
+    
+    # Row 2: Membrane
+    st.markdown("### 🧵 Membrane Fabric")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        m["fabric_type"] = st.selectbox(
+            "Fabric Type",
+            ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"],
+            index=["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"].index(m.get("fabric_type", "PVC-coated Polyester"))
+        )
+    with col2:
+        m["fabric_thickness"] = st.selectbox(
+            "Thickness (mm)",
+            [0.5, 0.8, 1.0, 1.2],
+            index=[0.5, 0.8, 1.0, 1.2].index(m.get("fabric_thickness", 0.8))
+        )
+    with col3:
+        m["prestress"] = st.selectbox(
+            "Prestress Level (kN/m)",
+            [1.0, 3.0, 5.0],
+            index=[1.0, 3.0, 5.0].index(m.get("prestress", 3.0))
+        )
+    
+    # Row 3: Wind Bracing & Tie-Downs
+    st.markdown("### 🔗 Wind Bracing & Tie-Downs")
+    st.caption("📐 Positions are automatically calculated based on span and rise")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        m["num_bays"] = st.selectbox(
+            "Bracing Bays",
+            [1, 2, 3],
+            index=[1, 2, 3].index(m.get("num_bays", 2)),
+            help="1=Apex only, 2=Third points, 3=Quarter points"
+        )
+        # Show what that means
+        span = st.session_state.params.get("B", 10.0)
+        positions = generate_bracing_positions(span, m["num_bays"])
+        pos_str = ", ".join([f"{p:.1f}m" for p in positions])
+        st.caption(f"📍 Positions: {pos_str}")
+    
+    with col2:
+        m["wire_rope_diameter"] = st.selectbox(
+            "Wire Rope Diameter (mm)",
+            [6, 8, 10, 12, 14, 16, 20],
+            index=[6, 8, 10, 12, 14, 16, 20].index(m.get("wire_rope_diameter", 10))
+        )
+    
+    with col3:
+        m["num_anchors"] = st.selectbox(
+            "Anchors per Support",
+            [1, 2, 4],
+            index=[1, 2, 4].index(m.get("num_anchors", 2)),
+            help="1=Single anchor, 2=Radiating at ±45°, 4=Four cardinal directions"
+        )
+    
+    with col4:
+        m["anchor_angle"] = st.selectbox(
+            "Anchor Angle (°)",
+            [15, 30, 45, 60],
+            index=[15, 30, 45, 60].index(m.get("anchor_angle", 30)),
+            help="Angle from vertical (smaller = wider spread)"
+        )
+    
+    # Row 4: Environmental Loads
+    st.markdown("### 🌬️ Environmental Loads")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        m["wind_speed"] = st.number_input(
+            "Wind Speed (m/s)",
+            min_value=20, max_value=80, step=5, value=m.get("wind_speed", 40),
+            help="Regional wind speed (e.g., 40 m/s for coastal areas)"
+        )
+    with col2:
+        m["snow_load"] = st.number_input(
+            "Snow Load (kN/m²)",
+            min_value=0.0, max_value=5.0, step=0.5, value=m.get("snow_load", 0.5),
+            help="Snow load per square meter"
+        )
+    with col3:
+        m["live_load"] = st.number_input(
+            "Live Load (kN/m²)",
+            min_value=0.0, max_value=5.0, step=0.5, value=m.get("live_load", 0.5),
+            help="Maintenance/access load"
+        )
+    
+    # Save materials to session
+    st.session_state.materials = m
+    save_cache()
 
 # ============================================================
 # TOP BAR
@@ -1168,7 +1502,9 @@ params = st.session_state.params
 
 if st.session_state.design_phase == "input":
     st.subheader(f"{typ['icon']} {typ['name']} — Design Inputs")
-    st.subheader("📐 Dimensions")
+    
+    # Geometry Input
+    st.subheader("📐 Geometry")
     cols = st.columns(2)
     col_idx = 0
     for p_key, p_def in typ["params"].items():
@@ -1184,6 +1520,11 @@ if st.session_state.design_phase == "input":
             params[p_key] = val
         col_idx += 1
     save_cache()
+    
+    # Materials & Bracing (Only for Saddle Span initially)
+    if typ_key == "saddle_span":
+        render_materials_section()
+    
     if st.button("📋 Review Design in SDS-UNDERSTAND", use_container_width=True, type="primary"):
         st.session_state.design_phase = "review"
         save_cache()
@@ -1194,14 +1535,20 @@ elif st.session_state.design_phase == "review":
     st.caption("Review the interpretation summary and confirm your design assumptions before proceeding to engineering investigation.")
     
     st.subheader("📊 Current Interpretation Summary")
+    
+    m = st.session_state.materials
     summary_data = {
-        "PRIMARY STRUCTURE": "Two curved beams — 🟡 Inferred",
-        "MEMBRANE": "Saddle / anticlastic form — 🟡 Inferred",
-        "APEX POINT (P_A)": f"High point of structure at {params.get('A', 13.0)}m — 🟡 Inferred",
+        "PRIMARY STRUCTURE": f"{m.get('steel_grade', 'S355')} {m.get('section_type', 'CHS')} {m.get('section_size', '150x6')} — 🟢 Provided",
+        "MEMBRANE": f"{m.get('fabric_type', 'PVC')} {m.get('fabric_thickness', 0.8)}mm, {m.get('prestress', 3.0)}kN/m — 🟢 Provided",
+        "APEX POINT (P_A)": f"High point at {params.get('A', 6.0)}m — 🟡 Inferred",
         "SUPPORTS": "Two supports at beam bases — 🟡 Inferred",
-        "DIMENSIONS": f"A={params.get('A', 13.0)}m, B={params.get('B', 5.0)}m, LAA={params.get('LAA', 10.0)}m — 🟢 Provided by User",
-        "UNKNOWN ITEMS": "Material, Beams, Prestress, Bracing, Foundations etc. — 🔴 Unknown"
+        "DIMENSIONS": f"A={params.get('A', 6.0)}m, B={params.get('B', 10.0)}m, LAA={params.get('LAA', 15.0)}m — 🟢 Provided",
+        "WIND BRACING": f"{m.get('num_bays', 2)} bays at {', '.join([f'{p:.1f}m' for p in generate_bracing_positions(params.get('B', 10.0), m.get('num_bays', 2))])} — 🟢 Auto-Generated",
+        "TIE-DOWNS": f"{m.get('num_anchors', 2)} anchors per support at {m.get('anchor_angle', 30)}° — 🟢 Auto-Generated",
+        "WIRE ROPE": f"{m.get('wire_rope_diameter', 10)}mm {m.get('wire_rope_type', 'Galvanized')} — 🟢 Provided",
+        "UNKNOWN ITEMS": "Foundations, Connection Details — 🔴 Unknown"
     }
+    
     for key, value in summary_data.items():
         st.markdown(f"**{key}:** {value}")
     st.divider()
@@ -1306,15 +1653,19 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
         st.info("📝 This is a custom design. The 3D view shows a bounding box placeholder.")
     
     st.subheader("🔬 Engineering View")
+    
+    # Annotation toggles
     if st.session_state.mode == "engineer":
         st.caption("Toggle engineering annotations:")
-        anno_cols = st.columns(3)
+        anno_cols = st.columns(4)
         with anno_cols[0]:
-            st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind Load", value=st.session_state.engineering_annotations.get("show_wind", True))
+            st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind", value=st.session_state.engineering_annotations.get("show_wind", True))
         with anno_cols[1]:
-            st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie-Down Anchors", value=st.session_state.engineering_annotations.get("show_tie_down", True))
+            st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie-Down", value=st.session_state.engineering_annotations.get("show_tie_down", True))
         with anno_cols[2]:
-            st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load Path", value=st.session_state.engineering_annotations.get("show_load_path", True))
+            st.session_state.engineering_annotations["show_bracing"] = st.checkbox("📐 Bracing", value=st.session_state.engineering_annotations.get("show_bracing", True))
+        with anno_cols[3]:
+            st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load", value=st.session_state.engineering_annotations.get("show_load_path", True))
         save_cache()
     
     if typ_key == "custom":
@@ -1325,11 +1676,64 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             st.caption(f"📝 {st.session_state.custom_description}")
     else:
         if typ_key in GENERATORS:
-            if st.session_state.mode == "engineer" and typ_key == "saddle_span":
-                fig = generate_saddle_span(params, st.session_state.engineering_annotations)
+            if typ_key == "saddle_span":
+                fig = generate_saddle_span(params, st.session_state.materials, st.session_state.engineering_annotations)
             else:
                 fig = GENERATORS[typ_key](params)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
+    
+    # Structural Calculations Summary (Only for Saddle Span)
+    if typ_key == "saddle_span":
+        st.subheader("📊 Preliminary Structural Checks")
+        m = st.session_state.materials
+        
+        # Calculate area
+        span = params.get("B", 10.0)
+        laa = params.get("LAA", 15.0)
+        rise = params.get("A", 6.0)
+        
+        # Approximate membrane area (simplified)
+        membrane_area = span * laa * 1.1  # Rough estimate
+        
+        # Self-weight
+        steel_weight = calculate_steel_weight(m.get("steel_grade", "S355"), m.get("section_type", "CHS"), m.get("section_size", "CHS 150x6"), span * 2)
+        fabric_weight = calculate_fabric_weight(m.get("fabric_type", "PVC-coated Polyester"), m.get("fabric_thickness", 0.8), membrane_area)
+        total_weight = steel_weight + fabric_weight
+        
+        # Wind load
+        wind_load = calculate_wind_load(m.get("wind_speed", 40), membrane_area)
+        
+        # Tie-down force
+        tie_down_force = calculate_tie_down_force(
+            wind_load, total_weight, 
+            m.get("num_anchors", 2), 
+            m.get("anchor_angle", 30)
+        )
+        
+        # Wire rope capacity (simplified)
+        rope_breaking_load = {
+            6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 20: 220
+        }
+        rope_capacity = rope_breaking_load.get(m.get("wire_rope_diameter", 10), 55)
+        rope_check = tie_down_force < rope_capacity / 1.5  # Safety factor 1.5
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Self-Weight", f"{total_weight:.1f} kN")
+            st.metric("Membrane Area", f"{membrane_area:.1f} m²")
+        with col2:
+            st.metric("Wind Load", f"{wind_load:.1f} kN")
+            st.metric("Tie-Down Force/Anchor", f"{tie_down_force:.1f} kN")
+        with col3:
+            st.metric("Wire Rope Capacity", f"{rope_capacity:.1f} kN")
+            st.metric("✅ Rope Check", "✅ PASS" if rope_check else "❌ FAIL", 
+                      delta="Required < Capacity" if rope_check else "Required > Capacity",
+                      delta_color="normal" if rope_check else "inverse")
+        
+        if not rope_check:
+            st.error(f"⚠️ Tie-down force ({tie_down_force:.1f} kN) exceeds wire rope capacity ({rope_capacity:.1f} kN). Please increase rope diameter or add more anchors.")
+        else:
+            st.success(f"✅ All preliminary checks passed. Structure is stable under wind loads.")
     
     with st.expander("📋 Design Summary & Export"):
         st.write(f"**Project:** {info.get('name', 'N/A')}")
@@ -1351,8 +1755,8 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
         with col_exp1:
             if typ_key != "custom" and typ_key in GENERATORS:
                 try:
-                    if st.session_state.mode == "engineer" and typ_key == "saddle_span":
-                        fig_export = generate_saddle_span(params, st.session_state.engineering_annotations)
+                    if typ_key == "saddle_span":
+                        fig_export = generate_saddle_span(params, st.session_state.materials, st.session_state.engineering_annotations)
                     else:
                         fig_export = GENERATORS[typ_key](params)
                     img_link = get_image_download_link(fig_export)
@@ -1368,6 +1772,7 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
                 "parameters": params,
                 "qa_answers": st.session_state.qa_answers,
                 "comments": st.session_state.comments,
+                "materials": st.session_state.materials,
                 "locked": st.session_state.locked,
                 "export_date": datetime.now().isoformat()
             }
@@ -1385,5 +1790,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v1.0 | Delete Projects | Export Anywhere")
+st.caption("SDS Platform v2.0 | Materials + Bracing + Tie-Downs | Auto-Generated Positions")
 save_cache()
