@@ -17,31 +17,36 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM DARK MODE CSS
+# CUSTOM DARK MODE CSS (BRIGHTER TEXT FOR READABILITY)
 # ============================================================
 dark_mode_css = """
     <style>
-    /* Main background */
     .stApp {
         background-color: #0a0e17;
-        color: #e0e6ed;
+        color: #f0f4fa;
     }
     .block-container {
         padding-top: 0.5rem;
         padding-bottom: 0rem;
     }
-    /* Headers */
     h1, h2, h3, h4, h5, h6 {
-        color: #f0f4fa !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
     }
     .stSubheader {
-        color: #b0c4de !important;
+        color: #e0e8f0 !important;
     }
-    /* Cards and Containers */
+    label, .stTextInput label, .stTextArea label, .stSelectbox label, .stNumberInput label {
+        color: #e8edf5 !important;
+        font-weight: 400 !important;
+        font-size: 1rem !important;
+    }
+    .stCaption, .stMarkdown, .stInfo, .stWarning {
+        color: #e0e8f0 !important;
+    }
     .stButton > button {
         background-color: #1e2a3a;
-        color: #e0e6ed;
+        color: #ffffff;
         border: 1px solid #2a3a4f;
         border-radius: 12px;
         padding: 0.75rem 1rem;
@@ -54,10 +59,6 @@ dark_mode_css = """
         border-color: #4a7a9c;
         color: white;
     }
-    .stButton > button:active {
-        background-color: #3a4a5f;
-    }
-    /* Primary button (Lock / Submit) */
     .stButton > button[kind="primary"] {
         background-color: #f39c12;
         color: #0a0e17;
@@ -68,78 +69,57 @@ dark_mode_css = """
         background-color: #f1c40f;
         color: #0a0e17;
     }
-    /* Sliders */
-    .stSlider > div > div > div {
-        background-color: #1e2a3a !important;
+    .stNumberInput > div > div > input {
+        background-color: #141e2b !important;
+        color: #ffffff !important;
+        border: 1px solid #2a3a4f !important;
+        border-radius: 8px !important;
+        font-size: 1.1rem !important;
+        padding: 0.5rem !important;
     }
-    .stSlider > div > div > div > div {
-        background-color: #f39c12 !important;
+    .stNumberInput > div > div > input:focus {
+        border-color: #f39c12 !important;
+        box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2) !important;
     }
-    /* Inputs */
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea,
     .stSelectbox > div > div > div {
         background-color: #141e2b !important;
-        color: #e0e6ed !important;
+        color: #ffffff !important;
         border: 1px solid #2a3a4f !important;
         border-radius: 8px !important;
     }
-    .stTextInput > div > div > input:focus,
-    .stTextArea > div > div > textarea:focus {
-        border-color: #f39c12 !important;
-        box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2) !important;
-    }
-    /* Labels */
-    .stSlider label, .stTextInput label, .stTextArea label, .stSelectbox label {
-        color: #b0c4de !important;
-        font-weight: 400 !important;
-    }
-    /* Expanders */
     .streamlit-expanderHeader {
         background-color: #141e2b !important;
         border-radius: 8px !important;
         border: 1px solid #1e2a3a !important;
-        color: #e0e6ed !important;
+        color: #ffffff !important;
     }
     .streamlit-expanderContent {
-        background-color: #0a0e17 !important;
+        background-color: #0f1822 !important;
         border: 1px solid #1e2a3a !important;
         border-top: none !important;
         border-radius: 0 0 8px 8px !important;
+        color: #f0f4fa !important;
     }
-    /* Info/Warning boxes */
     .stAlert {
         background-color: #1e2a3a !important;
         border-left: 4px solid #f39c12 !important;
-        color: #e0e6ed !important;
+        color: #f0f4fa !important;
     }
     .stInfo {
         background-color: #1a2a3a !important;
         border-left: 4px solid #4a7a9c !important;
+        color: #f0f4fa !important;
     }
-    /* Caption */
-    .stCaption {
-        color: #5a6a7a !important;
-    }
-    /* Radio buttons */
     .stRadio > div {
         background-color: #141e2b !important;
         padding: 0.5rem;
         border-radius: 8px;
     }
     .stRadio label {
-        color: #e0e6ed !important;
+        color: #f0f4fa !important;
     }
-    /* Selectbox dropdown */
-    .stSelectbox > div > div > div > div {
-        background-color: #141e2b !important;
-        color: #e0e6ed !important;
-    }
-    /* Image caption */
-    .stImage > div > div > div > p {
-        color: #5a6a7a !important;
-    }
-    /* Hide default streamlit header/footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -170,7 +150,7 @@ if "custom_description" not in st.session_state:
     st.session_state.custom_description = ""
 
 # ============================================================
-# CACHE HANDLER (Silent Auto-Save)
+# CACHE HANDLER
 # ============================================================
 CACHE_DIR = ".sds_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -196,7 +176,6 @@ def load_cache():
             return json.load(f)
     return None
 
-# Auto-load cache on boot
 cached = load_cache()
 if cached:
     st.session_state.project_registered = cached.get("project_registered", False)
@@ -209,7 +188,7 @@ if cached:
     st.session_state.custom_description = cached.get("custom_description", "")
 
 # ============================================================
-# TYPOLOGY CONFIGURATIONS (Built-in)
+# TYPOLOGY CONFIGURATIONS
 # ============================================================
 TYPOLOGIES = {
     "saddle_span": {
@@ -218,17 +197,15 @@ TYPOLOGIES = {
         "params": {
             "A": {"label": "Rise (m)", "min": 2.0, "max": 20.0, "step": 0.5, "default": 6.0},
             "B": {"label": "Span (m)", "min": 4.0, "max": 40.0, "step": 0.5, "default": 10.0},
-            "LAA": {"label": "Apex Distance (m)", "min": 4.0, "max": 50.0, "step": 0.5, "default": 15.0},
-            "H": {"label": "Exp. Rise (m)", "min": 2.0, "max": 20.0, "step": 0.5, "default": 6.0}
+            "LAA": {"label": "Apex Distance (m)", "min": 4.0, "max": 50.0, "step": 0.5, "default": 15.0}
         },
         "qa": [
             "Two primary curved beams?",
             "Supported at lower ends?",
             "Membrane continuous along beams?",
-            "P_A is the apex?",
-            "A is vertical rise?",
-            "B is horizontal span?",
-            "LAA is apex-to-apex distance?"
+            "A is vertical rise from ground to apex?",
+            "B is horizontal span between supports?",
+            "LAA is distance between apexes?"
         ]
     },
     "clear_span_tent": {
@@ -566,7 +543,6 @@ if not st.session_state.project_registered:
         location = st.text_input("📍 Location", placeholder="e.g., Singapore")
         project_date = st.date_input("📅 Date", value=datetime.today())
         
-        # Auto-generate project reference
         ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         project_ref = st.text_input("🔑 Project Reference", value=f"SDS-{ref}")
         
@@ -592,16 +568,15 @@ if not st.session_state.project_registered:
     st.caption("All data is cached locally. Your project will resume where you left off.")
     st.stop()
 
-# ---- MAIN DASHBOARD (After Registration) ----
-# Show project banner
+# ---- MAIN DASHBOARD ----
 info = st.session_state.project_info
 st.markdown(f"""
 <div style="background-color:#141e2b; padding:0.75rem 1rem; border-radius:12px; margin-bottom:1rem; border-left:4px solid #f39c12;">
     <span style="color:#b0c4de; font-size:0.8rem;">🔑 {info.get('reference', 'N/A')}</span>
-    <span style="color:#f0f4fa; font-weight:600; margin-left:1rem;">{info.get('name', 'Untitled')}</span>
-    <span style="color:#5a6a7a; margin-left:1rem;">👤 {info.get('client', 'N/A')}</span>
-    <span style="color:#5a6a7a; margin-left:1rem;">🏛️ {info.get('architect', '—')}</span>
-    <span style="color:#5a6a7a; margin-left:1rem;">🔧 {info.get('engineer', '—')}</span>
+    <span style="color:#ffffff; font-weight:600; margin-left:1rem;">{info.get('name', 'Untitled')}</span>
+    <span style="color:#8a9aaa; margin-left:1rem;">👤 {info.get('client', 'N/A')}</span>
+    <span style="color:#8a9aaa; margin-left:1rem;">🏛️ {info.get('architect', '—')}</span>
+    <span style="color:#8a9aaa; margin-left:1rem;">🔧 {info.get('engineer', '—')}</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -621,7 +596,6 @@ if st.session_state.typology is None:
                 st.rerun()
         idx += 1
     
-    # Show "New Project" button to re-register
     if st.button("🔄 New Project", use_container_width=True):
         st.session_state.project_registered = False
         st.session_state.project_info = {}
@@ -686,13 +660,13 @@ if typ_key == "custom":
     st.subheader("📐 Bounding Box Dimensions")
     cols = st.columns(3)
     with cols[0]:
-        width = st.slider("Width (m)", min_value=1.0, max_value=100.0, step=0.5, value=params.get("width", 10.0))
+        width = st.number_input("Width (m)", min_value=1.0, max_value=100.0, step=0.5, value=params.get("width", 10.0), format="%.1f")
         params["width"] = width
     with cols[1]:
-        length = st.slider("Length (m)", min_value=1.0, max_value=100.0, step=0.5, value=params.get("length", 15.0))
+        length = st.number_input("Length (m)", min_value=1.0, max_value=100.0, step=0.5, value=params.get("length", 15.0), format="%.1f")
         params["length"] = length
     with cols[2]:
-        height = st.slider("Height (m)", min_value=1.0, max_value=50.0, step=0.5, value=params.get("height", 8.0))
+        height = st.number_input("Height (m)", min_value=1.0, max_value=50.0, step=0.5, value=params.get("height", 8.0), format="%.1f")
         params["height"] = height
     
     st.info("📝 This is a custom design. The 3D view shows a bounding box placeholder.")
@@ -710,12 +684,13 @@ else:
         col_idx = 0
         for p_key, p_def in typ["params"].items():
             with cols[col_idx % 2]:
-                val = st.slider(
+                val = st.number_input(
                     p_def["label"],
                     min_value=float(p_def["min"]),
                     max_value=float(p_def["max"]),
                     step=float(p_def["step"]),
-                    value=float(params.get(p_key, p_def["default"]))
+                    value=float(params.get(p_key, p_def["default"])),
+                    format="%.1f"
                 )
                 params[p_key] = val
             col_idx += 1
@@ -781,5 +756,5 @@ if st.session_state.mode == "engineer" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v1.0 | Dark Mode | Project Dashboard | Cache auto-saves all changes.")
+st.caption("SDS Platform v1.0 | Dark Mode | Number Input | Clean Parameters")
 save_cache()
