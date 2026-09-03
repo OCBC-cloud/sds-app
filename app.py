@@ -183,7 +183,6 @@ dark_mode_css = """
         font-size: 1.2rem;
         font-weight: 600;
     }
-    /* Top bar logo clickable */
     .sds-logo {
         cursor: pointer;
         color: #ffffff;
@@ -193,6 +192,21 @@ dark_mode_css = """
     }
     .sds-logo:hover {
         color: #f39c12;
+    }
+    .export-section {
+        background-color: #141e2b;
+        border-radius: 12px;
+        padding: 1rem;
+        border: 1px solid #2a3a4f;
+        margin: 1rem 0;
+    }
+    .export-section a {
+        color: #4a7a9c !important;
+        text-decoration: underline;
+        font-weight: 500;
+    }
+    .export-section a:hover {
+        color: #f39c12 !important;
     }
     </style>
 """
@@ -233,6 +247,8 @@ if "show_project_browser" not in st.session_state:
     st.session_state.show_project_browser = False
 if "show_registration" not in st.session_state:
     st.session_state.show_registration = False
+if "show_export" not in st.session_state:
+    st.session_state.show_export = False
 
 # ============================================================
 # CACHE HANDLER
@@ -311,12 +327,21 @@ def load_project_from_file(filename):
             st.session_state.mode = "design"
             st.session_state.show_registration = False
             st.session_state.show_project_browser = False
+            st.session_state.show_export = False
             save_cache()
             return True
     return False
 
+def delete_project_file(filename):
+    """Delete a saved project file and update index"""
+    filepath = os.path.join(CACHE_DIR, filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        update_projects_index()
+        return True
+    return False
+
 def go_to_dashboard():
-    """Reset to main dashboard view without deleting saved projects"""
     st.session_state.project_registered = False
     st.session_state.project_info = {}
     st.session_state.typology = None
@@ -330,12 +355,12 @@ def go_to_dashboard():
     st.session_state.comments = ""
     st.session_state.show_project_browser = False
     st.session_state.show_registration = False
+    st.session_state.show_export = False
     if os.path.exists(CACHE_FILE):
         os.remove(CACHE_FILE)
     save_cache()
 
 def clear_cache():
-    # Only delete current session, leave saved projects
     if os.path.exists(CACHE_FILE):
         os.remove(CACHE_FILE)
     st.session_state.project_registered = False
@@ -351,6 +376,7 @@ def clear_cache():
     st.session_state.comments = ""
     st.session_state.show_project_browser = False
     st.session_state.show_registration = False
+    st.session_state.show_export = False
     update_projects_index()
 
 def save_project_as_new():
@@ -518,7 +544,7 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# 3D GENERATORS (unchanged - stable)
+# 3D GENERATORS (unchanged)
 # ============================================================
 
 def generate_saddle_span(params, annotations=None):
@@ -820,11 +846,61 @@ def get_json_download_link(data, filename="project_data.json"):
     href = f'<a href="data:application/json;base64,{b64}" download="{filename}">📄 Download Design Data (JSON)</a>'
     return href
 
+def render_export_section():
+    """Render export options (image + JSON) for current project"""
+    if not st.session_state.typology or not st.session_state.project_registered:
+        st.info("No active project to export.")
+        return
+    
+    st.markdown('<div class="export-section">', unsafe_allow_html=True)
+    st.subheader("📤 Export Current Project")
+    
+    typ_key = st.session_state.typology
+    params = st.session_state.params
+    info = st.session_state.project_info
+    
+    col1, col2 = st.columns(2)
+    
+    # Image export
+    with col1:
+        if typ_key in GENERATORS and typ_key != "custom":
+            try:
+                if st.session_state.mode == "engineer" and typ_key == "saddle_span":
+                    fig = generate_saddle_span(params, st.session_state.engineering_annotations)
+                else:
+                    fig = GENERATORS[typ_key](params)
+                img_link = get_image_download_link(fig)
+                st.markdown(img_link, unsafe_allow_html=True)
+            except Exception as e:
+                st.warning(f"⚠️ Image export failed: {e}")
+        else:
+            st.info("Image export available for standard typologies (not custom).")
+    
+    # JSON data export
+    with col2:
+        export_data = {
+            "project": info,
+            "typology": typ_key,
+            "parameters": params,
+            "qa_answers": st.session_state.qa_answers,
+            "comments": st.session_state.comments,
+            "locked": st.session_state.locked,
+            "export_date": datetime.now().isoformat()
+        }
+        if typ_key == "custom":
+            export_data["custom_image"] = st.session_state.custom_image is not None
+            export_data["custom_description"] = st.session_state.custom_description
+        json_link = get_json_download_link(export_data)
+        st.markdown(json_link, unsafe_allow_html=True)
+    
+    st.caption("These exports are generated from your current project data.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ============================================================
-# TOP BAR — WITH CLICKABLE LOGO & DASHBOARD BUTTON
+# TOP BAR
 # ============================================================
 def render_top_bar():
-    cols = st.columns([0.8, 1.5, 0.8, 0.8, 0.8, 1, 1, 1])
+    cols = st.columns([0.8, 1.5, 0.8, 0.8, 0.8, 1, 1, 1, 1])
     
     # Column 0: Clickable SDS Logo -> Back to Dashboard
     with cols[0]:
@@ -879,14 +955,19 @@ def render_top_bar():
                 if st.button("✏️ Edit", use_container_width=True, help="Switch back to design"):
                     st.session_state.mode = "design"
                     st.rerun()
+    
+    with cols[8]:
+        if st.session_state.project_registered and st.session_state.typology:
+            if st.button("📤 Export", use_container_width=True, help="Export current project data and image"):
+                st.session_state.show_export = not st.session_state.show_export
+                st.rerun()
 
 # ============================================================
-# PROJECT BROWSER (WITH CLEAR LABELS & BACK BUTTON)
+# PROJECT BROWSER (WITH DELETE)
 # ============================================================
 def render_project_browser():
     st.subheader("📂 Saved Projects")
     
-    # Back button
     if st.button("⬅ Back to Dashboard", use_container_width=True):
         go_to_dashboard()
         st.rerun()
@@ -909,7 +990,7 @@ def render_project_browser():
         </div>
         """, unsafe_allow_html=True)
         
-        col1, col2 = st.columns([5, 1])
+        col1, col2, col3 = st.columns([4, 1, 1])
         with col2:
             if st.button("📂 Load", key=f"load_{proj.get('file')}", use_container_width=True):
                 if load_project_from_file(proj.get('file')):
@@ -918,6 +999,13 @@ def render_project_browser():
                     st.rerun()
                 else:
                     st.error("⚠️ Failed to load project.")
+        with col3:
+            if st.button("🗑️ Delete", key=f"del_{proj.get('file')}", use_container_width=True):
+                if delete_project_file(proj.get('file')):
+                    st.success(f"✅ Project {proj.get('name')} deleted.")
+                    st.rerun()
+                else:
+                    st.error("⚠️ Failed to delete.")
         st.divider()
 
 # ============================================================
@@ -993,22 +1081,24 @@ def render_dashboard():
 
 render_top_bar()
 
+# Show export section if toggled
+if st.session_state.show_export:
+    render_export_section()
+    # Keep it visible until user closes (they can toggle again)
+
 if st.session_state.show_project_browser:
     render_project_browser()
     st.stop()
 
-# If no project registered and not showing registration, show dashboard
 if not st.session_state.project_registered and not st.session_state.show_registration:
     render_dashboard()
     st.stop()
 
-# Registration screen
 if st.session_state.show_registration or (st.session_state.project_registered and not st.session_state.typology):
     if st.session_state.show_registration or not st.session_state.project_registered:
         st.subheader("📋 New Project Registration")
         st.caption("Fill in the project details to get started.")
         
-        # Back to Dashboard button
         if st.button("⬅ Back to Dashboard", use_container_width=True):
             go_to_dashboard()
             st.rerun()
@@ -1292,5 +1382,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v1.0 | Dashboard-First | Click Logo to Return")
+st.caption("SDS Platform v1.0 | Delete Projects | Export Anywhere")
 save_cache()
