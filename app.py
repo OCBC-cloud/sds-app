@@ -676,9 +676,6 @@ def generate_tie_down_anchors_full(span, laa, height, vertical_angle_deg, horizo
             })
     return anchors
 
-# ============================================================
-# FIXED: Complete dictionary for fabric weight
-# ============================================================
 def calculate_steel_weight(grade, section_type, section_size, length):
     weight_per_m = {
         "CHS 100x5": 11.7, "CHS 150x6": 21.3, "CHS 200x8": 37.9,
@@ -843,20 +840,16 @@ def generate_saddle_span(params, materials=None, annotations=None):
     y1 = -laa/2 * (1 - (2 * x / span)**2)
     y2 = laa/2 * (1 - (2 * x / span)**2)
 
-    u = np.linspace(0, 1, num_points)
-    v = np.linspace(0, 1, num_points)
-
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
 
-    for i, u_val in enumerate(u):
-        x_pos = -span/2 + u_val * span
+    for i, x_pos in enumerate(x):
         y_beam1 = y1[i]
         y_beam2 = y2[i]
-        z_at_x = rise * (1 - (2 * x_pos / span)**2) if abs(x_pos) <= span/2 else 0
-
-        for j, v_val in enumerate(v):
+        z_at_x = z_beam[i]
+        
+        for j, v_val in enumerate(np.linspace(0, 1, num_points)):
             y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
             saddle_factor = 1 - 0.3 * (1 - (2 * v_val - 1)**2)
             z_pos = z_at_x * saddle_factor
@@ -901,12 +894,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 line=dict(color='#FF6B6B', width=2, dash='dash'),
                 showlegend=False
             ))
-            fig.add_trace(go.Scatter3d(
-                x=[bx], y=[(y1_pos + y2_pos)/2], z=[z_pos + 0.2],
-                mode='text', text=[f'▲ {num_bays}b'],
-                textfont=dict(color='#FF6B6B', size=6),
-                showlegend=False
-            ))
 
     if materials and annotations and annotations.get("show_tie_down", True):
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
@@ -931,15 +918,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 mode='markers',
                 name='Ground Anchor',
                 marker=dict(color='#FF6B6B', size=4, symbol='x'),
-                showlegend=False
-            ))
-            fig.add_trace(go.Scatter3d(
-                x=[a["beam_x"]],
-                y=[a["beam_y"]],
-                z=[beam_z + 0.15],
-                mode='text',
-                text=[f'•{a["position"][:4]}'],
-                textfont=dict(color='#FFD93D', size=5),
                 showlegend=False
             ))
 
@@ -1774,5 +1752,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v3.0 | Fixed Syntax Error in Fabric Weight Dictionary")
+st.caption("SDS Platform v3.0 | Fixed Y-Axis Bug | Clean Syntax")
 save_cache()
