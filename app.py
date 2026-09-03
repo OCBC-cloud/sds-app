@@ -820,7 +820,7 @@ def get_proposal_download_link(fig, filename="proposal_drawings.png"):
     return href
 
 # ============================================================
-# 3D GENERATORS (Saddle Span with Legend at Bottom)
+# 3D GENERATORS — SMALLER MARKERS + CLEANER LEGEND
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -861,25 +861,25 @@ def generate_saddle_span(params, materials=None, annotations=None):
     fig = go.Figure()
 
     # Beams
-    fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=8)))
-    fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=8)))
+    fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=6)))
+    fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=6)))
 
     # Membrane
     fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, 
                              colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
                              opacity=0.7, showscale=False))
 
-    # Apex markers
+    # ---- SMALLER APEX MARKERS (size 6) ----
     fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
-                               mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=12, symbol='diamond')))
+                               mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=6, symbol='diamond')))
     fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], 
-                               mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=12, symbol='diamond')))
+                               mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=6, symbol='diamond')))
 
-    # Support markers
+    # ---- SMALLER SUPPORT MARKERS (size 6) ----
     fig.add_trace(go.Scatter3d(x=[-span/2], y=[0], z=[0], 
-                               mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=10, symbol='square')))
+                               mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=6, symbol='square')))
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
-                               mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=10, symbol='square')))
+                               mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=6, symbol='square')))
 
     # Cross Bracing
     if materials and annotations and annotations.get("show_bracing", True):
@@ -893,12 +893,21 @@ def generate_saddle_span(params, materials=None, annotations=None):
             fig.add_trace(go.Scatter3d(
                 x=[bx, bx], y=[y1_pos, y2_pos], z=[z_pos, z_pos],
                 mode='lines', name='Cross Bracing',
-                line=dict(color='#FF6B6B', width=3, dash='dash')
+                line=dict(color='#FF6B6B', width=2, dash='dash'),
+                showlegend=False
             ))
             fig.add_trace(go.Scatter3d(
                 x=[bx, bx], y=[y2_pos, y1_pos], z=[z_pos, z_pos],
                 mode='lines', name='Cross Bracing',
-                line=dict(color='#FF6B6B', width=3, dash='dash')
+                line=dict(color='#FF6B6B', width=2, dash='dash'),
+                showlegend=False
+            ))
+            # Smaller bracing label
+            fig.add_trace(go.Scatter3d(
+                x=[bx], y=[(y1_pos + y2_pos)/2], z=[z_pos + 0.3],
+                mode='text', text=[f'▲ {num_bays} bays'],
+                textfont=dict(color='#FF6B6B', size=7),
+                showlegend=False
             ))
 
     # Tie-Down Wire Ropes
@@ -912,12 +921,14 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 fig.add_trace(go.Scatter3d(
                     x=[support_x, ax], y=[support_y, ay], z=[0, az],
                     mode='lines', name='Tie-Down Rope',
-                    line=dict(color='#FFD93D', width=4)
+                    line=dict(color='#FFD93D', width=2),
+                    showlegend=False
                 ))
                 fig.add_trace(go.Scatter3d(
                     x=[ax], y=[ay], z=[az],
                     mode='markers', name='Ground Anchor',
-                    marker=dict(color='#FF6B6B', size=12, symbol='x')
+                    marker=dict(color='#FF6B6B', size=5, symbol='x'),
+                    showlegend=False
                 ))
 
     # Wind Arrows
@@ -925,12 +936,14 @@ def generate_saddle_span(params, materials=None, annotations=None):
         fig.add_trace(go.Scatter3d(
             x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
             mode='lines', name='Wind Load',
-            line=dict(color='#FF6B6B', width=4, dash='dash')
+            line=dict(color='#FF6B6B', width=3, dash='dash'),
+            showlegend=True
         ))
         fig.add_trace(go.Scatter3d(
             x=[span/4, span/4], y=[laa/4, laa/4], z=[rise*0.8, rise*1.2],
             mode='lines', name='Wind Load',
-            line=dict(color='#FF6B6B', width=4, dash='dash')
+            line=dict(color='#FF6B6B', width=3, dash='dash'),
+            showlegend=False
         ))
 
     # Load Path
@@ -938,7 +951,8 @@ def generate_saddle_span(params, materials=None, annotations=None):
         fig.add_trace(go.Scatter3d(
             x=[0, 0], y=[0, 0], z=[rise, rise-2],
             mode='lines', name='Load Path',
-            line=dict(color='#FFD93D', width=5)
+            line=dict(color='#FFD93D', width=4),
+            showlegend=True
         ))
 
     # Layout with legend at bottom
@@ -956,7 +970,7 @@ def generate_saddle_span(params, materials=None, annotations=None):
         paper_bgcolor='#0a0e17',
         margin=dict(l=0, r=0, b=0, t=0),
         legend=dict(
-            font=dict(color='#ffffff', size=8),
+            font=dict(color='#ffffff', size=7),
             orientation="h",
             yanchor="bottom",
             y=-0.15,
@@ -994,7 +1008,7 @@ def generate_tent(params):
             bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
-        legend=dict(font=dict(color='#ffffff', size=8), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
+        legend=dict(font=dict(color='#ffffff', size=7), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
     )
     return fig
 
@@ -1024,7 +1038,7 @@ def generate_tensile(params):
             bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
-        legend=dict(font=dict(color='#ffffff', size=8), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
+        legend=dict(font=dict(color='#ffffff', size=7), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
     )
     return fig
 
@@ -1056,7 +1070,7 @@ def generate_portal(params):
             bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
-        legend=dict(font=dict(color='#ffffff', size=8), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
+        legend=dict(font=dict(color='#ffffff', size=7), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
     )
     return fig
 
@@ -1181,11 +1195,10 @@ def render_proposal_drawings():
     materials = st.session_state.materials
     fig = generate_proposal_drawings(params, materials)
     
-    # ==== THE FIX ====
-    # Save to buffer and reset pointer to beginning
+    # FIX: Save to buffer and reset pointer to beginning
     buf = io.BytesIO()
     fig.savefig(buf, format='png', dpi=120, facecolor='#0a0e17')
-    buf.seek(0)  # <-- THIS IS THE CRITICAL FIX
+    buf.seek(0)
     
     st.image(buf, caption="Plan, Front Elevation, Side Elevation, Perspective", use_column_width=True)
     
