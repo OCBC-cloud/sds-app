@@ -3,12 +3,12 @@ import json
 import os
 import plotly.graph_objects as go
 import numpy as np
-from PIL import Image
-import io
-import base64
+from datetime import datetime
+import random
+import string
 
 # ============================================================
-# PAGE CONFIG (Mobile-Friendly)
+# PAGE CONFIG (Mobile-Friendly | Dark Mode)
 # ============================================================
 st.set_page_config(
     page_title="SDS Design Studio",
@@ -16,16 +16,197 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Hide Streamlit's default menu/footer for a clean app
-hide_streamlit_style = """
+# ============================================================
+# CUSTOM DARK MODE CSS
+# ============================================================
+dark_mode_css = """
     <style>
+    /* Main background */
+    .stApp {
+        background-color: #0a0e17;
+        color: #e0e6ed;
+    }
+    .block-container {
+        padding-top: 0.5rem;
+        padding-bottom: 0rem;
+    }
+    /* Headers */
+    h1, h2, h3, h4, h5, h6 {
+        color: #f0f4fa !important;
+        font-weight: 600 !important;
+    }
+    .stSubheader {
+        color: #b0c4de !important;
+    }
+    /* Cards and Containers */
+    .stButton > button {
+        background-color: #1e2a3a;
+        color: #e0e6ed;
+        border: 1px solid #2a3a4f;
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        font-weight: 500;
+        transition: all 0.2s;
+        width: 100%;
+    }
+    .stButton > button:hover {
+        background-color: #2a3a4f;
+        border-color: #4a7a9c;
+        color: white;
+    }
+    .stButton > button:active {
+        background-color: #3a4a5f;
+    }
+    /* Primary button (Lock / Submit) */
+    .stButton > button[kind="primary"] {
+        background-color: #f39c12;
+        color: #0a0e17;
+        border: none;
+        font-weight: 600;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #f1c40f;
+        color: #0a0e17;
+    }
+    /* Sliders */
+    .stSlider > div > div > div {
+        background-color: #1e2a3a !important;
+    }
+    .stSlider > div > div > div > div {
+        background-color: #f39c12 !important;
+    }
+    /* Inputs */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea,
+    .stSelectbox > div > div > div {
+        background-color: #141e2b !important;
+        color: #e0e6ed !important;
+        border: 1px solid #2a3a4f !important;
+        border-radius: 8px !important;
+    }
+    .stTextInput > div > div > input:focus,
+    .stTextArea > div > div > textarea:focus {
+        border-color: #f39c12 !important;
+        box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2) !important;
+    }
+    /* Labels */
+    .stSlider label, .stTextInput label, .stTextArea label, .stSelectbox label {
+        color: #b0c4de !important;
+        font-weight: 400 !important;
+    }
+    /* Expanders */
+    .streamlit-expanderHeader {
+        background-color: #141e2b !important;
+        border-radius: 8px !important;
+        border: 1px solid #1e2a3a !important;
+        color: #e0e6ed !important;
+    }
+    .streamlit-expanderContent {
+        background-color: #0a0e17 !important;
+        border: 1px solid #1e2a3a !important;
+        border-top: none !important;
+        border-radius: 0 0 8px 8px !important;
+    }
+    /* Info/Warning boxes */
+    .stAlert {
+        background-color: #1e2a3a !important;
+        border-left: 4px solid #f39c12 !important;
+        color: #e0e6ed !important;
+    }
+    .stInfo {
+        background-color: #1a2a3a !important;
+        border-left: 4px solid #4a7a9c !important;
+    }
+    /* Caption */
+    .stCaption {
+        color: #5a6a7a !important;
+    }
+    /* Radio buttons */
+    .stRadio > div {
+        background-color: #141e2b !important;
+        padding: 0.5rem;
+        border-radius: 8px;
+    }
+    .stRadio label {
+        color: #e0e6ed !important;
+    }
+    /* Selectbox dropdown */
+    .stSelectbox > div > div > div > div {
+        background-color: #141e2b !important;
+        color: #e0e6ed !important;
+    }
+    /* Image caption */
+    .stImage > div > div > div > p {
+        color: #5a6a7a !important;
+    }
+    /* Hide default streamlit header/footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    .block-container {padding-top: 1rem; padding-bottom: 0rem;}
     </style>
 """
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+st.markdown(dark_mode_css, unsafe_allow_html=True)
+
+# ============================================================
+# SESSION STATE INITIALIZATION
+# ============================================================
+if "project_registered" not in st.session_state:
+    st.session_state.project_registered = False
+if "project_info" not in st.session_state:
+    st.session_state.project_info = {}
+if "typology" not in st.session_state:
+    st.session_state.typology = None
+if "params" not in st.session_state:
+    st.session_state.params = {}
+if "mode" not in st.session_state:
+    st.session_state.mode = "design"
+if "qa_answers" not in st.session_state:
+    st.session_state.qa_answers = {}
+if "locked" not in st.session_state:
+    st.session_state.locked = False
+if "custom_image" not in st.session_state:
+    st.session_state.custom_image = None
+if "custom_description" not in st.session_state:
+    st.session_state.custom_description = ""
+
+# ============================================================
+# CACHE HANDLER (Silent Auto-Save)
+# ============================================================
+CACHE_DIR = ".sds_cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
+CACHE_FILE = os.path.join(CACHE_DIR, "current_session.json")
+
+def save_cache():
+    data = {
+        "project_registered": st.session_state.project_registered,
+        "project_info": st.session_state.project_info,
+        "typology": st.session_state.typology,
+        "params": st.session_state.params,
+        "qa_answers": st.session_state.qa_answers,
+        "locked": st.session_state.locked,
+        "custom_image": st.session_state.custom_image,
+        "custom_description": st.session_state.custom_description
+    }
+    with open(CACHE_FILE, "w") as f:
+        json.dump(data, f)
+
+def load_cache():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            return json.load(f)
+    return None
+
+# Auto-load cache on boot
+cached = load_cache()
+if cached:
+    st.session_state.project_registered = cached.get("project_registered", False)
+    st.session_state.project_info = cached.get("project_info", {})
+    st.session_state.typology = cached.get("typology")
+    st.session_state.params = cached.get("params", {})
+    st.session_state.qa_answers = cached.get("qa_answers", {})
+    st.session_state.locked = cached.get("locked", False)
+    st.session_state.custom_image = cached.get("custom_image")
+    st.session_state.custom_description = cached.get("custom_description", "")
 
 # ============================================================
 # TYPOLOGY CONFIGURATIONS (Built-in)
@@ -124,63 +305,9 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# SESSION STATE INITIALIZATION
-# ============================================================
-if "typology" not in st.session_state:
-    st.session_state.typology = None
-if "params" not in st.session_state:
-    st.session_state.params = {}
-if "mode" not in st.session_state:
-    st.session_state.mode = "design"
-if "qa_answers" not in st.session_state:
-    st.session_state.qa_answers = {}
-if "locked" not in st.session_state:
-    st.session_state.locked = False
-if "custom_image" not in st.session_state:
-    st.session_state.custom_image = None
-if "custom_description" not in st.session_state:
-    st.session_state.custom_description = ""
-
-# ============================================================
-# CACHE HANDLER (Silent Auto-Save)
-# ============================================================
-CACHE_DIR = ".sds_cache"
-os.makedirs(CACHE_DIR, exist_ok=True)
-CACHE_FILE = os.path.join(CACHE_DIR, "current_session.json")
-
-def save_cache():
-    data = {
-        "typology": st.session_state.typology,
-        "params": st.session_state.params,
-        "qa_answers": st.session_state.qa_answers,
-        "locked": st.session_state.locked,
-        "custom_image": st.session_state.custom_image,
-        "custom_description": st.session_state.custom_description
-    }
-    with open(CACHE_FILE, "w") as f:
-        json.dump(data, f)
-
-def load_cache():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as f:
-            return json.load(f)
-    return None
-
-# Auto-load cache on boot
-cached = load_cache()
-if cached:
-    st.session_state.typology = cached.get("typology")
-    st.session_state.params = cached.get("params", {})
-    st.session_state.qa_answers = cached.get("qa_answers", {})
-    st.session_state.locked = cached.get("locked", False)
-    st.session_state.custom_image = cached.get("custom_image")
-    st.session_state.custom_description = cached.get("custom_description", "")
-
-# ============================================================
 # 3D GEOMETRY GENERATORS
 # ============================================================
 
-# -------- CORRECTED SADDLE SPAN --------
 def generate_saddle_span(params):
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
@@ -219,15 +346,27 @@ def generate_saddle_span(params):
     fig = go.Figure()
     fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=6)))
     fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=6)))
-    fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, colorscale=[[0, '#E8E8E8'], [1, '#F5F5F5']], opacity=0.8, showscale=False))
+    fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, colorscale=[[0, '#2a3a4f'], [1, '#4a6a8a']], opacity=0.7, showscale=False))
     fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=10)))
     fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=10)))
     fig.add_trace(go.Scatter3d(x=[-span/2], y=[0], z=[0], mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=10)))
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=10)))
-    fig.update_layout(scene=dict(xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)'), margin=dict(l=0,r=0,b=0,t=0))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Span (m)',
+            yaxis_title='Width (m)',
+            zaxis_title='Height (m)',
+            xaxis=dict(color='#b0c4de'),
+            yaxis=dict(color='#b0c4de'),
+            zaxis=dict(color='#b0c4de'),
+            bgcolor='#0a0e17'
+        ),
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0,r=0,b=0,t=0)
+    )
     return fig
 
-# -------- SIMPLIFIED GENERATORS FOR OTHER TYPOLOGIES --------
 def generate_tent(params):
     span = params.get("span_width", 10.0)
     ridge = params.get("ridge_height", 5.0)
@@ -235,15 +374,27 @@ def generate_tent(params):
     bay_dist = params.get("bay_distance", 5.0)
     total_len = bays * bay_dist
     fig = go.Figure()
-    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,total_len], z=[ridge,ridge], mode='lines', name='Ridge', line=dict(width=6, color='red')))
-    fig.add_trace(go.Scatter3d(x=[-span/2,-span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Left', line=dict(width=4)))
-    fig.add_trace(go.Scatter3d(x=[span/2,span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Right', line=dict(width=4)))
+    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,total_len], z=[ridge,ridge], mode='lines', name='Ridge', line=dict(width=6, color='#f39c12')))
+    fig.add_trace(go.Scatter3d(x=[-span/2,-span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Left', line=dict(width=4, color='#4a7a9c')))
+    fig.add_trace(go.Scatter3d(x=[span/2,span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Right', line=dict(width=4, color='#4a7a9c')))
     X = np.linspace(-span/2, span/2, 20)
     Y = np.linspace(0, total_len, 20)
     X, Y = np.meshgrid(X, Y)
     Z = ridge * (1 - (X/(span/2))**2) * (1 - (Y/total_len)**2 * 0.1)
-    fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.5, colorscale='Reds', showscale=False))
-    fig.update_layout(scene=dict(xaxis_title='Width', yaxis_title='Length', zaxis_title='Height'), margin=dict(l=0,r=0,b=0,t=0))
+    fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.5, colorscale=[[0, '#2a3a4f'], [1, '#6a4a2a']], showscale=False))
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Width',
+            yaxis_title='Length',
+            zaxis_title='Height',
+            xaxis=dict(color='#b0c4de'),
+            yaxis=dict(color='#b0c4de'),
+            zaxis=dict(color='#b0c4de'),
+            bgcolor='#0a0e17'
+        ),
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0,r=0,b=0,t=0)
+    )
     return fig
 
 def generate_tensile(params):
@@ -252,18 +403,30 @@ def generate_tensile(params):
     width = params.get("span_width", 15.0)
     cables = params.get("cable_count", 4)
     fig = go.Figure()
-    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0,mast], mode='lines', name='Mast', line=dict(width=8, color='black')))
+    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0,mast], mode='lines', name='Mast', line=dict(width=8, color='#f39c12')))
     X = np.linspace(-length/2, length/2, 20)
     Y = np.linspace(-width/2, width/2, 20)
     X, Y = np.meshgrid(X, Y)
     Z = mast * np.exp(-((X/(length/2))**2 + (Y/(width/2))**2) * 0.5)
-    fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.4, colorscale='Greens', showscale=False))
+    fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.4, colorscale=[[0, '#1a3a2a'], [1, '#3a6a4a']], showscale=False))
     for i in range(cables):
         angle = i * 2*np.pi/cables
         x_end = length/2 * np.cos(angle)
         y_end = width/2 * np.sin(angle)
-        fig.add_trace(go.Scatter3d(x=[0, x_end], y=[0, y_end], z=[mast, 0], mode='lines', line=dict(width=3, color='gray')))
-    fig.update_layout(scene=dict(xaxis_title='Length', yaxis_title='Width', zaxis_title='Height'), margin=dict(l=0,r=0,b=0,t=0))
+        fig.add_trace(go.Scatter3d(x=[0, x_end], y=[0, y_end], z=[mast, 0], mode='lines', line=dict(width=3, color='#4a7a9c')))
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Length',
+            yaxis_title='Width',
+            zaxis_title='Height',
+            xaxis=dict(color='#b0c4de'),
+            yaxis=dict(color='#b0c4de'),
+            zaxis=dict(color='#b0c4de'),
+            bgcolor='#0a0e17'
+        ),
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0,r=0,b=0,t=0)
+    )
     return fig
 
 def generate_portal(params):
@@ -278,17 +441,28 @@ def generate_portal(params):
     fig = go.Figure()
     x = [-span/2, -span/2, 0, span/2, span/2]
     z = [0, eave, ridge, eave, 0]
-    fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Portal Frame', line=dict(width=6, color='blue')))
+    fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Portal Frame', line=dict(width=6, color='#4a7a9c')))
     for i in range(bays):
         y = i * bay_spacing
-        fig.add_trace(go.Scatter3d(x=x, y=[y]*len(x), z=z, mode='lines', line=dict(width=3, color='blue', opacity=0.3)))
+        fig.add_trace(go.Scatter3d(x=x, y=[y]*len(x), z=z, mode='lines', line=dict(width=3, color='#4a7a9c', opacity=0.3)))
     Y, X = np.meshgrid(np.linspace(0, total_len, 10), np.linspace(-span/2, span/2, 20))
     Z = np.where(np.abs(X) < span/2, eave + (span/2 - np.abs(X)) * np.tan(np.radians(pitch)), 0)
-    fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.3, colorscale='Greys', showscale=False))
-    fig.update_layout(scene=dict(xaxis_title='Width', yaxis_title='Length', zaxis_title='Height'), margin=dict(l=0,r=0,b=0,t=0))
+    fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.3, colorscale=[[0, '#1a1a2a'], [1, '#3a3a5a']], showscale=False))
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Width',
+            yaxis_title='Length',
+            zaxis_title='Height',
+            xaxis=dict(color='#b0c4de'),
+            yaxis=dict(color='#b0c4de'),
+            zaxis=dict(color='#b0c4de'),
+            bgcolor='#0a0e17'
+        ),
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0,r=0,b=0,t=0)
+    )
     return fig
 
-# -------- CUSTOM: Bounding Box + Design Brief --------
 def generate_custom_bounding_box(params):
     width = params.get("width", 10.0)
     length = params.get("length", 15.0)
@@ -296,8 +470,6 @@ def generate_custom_bounding_box(params):
     
     fig = go.Figure()
     
-    # Bounding box wireframe
-    # 8 corners of the box
     corners = [
         [-width/2, -length/2, 0],
         [width/2, -length/2, 0],
@@ -309,28 +481,22 @@ def generate_custom_bounding_box(params):
         [-width/2, length/2, height]
     ]
     
-    # Edges (connect corners)
     edges = [
-        (0,1), (1,2), (2,3), (3,0),  # bottom
-        (4,5), (5,6), (6,7), (7,4),  # top
-        (0,4), (1,5), (2,6), (3,7)   # vertical
+        (0,1), (1,2), (2,3), (3,0),
+        (4,5), (5,6), (6,7), (7,4),
+        (0,4), (1,5), (2,6), (3,7)
     ]
     
-    # Draw each edge as a line
     for i, j in edges:
         fig.add_trace(go.Scatter3d(
             x=[corners[i][0], corners[j][0]],
             y=[corners[i][1], corners[j][1]],
             z=[corners[i][2], corners[j][2]],
             mode='lines',
-            line=dict(color='#00B4D8', width=3),
+            line=dict(color='#4a7a9c', width=3),
             showlegend=False
         ))
     
-    # Add transparent faces (optional)
-    # Just show the wireframe for now
-    
-    # Add dimension labels
     fig.add_trace(go.Scatter3d(
         x=[0], y=[-length/2 - 1], z=[height/2],
         mode='text',
@@ -359,22 +525,15 @@ def generate_custom_bounding_box(params):
             yaxis_title='Length (m)',
             zaxis_title='Height (m)',
             aspectmode='manual',
-            aspectratio=dict(x=1.5, y=2.0, z=0.8)
+            aspectratio=dict(x=1.5, y=2.0, z=0.8),
+            xaxis=dict(color='#b0c4de'),
+            yaxis=dict(color='#b0c4de'),
+            zaxis=dict(color='#b0c4de'),
+            bgcolor='#0a0e17'
         ),
-        margin=dict(l=0, r=0, b=0, t=0),
-        paper_bgcolor='rgba(0,0,0,0)',
-        scene_bgcolor='rgba(0,0,0,0)'
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0, r=0, b=0, t=0)
     )
-    
-    return fig
-
-def generate_custom_with_image(params, image_data):
-    """Generate a 3D view with image overlay if available."""
-    fig = generate_custom_bounding_box(params)
-    
-    # If image exists, we could overlay it as a texture
-    # For simplicity, we just display the bounding box with a note
-    
     return fig
 
 GENERATORS = {
@@ -388,9 +547,65 @@ GENERATORS = {
 # ============================================================
 # UI RENDERING
 # ============================================================
-st.title("🏗️ SDS Design Studio")
 
-# ---- CATALOG VIEW (If no typology selected) ----
+# ---- PROJECT REGISTRATION SCREEN ----
+if not st.session_state.project_registered:
+    st.title("🏗️ SDS Design Studio")
+    st.subheader("📋 New Project Registration")
+    st.caption("Fill in the project details to get started.")
+    
+    with st.form("project_registration_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            project_name = st.text_input("📌 Project Name *", placeholder="e.g., Marina Bay Canopy")
+            client_name = st.text_input("👤 Client Name *", placeholder="e.g., Marina Bay Sands")
+        with col2:
+            architect = st.text_input("🏛️ Architect (optional)", placeholder="e.g., Foster + Partners")
+            engineer = st.text_input("🔧 Engineer (optional)", placeholder="e.g., Arup")
+        
+        location = st.text_input("📍 Location", placeholder="e.g., Singapore")
+        project_date = st.date_input("📅 Date", value=datetime.today())
+        
+        # Auto-generate project reference
+        ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        project_ref = st.text_input("🔑 Project Reference", value=f"SDS-{ref}")
+        
+        submitted = st.form_submit_button("🚀 Start Design Studio", use_container_width=True, type="primary")
+        
+        if submitted:
+            if not project_name or not client_name:
+                st.error("⚠️ Project Name and Client Name are required.")
+            else:
+                st.session_state.project_info = {
+                    "name": project_name,
+                    "client": client_name,
+                    "architect": architect,
+                    "engineer": engineer,
+                    "location": location,
+                    "date": project_date.isoformat(),
+                    "reference": project_ref
+                }
+                st.session_state.project_registered = True
+                save_cache()
+                st.rerun()
+    
+    st.caption("All data is cached locally. Your project will resume where you left off.")
+    st.stop()
+
+# ---- MAIN DASHBOARD (After Registration) ----
+# Show project banner
+info = st.session_state.project_info
+st.markdown(f"""
+<div style="background-color:#141e2b; padding:0.75rem 1rem; border-radius:12px; margin-bottom:1rem; border-left:4px solid #f39c12;">
+    <span style="color:#b0c4de; font-size:0.8rem;">🔑 {info.get('reference', 'N/A')}</span>
+    <span style="color:#f0f4fa; font-weight:600; margin-left:1rem;">{info.get('name', 'Untitled')}</span>
+    <span style="color:#5a6a7a; margin-left:1rem;">👤 {info.get('client', 'N/A')}</span>
+    <span style="color:#5a6a7a; margin-left:1rem;">🏛️ {info.get('architect', '—')}</span>
+    <span style="color:#5a6a7a; margin-left:1rem;">🔧 {info.get('engineer', '—')}</span>
+</div>
+""", unsafe_allow_html=True)
+
+# ---- TYPOLOGY CATALOG ----
 if st.session_state.typology is None:
     st.subheader("Choose a structure type:")
     cols = st.columns(2)
@@ -405,6 +620,15 @@ if st.session_state.typology is None:
                 save_cache()
                 st.rerun()
         idx += 1
+    
+    # Show "New Project" button to re-register
+    if st.button("🔄 New Project", use_container_width=True):
+        st.session_state.project_registered = False
+        st.session_state.project_info = {}
+        st.session_state.typology = None
+        save_cache()
+        st.rerun()
+    
     st.stop()
 
 # ---- ACTIVE TYPOLOGY VIEW ----
@@ -412,7 +636,6 @@ typ_key = st.session_state.typology
 typ = TYPOLOGIES[typ_key]
 params = st.session_state.params
 
-# Header with back button
 col1, col2, col3 = st.columns([1, 6, 1])
 with col1:
     if st.button("⬅", help="Back to catalog"):
@@ -438,11 +661,10 @@ with col3:
 if st.session_state.locked:
     st.warning("🔒 Design is LOCKED. Edit mode is disabled.")
 
-# ---- CUSTOM TYPOLOGY: Image Upload + Description ----
+# ---- CUSTOM TYPOLOGY ----
 if typ_key == "custom":
     st.subheader("📋 Design Brief")
     
-    # Image Upload
     uploaded_file = st.file_uploader(
         "Upload sketch or photo (JPG/PNG)",
         type=["jpg", "jpeg", "png"],
@@ -450,54 +672,37 @@ if typ_key == "custom":
     )
     
     if uploaded_file:
-        # Save image to session state
         st.session_state.custom_image = uploaded_file.getvalue()
         st.image(uploaded_file, caption="Design Reference", use_column_width=True)
     
-    # Description
     description = st.text_area(
         "Describe your design:",
         value=st.session_state.custom_description,
-        placeholder="e.g., Three curved steel beams meeting at a central ring, supported by 6 cables anchored to the ground.",
+        placeholder="e.g., Three curved steel beams meeting at a central ring...",
         height=100
     )
     st.session_state.custom_description = description
     
-    # Parameters (sliders)
     st.subheader("📐 Bounding Box Dimensions")
     cols = st.columns(3)
     with cols[0]:
-        width = st.slider(
-            "Width (m)",
-            min_value=1.0, max_value=100.0, step=0.5,
-            value=params.get("width", 10.0)
-        )
+        width = st.slider("Width (m)", min_value=1.0, max_value=100.0, step=0.5, value=params.get("width", 10.0))
         params["width"] = width
     with cols[1]:
-        length = st.slider(
-            "Length (m)",
-            min_value=1.0, max_value=100.0, step=0.5,
-            value=params.get("length", 15.0)
-        )
+        length = st.slider("Length (m)", min_value=1.0, max_value=100.0, step=0.5, value=params.get("length", 15.0))
         params["length"] = length
     with cols[2]:
-        height = st.slider(
-            "Height (m)",
-            min_value=1.0, max_value=50.0, step=0.5,
-            value=params.get("height", 8.0)
-        )
+        height = st.slider("Height (m)", min_value=1.0, max_value=50.0, step=0.5, value=params.get("height", 8.0))
         params["height"] = height
     
-    # Q&A for custom (just a note)
-    st.info("📝 This is a custom design. The 3D view shows a bounding box placeholder. Your design brief (image + description) is saved in the cache.")
+    st.info("📝 This is a custom design. The 3D view shows a bounding box placeholder.")
     
-    # Lock button
     if st.button("🔒 LOCK DESIGN BRIEF", use_container_width=True, type="primary"):
         st.session_state.locked = True
         save_cache()
         st.rerun()
 
-# ---- REGULAR TYPOLOGIES: Sliders + Q&A ----
+# ---- REGULAR TYPOLOGIES ----
 else:
     if st.session_state.mode == "design" and not st.session_state.locked:
         st.subheader("📐 Dimensions")
@@ -534,29 +739,29 @@ else:
             save_cache()
             st.rerun()
 
-# ---- ENGINEER MODE OR LOCKED: 3D View + Summary ----
+# ---- ENGINEER MODE / LOCKED ----
 if st.session_state.mode == "engineer" or st.session_state.locked:
     st.subheader("🔬 3D View")
     
-    # For custom, show bounding box with image reference
     if typ_key == "custom":
         fig = generate_custom_bounding_box(params)
-        
-        # If image exists, show it alongside the 3D view
         if st.session_state.custom_image:
             st.image(st.session_state.custom_image, caption="Design Reference", use_column_width=True)
-        
-        # Show description
         if st.session_state.custom_description:
             st.caption(f"📝 {st.session_state.custom_description}")
-    
     else:
         if typ_key in GENERATORS:
             fig = GENERATORS[typ_key](params)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     
-    # Summary
     with st.expander("📋 Design Summary"):
+        st.write(f"**Project:** {info.get('name', 'N/A')}")
+        st.write(f"**Client:** {info.get('client', 'N/A')}")
+        if info.get('architect'):
+            st.write(f"**Architect:** {info.get('architect')}")
+        if info.get('engineer'):
+            st.write(f"**Engineer:** {info.get('engineer')}")
+        st.write("---")
         for i, q in enumerate(typ["qa"]):
             ans = st.session_state.qa_answers.get(f"qa_{i}", "Not answered")
             st.write(f"**{q}** → {ans}")
@@ -576,6 +781,5 @@ if st.session_state.mode == "engineer" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-# ---- FOOTER ----
-st.caption("SDS Platform v1.0 | Built for mobile | Cache auto-saves all changes.")
+st.caption("SDS Platform v1.0 | Dark Mode | Project Dashboard | Cache auto-saves all changes.")
 save_cache()
