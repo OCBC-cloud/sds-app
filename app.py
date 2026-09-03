@@ -333,7 +333,6 @@ def load_project_from_file(filename):
     return False
 
 def delete_project_file(filename):
-    """Delete a saved project file and update index"""
     filepath = os.path.join(CACHE_DIR, filename)
     if os.path.exists(filepath):
         os.remove(filepath)
@@ -544,7 +543,7 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# 3D GENERATORS (unchanged)
+# 3D GENERATORS
 # ============================================================
 
 def generate_saddle_span(params, annotations=None):
@@ -588,8 +587,8 @@ def generate_saddle_span(params, annotations=None):
     fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=8)))
     fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, 
                              colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
-                             opacity=0.8, showscale=False))
-    fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
+                             opacitygo=0.8, showscale=False))
+    fig.add_trace(.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
                                mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=12, symbol='diamond')))
     fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], 
                                mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=12, symbol='diamond')))
@@ -847,7 +846,6 @@ def get_json_download_link(data, filename="project_data.json"):
     return href
 
 def render_export_section():
-    """Render export options (image + JSON) for current project"""
     if not st.session_state.typology or not st.session_state.project_registered:
         st.info("No active project to export.")
         return
@@ -861,7 +859,6 @@ def render_export_section():
     
     col1, col2 = st.columns(2)
     
-    # Image export
     with col1:
         if typ_key in GENERATORS and typ_key != "custom":
             try:
@@ -876,7 +873,6 @@ def render_export_section():
         else:
             st.info("Image export available for standard typologies (not custom).")
     
-    # JSON data export
     with col2:
         export_data = {
             "project": info,
@@ -902,7 +898,6 @@ def render_export_section():
 def render_top_bar():
     cols = st.columns([0.8, 1.5, 0.8, 0.8, 0.8, 1, 1, 1, 1])
     
-    # Column 0: Clickable SDS Logo -> Back to Dashboard
     with cols[0]:
         if st.button("🏗️", key="sds_logo", help="Go to Dashboard"):
             go_to_dashboard()
@@ -963,7 +958,7 @@ def render_top_bar():
                 st.rerun()
 
 # ============================================================
-# PROJECT BROWSER (WITH DELETE)
+# PROJECT BROWSER
 # ============================================================
 def render_project_browser():
     st.subheader("📂 Saved Projects")
@@ -1081,10 +1076,8 @@ def render_dashboard():
 
 render_top_bar()
 
-# Show export section if toggled
 if st.session_state.show_export:
     render_export_section()
-    # Keep it visible until user closes (they can toggle again)
 
 if st.session_state.show_project_browser:
     render_project_browser()
