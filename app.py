@@ -823,7 +823,7 @@ def get_proposal_download_link(fig, filename="proposal_drawings.png"):
     return href
 
 # ============================================================
-# 3D GENERATORS
+# 3D GENERATORS — FINAL VERIFIED
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -859,21 +859,28 @@ def generate_saddle_span(params, materials=None, annotations=None):
 
     fig = go.Figure()
 
+    # === BEAMS ===
     fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=6)))
     fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=6)))
+
+    # === MEMBRANE ===
     fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, 
                              colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
                              opacity=0.7, showscale=False))
 
+    # === APEX MARKERS ===
     fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
                                mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
     fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], 
                                mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
+
+    # === SUPPORT MARKERS ===
     fig.add_trace(go.Scatter3d(x=[-span/2], y=[0], z=[0], 
                                mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=4, symbol='square')))
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
                                mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=4, symbol='square')))
 
+    # === CROSS BRACING ===
     if materials and annotations and annotations.get("show_bracing", True):
         num_bays = materials.get("num_bays", 2)
         bracing_x = generate_bracing_positions(span, num_bays)
@@ -882,26 +889,38 @@ def generate_saddle_span(params, materials=None, annotations=None):
             y1_pos = y1[idx]
             y2_pos = y2[idx]
             z_pos = z_beam[idx]
+            
+            # Cable 1
             fig.add_trace(go.Scatter3d(
-                x=[bx, bx], y=[y1_pos, y2_pos], z=[z_pos, z_pos],
-                mode='lines', name='Cross Bracing',
+                x=[bx, bx],
+                y=[y1_pos, y2_pos],
+                z=[z_pos, z_pos],
+                mode='lines',
+                name='Cross Bracing',
                 line=dict(color='#FF6B6B', width=2, dash='dash'),
                 showlegend=False
             ))
+            # Cable 2
             fig.add_trace(go.Scatter3d(
-                x=[bx, bx], y=[y2_pos, y1_pos], z=[z_pos, z_pos],
-                mode='lines', name='Cross Bracing',
+                x=[bx, bx],
+                y=[y2_pos, y1_pos],
+                z=[z_pos, z_pos],
+                mode='lines',
+                name='Cross Bracing',
                 line=dict(color='#FF6B6B', width=2, dash='dash'),
                 showlegend=False
             ))
 
+    # === TIE-DOWN ROPES ===
     if materials and annotations and annotations.get("show_tie_down", True):
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
         horizontal_spread = materials.get("tie_down_horizontal_spread", 25)
         anchors = generate_tie_down_anchors_full(span, laa, rise, vertical_angle, horizontal_spread)
+        
         for a in anchors:
             idx = np.argmin(np.abs(x - a["beam_x"]))
             beam_z = z_beam[idx]
+            
             fig.add_trace(go.Scatter3d(
                 x=[a["beam_x"], a["anchor_x"]],
                 y=[a["beam_y"], a["anchor_y"]],
@@ -921,6 +940,7 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 showlegend=False
             ))
 
+    # === WIND ARROWS ===
     if annotations and annotations.get("show_wind", True):
         fig.add_trace(go.Scatter3d(
             x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
@@ -935,6 +955,7 @@ def generate_saddle_span(params, materials=None, annotations=None):
             showlegend=False
         ))
 
+    # === LOAD PATH ===
     if annotations and annotations.get("show_load_path", True):
         fig.add_trace(go.Scatter3d(
             x=[0, 0], y=[0, 0], z=[rise, rise-2],
@@ -943,6 +964,7 @@ def generate_saddle_span(params, materials=None, annotations=None):
             showlegend=True
         ))
 
+    # === LAYOUT ===
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
@@ -1752,5 +1774,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v3.0 | Fixed Y-Axis Bug | Clean Syntax")
+st.caption("SDS Platform v3.0 | FIXED BRACING AND TIE-DOWNS")
 save_cache()
