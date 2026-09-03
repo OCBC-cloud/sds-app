@@ -309,7 +309,6 @@ if "materials" not in st.session_state:
         "wind_speed": 40,
         "snow_load": 0.5,
         "live_load": 0.5,
-        # NEW: Tie-down angles
         "tie_down_vertical_angle": 45,
         "tie_down_horizontal_spread": 25
     }
@@ -657,53 +656,20 @@ def generate_bracing_positions(span, num_bays):
     else:
         return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
 
-# ============================================================
-# NEW TIE-DOWN LOGIC — QUARTER POINTS + DUAL ANGLES
-# ============================================================
-def generate_tie_down_anchors(span, height, vertical_angle_deg, horizontal_spread_deg):
-    """
-    Generate tie-down anchors at 1/4 and 3/4 points of each beam.
-    Returns a list of (beam_x, beam_y, anchor_x, anchor_y, anchor_z)
-    """
-    vertical_rad = np.radians(vertical_angle_deg)
-    horizontal_rad = np.radians(horizontal_spread_deg)
-    
-    # Distance from beam to ground anchor (horizontal)
-    distance = height * np.tan(vertical_rad)
-    
-    anchors = []
-    
-    # Two beams: y = -LAA/2 (Beam 1) and y = +LAA/2 (Beam 2)
-    # Use placeholder LAA — we will pass it separately
-    return anchors
-
 def generate_tie_down_anchors_full(span, laa, height, vertical_angle_deg, horizontal_spread_deg):
-    """
-    Full tie-down generation: two tie-downs per beam at 1/4 and 3/4 points.
-    Each tie-down has two anchors per beam (left and right side).
-    """
     vertical_rad = np.radians(vertical_angle_deg)
     horizontal_rad = np.radians(horizontal_spread_deg)
-    
     distance = height * np.tan(vertical_rad)
     quarter = span / 4
     three_quarter = 3 * span / 4
-    
     anchors = []
-    
-    # Beam 1 (y = -laa/2) and Beam 2 (y = laa/2)
     beam_ys = [-laa/2, laa/2]
-    
     for beam_idx, beam_y in enumerate(beam_ys):
-        # Two positions along the beam: quarter and three-quarter
         for beam_x in [quarter, three_quarter]:
-            # Two anchors per position: left and right (horizontal spread)
             for side in [-1, 1]:
-                # Calculate ground anchor position
                 anchor_x = beam_x + distance * side * np.sin(horizontal_rad)
                 anchor_y = beam_y + distance * np.cos(horizontal_rad)
                 anchor_z = 0
-                
                 anchors.append({
                     "beam_x": beam_x,
                     "beam_y": beam_y,
@@ -714,7 +680,6 @@ def generate_tie_down_anchors_full(span, laa, height, vertical_angle_deg, horizo
                     "position": "quarter" if beam_x == quarter else "three_quarter",
                     "side": "left" if side == -1 else "right"
                 })
-    
     return anchors
 
 def calculate_steel_weight(grade, section_type, section_size, length):
@@ -747,7 +712,7 @@ def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_an
     return cable_force
 
 # ============================================================
-# PROPOSAL DRAWINGS (Matplotlib)
+# PROPOSAL DRAWINGS (Matplotlib) — CORRECTED SYNTAX
 # ============================================================
 
 def generate_proposal_drawings(params, materials):
@@ -772,7 +737,6 @@ def generate_proposal_drawings(params, materials):
     ax.scatter(-span/2, 0, color='#4ECDC4', s=50, zorder=5, label='Support 1')
     ax.scatter(span/2, 0, color='#4ECDC4', s=50, zorder=5, label='Support 2')
     
-    # Show tie-down anchor positions on plan
     anchors = generate_tie_down_anchors_full(span, laa, rise, materials.get("tie_down_vertical_angle", 45), materials.get("tie_down_horizontal_spread", 25))
     for a in anchors:
         ax.scatter(a["beam_x"], a["beam_y"], color='#FFD93D', s=30, zorder=5, marker='^', label='Tie-down' if a == anchors[0] else "")
@@ -800,9 +764,9 @@ def generate_proposal_drawings(params, materials):
     ax.annotate(f'Span (B) = {span:.1f}m', xy=(0, -0.5), color='#ffffff', fontsize=8, ha='center')
     ax.set_xlabel('Span (m)', color='#b0c4de', fontsize=8)
     ax.set_ylabel('Height (m)', color='#b0c4de', fontsize=8)
-    ax.tick(np_params(colors='#b0c4de', labelsize=7)
-.    ax.grid(Truerad, color='#1a2a3a', linestyle='--', linewidth=0.5)
-    ax.setians_ylim(-1, rise * 1.2)
+    ax.tick_params(colors='#b0c4de', labelsize=7)
+    ax.grid(True, color='#1a2a3a', linestyle='--', linewidth=0.5)
+    ax.set_ylim(-1, rise * 1.2)
     ax.legend(loc='upper right', fontsize=6, facecolor='#141e2b', edgecolor='#2a3a4f')
     
     # ---- Side Elevation ----
@@ -815,13 +779,10 @@ def generate_proposal_drawings(params, materials):
     ax.scatter(0, rise, color='#FFD93D', s=50, zorder=5)
     ax.scatter(-span/2, 0, color='#4ECDC4', s=50, zorder=5)
     ax.scatter(span/2, 0, color='#4ECDC4', s=50, zorder=5)
-    
-    # Show tie-down angle
     vertical_angle = materials.get("tie_down_vertical_angle", 45)
-    distance = rise * np.tan(vertical_angle))
+    distance = rise * np.tan(np.radians(vertical_angle))
     ax.plot([-span/4, -span/4 - distance], [rise * 0.5, 0], color='#FFD93D', linewidth=1.5, linestyle='--', label=f'Vertical {vertical_angle}°')
     ax.plot([span/4, span/4 + distance], [rise * 0.5, 0], color='#FFD93D', linewidth=1.5, linestyle='--')
-    
     ax.annotate(f'A = {rise:.1f}m', xy=(0, rise/2), color='#ffffff', fontsize=8, ha='right')
     ax.annotate(f'B = {span:.1f}m', xy=(0, -0.5), color='#ffffff', fontsize=8, ha='center')
     ax.set_xlabel('Span (m)', color='#b0c4de', fontsize=8)
@@ -872,7 +833,7 @@ def get_proposal_download_link(fig, filename="proposal_drawings.png"):
     return href
 
 # ============================================================
-# 3D GENERATORS — WITH NEW TIE-DOWN SYSTEM
+# 3D GENERATORS
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -961,17 +922,12 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 showlegend=False
             ))
 
-    # ============================================================
-    # NEW TIE-DOWN SYSTEM — Quarter Points, Dual Angles
-    # ============================================================
+    # Tie-Downs
     if materials and annotations and annotations.get("show_tie_down", True):
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
         horizontal_spread = materials.get("tie_down_horizontal_spread", 25)
-        
         anchors = generate_tie_down_anchors_full(span, laa, rise, vertical_angle, horizontal_spread)
-        
         for a in anchors:
-            # Draw wire rope from beam point to ground anchor
             fig.add_trace(go.Scatter3d(
                 x=[a["beam_x"], a["anchor_x"]],
                 y=[a["beam_y"], a["anchor_y"]],
@@ -981,7 +937,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 line=dict(color='#FFD93D', width=2),
                 showlegend=False
             ))
-            # Ground anchor marker
             fig.add_trace(go.Scatter3d(
                 x=[a["anchor_x"]],
                 y=[a["anchor_y"]],
@@ -991,7 +946,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 marker=dict(color='#FF6B6B', size=5, symbol='x'),
                 showlegend=False
             ))
-            # Small label at beam point
             fig.add_trace(go.Scatter3d(
                 x=[a["beam_x"]],
                 y=[a["beam_y"]],
@@ -1026,7 +980,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
             showlegend=True
         ))
 
-    # Layout with legend at bottom
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
@@ -1251,7 +1204,6 @@ def render_export_section():
     st.caption("Exports include geometry, materials, bracing, and tie-down configuration.")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Proposal Drawings Button
     st.subheader("📐 Proposal Drawings Package")
     st.caption("Generate a complete set of technical drawings: Plan, Front Elevation, Side Elevation, Perspective with dimensions.")
     if st.button("📊 Generate Proposal Drawings", use_container_width=True, type="primary"):
@@ -1286,7 +1238,7 @@ def render_proposal_drawings():
     plt.close(fig)
 
 # ============================================================
-# MATERIALS & BRACING UI — WITH NEW TIE-DOWN ANGLES
+# MATERIALS & BRACING UI
 # ============================================================
 
 def render_materials_section():
@@ -1330,14 +1282,12 @@ def render_materials_section():
     with col2:
         m["wire_rope_diameter"] = st.selectbox("Wire Rope Diameter (mm)", [6, 8, 10, 12, 14, 16, 20], index=[6, 8, 10, 12, 14, 16, 20].index(m.get("wire_rope_diameter", 10)))
     with col3:
-        # Vertical angle for tie-down
         m["tie_down_vertical_angle"] = st.slider(
             "Vertical Angle (°)",
             min_value=20, max_value=70, step=5, value=m.get("tie_down_vertical_angle", 45),
             help="Angle of tie-down rope from horizontal (steeper = more uplift resistance)"
         )
     with col4:
-        # Horizontal spread angle
         m["tie_down_horizontal_spread"] = st.slider(
             "Horizontal Spread (°)",
             min_value=10, max_value=60, step=5, value=m.get("tie_down_horizontal_spread", 25),
@@ -1779,7 +1729,6 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
         total_weight_kg = steel_weight_kg + fabric_weight_kg
         total_weight_kn = total_weight_kg / 100
         wind_load = calculate_wind_load(m.get("wind_speed", 40), membrane_area)
-        # 4 anchors total (2 per beam)
         tie_down_force = calculate_tie_down_force(wind_load, total_weight_kn, 4, m.get("tie_down_vertical_angle", 45))
         rope_breaking_load = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 20: 220}
         rope_capacity = rope_breaking_load.get(m.get("wire_rope_diameter", 10), 55)
@@ -1841,5 +1790,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v3.0 | New Tie-Down System (1/4 Points + Dual Angles)")
+st.caption("SDS Platform v3.0 | New Tie-Down System (1/4 Points + Dual Angles) | Fixed Syntax")
 save_cache()
