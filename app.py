@@ -652,16 +652,19 @@ def generate_bracing_positions(span, num_bays):
     else:
         return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
 
-def generate_tie_down_anchors_full(span, laa, height, vertical_angle_deg, horizontal_spread_deg):
+def generate_tie_down_anchors_at_positions(span, laa, height, x_positions, vertical_angle_deg, horizontal_spread_deg):
+    """
+    Generate tie-down anchors at specific X positions (same as bracing positions).
+    One anchor per beam at each X position.
+    """
     vertical_rad = np.radians(vertical_angle_deg)
     horizontal_rad = np.radians(horizontal_spread_deg)
     distance = height * np.tan(vertical_rad)
-    quarter = span / 4
-    three_quarter = 3 * span / 4
     anchors = []
     beam_ys = [-laa/2, laa/2]
+    
     for beam_idx, beam_y in enumerate(beam_ys):
-        for beam_x in [quarter, three_quarter]:
+        for beam_x in x_positions:
             anchor_x = beam_x + distance * np.sin(horizontal_rad)
             anchor_y = beam_y
             anchor_z = 0
@@ -672,7 +675,7 @@ def generate_tie_down_anchors_full(span, laa, height, vertical_angle_deg, horizo
                 "anchor_y": anchor_y,
                 "anchor_z": anchor_z,
                 "beam": beam_idx + 1,
-                "position": "quarter" if beam_x == quarter else "three_quarter"
+                "position": f"x={beam_x:.1f}m"
             })
     return anchors
 
@@ -730,7 +733,9 @@ def generate_proposal_drawings(params, materials):
     ax.scatter(-span/2, 0, color='#4ECDC4', s=50, zorder=5, label='Support 1')
     ax.scatter(span/2, 0, color='#4ECDC4', s=50, zorder=5, label='Support 2')
     
-    anchors = generate_tie_down_anchors_full(span, laa, rise, materials.get("tie_down_vertical_angle", 45), materials.get("tie_down_horizontal_spread", 25))
+    num_bays = materials.get("num_bays", 2)
+    bracing_x = generate_bracing_positions(span, num_bays)
+    anchors = generate_tie_down_anchors_at_positions(span, laa, rise, bracing_x, materials.get("tie_down_vertical_angle", 45), materials.get("tie_down_horizontal_spread", 25))
     for a in anchors:
         ax.scatter(a["beam_x"], a["beam_y"], color='#FFD93D', s=25, zorder=5, marker='^')
         ax.scatter(a["anchor_x"], a["anchor_y"], color='#FF6B6B', s=25, zorder=5, marker='s')
@@ -823,7 +828,7 @@ def get_proposal_download_link(fig, filename="proposal_drawings.png"):
     return href
 
 # ============================================================
-# 3D GENERATORS — FINAL VERIFIED
+# 3D GENERATORS — ALIGNED TIE-DOWNS
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -880,17 +885,24 @@ def generate_saddle_span(params, materials=None, annotations=None):
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
                                mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=4, symbol='square')))
 
-    # === CROSS BRACING ===
-    if materials and annotations and annotations.get("show_bracing", True):
+    # === PREPARE BRACING POSITIONS ===
+    num_bays = 2
+    if materials is not None:
         num_bays = materials.get("num_bays", 2)
-        bracing_x = generate_bracing_positions(span, num_bays)
+    bracing_x = generate_bracing_positions(span, num_bays)
+
+    # === CROSS BRACING ===
+    show_bracing = True
+    if annotations is not None:
+        show_bracing = annotations.get("show_bracing", True)
+    
+    if materials is not None and show_bracing:
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
             y1_pos = y1[idx]
             y2_pos = y2[idx]
             z_pos = z_beam[idx]
             
-            # Cable 1
             fig.add_trace(go.Scatter3d(
                 x=[bx, bx],
                 y=[y1_pos, y2_pos],
@@ -900,7 +912,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 line=dict(color='#FF6B6B', width=2, dash='dash'),
                 showlegend=False
             ))
-            # Cable 2
             fig.add_trace(go.Scatter3d(
                 x=[bx, bx],
                 y=[y2_pos, y1_pos],
@@ -911,11 +922,19 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 showlegend=False
             ))
 
-    # === TIE-DOWN ROPES ===
-    if materials and annotations and annotations.get("show_tie_down", True):
+    # === TIE-DOWN ROPES — ALIGNED TO BRACING POSITIONS ===
+    show_tie_down = True
+    if annotations is not None:
+        show_tie_down = annotations.get("show_tie_down", True)
+    
+    if materials is not None and show_tie_down:
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
         horizontal_spread = materials.get("tie_down_horizontal_spread", 25)
-        anchors = generate_tie_down_anchors_full(span, laa, rise, vertical_angle, horizontal_spread)
+        
+        # Use the SAME X positions as bracing
+        anchors = generate_tie_down_anchors_at_positions(
+            span, laa, rise, bracing_x, vertical_angle, horizontal_spread
+        )
         
         for a in anchors:
             idx = np.argmin(np.abs(x - a["beam_x"]))
@@ -941,7 +960,11 @@ def generate_saddle_span(params, materials=None, annotations=None):
             ))
 
     # === WIND ARROWS ===
-    if annotations and annotations.get("show_wind", True):
+    show_wind = True
+    if annotations is not None:
+        show_wind = annotations.get("show_wind", True)
+    
+    if show_wind:
         fig.add_trace(go.Scatter3d(
             x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
             mode='lines', name='Wind Load',
@@ -956,7 +979,11 @@ def generate_saddle_span(params, materials=None, annotations=None):
         ))
 
     # === LOAD PATH ===
-    if annotations and annotations.get("show_load_path", True):
+    show_load_path = True
+    if annotations is not None:
+        show_load_path = annotations.get("show_load_path", True)
+    
+    if show_load_path:
         fig.add_trace(go.Scatter3d(
             x=[0, 0], y=[0, 0], z=[rise, rise-2],
             mode='lines', name='Load Path',
@@ -1256,14 +1283,14 @@ def render_materials_section():
         m["prestress"] = st.selectbox("Prestress Level (kN/m)", [1.0, 3.0, 5.0], index=[1.0, 3.0, 5.0].index(m.get("prestress", 3.0)))
     
     st.markdown("### 🔗 Wind Bracing & Tie-Downs")
-    st.caption("📐 Tie-downs are automatically placed at 1/4 and 3/4 points of each beam. One anchor per tie-down point.")
+    st.caption("📐 Tie-downs are automatically placed at the same X positions as the bracing cables.")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         m["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(m.get("num_bays", 2)), help="1=Apex only, 2=Third points, 3=Quarter points")
         span = st.session_state.params.get("B", 10.0)
         positions = generate_bracing_positions(span, m["num_bays"])
-        st.caption(f"📍 Positions: {', '.join([f'{p:.1f}m' for p in positions])}")
+        st.caption(f"📍 Bracing & Tie-downs: {', '.join([f'{p:.1f}m' for p in positions])}")
     with col2:
         m["wire_rope_diameter"] = st.selectbox("Wire Rope Diameter (mm)", [6, 8, 10, 12, 14, 16, 20], index=[6, 8, 10, 12, 14, 16, 20].index(m.get("wire_rope_diameter", 10)))
     with col3:
@@ -1585,7 +1612,7 @@ elif st.session_state.design_phase == "review":
         ("SUPPORTS", "Two supports at beam bases", "badge-inferred"),
         ("DIMENSIONS", f"A={params.get('A', 6.0)}m, B={params.get('B', 10.0)}m, LAA={params.get('LAA', 15.0)}m", "badge-confirmed"),
         ("WIND BRACING", f"{m.get('num_bays', 2)} bays at {', '.join([f'{p:.1f}m' for p in generate_bracing_positions(params.get('B', 10.0), m.get('num_bays', 2))])}", "badge-autogen"),
-        ("TIE-DOWNS", f"4 anchors: 1/4 & 3/4 points, {m.get('tie_down_vertical_angle', 45)}° vertical, {m.get('tie_down_horizontal_spread', 25)}° spread", "badge-autogen"),
+        ("TIE-DOWNS", f"Aligned to bracing: {m.get('num_bays', 2)} positions, {m.get('tie_down_vertical_angle', 45)}° vertical, {m.get('tie_down_horizontal_spread', 25)}° spread", "badge-autogen"),
         ("WIRE ROPE", f"{m.get('wire_rope_diameter', 10)}mm {m.get('wire_rope_type', 'Galvanized')}", "badge-provided"),
         ("UNKNOWN ITEMS", "Foundations, Connection Details", "badge-unknown")
     ]
@@ -1713,7 +1740,10 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
         total_weight_kg = steel_weight_kg + fabric_weight_kg
         total_weight_kn = total_weight_kg / 100
         wind_load = calculate_wind_load(m.get("wind_speed", 40), membrane_area)
-        tie_down_force = calculate_tie_down_force(wind_load, total_weight_kn, 4, m.get("tie_down_vertical_angle", 45))
+        num_bays = m.get("num_bays", 2)
+        bracing_x = generate_bracing_positions(span, num_bays)
+        num_anchors = len(bracing_x) * 2  # Two beams
+        tie_down_force = calculate_tie_down_force(wind_load, total_weight_kn, num_anchors, m.get("tie_down_vertical_angle", 45))
         rope_breaking_load = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 20: 220}
         rope_capacity = rope_breaking_load.get(m.get("wire_rope_diameter", 10), 55)
         rope_check = tie_down_force < rope_capacity / 1.5
@@ -1774,5 +1804,5 @@ elif st.session_state.design_phase == "engineering" or st.session_state.locked:
             save_cache()
             st.rerun()
 
-st.caption("SDS Platform v3.0 | FIXED BRACING AND TIE-DOWNS")
+st.caption("SDS Platform v3.0 | TIE-DOWNS ALIGNED TO BRACING POSITIONS")
 save_cache()
