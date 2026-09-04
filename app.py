@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio - Malaysia Standards",
+    page_title="SDS Design Studio - International Standards",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -70,59 +70,160 @@ dark_mode_css = """
     .health-score-good { color: #2ecc71; font-weight: 700; font-size: 1.5rem; }
     .health-score-fair { color: #f39c12; font-weight: 700; font-size: 1.5rem; }
     .health-score-poor { color: #e74c3c; font-weight: 700; font-size: 1.5rem; }
+    
+    .standard-badge {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        margin-right: 0.3rem;
+    }
+    .badge-eu { background-color: #003399; color: #ffffff; }
+    .badge-cn { background-color: #DE2910; color: #ffffff; }
+    .badge-uk { background-color: #012169; color: #ffffff; }
+    .badge-my { background-color: #CC0000; color: #ffffff; }
+    .badge-us { background-color: #B22234; color: #ffffff; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# MALAYSIAN STANDARDS - MATERIAL PROPERTIES
+# INTERNATIONAL STANDARDS - MATERIAL PROPERTIES
 # ============================================================
-# MS EN 1993-1-1: Steel Design
-STEEL_GRADES = {
-    "S275 (MS EN 10025)": {
-        "fy": 275,  # Yield strength (MPa)
-        "fu": 430,  # Ultimate strength (MPa)
-        "E": 210000,  # Young's modulus (MPa)
-        "density": 7850,  # kg/m³
-        "alpha": 1.2e-5,  # Thermal expansion
-        "description": "Structural steel - General purpose"
-    },
-    "S355 (MS EN 10025)": {
-        "fy": 355,
-        "fu": 490,
-        "E": 210000,
-        "density": 7850,
-        "alpha": 1.2e-5,
-        "description": "High strength structural steel"
-    },
-    "S460 (MS EN 10025)": {
-        "fy": 460,
-        "fu": 550,
-        "E": 210000,
-        "density": 7850,
-        "alpha": 1.2e-5,
-        "description": "Ultra-high strength steel"
-    },
-    "S550 (MS EN 10025)": {
-        "fy": 550,
-        "fu": 620,
-        "E": 210000,
-        "density": 7850,
-        "alpha": 1.2e-5,
-        "description": "Very high strength steel"
-    }
+
+# ===== EUROCODE (EU) - MS EN 1993-1-1 =====
+EU_STEEL_GRADES = {
+    "S235 (EN 10025)": {"fy": 235, "fu": 360, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"},
+    "S275 (EN 10025)": {"fy": 275, "fu": 430, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"},
+    "S355 (EN 10025)": {"fy": 355, "fu": 490, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"},
+    "S420 (EN 10025)": {"fy": 420, "fu": 520, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"},
+    "S460 (EN 10025)": {"fy": 460, "fu": 550, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"}
 }
 
-# MS EN 1991-1-4: Wind Actions (Malaysia)
-WIND_ZONES = {
+# ===== CHINA STANDARD (GB/T 1591) =====
+CN_STEEL_GRADES = {
+    "Q235 (GB/T 700)": {"fy": 235, "fu": 375, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"},
+    "Q345 (GB/T 1591)": {"fy": 345, "fu": 470, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"},
+    "Q390 (GB/T 1591)": {"fy": 390, "fu": 490, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"},
+    "Q420 (GB/T 1591)": {"fy": 420, "fu": 520, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"},
+    "Q460 (GB/T 1591)": {"fy": 460, "fu": 550, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"}
+}
+
+# ===== BRITISH STANDARD (BS 5950) =====
+UK_STEEL_GRADES = {
+    "BS 43A (BS 4360)": {"fy": 275, "fu": 430, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"},
+    "BS 50B (BS 4360)": {"fy": 355, "fu": 490, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"},
+    "BS 50C (BS 4360)": {"fy": 355, "fu": 490, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"},
+    "BS 55C (BS 4360)": {"fy": 460, "fu": 550, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"},
+    "BS 55E (BS 4360)": {"fy": 460, "fu": 550, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"}
+}
+
+# ===== MALAYSIAN STANDARD (MS EN 1993) =====
+MY_STEEL_GRADES = {
+    "S275 (MS EN 10025)": {"fy": 275, "fu": 430, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "MY"},
+    "S355 (MS EN 10025)": {"fy": 355, "fu": 490, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "MY"},
+    "S460 (MS EN 10025)": {"fy": 460, "fu": 550, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "MY"},
+    "S550 (MS EN 10025)": {"fy": 550, "fu": 620, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "MY"}
+}
+
+# ===== USA STANDARD (ASTM A992) =====
+US_STEEL_GRADES = {
+    "A36 (ASTM A36)": {"fy": 250, "fu": 400, "E": 200000, "density": 7850, "alpha": 1.2e-5, "standard": "US"},
+    "A572 Gr50 (ASTM A572)": {"fy": 345, "fu": 450, "E": 200000, "density": 7850, "alpha": "1.2e-5", "standard": "US"},
+    "A992 (ASTM A992)": {"fy": 345, "fu": 450, "E": 200000, "density": 7850, "alpha": 1.2e-5, "standard": "US"},
+    "A913 Gr65 (ASTM A913)": {"fy": 450, "fu": 550, "E": 200000, "density": 7850, "alpha": 1.2e-5, "standard": "US"},
+    "A514 (ASTM A514)": {"fy": 690, "fu": 760, "E": 200000, "density": 7850, "alpha": 1.2e-5, "standard": "US"}
+}
+
+# Combine all steel grades
+ALL_STEEL_GRADES = {}
+ALL_STEEL_GRADES.update(EU_STEEL_GRADES)
+ALL_STEEL_GRADES.update(CN_STEEL_GRADES)
+ALL_STEEL_GRADES.update(UK_STEEL_GRADES)
+ALL_STEEL_GRADES.update(MY_STEEL_GRADES)
+ALL_STEEL_GRADES.update(US_STEEL_GRADES)
+
+# ===== INTERNATIONAL WIND STANDARDS =====
+
+# Eurocode (EU) - EN 1991-1-4
+EU_WIND_ZONES = {
+    "Zone 1": {"basic_wind_speed": 26.0, "description": "Inland areas"},
+    "Zone 2": {"basic_wind_speed": 30.0, "description": "Coastal areas"},
+    "Zone 3": {"basic_wind_speed": 35.0, "description": "Mountainous regions"},
+    "Zone 4": {"basic_wind_speed": 40.0, "description": "Exposed coastal"}
+}
+
+# China (CN) - GB 50009
+CN_WIND_ZONES = {
+    "Zone I": {"basic_wind_speed": 28.0, "description": "Inland, low wind"},
+    "Zone II": {"basic_wind_speed": 32.0, "description": "Inland, moderate wind"},
+    "Zone III": {"basic_wind_speed": 35.0, "description": "Coastal, high wind"},
+    "Zone IV": {"basic_wind_speed": 40.0, "description": "Coastal, very high wind"},
+    "Zone V": {"basic_wind_speed": 45.0, "description": "Special coastal regions"}
+}
+
+# British Standard (UK) - BS 6399-2
+UK_WIND_ZONES = {
+    "Zone 1": {"basic_wind_speed": 26.0, "description": "Inland low"},
+    "Zone 2": {"basic_wind_speed": 30.0, "description": "Inland moderate"},
+    "Zone 3": {"basic_wind_speed": 34.0, "description": "Coastal moderate"},
+    "Zone 4": {"basic_wind_speed": 38.0, "description": "Coastal high"},
+    "Zone 5": {"basic_wind_speed": 42.0, "description": "Exposed coastal"}
+}
+
+# Malaysian Standard - MS EN 1991-1-4
+MY_WIND_ZONES = {
     "Zone 1": {"basic_wind_speed": 32.6, "description": "Less than 32.6 m/s"},
     "Zone 2": {"basic_wind_speed": 37.2, "description": "32.6 - 37.2 m/s"},
     "Zone 3": {"basic_wind_speed": 41.8, "description": "37.2 - 41.8 m/s"},
     "Zone 4": {"basic_wind_speed": 46.5, "description": "41.8 - 46.5 m/s"},
-    "Coastal": {"basic_wind_speed": 55.0, "description": "Coastal areas (modified)"}
+    "Coastal": {"basic_wind_speed": 55.0, "description": "Coastal areas"}
 }
 
-TERRAIN_CATEGORIES = {
+# USA Standard (ASCE 7-16)
+US_WIND_ZONES = {
+    "Zone 1": {"basic_wind_speed": 38.0, "description": "Inland low"},
+    "Zone 2": {"basic_wind_speed": 42.0, "description": "Inland moderate"},
+    "Zone 3": {"basic_wind_speed": 46.0, "description": "Coastal moderate"},
+    "Zone 4": {"basic_wind_speed": 50.0, "description": "Coastal high"},
+    "Zone 5": {"basic_wind_speed": 56.0, "description": "Hurricane prone"}
+}
+
+# Combine all wind zones
+ALL_WIND_ZONES = {
+    "EU": EU_WIND_ZONES,
+    "CN": CN_WIND_ZONES,
+    "UK": UK_WIND_ZONES,
+    "MY": MY_WIND_ZONES,
+    "US": US_WIND_ZONES
+}
+
+# ===== INTERNATIONAL TERRAIN CATEGORIES =====
+
+EU_TERRAIN_CATEGORIES = {
+    "0": {"name": "Sea, coastal", "z0": 0.003, "z_min": 1, "alpha": 0.11},
+    "I": {"name": "Open country", "z0": 0.01, "z_min": 1, "alpha": 0.12},
+    "II": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
+    "III": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20},
+    "IV": {"name": "Dense urban", "z0": 1.00, "z_min": 10, "alpha": 0.24}
+}
+
+CN_TERRAIN_CATEGORIES = {
+    "A": {"name": "Open sea, lake", "z0": 0.003, "z_min": 1, "alpha": 0.12},
+    "B": {"name": "Open country", "z0": 0.02, "z_min": 2, "alpha": 0.15},
+    "C": {"name": "Suburban", "z0": 0.05, "z_min": 3, "alpha": 0.18},
+    "D": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.22}
+}
+
+UK_TERRAIN_CATEGORIES = {
+    "1": {"name": "Open country", "z0": 0.01, "z_min": 1, "alpha": 0.12},
+    "2": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
+    "3": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20},
+    "4": {"name": "Dense urban", "z0": 1.00, "z_min": 10, "alpha": 0.24}
+}
+
+MY_TERRAIN_CATEGORIES = {
     "0": {"name": "Sea, coastal", "z0": 0.003, "z_min": 1, "alpha": 0.11},
     "I": {"name": "Open country", "z0": 0.01, "z_min": 1, "alpha": 0.12},
     "II": {"name": "Suburban, industrial", "z0": 0.05, "z_min": 2, "alpha": 0.14},
@@ -130,9 +231,24 @@ TERRAIN_CATEGORIES = {
     "IV": {"name": "Dense urban", "z0": 1.00, "z_min": 10, "alpha": 0.24}
 }
 
-# Cable/Wire Rope Specifications (MS EN 1993-1-11)
+US_TERRAIN_CATEGORIES = {
+    "A": {"name": "Open water", "z0": 0.003, "z_min": 1, "alpha": 0.11},
+    "B": {"name": "Open country", "z0": 0.02, "z_min": 1, "alpha": 0.12},
+    "C": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
+    "D": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20}
+}
+
+ALL_TERRAIN_CATEGORIES = {
+    "EU": EU_TERRAIN_CATEGORIES,
+    "CN": CN_TERRAIN_CATEGORIES,
+    "UK": UK_TERRAIN_CATEGORIES,
+    "MY": MY_TERRAIN_CATEGORIES,
+    "US": US_TERRAIN_CATEGORIES
+}
+
+# ===== CABLE SPECIFICATIONS (International) =====
 CABLE_SPECS = {
-    "6x19 Galvanized": {
+    "6x19 Galvanized (EU)": {
         "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
         "breaking_load": {6: 20.0, 8: 35.0, 10: 55.0, 12: 80.0, 14: 105.0, 16: 140.0,
                           18: 180.0, 20: 220.0, 22: 260.0, 24: 310.0, 26: 360.0,
@@ -140,30 +256,65 @@ CABLE_SPECS = {
         "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
                         18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
                         30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
-        "min_breaking_load_factor": 1.5,
-        "description": "Galvanized steel wire rope - General purpose"
+        "min_factor": 1.5,
+        "description": "Galvanized steel wire rope - EU Standard"
     },
-    "6x19 Stainless Steel": {
+    "6x19 Stainless (EU)": {
         "diameters": [6, 8, 10, 12, 14, 16, 18, 20],
         "breaking_load": {6: 25.0, 8: 42.0, 10: 65.0, 12: 95.0, 14: 125.0, 16: 160.0,
                           18: 200.0, 20: 245.0},
         "weight_kg_m": {6: 0.15, 8: 0.27, 10: 0.42, 12: 0.60, 14: 0.82, 16: 1.08,
                         18: 1.36, 20: 1.68},
-        "min_breaking_load_factor": 1.5,
-        "description": "Stainless steel wire rope - Corrosion resistant"
+        "min_factor": 1.5,
+        "description": "Stainless steel wire rope - EU Standard"
     },
-    "Polyester Rope": {
-        "diameters": [8, 10, 12, 14, 16, 18, 20, 24],
-        "breaking_load": {8: 30.0, 10: 45.0, 12: 65.0, 14: 85.0, 16: 110.0,
-                          18: 140.0, 20: 170.0, 24: 230.0},
-        "weight_kg_m": {8: 0.10, 10: 0.15, 12: 0.22, 14: 0.30, 16: 0.40,
-                        18: 0.50, 20: 0.62, 24: 0.90},
-        "min_breaking_load_factor": 2.0,
-        "description": "Synthetic polyester rope - Lightweight"
+    "GB/T 20118 (China)": {
+        "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
+        "breaking_load": {6: 22.0, 8: 38.0, 10: 60.0, 12: 85.0, 14: 110.0, 16: 150.0,
+                          18: 190.0, 20: 230.0, 22: 270.0, 24: 320.0, 26: 370.0,
+                          28: 430.0, 30: 490.0, 32: 550.0, 36: 690.0, 40: 850.0},
+        "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
+                        18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
+                        30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
+        "min_factor": 1.6,
+        "description": "GB/T 20118 - China Standard"
+    },
+    "BS 302 (UK)": {
+        "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
+        "breaking_load": {6: 21.0, 8: 36.0, 10: 56.0, 12: 82.0, 14: 108.0, 16: 142.0,
+                          18: 182.0, 20: 225.0, 22: 265.0, 24: 315.0, 26: 365.0,
+                          28: 425.0, 30: 485.0, 32: 545.0, 36: 685.0, 40: 845.0},
+        "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
+                        18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
+                        30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
+        "min_factor": 1.5,
+        "description": "BS 302 - UK Standard"
+    },
+    "ASTM A1023 (US)": {
+        "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
+        "breaking_load": {6: 23.0, 8: 40.0, 10: 62.0, 12: 88.0, 14: 115.0, 16: 155.0,
+                          18: 195.0, 20: 240.0, 22: 280.0, 24: 330.0, 26: 380.0,
+                          28: 440.0, 30: 500.0, 32: 560.0, 36: 700.0, 40: 860.0},
+        "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
+                        18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
+                        30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
+        "min_factor": 1.5,
+        "description": "ASTM A1023 - US Standard"
+    },
+    "MS EN 1993-1-11 (Malaysia)": {
+        "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
+        "breaking_load": {6: 20.0, 8: 35.0, 10: 55.0, 12: 80.0, 14: 105.0, 16: 140.0,
+                          18: 180.0, 20: 220.0, 22: 260.0, 24: 310.0, 26: 360.0,
+                          28: 420.0, 30: 480.0, 32: 540.0, 36: 680.0, 40: 840.0},
+        "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
+                        18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
+                        30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
+        "min_factor": 1.5,
+        "description": "MS EN 1993-1-11 - Malaysia Standard"
     }
 }
 
-# Section properties (MS EN 1993-1-1)
+# ===== SECTION PROPERTIES =====
 SECTION_PROPERTIES = {
     "CHS 88.9x4.0": {"A": 1067, "I": 0.93e6, "W_el": 20.9e3, "i": 29.5, "weight": 8.38},
     "CHS 114.3x5.0": {"A": 1717, "I": 2.53e6, "W_el": 44.2e3, "i": 38.4, "weight": 13.5},
@@ -178,7 +329,10 @@ SECTION_PROPERTIES = {
     "I-150": {"A": 2130, "I": 16.0e6, "W_el": 213e3, "i": 86.7, "weight": 16.7},
     "I-200": {"A": 3310, "I": 38.0e6, "W_el": 380e3, "i": 107.1, "weight": 26.0},
     "I-250": {"A": 4820, "I": 76.0e6, "W_el": 608e3, "i": 125.6, "weight": 37.8},
-    "I-300": {"A": 6720, "I": 136e6, "W_el": 907e3, "i": 142.3, "weight": 52.8}
+    "I-300": {"A": 6720, "I": 136e6, "W_el": 907e3, "i": 142.3, "weight": 52.8},
+    "I-350": {"A": 9020, "I": 226e6, "W_el": 1290e3, "i": 158.3, "weight": 70.8},
+    "I-400": {"A": 11800, "I": 348e6, "W_el": 1740e3, "i": 171.8, "weight": 92.6},
+    "I-450": {"A": 14800, "I": 512e6, "W_el": 2270e3, "i": 186.0, "weight": 116.0}
 }
 
 # ============================================================
@@ -204,24 +358,26 @@ if "show_registration" not in st.session_state:
     st.session_state.show_registration = False
 if "show_structural_report" not in st.session_state:
     st.session_state.show_structural_report = False
+if "selected_standard" not in st.session_state:
+    st.session_state.selected_standard = "EU"
 
-# Materials State (Enhanced with Malaysian Standards)
+# Materials State
 if "materials" not in st.session_state:
     st.session_state.materials = {
-        "steel_grade": "S355 (MS EN 10025)",
-        "section_type": "Circular Hollow Section (CHS)",
+        "standard": "EU",
+        "steel_grade": "S355 (EN 10025)",
         "section_size": "CHS 168.3x7.1",
         "fabric_type": "PVC-coated Polyester",
         "fabric_thickness": 0.8,
-        "wire_rope_type": "6x19 Galvanized",
+        "wire_rope_type": "6x19 Galvanized (EU)",
         "wire_rope_diameter": 12,
         "num_bays": 2,
         "tie_down_angle": 45,
         "wind_zone": "Zone 2",
         "terrain_category": "II",
         "building_height": 10.0,
-        "safety_factor": 1.5,
-        "importance_factor": 1.0
+        "importance_factor": 1.0,
+        "safety_factor": 1.5
     }
 
 # ============================================================
@@ -241,7 +397,8 @@ def save_cache():
         "qa_answers": st.session_state.qa_answers,
         "locked": st.session_state.locked,
         "comments": st.session_state.comments,
-        "materials": st.session_state.materials
+        "materials": st.session_state.materials,
+        "selected_standard": st.session_state.selected_standard
     }
     with open(CACHE_FILE, "w") as f:
         json.dump(data, f, indent=2)
@@ -268,7 +425,8 @@ def update_projects_index():
                         "reference": info.get("reference", "N/A"),
                         "typology": data.get("typology", "Unknown"),
                         "date": info.get("date", datetime.now().isoformat()),
-                        "locked": data.get("locked", False)
+                        "locked": data.get("locked", False),
+                        "standard": data.get("selected_standard", "EU")
                     })
             except:
                 pass
@@ -288,6 +446,7 @@ def load_project_from_file(filename):
             st.session_state.locked = data.get("locked", False)
             st.session_state.comments = data.get("comments", "")
             st.session_state.materials = data.get("materials", {})
+            st.session_state.selected_standard = data.get("selected_standard", "EU")
             st.session_state.show_project_browser = False
             save_cache()
             return True
@@ -331,7 +490,8 @@ def save_project():
         "qa_answers": st.session_state.qa_answers,
         "locked": st.session_state.locked,
         "comments": st.session_state.comments,
-        "materials": st.session_state.materials
+        "materials": st.session_state.materials,
+        "selected_standard": st.session_state.selected_standard
     }
     filename = f"project_{ref}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     filepath = os.path.join(CACHE_DIR, filename)
@@ -358,35 +518,66 @@ if cached:
     st.session_state.locked = cached.get("locked", False)
     st.session_state.comments = cached.get("comments", "")
     st.session_state.materials = cached.get("materials", {})
+    st.session_state.selected_standard = cached.get("selected_standard", "EU")
 
 # ============================================================
-# MALAYSIAN STANDARDS - ENGINEERING FUNCTIONS
+# STANDARD-SPECIFIC FUNCTIONS
 # ============================================================
 
-def calculate_wind_pressure_MS(wind_zone, terrain_category, height, importance_factor=1.0):
-    """MS EN 1991-1-4: Wind pressure calculation for Malaysia"""
-    wind_data = WIND_ZONES.get(wind_zone, WIND_ZONES["Zone 2"])
-    terrain = TERRAIN_CATEGORIES.get(terrain_category, TERRAIN_CATEGORIES["II"])
+def get_standard_label(standard_code):
+    """Get human-readable standard label"""
+    labels = {
+        "EU": "🇪🇺 Eurocode (EN 1993/EN 1991)",
+        "CN": "🇨🇳 China (GB 50009/GB/T 1591)",
+        "UK": "🇬🇧 British (BS 5950/BS 6399)",
+        "MY": "🇲🇾 Malaysia (MS EN 1993/MS EN 1991)",
+        "US": "🇺🇸 USA (ASTM/ASCE 7)"
+    }
+    return labels.get(standard_code, standard_code)
+
+def get_steel_grades_for_standard(standard):
+    """Get steel grades for selected standard"""
+    if standard == "EU":
+        return EU_STEEL_GRADES
+    elif standard == "CN":
+        return CN_STEEL_GRADES
+    elif standard == "UK":
+        return UK_STEEL_GRADES
+    elif standard == "MY":
+        return MY_STEEL_GRADES
+    elif standard == "US":
+        return US_STEEL_GRADES
+    else:
+        return EU_STEEL_GRADES
+
+def get_wind_zones_for_standard(standard):
+    """Get wind zones for selected standard"""
+    return ALL_WIND_ZONES.get(standard, ALL_WIND_ZONES["EU"])
+
+def get_terrain_categories_for_standard(standard):
+    """Get terrain categories for selected standard"""
+    return ALL_TERRAIN_CATEGORIES.get(standard, ALL_TERRAIN_CATEGORIES["EU"])
+
+def calculate_wind_pressure_standard(wind_zone, terrain_category, height, importance_factor, standard="EU"):
+    """Calculate wind pressure using selected standard"""
+    wind_zones = get_wind_zones_for_standard(standard)
+    terrain_cats = get_terrain_categories_for_standard(standard)
     
-    # Basic wind speed
+    wind_data = wind_zones.get(wind_zone, wind_zones["Zone 2"])
+    terrain = terrain_cats.get(terrain_category, terrain_cats["II"])
+    
     vb = wind_data["basic_wind_speed"]
-    
-    # Terrain roughness factor
     z0 = terrain["z0"]
     z_min = terrain["z_min"]
     alpha = terrain["alpha"]
     
-    # Height factor (simplified)
     z = max(height, z_min)
     if z <= z_min:
         ce = 1.0
     else:
         ce = 0.86 * (z / 10)**(2 * alpha)
     
-    # Peak wind pressure
-    qp = 0.5 * 1.225 * (vb * ce)**2 / 1000  # kN/m²
-    
-    # Wind force
+    qp = 0.5 * 1.225 * (vb * ce)**2 / 1000
     wind_pressure = qp * importance_factor
     
     return {
@@ -395,30 +586,30 @@ def calculate_wind_pressure_MS(wind_zone, terrain_category, height, importance_f
         "height_factor": ce,
         "peak_pressure": qp,
         "design_pressure": wind_pressure,
-        "zone_description": wind_data["description"]
+        "zone_description": wind_data["description"],
+        "standard": standard,
+        "standard_label": get_standard_label(standard)
     }
 
-def calculate_steel_capacity_MS(grade, section, length, safety_factor=1.5):
-    """MS EN 1993-1-1: Steel member capacity calculation"""
-    steel = STEEL_GRADES.get(grade, STEEL_GRADES["S355 (MS EN 10025)"])
+def calculate_steel_capacity_standard(grade, section, length, safety_factor, standard="EU"):
+    """Calculate steel capacity using selected standard"""
+    steel_grades = get_steel_grades_for_standard(standard)
+    steel = steel_grades.get(grade, steel_grades["S355 (EN 10025)"])
     section_data = SECTION_PROPERTIES.get(section, SECTION_PROPERTIES["CHS 168.3x7.1"])
     
-    fy = steel["fy"]  # MPa
-    A = section_data["A"]  # mm²
-    I = section_data["I"]  # mm⁴
-    W_el = section_data["W_el"]  # mm³
-    weight = section_data["weight"]  # kg/m
+    fy = steel["fy"]
+    A = section_data["A"]
+    I = section_data["I"]
+    W_el = section_data["W_el"]
+    weight = section_data["weight"]
     
-    # Compression capacity
-    N_crd = (A * fy) / (safety_factor * 1000)  # kN
+    N_crd = (A * fy) / (safety_factor * 1000)
+    M_crd = (W_el * fy) / (safety_factor * 1e6)
     
-    # Bending capacity
-    M_crd = (W_el * fy) / (safety_factor * 1e6)  # kNm
+    L = length
+    i = (I / A)**0.5 / 10
+    lambda_bar = L / i if i > 0 else 0
     
-    # Buckling resistance (simplified Euler)
-    L = length  # m
-    i = (I / A)**0.5 / 10  # m (radius of gyration)
-    lambda_bar = L / i
     if lambda_bar < 0.2:
         chi = 1.0
     elif lambda_bar < 1.0:
@@ -440,12 +631,13 @@ def calculate_steel_capacity_MS(grade, section, length, safety_factor=1.5):
         "slenderness": lambda_bar,
         "N_buckling": N_buck,
         "efficiency": N_buck / N_crd if N_crd > 0 else 0,
-        "capacity_check": "PASS" if N_buck > 0.5 * N_crd else "CHECK"
+        "standard": standard,
+        "standard_label": get_standard_label(standard)
     }
 
-def calculate_cable_size_MS(force_kn, safety_factor=1.5, cable_type="6x19 Galvanized"):
-    """MS EN 1993-1-11: Cable size selection based on force"""
-    cable_data = CABLE_SPECS.get(cable_type, CABLE_SPECS["6x19 Galvanized"])
+def calculate_cable_size_standard(force_kn, safety_factor, cable_type):
+    """Calculate cable size using selected cable type"""
+    cable_data = CABLE_SPECS.get(cable_type, CABLE_SPECS["6x19 Galvanized (EU)"])
     required_breaking_load = force_kn * safety_factor
     
     selected_diameter = None
@@ -459,8 +651,7 @@ def calculate_cable_size_MS(force_kn, safety_factor=1.5, cable_type="6x19 Galvan
             break
     
     if selected_diameter is None:
-        # If force too high, use largest diameter
-        selected_diameter = cable_data["diameters"][-1]
+        selected_diameter = cable_data["diameters"][-1] if cable_data["diameters"] else 12
         selected_breaking_load = cable_data["breaking_load"].get(selected_diameter, 0)
     
     weight = cable_data["weight_kg_m"].get(selected_diameter, 0)
@@ -477,110 +668,34 @@ def calculate_cable_size_MS(force_kn, safety_factor=1.5, cable_type="6x19 Galvan
         "description": cable_data["description"]
     }
 
-def generate_structural_health_report(params, materials):
-    """Generate comprehensive structural health report"""
-    span = params.get("B", 10.0)
-    laa = params.get("LAA", 15.0)
-    rise = params.get("A", 6.0)
-    
-    m = materials
-    
-    # 1. Wind Analysis
-    wind_result = calculate_wind_pressure_MS(
-        m.get("wind_zone", "Zone 2"),
-        m.get("terrain_category", "II"),
-        m.get("building_height", 10.0),
-        m.get("importance_factor", 1.0)
-    )
-    
-    # 2. Steel Capacity
-    steel_capacity = calculate_steel_capacity_MS(
-        m.get("steel_grade", "S355 (MS EN 10025)"),
-        m.get("section_size", "CHS 168.3x7.1"),
-        span,
-        m.get("safety_factor", 1.5)
-    )
-    
-    # 3. Wind Load on Structure
-    membrane_area = span * laa * 1.1
-    wind_force = wind_result["design_pressure"] * membrane_area
-    
-    # 4. Tie-Down Force
-    num_anchors = m.get("num_bays", 2) * 2
-    tie_down_force = (wind_force * 0.8) / num_anchors
-    
-    # 5. Cable Selection
-    cable_selection = calculate_cable_size_MS(
-        tie_down_force,
-        m.get("safety_factor", 1.5),
-        m.get("wire_rope_type", "6x19 Galvanized")
-    )
-    
-    # 6. Health Score Calculation
-    health_score = 100
-    
-    # Deduct for wind pressure
-    if wind_result["design_pressure"] > 1.5:
-        health_score -= 10
-    elif wind_result["design_pressure"] > 1.0:
-        health_score -= 5
-    
-    # Deduct for steel capacity
-    if steel_capacity["efficiency"] < 0.5:
-        health_score -= 15
-    elif steel_capacity["efficiency"] < 0.7:
-        health_score -= 8
-    
-    # Deduct for cable adequacy
-    if not cable_selection["is_adequate"]:
-        health_score -= 20
-    elif cable_selection["capacity_ratio"] > 0.9:
-        health_score -= 5
-    
-    # Deduct for slenderness
-    if steel_capacity["slenderness"] > 100:
-        health_score -= 10
-    elif steel_capacity["slenderness"] > 50:
-        health_score -= 5
-    
-    health_score = max(0, min(100, health_score))
-    
-    # Health status
-    if health_score >= 80:
-        status = "GOOD"
-        color = "#2ecc71"
-        recommendation = "Structure appears sound. Continue with design."
-    elif health_score >= 60:
-        status = "FAIR"
-        color = "#f39c12"
-        recommendation = "Some minor concerns identified. Consider reinforcing weak areas."
+# ============================================================
+# ENGINEERING FUNCTIONS
+# ============================================================
+def generate_bracing_positions(span, num_bays):
+    if num_bays == 1:
+        return [0.0]
+    elif num_bays == 2:
+        return [-span/3, span/3]
+    elif num_bays == 3:
+        return [-span/4, 0.0, span/4]
     else:
-        status = "POOR"
-        color = "#e74c3c"
-        recommendation = "Significant concerns identified. Major strengthening required."
-    
-    return {
-        "health_score": health_score,
-        "health_status": status,
-        "health_color": color,
-        "recommendation": recommendation,
-        "wind_analysis": wind_result,
-        "steel_capacity": steel_capacity,
-        "wind_force": wind_force,
-        "tie_down_force": tie_down_force,
-        "cable_selection": cable_selection,
-        "membrane_area": membrane_area,
-        "num_anchors": num_anchors,
-        "span": span,
-        "rise": rise,
-        "laa": laa,
-        "detailed_checks": {
-            "wind_pressure_check": wind_result["design_pressure"] < 2.0,
-            "steel_capacity_check": steel_capacity["efficiency"] > 0.5,
-            "cable_adequacy_check": cable_selection["is_adequate"],
-            "slenderness_check": steel_capacity["slenderness"] < 100
-        }
-    }
+        return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
+
+def generate_tie_down_anchors(span, laa, height, x_positions, angle_deg):
+    angle_rad = np.radians(angle_deg)
+    distance = height * np.tan(angle_rad)
+    anchors = []
+    beam_ys = [-laa/2, laa/2]
+    for beam_y in beam_ys:
+        for beam_x in x_positions:
+            anchors.append({
+                "beam_x": beam_x,
+                "beam_y": beam_y,
+                "anchor_x": beam_x + distance,
+                "anchor_y": beam_y,
+                "anchor_z": 0
+            })
+    return anchors
 
 # ============================================================
 # TYPOLOGIES
@@ -667,35 +782,6 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# ENGINEERING FUNCTIONS
-# ============================================================
-def generate_bracing_positions(span, num_bays):
-    if num_bays == 1:
-        return [0.0]
-    elif num_bays == 2:
-        return [-span/3, span/3]
-    elif num_bays == 3:
-        return [-span/4, 0.0, span/4]
-    else:
-        return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
-
-def generate_tie_down_anchors(span, laa, height, x_positions, angle_deg):
-    angle_rad = np.radians(angle_deg)
-    distance = height * np.tan(angle_rad)
-    anchors = []
-    beam_ys = [-laa/2, laa/2]
-    for beam_y in beam_ys:
-        for beam_x in x_positions:
-            anchors.append({
-                "beam_x": beam_x,
-                "beam_y": beam_y,
-                "anchor_x": beam_x + distance,
-                "anchor_y": beam_y,
-                "anchor_z": 0
-            })
-    return anchors
-
-# ============================================================
 # 3D GENERATORS
 # ============================================================
 def generate_saddle_span(params, materials=None):
@@ -714,7 +800,6 @@ def generate_saddle_span(params, materials=None):
 
     fig = go.Figure()
 
-    # Main beams
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode='lines', name='Beam 1',
@@ -726,7 +811,6 @@ def generate_saddle_span(params, materials=None):
         line=dict(color='#FF6B6B', width=6)
     ))
 
-    # Membrane surface
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
@@ -749,7 +833,6 @@ def generate_saddle_span(params, materials=None):
         opacity=0.7, showscale=False, name='Membrane'
     ))
 
-    # Apex and support points
     fig.add_trace(go.Scatter3d(
         x=[0], y=[y1[num_points//2]], z=[rise],
         mode='markers', name='Apex 1',
@@ -768,7 +851,6 @@ def generate_saddle_span(params, materials=None):
         marker=dict(color='#4ECDC4', size=8, symbol='square')
     ))
 
-    # Bracing
     if materials:
         num_bays = materials.get("num_bays", 2)
         bracing_x = generate_bracing_positions(span, num_bays)
@@ -784,7 +866,6 @@ def generate_saddle_span(params, materials=None):
                 showlegend=False
             ))
 
-        # Tie-downs
         angle = materials.get("tie_down_angle", 45)
         anchors = generate_tie_down_anchors(span, laa, rise, bracing_x, angle)
         for a in anchors:
@@ -834,22 +915,39 @@ def generate_tent(params):
     total_len = bays * bay_dist
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,total_len], z=[ridge,ridge], mode='lines', name='Ridge', line=dict(width=8, color='#f39c12')))
-    fig.add_trace(go.Scatter3d(x=[-span/2,-span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Left', line=dict(width=5, color='#4a7a9c')))
-    fig.add_trace(go.Scatter3d(x=[span/2,span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Right', line=dict(width=5, color='#4a7a9c')))
+    fig.add_trace(go.Scatter3d(
+        x=[0,0], y=[0,total_len], z=[ridge,ridge],
+        mode='lines', name='Ridge',
+        line=dict(width=8, color='#f39c12')
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[-span/2,-span/2], y=[0,total_len], z=[0,0],
+        mode='lines', name='Eave Left',
+        line=dict(width=5, color='#4a7a9c')
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[span/2,span/2], y=[0,total_len], z=[0,0],
+        mode='lines', name='Eave Right',
+        line=dict(width=5, color='#4a7a9c')
+    ))
     
     X = np.linspace(-span/2, span/2, 30)
     Y = np.linspace(0, total_len, 30)
     X, Y = np.meshgrid(X, Y)
     Z = ridge * (1 - (X/(span/2))**2) * (1 - (Y/total_len)**2 * 0.1)
-    fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.5, colorscale='Reds', showscale=False, name='Fabric'))
+    fig.add_trace(go.Surface(
+        x=X, y=Y, z=Z, opacity=0.5,
+        colorscale='Reds', showscale=False, name='Fabric'
+    ))
     
     fig.update_layout(
-        scene=dict(xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
-                   xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))),
+        scene=dict(
+            xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+        ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
     )
     return fig
@@ -861,26 +959,39 @@ def generate_tensile(params):
     cables = params.get("cable_count", 4)
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0,mast], mode='lines', name='Mast', line=dict(width=10, color='#f39c12')))
+    fig.add_trace(go.Scatter3d(
+        x=[0,0], y=[0,0], z=[0,mast],
+        mode='lines', name='Mast',
+        line=dict(width=10, color='#f39c12')
+    ))
     
     X = np.linspace(-length/2, length/2, 30)
     Y = np.linspace(-width/2, width/2, 30)
     X, Y = np.meshgrid(X, Y)
     Z = mast * np.exp(-((X/(length/2))**2 + (Y/(width/2))**2) * 0.5)
-    fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.4, colorscale='Greens', showscale=False, name='Membrane'))
+    fig.add_trace(go.Surface(
+        x=X, y=Y, z=Z, opacity=0.4,
+        colorscale='Greens', showscale=False, name='Membrane'
+    ))
     
     for i in range(cables):
         angle = i * 2*np.pi/cables
         x_end = length/2 * np.cos(angle)
         y_end = width/2 * np.sin(angle)
-        fig.add_trace(go.Scatter3d(x=[0, x_end], y=[0, y_end], z=[mast, 0], mode='lines', name=f'Cable {i+1}', line=dict(width=4, color='#4a7a9c')))
+        fig.add_trace(go.Scatter3d(
+            x=[0, x_end], y=[0, y_end], z=[mast, 0],
+            mode='lines', name=f'Cable {i+1}',
+            line=dict(width=4, color='#4a7a9c')
+        ))
     
     fig.update_layout(
-        scene=dict(xaxis_title='Length (m)', yaxis_title='Width (m)', zaxis_title='Height (m)',
-                   xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))),
+        scene=dict(
+            xaxis_title='Length (m)', yaxis_title='Width (m)', zaxis_title='Height (m)',
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+        ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
     )
     return fig
@@ -899,21 +1010,35 @@ def generate_portal(params):
     fig = go.Figure()
     x = [-span/2, -span/2, 0, span/2, span/2]
     z = [0, eave, ridge, eave, 0]
-    fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Portal Frame', line=dict(width=8, color='#4a7a9c')))
+    fig.add_trace(go.Scatter3d(
+        x=x, y=[0]*len(x), z=z,
+        mode='lines', name='Portal Frame',
+        line=dict(width=8, color='#4a7a9c')
+    ))
     for i in range(bays):
         y = i * bay_spacing
-        fig.add_trace(go.Scatter3d(x=x, y=[y]*len(x), z=z, mode='lines', line=dict(width=4, color='#4a7a9c', opacity=0.3), showlegend=False))
+        fig.add_trace(go.Scatter3d(
+            x=x, y=[y]*len(x), z=z,
+            mode='lines',
+            line=dict(width=4, color='#4a7a9c', opacity=0.3),
+            showlegend=False
+        ))
     
     Y, X = np.meshgrid(np.linspace(0, total_len, 10), np.linspace(-span/2, span/2, 30))
     Z = np.where(np.abs(X) < span/2, eave + (span/2 - np.abs(X)) * np.tan(np.radians(pitch)), 0)
-    fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.3, colorscale='Greys', showscale=False, name='Roof'))
+    fig.add_trace(go.Surface(
+        x=X, y=Y, z=Z, opacity=0.3,
+        colorscale='Greys', showscale=False, name='Roof'
+    ))
     
     fig.update_layout(
-        scene=dict(xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
-                   xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))),
+        scene=dict(
+            xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+        ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
     )
     return fig
@@ -936,14 +1061,17 @@ def generate_custom(params):
             x=[corners[i][0], corners[j][0]],
             y=[corners[i][1], corners[j][1]],
             z=[corners[i][2], corners[j][2]],
-            mode='lines', line=dict(color='#4a7a9c', width=3), showlegend=False
+            mode='lines', line=dict(color='#4a7a9c', width=3),
+            showlegend=False
         ))
     fig.update_layout(
-        scene=dict(xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
-                   xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-                   bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))),
+        scene=dict(
+            xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+        ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
     )
     return fig
@@ -963,9 +1091,9 @@ def render_structural_health_report(report):
     """Render the structural health report with all details"""
     st.markdown("## 🏥 Structural Health Report")
     st.markdown(f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}*")
+    st.markdown(f"*Standard: {report.get('standard_label', 'EU')}*")
     st.markdown("---")
     
-    # Health Score Card
     score = report["health_score"]
     status = report["health_status"]
     color = report["health_color"]
@@ -982,26 +1110,25 @@ def render_structural_health_report(report):
     
     st.markdown("---")
     
-    # Detailed Checks
     st.subheader("✅ Detailed Checks")
     checks = report["detailed_checks"]
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Wind Pressure", "✅ PASS" if checks["wind_pressure_check"] else "❌ FAIL", delta="< 2.0 kN/m²" if checks["wind_pressure_check"] else "> 2.0 kN/m²")
+        st.metric("Wind Pressure", "✅ PASS" if checks["wind_pressure_check"] else "❌ FAIL")
     with col2:
-        st.metric("Steel Capacity", "✅ PASS" if checks["steel_capacity_check"] else "❌ FAIL", delta="Efficient" if checks["steel_capacity_check"] else "Check Required")
+        st.metric("Steel Capacity", "✅ PASS" if checks["steel_capacity_check"] else "❌ FAIL")
     with col3:
-        st.metric("Cable Adequacy", "✅ PASS" if checks["cable_adequacy_check"] else "❌ FAIL", delta="Adequate" if checks["cable_adequacy_check"] else "Increase Size")
+        st.metric("Cable Adequacy", "✅ PASS" if checks["cable_adequacy_check"] else "❌ FAIL")
     with col4:
-        st.metric("Slenderness", "✅ PASS" if checks["slenderness_check"] else "⚠️ CHECK", delta="< 100" if checks["slenderness_check"] else "> 100")
+        st.metric("Slenderness", "✅ PASS" if checks["slenderness_check"] else "⚠️ CHECK")
     
     st.markdown("---")
     
-    # Wind Analysis
-    st.subheader("🌪️ Wind Analysis (MS EN 1991-1-4)")
+    st.subheader("🌪️ Wind Analysis")
     wind = report["wind_analysis"]
     col1, col2 = st.columns(2)
     with col1:
+        st.write(f"**Standard:** {wind['standard_label']}")
         st.write(f"**Wind Zone:** {wind.get('zone_description', 'N/A')}")
         st.write(f"**Basic Wind Speed:** {wind['basic_wind_speed']:.1f} m/s")
         st.write(f"**Terrain Category:** {wind['terrain_roughness']}")
@@ -1012,11 +1139,11 @@ def render_structural_health_report(report):
     
     st.markdown("---")
     
-    # Steel Member Capacity
-    st.subheader("🏗️ Steel Member Capacity (MS EN 1993-1-1)")
+    st.subheader("🏗️ Steel Member Capacity")
     steel = report["steel_capacity"]
     col1, col2, col3 = st.columns(3)
     with col1:
+        st.write(f"**Standard:** {steel['standard_label']}")
         st.write(f"**Grade:** {steel['grade']}")
         st.write(f"**Section:** {steel['section']}")
         st.write(f"**fy:** {steel['fy']} MPa")
@@ -1031,7 +1158,6 @@ def render_structural_health_report(report):
     
     st.markdown("---")
     
-    # Tie-Down and Cable Sizing
     st.subheader("🔗 Tie-Down System & Cable Sizing")
     col1, col2 = st.columns(2)
     with col1:
@@ -1049,7 +1175,6 @@ def render_structural_health_report(report):
     
     st.markdown("---")
     
-    # Summary Table
     st.subheader("📊 Summary Table")
     summary_data = {
         "Parameter": ["Span", "Rise", "Apex Distance", "Membrane Area", "Wind Load", "Steel Capacity", "Cable Size", "Health Score"],
@@ -1067,9 +1192,110 @@ def render_structural_health_report(report):
     df = pd.DataFrame(summary_data)
     st.dataframe(df, use_container_width=True, hide_index=True)
 
+def generate_structural_health_report(params, materials):
+    """Generate comprehensive structural health report using selected standard"""
+    span = params.get("B", 10.0)
+    laa = params.get("LAA", 15.0)
+    rise = params.get("A", 6.0)
+    
+    m = materials
+    standard = m.get("standard", "EU")
+    
+    # Wind analysis
+    wind_result = calculate_wind_pressure_standard(
+        m.get("wind_zone", "Zone 2"),
+        m.get("terrain_category", "II"),
+        m.get("building_height", 10.0),
+        m.get("importance_factor", 1.0),
+        standard
+    )
+    
+    # Steel capacity
+    steel_capacity = calculate_steel_capacity_standard(
+        m.get("steel_grade", "S355 (EN 10025)"),
+        m.get("section_size", "CHS 168.3x7.1"),
+        span,
+        m.get("safety_factor", 1.5),
+        standard
+    )
+    
+    membrane_area = span * laa * 1.1
+    wind_force = wind_result["design_pressure"] * membrane_area
+    
+    num_anchors = m.get("num_bays", 2) * 2
+    tie_down_force = (wind_force * 0.8) / num_anchors if num_anchors > 0 else 0
+    
+    cable_selection = calculate_cable_size_standard(
+        tie_down_force,
+        m.get("safety_factor", 1.5),
+        m.get("wire_rope_type", "6x19 Galvanized (EU)")
+    )
+    
+    # Health Score
+    health_score = 100
+    
+    if wind_result["design_pressure"] > 1.5:
+        health_score -= 10
+    elif wind_result["design_pressure"] > 1.0:
+        health_score -= 5
+    
+    if steel_capacity["efficiency"] < 0.5:
+        health_score -= 15
+    elif steel_capacity["efficiency"] < 0.7:
+        health_score -= 8
+    
+    if not cable_selection["is_adequate"]:
+        health_score -= 20
+    elif cable_selection["capacity_ratio"] > 0.9:
+        health_score -= 5
+    
+    if steel_capacity["slenderness"] > 100:
+        health_score -= 10
+    elif steel_capacity["slenderness"] > 50:
+        health_score -= 5
+    
+    health_score = max(0, min(100, health_score))
+    
+    if health_score >= 80:
+        status = "GOOD"
+        color = "#2ecc71"
+        recommendation = "Structure appears sound. Continue with design."
+    elif health_score >= 60:
+        status = "FAIR"
+        color = "#f39c12"
+        recommendation = "Some minor concerns identified. Consider reinforcing weak areas."
+    else:
+        status = "POOR"
+        color = "#e74c3c"
+        recommendation = "Significant concerns identified. Major strengthening required."
+    
+    return {
+        "health_score": health_score,
+        "health_status": status,
+        "health_color": color,
+        "recommendation": recommendation,
+        "standard_label": get_standard_label(standard),
+        "wind_analysis": wind_result,
+        "steel_capacity": steel_capacity,
+        "wind_force": wind_force,
+        "tie_down_force": tie_down_force,
+        "cable_selection": cable_selection,
+        "membrane_area": membrane_area,
+        "num_anchors": num_anchors,
+        "span": span,
+        "rise": rise,
+        "laa": laa,
+        "detailed_checks": {
+            "wind_pressure_check": wind_result["design_pressure"] < 2.0,
+            "steel_capacity_check": steel_capacity["efficiency"] > 0.5,
+            "cable_adequacy_check": cable_selection["is_adequate"],
+            "slenderness_check": steel_capacity["slenderness"] < 100
+        }
+    }
+
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio - Malaysia Standards")
-    st.caption("Parametric design with MS EN 1993 & MS EN 1991 compliance")
+    st.title("🏗️ SDS Design Studio - International Standards")
+    st.caption("Design with EU, China, British, Malaysian, and US Standards")
     
     projects = get_projects_list()
     
@@ -1100,11 +1326,12 @@ def render_dashboard():
         </div>
         """, unsafe_allow_html=True)
     with col4:
+        standard = st.session_state.selected_standard
         st.markdown(f"""
         <div class="dashboard-card">
             <div class="icon">📊</div>
-            <div class="value">MS EN</div>
-            <div class="label">Standards Compliant</div>
+            <div class="value">{get_standard_label(standard)}</div>
+            <div class="label">Current Standard</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1124,13 +1351,16 @@ def render_dashboard():
     if projects:
         st.subheader("📋 Recent Projects")
         for proj in projects[:5]:
-            col1, col2 = st.columns([3, 1])
+            col1, col2, col3 = st.columns([2, 1, 1])
             with col1:
                 st.write(f"**{proj.get('name', 'Untitled')}** — {proj.get('client', 'Unknown')}")
+                st.caption(f"📌 {proj.get('typology', 'Unknown')} | {get_standard_label(proj.get('standard', 'EU'))}")
             with col2:
                 if st.button("Open", key=f"dash_load_{proj.get('file')}"):
                     if load_project_from_file(proj.get('file')):
                         st.rerun()
+            with col3:
+                st.caption(proj.get("date", "")[:10])
             st.divider()
 
 def render_workspace():
@@ -1139,9 +1369,10 @@ def render_workspace():
     typ_key = st.session_state.typology
     typ = TYPOLOGIES[typ_key]
     info = st.session_state.project_info
+    standard = materials.get("standard", "EU")
     
     st.markdown("## 🧠 Design Workspace")
-    st.caption("MS EN 1993-1-1 (Steel) & MS EN 1991-1-4 (Wind) Compliant")
+    st.caption(f"🇪🇺🇨🇳🇬🇧🇲🇾🇺🇸 {get_standard_label(standard)} Compliant")
     
     col_left, col_right = st.columns([1, 1.5])
     
@@ -1152,6 +1383,38 @@ def render_workspace():
         st.write(f"**Name:** {info.get('name', 'Untitled')}")
         st.write(f"**Client:** {info.get('client', 'Unknown')}")
         st.write(f"**Ref:** {info.get('reference', 'N/A')}")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Standard Selection
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">🌍 Design Standard</div>', unsafe_allow_html=True)
+        
+        standard_options = ["EU", "CN", "UK", "MY", "US"]
+        standard_labels = [get_standard_label(s) for s in standard_options]
+        current_standard = materials.get("standard", "EU")
+        if current_standard not in standard_options:
+            current_standard = "EU"
+        
+        selected_label = st.selectbox(
+            "Select Standard",
+            standard_labels,
+            index=standard_options.index(current_standard),
+            key="standard_select"
+        )
+        materials["standard"] = standard_options[standard_labels.index(selected_label)]
+        st.session_state.selected_standard = materials["standard"]
+        
+        # Show standard badge
+        standard_code = materials["standard"]
+        badge_class = {
+            "EU": "badge-eu",
+            "CN": "badge-cn",
+            "UK": "badge-uk",
+            "MY": "badge-my",
+            "US": "badge-us"
+        }.get(standard_code, "badge-eu")
+        
+        st.markdown(f'<span class="standard-badge {badge_class}">{standard_code}</span> {get_standard_label(standard_code)}', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
         # Geometry
@@ -1176,67 +1439,145 @@ def render_workspace():
                         params[p_key] = val
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Malaysian Standards - Materials
+        # Steel Materials
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">🏗️ Materials (MS EN 1993)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="title">🏗️ Steel Materials</div>', unsafe_allow_html=True)
         
-        materials["steel_grade"] = st.selectbox("Steel Grade", list(STEEL_GRADES.keys()), 
-            index=list(STEEL_GRADES.keys()).index(materials.get("steel_grade", "S355 (MS EN 10025)")))
+        # Steel Grade - Standard specific
+        steel_grades = get_steel_grades_for_standard(standard)
+        steel_grades_list = list(steel_grades.keys())
+        current_grade = materials.get("steel_grade", steel_grades_list[0] if steel_grades_list else "S355 (EN 10025)")
+        if current_grade not in steel_grades_list:
+            current_grade = steel_grades_list[0] if steel_grades_list else "S355 (EN 10025)"
         
+        materials["steel_grade"] = st.selectbox(
+            "Steel Grade",
+            steel_grades_list,
+            index=steel_grades_list.index(current_grade),
+            key="steel_grade_select"
+        )
+        
+        # Section Size
         section_options = list(SECTION_PROPERTIES.keys())
-        materials["section_size"] = st.selectbox("Section Size", section_options,
-            index=section_options.index(materials.get("section_size", "CHS 168.3x7.1")) if materials.get("section_size") in section_options else 0)
+        current_section = materials.get("section_size", "CHS 168.3x7.1")
+        if current_section not in section_options:
+            current_section = "CHS 168.3x7.1"
+        materials["section_size"] = st.selectbox(
+            "Section Size",
+            section_options,
+            index=section_options.index(current_section),
+            key="section_select"
+        )
         
-        materials["fabric_type"] = st.selectbox("Fabric Type", ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"], index=0)
-        materials["fabric_thickness"] = st.selectbox("Thickness (mm)", [0.5, 0.8, 1.0, 1.2], index=1)
+        # Fabric
+        materials["fabric_type"] = st.selectbox(
+            "Fabric Type",
+            ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"],
+            index=0,
+            key="fabric_select"
+        )
+        materials["fabric_thickness"] = st.selectbox(
+            "Thickness (mm)",
+            [0.5, 0.8, 1.0, 1.2],
+            index=1,
+            key="thickness_select"
+        )
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Malaysian Standards - Wind & Environment
+        # Wind Analysis
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">🌪️ Wind Analysis (MS EN 1991)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="title">🌪️ Wind Analysis</div>', unsafe_allow_html=True)
         
-        wind_zones = list(WIND_ZONES.keys())
-        materials["wind_zone"] = st.selectbox("Wind Zone", wind_zones,
-            index=wind_zones.index(materials.get("wind_zone", "Zone 2")))
+        wind_zones = get_wind_zones_for_standard(standard)
+        wind_zone_list = list(wind_zones.keys())
+        current_wind = materials.get("wind_zone", wind_zone_list[0] if wind_zone_list else "Zone 2")
+        if current_wind not in wind_zone_list:
+            current_wind = wind_zone_list[0] if wind_zone_list else "Zone 2"
         
-        terrain_options = list(TERRAIN_CATEGORIES.keys())
-        materials["terrain_category"] = st.selectbox("Terrain Category", terrain_options,
-            index=terrain_options.index(materials.get("terrain_category", "II")))
+        materials["wind_zone"] = st.selectbox(
+            "Wind Zone",
+            wind_zone_list,
+            index=wind_zone_list.index(current_wind),
+            key="wind_select"
+        )
         
-        materials["building_height"] = st.number_input("Building Height (m)", min_value=2.0, max_value=50.0, step=0.5, 
-            value=float(materials.get("building_height", 10.0)))
-        materials["importance_factor"] = st.slider("Importance Factor", min_value=0.8, max_value=1.5, step=0.1, 
-            value=float(materials.get("importance_factor", 1.0)))
+        terrain_cats = get_terrain_categories_for_standard(standard)
+        terrain_list = list(terrain_cats.keys())
+        current_terrain = materials.get("terrain_category", terrain_list[0] if terrain_list else "II")
+        if current_terrain not in terrain_list:
+            current_terrain = terrain_list[0] if terrain_list else "II"
+        
+        materials["terrain_category"] = st.selectbox(
+            "Terrain Category",
+            terrain_list,
+            index=terrain_list.index(current_terrain),
+            key="terrain_select"
+        )
+        
+        materials["building_height"] = st.number_input(
+            "Building Height (m)",
+            min_value=2.0, max_value=50.0, step=0.5,
+            value=float(materials.get("building_height", 10.0)),
+            key="building_height"
+        )
+        materials["importance_factor"] = st.slider(
+            "Importance Factor",
+            min_value=0.8, max_value=1.5, step=0.1,
+            value=float(materials.get("importance_factor", 1.0)),
+            key="importance_factor"
+        )
         st.markdown('</div>', unsafe_allow_html=True)
         
         # Bracing & Tie-Downs
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">🔗 Bracing & Tie-Downs</div>', unsafe_allow_html=True)
-        materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=1)
-        materials["tie_down_angle"] = st.slider("Tie-Down Angle (°)", 20, 70, 45, 5)
+        materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=1, key="num_bays")
+        materials["tie_down_angle"] = st.slider("Tie-Down Angle (°)", 20, 70, 45, 5, key="tie_down_angle")
         
+        # Cable Type
         cable_options = list(CABLE_SPECS.keys())
-        materials["wire_rope_type"] = st.selectbox("Cable Type", cable_options,
-            index=cable_options.index(materials.get("wire_rope_type", "6x19 Galvanized")))
+        current_cable = materials.get("wire_rope_type", cable_options[0] if cable_options else "6x19 Galvanized (EU)")
+        if current_cable not in cable_options:
+            current_cable = cable_options[0] if cable_options else "6x19 Galvanized (EU)"
         
-        materials["wire_rope_diameter"] = st.selectbox("Cable Diameter (mm)", 
-            CABLE_SPECS[materials["wire_rope_type"]]["diameters"],
-            index=0)
-        materials["safety_factor"] = st.number_input("Safety Factor", min_value=1.0, max_value=3.0, step=0.1, 
-            value=float(materials.get("safety_factor", 1.5)))
+        materials["wire_rope_type"] = st.selectbox(
+            "Cable Type",
+            cable_options,
+            index=cable_options.index(current_cable),
+            key="cable_type"
+        )
+        
+        # Cable Diameter
+        available_diameters = CABLE_SPECS[materials["wire_rope_type"]]["diameters"]
+        current_diameter = materials.get("wire_rope_diameter", available_diameters[0] if available_diameters else 12)
+        if current_diameter not in available_diameters:
+            current_diameter = available_diameters[0] if available_diameters else 12
+        
+        materials["wire_rope_diameter"] = st.selectbox(
+            "Cable Diameter (mm)",
+            available_diameters,
+            index=available_diameters.index(current_diameter) if current_diameter in available_diameters else 0,
+            key="cable_diameter"
+        )
+        
+        materials["safety_factor"] = st.number_input(
+            "Safety Factor",
+            min_value=1.0, max_value=3.0, step=0.1,
+            value=float(materials.get("safety_factor", 1.5)),
+            key="safety_factor"
+        )
         st.markdown('</div>', unsafe_allow_html=True)
         
         # Comments
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">💬 Notes</div>', unsafe_allow_html=True)
-        comments = st.text_area("", value=st.session_state.comments, height=80, placeholder="Add design notes...")
+        comments = st.text_area("", value=st.session_state.comments, height=80, placeholder="Add design notes...", key="comments_area")
         st.session_state.comments = comments
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col_right:
         st.subheader("🔬 3D Model")
         
-        # Generate and display
         if typ_key == "custom":
             fig = generate_custom(params)
         else:
@@ -1244,27 +1585,26 @@ def render_workspace():
         
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
         
-        # Actions
         st.divider()
         col_act1, col_act2, col_act3, col_act4, col_act5 = st.columns(5)
         with col_act1:
-            if st.button("🔒 Lock", use_container_width=True):
+            if st.button("🔒 Lock", use_container_width=True, key="lock_btn"):
                 st.session_state.locked = True
                 save_cache()
                 st.rerun()
         with col_act2:
-            if st.button("💾 Save", use_container_width=True, type="primary"):
+            if st.button("💾 Save", use_container_width=True, type="primary", key="save_btn"):
                 save_project()
         with col_act3:
-            if st.button("📊 Health Report", use_container_width=True):
+            if st.button("📊 Health Report", use_container_width=True, key="report_btn"):
                 st.session_state.show_structural_report = True
                 st.rerun()
         with col_act4:
-            if st.button("📋 New", use_container_width=True):
+            if st.button("📋 New", use_container_width=True, key="new_btn"):
                 go_to_dashboard()
                 st.rerun()
         with col_act5:
-            if st.button("🏠 Home", use_container_width=True):
+            if st.button("🏠 Home", use_container_width=True, key="home_btn"):
                 go_to_dashboard()
                 st.rerun()
     
@@ -1284,7 +1624,7 @@ def render_workspace():
     if st.session_state.show_structural_report:
         report = generate_structural_health_report(params, materials)
         render_structural_health_report(report)
-        if st.button("Close Report", use_container_width=True):
+        if st.button("Close Report", use_container_width=True, key="close_report"):
             st.session_state.show_structural_report = False
             st.rerun()
     
@@ -1295,9 +1635,9 @@ def render_workspace():
 # ============================================================
 
 # Top Bar
-col1, col2, col3, col4, col5, col6 = st.columns([1, 2, 1, 1, 1, 1])
+col1, col2, col3, col4, col5, col6, col7 = st.columns([1, 2, 1, 1, 1, 1, 1])
 with col1:
-    if st.button("🏗️", help="Dashboard"):
+    if st.button("🏗️", help="Dashboard", key="logo_btn"):
         go_to_dashboard()
         st.rerun()
 with col2:
@@ -1310,24 +1650,28 @@ with col3:
         typ = TYPOLOGIES.get(st.session_state.typology, {})
         st.caption(f"{typ.get('icon', '')} {typ.get('name', '')}")
 with col4:
-    if st.session_state.locked:
-        st.caption("🔒 Locked")
+    standard = st.session_state.materials.get("standard", "EU")
+    badge_class = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(standard, "badge-eu")
+    st.markdown(f'<span class="standard-badge {badge_class}">{standard}</span>', unsafe_allow_html=True)
 with col5:
     if st.session_state.locked:
-        if st.button("🔓 Unlock", use_container_width=True):
+        st.caption("🔒 Locked")
+with col6:
+    if st.session_state.locked:
+        if st.button("🔓 Unlock", use_container_width=True, key="unlock_btn"):
             st.session_state.locked = False
             save_cache()
             st.rerun()
-with col6:
+with col7:
     if st.session_state.project_registered and st.session_state.typology:
-        if st.button("📊 Report", use_container_width=True):
+        if st.button("📊 Report", use_container_width=True, key="top_report_btn"):
             st.session_state.show_structural_report = True
             st.rerun()
 
 # Project Browser
 if st.session_state.show_project_browser:
     st.subheader("📂 Saved Projects")
-    if st.button("⬅ Back", use_container_width=True):
+    if st.button("⬅ Back", use_container_width=True, key="back_browser"):
         st.session_state.show_project_browser = False
         st.rerun()
     
@@ -1336,10 +1680,12 @@ if st.session_state.show_project_browser:
         st.info("No saved projects found.")
     else:
         for proj in projects:
-            col1, col2, col3 = st.columns([3, 1, 1])
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
             with col1:
                 st.write(f"**{proj.get('name', 'Untitled')}** — {proj.get('client', 'Unknown')}")
-                st.caption(f"Ref: {proj.get('reference', 'N/A')} | {proj.get('typology', 'Unknown')} {'🔒' if proj.get('locked') else '📝'}")
+                standard = proj.get('standard', 'EU')
+                badge_class = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(standard, "badge-eu")
+                st.markdown(f'<span class="standard-badge {badge_class}">{standard}</span> {proj.get("typology", "Unknown")} {"🔒" if proj.get("locked") else "📝"}', unsafe_allow_html=True)
             with col2:
                 if st.button("Load", key=f"load_{proj.get('file')}"):
                     if load_project_from_file(proj.get('file')):
@@ -1349,13 +1695,15 @@ if st.session_state.show_project_browser:
                 if st.button("Delete", key=f"del_{proj.get('file')}"):
                     delete_project_file(proj.get('file'))
                     st.rerun()
+            with col4:
+                st.caption(proj.get("date", "")[:10])
             st.divider()
     st.stop()
 
 # Registration
 if st.session_state.show_registration:
     st.subheader("📋 New Project")
-    if st.button("⬅ Back", use_container_width=True):
+    if st.button("⬅ Back", use_container_width=True, key="back_reg"):
         st.session_state.show_registration = False
         st.rerun()
     
@@ -1363,6 +1711,7 @@ if st.session_state.show_registration:
         name = st.text_input("Project Name *", placeholder="e.g., KLCC Canopy")
         client = st.text_input("Client Name *", placeholder="e.g., KLCC Holdings")
         location = st.text_input("Location", placeholder="e.g., Kuala Lumpur")
+        standard = st.selectbox("Design Standard", ["EU", "CN", "UK", "MY", "US"], index=3)
         
         ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         st.caption(f"Reference: SDS-{ref}")
@@ -1382,6 +1731,8 @@ if st.session_state.show_registration:
                 }
                 st.session_state.project_registered = True
                 st.session_state.show_registration = False
+                st.session_state.selected_standard = standard
+                st.session_state.materials["standard"] = standard
                 save_cache()
                 st.rerun()
     st.stop()
@@ -1394,13 +1745,13 @@ if not st.session_state.project_registered:
 # Typology Selection
 if st.session_state.typology is None:
     st.subheader("Choose a structure type:")
-    st.caption("MS EN 1993-1-1 & MS EN 1991-1-4 compliant design")
+    st.caption(f"🌍 {get_standard_label(st.session_state.selected_standard)} Compliant")
     
     cols = st.columns(2)
     idx = 0
     for key, typ in TYPOLOGIES.items():
         with cols[idx % 2]:
-            if st.button(f"{typ['icon']} {typ['name']}", use_container_width=True):
+            if st.button(f"{typ['icon']} {typ['name']}", use_container_width=True, key=f"typology_{key}"):
                 st.session_state.typology = key
                 st.session_state.params = {p: v["default"] for p, v in typ["params"].items()}
                 st.session_state.qa_answers = {}
@@ -1415,6 +1766,6 @@ render_workspace()
 
 # Footer
 st.divider()
-st.caption("SDS Design Studio | MS EN 1993-1-1 & MS EN 1991-1-4 Compliant | v6.0")
+st.caption("SDS Design Studio | EU / China / British / Malaysia / USA Standards | v7.0")
 
 save_cache()
