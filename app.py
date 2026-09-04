@@ -28,45 +28,25 @@ dark_mode_css = """
         background-color: #0a0e17 !important;
         color: #f0f4fa !important;
     }
-    .stApp > header {
-        background-color: transparent !important;
-        display: none !important;
-    }
-    .stApp > header > div {
-        display: none !important;
-    }
-    .stApp > div > div {
-        background-color: #0a0e17 !important;
-    }
+    .stApp > header { display: none !important; }
+    .stApp > div > div { background-color: #0a0e17 !important; }
     .block-container {
         padding-top: 0.5rem !important;
         padding-bottom: 0rem !important;
         max-width: 100% !important;
     }
-    h1, h2, h3, h4, h5, h6 {
-        color: #ffffff !important;
-        font-weight: 600 !important;
-    }
-    .stSubheader {
-        color: #e0e8f0 !important;
-    }
+    h1, h2, h3, h4, h5, h6 { color: #ffffff !important; font-weight: 600 !important; }
     label, .stTextInput label, .stTextArea label, .stSelectbox label, .stNumberInput label {
         color: #ffffff !important;
         font-weight: 400 !important;
         font-size: 1rem !important;
     }
-    .stCaption, .stMarkdown, .stInfo, .stWarning {
-        color: #e0e8f0 !important;
-    }
+    .stCaption, .stMarkdown, .stInfo, .stWarning { color: #e0e8f0 !important; }
     .stRadio label {
         color: #ffffff !important;
         font-weight: 500 !important;
         font-size: 1rem !important;
         text-shadow: 0 0 4px rgba(0,0,0,0.8) !important;
-    }
-    .stRadio label span {
-        color: #ffffff !important;
-        font-weight: 500 !important;
     }
     .stRadio > div {
         background-color: #141e2b !important;
@@ -110,10 +90,6 @@ dark_mode_css = """
         font-size: 1.1rem !important;
         padding: 0.5rem !important;
     }
-    .stNumberInput > div > div > input:focus {
-        border-color: #f39c12 !important;
-        box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2) !important;
-    }
     .stTextInput > div > div > input,
     .stTextArea > div > div > textarea,
     .stSelectbox > div > div > div {
@@ -122,10 +98,7 @@ dark_mode_css = """
         border: 1px solid #2a3a4f !important;
         border-radius: 8px !important;
     }
-    .stTextArea textarea {
-        color: #ffffff !important;
-        background-color: #141e2b !important;
-    }
+    .stTextArea textarea { color: #ffffff !important; background-color: #141e2b !important; }
     .streamlit-expanderHeader {
         background-color: #141e2b !important;
         border-radius: 8px !important;
@@ -139,25 +112,12 @@ dark_mode_css = """
         border-radius: 0 0 8px 8px !important;
         color: #f0f4fa !important;
     }
-    .streamlit-expanderContent p, 
-    .streamlit-expanderContent span, 
-    .streamlit-expanderContent label {
-        color: #f0f4fa !important;
-    }
-    .stAlert {
-        background-color: #1e2a3a !important;
-        border-left: 4px solid #f39c12 !important;
-        color: #f0f4fa !important;
-    }
-    .stInfo {
-        background-color: #1a2a3a !important;
-        border-left: 4px solid #4a7a9c !important;
-        color: #f0f4fa !important;
-    }
-    #MainMenu {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    header {visibility: hidden !important;}
-    .stDeployButton {display: none !important;}
+    .stAlert { background-color: #1e2a3a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; }
+    .stInfo { background-color: #1a2a3a !important; border-left: 4px solid #4a7a9c !important; color: #f0f4fa !important; }
+    #MainMenu { visibility: hidden !important; }
+    footer { visibility: hidden !important; }
+    header { visibility: hidden !important; }
+    .stDeployButton { display: none !important; }
     
     .dashboard-card {
         background-color: #141e2b;
@@ -167,23 +127,10 @@ dark_mode_css = """
         text-align: center;
         transition: all 0.2s;
     }
-    .dashboard-card:hover {
-        border-color: #4a7a9c;
-        background-color: #1a2a3a;
-    }
-    .dashboard-card .icon {
-        font-size: 2.5rem;
-    }
-    .dashboard-card .label {
-        color: #8a9aaa;
-        font-size: 0.8rem;
-        margin-top: 0.5rem;
-    }
-    .dashboard-card .value {
-        color: #ffffff;
-        font-size: 1.2rem;
-        font-weight: 600;
-    }
+    .dashboard-card:hover { border-color: #4a7a9c; background-color: #1a2a3a; }
+    .dashboard-card .icon { font-size: 2.5rem; }
+    .dashboard-card .label { color: #8a9aaa; font-size: 0.8rem; margin-top: 0.5rem; }
+    .dashboard-card .value { color: #ffffff; font-size: 1.2rem; font-weight: 600; }
     
     .sds-card {
         background-color: #141e2b;
@@ -192,16 +139,8 @@ dark_mode_css = """
         border: 1px solid #1e2a3a;
         margin-bottom: 0.8rem;
     }
-    .sds-card .title {
-        color: #ffffff;
-        font-weight: 600;
-        font-size: 1rem;
-        margin-bottom: 0.4rem;
-    }
-    .sds-card .content {
-        color: #b0c4de;
-        font-size: 0.9rem;
-    }
+    .sds-card .title { color: #ffffff; font-weight: 600; font-size: 1rem; margin-bottom: 0.4rem; }
+    .sds-card .content { color: #b0c4de; font-size: 0.9rem; }
     .sds-card .badge {
         display: inline-block;
         padding: 0.1rem 0.5rem;
@@ -215,30 +154,6 @@ dark_mode_css = """
     .badge-unknown { background-color: #6b2d2d; color: #fca5a5; }
     .badge-provided { background-color: #1e3a5f; color: #93c5fd; }
     .badge-autogen { background-color: #3b3b6b; color: #c4b5fd; }
-    
-    .export-section {
-        background-color: #141e2b;
-        border-radius: 12px;
-        padding: 1rem;
-        border: 1px solid #2a3a4f;
-        margin: 1rem 0;
-    }
-    .export-section a {
-        color: #4a7a9c !important;
-        text-decoration: underline;
-        font-weight: 500;
-    }
-    .export-section a:hover {
-        color: #f39c12 !important;
-    }
-    
-    .proposal-drawings {
-        background-color: #0a0e17;
-        border-radius: 12px;
-        padding: 0.5rem;
-        border: 1px solid #1e2a3a;
-        margin: 0.5rem 0;
-    }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -730,7 +645,7 @@ def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_an
     return cable_force
 
 # ============================================================
-# THREE.JS COMPONENT
+# THREE.JS COMPONENT (Fixed – uses script tag, not import map)
 # ============================================================
 
 def threejs_component(data):
@@ -758,315 +673,305 @@ def threejs_component(data):
         <div id="controls-hint">🖱️ Rotate: drag | Zoom: scroll | Click: select</div>
         <div id="context-menu"></div>
 
-        <script type="importmap">
-            {{
-                "imports": {{
-                    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-                }}
-            }}
+        <!-- Load Three.js from CDN via script tag (more compatible) -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js">
         </script>
-        <script type="module">
-            import * as THREE from 'three';
-            import {{ OrbitControls }} from 'three/addons/controls/OrbitControls.js';
-            import {{ CSS2DRenderer, CSS2DObject }} from 'three/addons/renderers/CSS2DRenderer.js';
+        <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js">
+        </script>
 
-            const designData = {data_json};
+        <script>
+            var designData = {data_json};
 
-            const container = document.getElementById('container');
-            const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0a0e17);
+            (function() {{
+                var container = document.getElementById('container');
+                var scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x0a0e17);
 
-            const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-            camera.position.set(12, 8, 16);
-            camera.lookAt(0, 3, 0);
+                var camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+                camera.position.set(12, 8, 16);
+                camera.lookAt(0, 3, 0);
 
-            const renderer = new THREE.WebGLRenderer({{ antialias: true }});
-            renderer.setSize(container.clientWidth, container.clientHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            container.appendChild(renderer.domElement);
+                var renderer = new THREE.WebGLRenderer({{ antialias: true }});
+                renderer.setSize(container.clientWidth, container.clientHeight);
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                container.appendChild(renderer.domElement);
 
-            const labelRenderer = new CSS2DRenderer();
-            labelRenderer.setSize(container.clientWidth, container.clientHeight);
-            labelRenderer.domElement.style.position = 'absolute';
-            labelRenderer.domElement.style.top = '0';
-            labelRenderer.domElement.style.left = '0';
-            labelRenderer.domElement.style.pointerEvents = 'none';
-            container.appendChild(labelRenderer.domElement);
+                var controls = new THREE.OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.1;
+                controls.target.set(0, 3, 0);
+                controls.update();
 
-            const controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.1;
-            controls.target.set(0, 3, 0);
-            controls.update();
+                var ambient = new THREE.AmbientLight(0x404060);
+                scene.add(ambient);
+                var dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+                dirLight.position.set(10, 20, 10);
+                scene.add(dirLight);
+                var fillLight = new THREE.DirectionalLight(0x4488ff, 0.5);
+                fillLight.position.set(-10, 0, 10);
+                scene.add(fillLight);
 
-            const ambient = new THREE.AmbientLight(0x404060);
-            scene.add(ambient);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-            dirLight.position.set(10, 20, 10);
-            scene.add(dirLight);
-            const fillLight = new THREE.DirectionalLight(0x4488ff, 0.5);
-            fillLight.position.set(-10, 0, 10);
-            scene.add(fillLight);
+                var gridHelper = new THREE.GridHelper(30, 20, 0x2a3a4f, 0x1a2a3a);
+                gridHelper.position.y = -0.01;
+                scene.add(gridHelper);
 
-            const gridHelper = new THREE.GridHelper(30, 20, 0x2a3a4f, 0x1a2a3a);
-            gridHelper.position.y = -0.01;
-            scene.add(gridHelper);
+                var mainGroup = new THREE.Group();
+                scene.add(mainGroup);
+                var clickableObjects = [];
 
-            const mainGroup = new THREE.Group();
-            scene.add(mainGroup);
-            const labelGroup = new THREE.Group();
-            scene.add(labelGroup);
-            const clickableObjects = [];
+                function createBeam(points, color, width) {{
+                    color = color || 0xFF6B6B;
+                    width = width || 0.15;
+                    var curve = new THREE.CatmullRomCurve3(points);
+                    var geometry = new THREE.TubeGeometry(curve, 50, width, 8, false);
+                    var material = new THREE.MeshStandardMaterial({{ color: color, roughness: 0.6, metalness: 0.3 }});
+                    var mesh = new THREE.Mesh(geometry, material);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    return mesh;
+                }}
 
-            function createBeam(points, color = 0xFF6B6B, width = 0.15) {{
-                const curve = new THREE.CatmullRomCurve3(points);
-                const geometry = new THREE.TubeGeometry(curve, 50, width, 8, false);
-                const material = new THREE.MeshStandardMaterial({{ color, roughness: 0.6, metalness: 0.3 }});
-                const mesh = new THREE.Mesh(geometry, material);
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-                return mesh;
-            }}
+                function buildScene(data) {{
+                    while(mainGroup.children.length) mainGroup.remove(mainGroup.children[0]);
+                    clickableObjects.length = 0;
 
-            function buildScene(data) {{
-                while(mainGroup.children.length) mainGroup.remove(mainGroup.children[0]);
-                while(labelGroup.children.length) labelGroup.remove(labelGroup.children[0]);
-                clickableObjects.length = 0;
+                    var params = data.params || {{}};
+                    var materials = data.materials || {{}};
+                    var custom_members = data.custom_members || [];
+                    var tie_down_attachments = data.tie_down_attachments || [];
+                    var bracing_points = data.bracing_points || [];
+                    var annotations = data.annotations || {{}};
 
-                const {{ params, materials, custom_members, tie_down_attachments, bracing_points, annotations }} = data;
-                const A = params.A || 6;
-                const B = params.B || 10;
-                const LAA = params.LAA || 15;
-                const numPoints = 50;
+                    var A = params.A || 6;
+                    var B = params.B || 10;
+                    var LAA = params.LAA || 15;
+                    var numPoints = 50;
 
-                const x = Array.from({{length: numPoints}}, (_, i) => -B/2 + i * B/(numPoints-1));
-                const z_beam = x.map(xi => A * (1 - (2*xi/B)**2));
-                const y1 = x.map(xi => -LAA/2 * (1 - (2*xi/B)**2));
-                const y2 = x.map(xi => LAA/2 * (1 - (2*xi/B)**2));
+                    var x = Array.from({{length: numPoints}}, function(_, i) {{ return -B/2 + i * B/(numPoints-1); }});
+                    var z_beam = x.map(function(xi) {{ return A * (1 - Math.pow(2*xi/B, 2)); }});
+                    var y1 = x.map(function(xi) {{ return -LAA/2 * (1 - Math.pow(2*xi/B, 2)); }});
+                    var y2 = x.map(function(xi) {{ return LAA/2 * (1 - Math.pow(2*xi/B, 2)); }});
 
-                const pts1 = x.map((xi, i) => new THREE.Vector3(xi, y1[i], z_beam[i]));
-                const beam1 = createBeam(pts1, 0xFF6B6B, 0.15);
-                mainGroup.add(beam1);
-                const pts2 = x.map((xi, i) => new THREE.Vector3(xi, y2[i], z_beam[i]));
-                const beam2 = createBeam(pts2, 0xFF6B6B, 0.15);
-                mainGroup.add(beam2);
+                    var pts1 = x.map(function(xi, i) {{ return new THREE.Vector3(xi, y1[i], z_beam[i]); }});
+                    var beam1 = createBeam(pts1, 0xFF6B6B, 0.15);
+                    mainGroup.add(beam1);
+                    var pts2 = x.map(function(xi, i) {{ return new THREE.Vector3(xi, y2[i], z_beam[i]); }});
+                    var beam2 = createBeam(pts2, 0xFF6B6B, 0.15);
+                    mainGroup.add(beam2);
 
-                const membranePoints = [];
-                for (let i = 0; i < numPoints; i++) {{
-                    for (let j = 0; j < numPoints; j++) {{
-                        const t = j / (numPoints-1);
-                        const xi = x[i];
-                        const y = y1[i] * (1 - t) + y2[i] * t;
-                        const z = z_beam[i] * (1 - 0.3 * (1 - (2*t - 1)**2));
-                        membranePoints.push(new THREE.Vector3(xi, y, z));
+                    // Membrane
+                    var membranePoints = [];
+                    for (var i = 0; i < numPoints; i++) {{
+                        for (var j = 0; j < numPoints; j++) {{
+                            var t = j / (numPoints-1);
+                            var xi = x[i];
+                            var y = y1[i] * (1 - t) + y2[i] * t;
+                            var z = z_beam[i] * (1 - 0.3 * (1 - Math.pow(2*t - 1, 2)));
+                            membranePoints.push(new THREE.Vector3(xi, y, z));
+                        }}
+                    }}
+                    var geom = new THREE.BufferGeometry();
+                    var vertices = [];
+                    var indices = [];
+                    for (var i = 0; i < numPoints - 1; i++) {{
+                        for (var j = 0; j < numPoints - 1; j++) {{
+                            var idx = i * numPoints + j;
+                            var p1 = membranePoints[idx];
+                            var p2 = membranePoints[idx + 1];
+                            var p3 = membranePoints[idx + numPoints + 1];
+                            var p4 = membranePoints[idx + numPoints];
+                            vertices.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+                            var base = (i * (numPoints-1) + j) * 4;
+                            indices.push(base, base+1, base+2, base, base+2, base+3);
+                        }}
+                    }}
+                    geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+                    geom.setIndex(indices);
+                    geom.computeVertexNormals();
+                    var mat = new THREE.MeshPhongMaterial({{
+                        color: 0x4a7a9c,
+                        transparent: true,
+                        opacity: 0.5,
+                        side: THREE.DoubleSide,
+                        roughness: 0.4,
+                        metalness: 0.1
+                    }});
+                    var membrane = new THREE.Mesh(geom, mat);
+                    mainGroup.add(membrane);
+
+                    // Apex markers
+                    var apexMat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.3 }});
+                    var sphereGeo = new THREE.SphereGeometry(0.3, 16, 16);
+                    var apex1 = new THREE.Mesh(sphereGeo, apexMat);
+                    apex1.position.set(0, y1[Math.floor(numPoints/2)], A);
+                    mainGroup.add(apex1);
+                    var apex2 = new THREE.Mesh(sphereGeo, apexMat);
+                    apex2.position.set(0, y2[Math.floor(numPoints/2)], A);
+                    mainGroup.add(apex2);
+
+                    // Supports
+                    var supportMat = new THREE.MeshStandardMaterial({{ color: 0x4ECDC4 }});
+                    var supportGeo = new THREE.BoxGeometry(0.4, 0.1, 0.4);
+                    var s1 = new THREE.Mesh(supportGeo, supportMat);
+                    s1.position.set(-B/2, 0, 0);
+                    mainGroup.add(s1);
+                    var s2 = new THREE.Mesh(supportGeo, supportMat);
+                    s2.position.set(B/2, 0, 0);
+                    mainGroup.add(s2);
+
+                    // Bracing points
+                    if (bracing_points && bracing_points.length) {{
+                        var bpMat = new THREE.MeshStandardMaterial({{ color: 0x4ECDC4, emissive: 0x4ECDC4, emissiveIntensity: 0.2 }});
+                        bracing_points.forEach(function(bp, idx) {{
+                            var pos = new THREE.Vector3(bp.x, bp.y, bp.z);
+                            var sphere = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), bpMat);
+                            sphere.position.copy(pos);
+                            sphere.userData = {{ type: 'bracingPoint', bayIndex: bp.bayIndex, index: idx }};
+                            mainGroup.add(sphere);
+                            clickableObjects.push(sphere);
+                        }});
+                    }}
+
+                    // Tie-downs
+                    if (annotations.showTieDown !== false && tie_down_attachments) {{
+                        tie_down_attachments.forEach(function(td) {{
+                            var start = new THREE.Vector3(td.startX, td.startY, td.startZ);
+                            var end = new THREE.Vector3(td.endX, td.endY, td.endZ);
+                            var points = [start, end];
+                            var curve = new THREE.CatmullRomCurve3(points);
+                            var tubeGeo = new THREE.TubeGeometry(curve, 10, 0.03, 6, false);
+                            var ropeMat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.1 }});
+                            var rope = new THREE.Mesh(tubeGeo, ropeMat);
+                            mainGroup.add(rope);
+                            var anchorMat = new THREE.MeshStandardMaterial({{ color: 0xFF6B6B }});
+                            var anchor = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), anchorMat);
+                            anchor.position.copy(end);
+                            mainGroup.add(anchor);
+                        }});
+                    }}
+
+                    // Wind arrows
+                    if (annotations.showWind !== false) {{
+                        var arrowColor = 0xFF6B6B;
+                        var dir = new THREE.Vector3(0, 1, 0);
+                        var origin = new THREE.Vector3(-B/4, -LAA/4, A*0.8);
+                        var arrowLen = 1.5;
+                        var arrowHelper = new THREE.ArrowHelper(dir, origin, arrowLen, arrowColor, 0.3, 0.2);
+                        mainGroup.add(arrowHelper);
+                        var origin2 = new THREE.Vector3(B/4, LAA/4, A*0.8);
+                        var arrowHelper2 = new THREE.ArrowHelper(dir, origin2, arrowLen, arrowColor, 0.3, 0.2);
+                        mainGroup.add(arrowHelper2);
+                    }}
+
+                    // Load path
+                    if (annotations.showLoadPath !== false) {{
+                        var pts = [new THREE.Vector3(0, 0, A), new THREE.Vector3(0, 0, A-2)];
+                        var curve = new THREE.CatmullRomCurve3(pts);
+                        var tubeGeo = new THREE.TubeGeometry(curve, 10, 0.04, 6, false);
+                        var mat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.2, transparent: true, opacity: 0.6 }});
+                        var loadLine = new THREE.Mesh(tubeGeo, mat);
+                        mainGroup.add(loadLine);
+                    }}
+
+                    // Custom members
+                    if (custom_members && custom_members.length) {{
+                        custom_members.forEach(function(m) {{
+                            var start = new THREE.Vector3(m.startX, m.startY, m.startZ);
+                            var end = new THREE.Vector3(m.endX, m.endY, m.endZ);
+                            var mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+                            var direction = new THREE.Vector3().subVectors(end, start);
+                            var length = direction.length();
+                            var cylinder = new THREE.Mesh(
+                                new THREE.CylinderGeometry(0.06, 0.06, length, 6),
+                                new THREE.MeshStandardMaterial({{ color: 0x4a7a9c, emissive: 0x4a7a9c, emissiveIntensity: 0.1 }})
+                            );
+                            cylinder.position.copy(mid);
+                            cylinder.quaternion.setFromUnitVectors(
+                                new THREE.Vector3(0, 1, 0),
+                                direction.clone().normalize()
+                            );
+                            mainGroup.add(cylinder);
+                        }});
                     }}
                 }}
-                const geom = new THREE.BufferGeometry();
-                const vertices = [];
-                const indices = [];
-                for (let i = 0; i < numPoints - 1; i++) {{
-                    for (let j = 0; j < numPoints - 1; j++) {{
-                        const idx = i * numPoints + j;
-                        const p1 = membranePoints[idx];
-                        const p2 = membranePoints[idx + 1];
-                        const p3 = membranePoints[idx + numPoints + 1];
-                        const p4 = membranePoints[idx + numPoints];
-                        vertices.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
-                        const base = (i * (numPoints-1) + j) * 4;
-                        indices.push(base, base+1, base+2, base, base+2, base+3);
-                    }}
-                }}
-                geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-                geom.setIndex(indices);
-                geom.computeVertexNormals();
-                const mat = new THREE.MeshPhongMaterial({{
-                    color: 0x4a7a9c,
-                    transparent: true,
-                    opacity: 0.5,
-                    side: THREE.DoubleSide,
-                    roughness: 0.4,
-                    metalness: 0.1
-                }});
-                const membrane = new THREE.Mesh(geom, mat);
-                mainGroup.add(membrane);
 
-                const apexMat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.3 }});
-                const sphereGeo = new THREE.SphereGeometry(0.3, 16, 16);
-                const apex1 = new THREE.Mesh(sphereGeo, apexMat);
-                apex1.position.set(0, y1[Math.floor(numPoints/2)], A);
-                mainGroup.add(apex1);
-                const apex2 = new THREE.Mesh(sphereGeo, apexMat);
-                apex2.position.set(0, y2[Math.floor(numPoints/2)], A);
-                mainGroup.add(apex2);
+                // Click handler
+                var raycaster = new THREE.Raycaster();
+                var pointer = new THREE.Vector2();
 
-                const supportMat = new THREE.MeshStandardMaterial({{ color: 0x4ECDC4 }});
-                const supportGeo = new THREE.BoxGeometry(0.4, 0.1, 0.4);
-                const s1 = new THREE.Mesh(supportGeo, supportMat);
-                s1.position.set(-B/2, 0, 0);
-                mainGroup.add(s1);
-                const s2 = new THREE.Mesh(supportGeo, supportMat);
-                s2.position.set(B/2, 0, 0);
-                mainGroup.add(s2);
+                renderer.domElement.addEventListener('click', function(event) {{
+                    var rect = renderer.domElement.getBoundingClientRect();
+                    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-                if (bracing_points && bracing_points.length) {{
-                    const bpMat = new THREE.MeshStandardMaterial({{ color: 0x4ECDC4, emissive: 0x4ECDC4, emissiveIntensity: 0.2 }});
-                    bracing_points.forEach((bp, idx) => {{
-                        const pos = new THREE.Vector3(bp.x, bp.y, bp.z);
-                        const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), bpMat);
-                        sphere.position.copy(pos);
-                        sphere.userData = {{ type: 'bracingPoint', bayIndex: bp.bayIndex, index: idx }};
-                        mainGroup.add(sphere);
-                        clickableObjects.push(sphere);
-                        const div = document.createElement('div');
-                        div.textContent = `B${{bp.bayIndex}}`;
-                        div.style.color = '#b0c4de';
-                        div.style.fontSize = '10px';
-                        div.style.fontWeight = 'bold';
-                        div.style.textShadow = '1px 1px 2px rgba(0,0,0,0.8)';
-                        const label = new CSS2DObject(div);
-                        label.position.set(bp.x, bp.y + 0.4, bp.z);
-                        labelGroup.add(label);
-                    }});
-                }}
+                    raycaster.setFromCamera(pointer, camera);
+                    var intersects = raycaster.intersectObjects(clickableObjects);
 
-                if (annotations.showTieDown && tie_down_attachments) {{
-                    tie_down_attachments.forEach(td => {{
-                        const start = new THREE.Vector3(td.startX, td.startY, td.startZ);
-                        const end = new THREE.Vector3(td.endX, td.endY, td.endZ);
-                        const points = [start, end];
-                        const curve = new THREE.CatmullRomCurve3(points);
-                        const tubeGeo = new THREE.TubeGeometry(curve, 10, 0.03, 6, false);
-                        const ropeMat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.1 }});
-                        const rope = new THREE.Mesh(tubeGeo, ropeMat);
-                        mainGroup.add(rope);
-                        const anchorMat = new THREE.MeshStandardMaterial({{ color: 0xFF6B6B }});
-                        const anchor = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), anchorMat);
-                        anchor.position.copy(end);
-                        mainGroup.add(anchor);
-                    }});
-                }}
-
-                if (annotations.showWind) {{
-                    const arrowColor = 0xFF6B6B;
-                    const dir = new THREE.Vector3(0, 1, 0);
-                    const origin = new THREE.Vector3(-B/4, -LAA/4, A*0.8);
-                    const arrowLen = 1.5;
-                    const arrowHelper = new THREE.ArrowHelper(dir, origin, arrowLen, arrowColor, 0.3, 0.2);
-                    mainGroup.add(arrowHelper);
-                    const origin2 = new THREE.Vector3(B/4, LAA/4, A*0.8);
-                    const arrowHelper2 = new THREE.ArrowHelper(dir, origin2, arrowLen, arrowColor, 0.3, 0.2);
-                    mainGroup.add(arrowHelper2);
-                }}
-
-                if (annotations.showLoadPath) {{
-                    const pts = [new THREE.Vector3(0, 0, A), new THREE.Vector3(0, 0, A-2)];
-                    const curve = new THREE.CatmullRomCurve3(pts);
-                    const tubeGeo = new THREE.TubeGeometry(curve, 10, 0.04, 6, false);
-                    const mat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.2, transparent: true, opacity: 0.6 }});
-                    const loadLine = new THREE.Mesh(tubeGeo, mat);
-                    mainGroup.add(loadLine);
-                }}
-
-                if (custom_members && custom_members.length) {{
-                    custom_members.forEach(m => {{
-                        const start = new THREE.Vector3(m.startX, m.startY, m.startZ);
-                        const end = new THREE.Vector3(m.endX, m.endY, m.endZ);
-                        const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-                        const direction = new THREE.Vector3().subVectors(end, start);
-                        const length = direction.length();
-                        const cylinder = new THREE.Mesh(
-                            new THREE.CylinderGeometry(0.06, 0.06, length, 6),
-                            new THREE.MeshStandardMaterial({{ color: 0x4a7a9c, emissive: 0x4a7a9c, emissiveIntensity: 0.1 }})
-                        );
-                        cylinder.position.copy(mid);
-                        cylinder.quaternion.setFromUnitVectors(
-                            new THREE.Vector3(0, 1, 0),
-                            direction.clone().normalize()
-                        );
-                        mainGroup.add(cylinder);
-                    }});
-                }}
-            }}
-
-            const raycaster = new THREE.Raycaster();
-            const pointer = new THREE.Vector2();
-            let selectedObject = null;
-
-            renderer.domElement.addEventListener('click', (event) => {{
-                const rect = renderer.domElement.getBoundingClientRect();
-                pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-                raycaster.setFromCamera(pointer, camera);
-                const intersects = raycaster.intersectObjects(clickableObjects);
-
-                const menu = document.getElementById('context-menu');
-                if (intersects.length > 0) {{
-                    const hit = intersects[0].object;
-                    if (hit.userData.type === 'bracingPoint') {{
-                        menu.style.display = 'block';
-                        menu.style.left = event.clientX + 'px';
-                        menu.style.top = event.clientY + 'px';
-                        menu.innerHTML = `
-                            <div style="font-weight:bold; margin-bottom:5px;">Bracing Point ${{hit.userData.bayIndex}}</div>
-                            <button data-action="attach-tie" data-bay="${{hit.userData.bayIndex}}" data-idx="${{hit.userData.index}}">🔗 Attach Tie‑down</button>
-                            <button data-action="add-strut" data-bay="${{hit.userData.bayIndex}}">➕ Add Strut here</button>
-                            <button data-action="close" style="margin-top:5px;">✖ Cancel</button>
-                        `;
-                        window._selectedBay = hit.userData.bayIndex;
-                        window._selectedIdx = hit.userData.index;
+                    var menu = document.getElementById('context-menu');
+                    if (intersects.length > 0) {{
+                        var hit = intersects[0].object;
+                        if (hit.userData.type === 'bracingPoint') {{
+                            menu.style.display = 'block';
+                            menu.style.left = event.clientX + 'px';
+                            menu.style.top = event.clientY + 'px';
+                            menu.innerHTML = `
+                                <div style="font-weight:bold; margin-bottom:5px;">Bracing Point ${{hit.userData.bayIndex}}</div>
+                                <button data-action="attach-tie" data-bay="${{hit.userData.bayIndex}}" data-idx="${{hit.userData.index}}">🔗 Attach Tie‑down</button>
+                                <button data-action="add-strut" data-bay="${{hit.userData.bayIndex}}">➕ Add Strut here</button>
+                                <button data-action="close" style="margin-top:5px;">✖ Cancel</button>
+                            `;
+                            window._selectedBay = hit.userData.bayIndex;
+                            window._selectedIdx = hit.userData.index;
+                        }} else {{
+                            menu.style.display = 'none';
+                        }}
                     }} else {{
                         menu.style.display = 'none';
                     }}
-                }} else {{
-                    menu.style.display = 'none';
-                }}
-            }});
+                }});
 
-            document.getElementById('context-menu').addEventListener('click', (e) => {{
-                const target = e.target.closest('button');
-                if (!target) return;
-                const action = target.dataset.action;
-                if (action === 'close') {{
+                document.getElementById('context-menu').addEventListener('click', function(e) {{
+                    var target = e.target.closest('button');
+                    if (!target) return;
+                    var action = target.dataset.action;
+                    if (action === 'close') {{
+                        document.getElementById('context-menu').style.display = 'none';
+                        return;
+                    }}
+                    var bay = parseInt(target.dataset.bay);
+                    var idx = parseInt(target.dataset.idx);
+                    var url = new URL(window.parent.location.href);
+                    url.searchParams.set('sds_event', action);
+                    url.searchParams.set('sds_bay', bay);
+                    url.searchParams.set('sds_idx', idx);
+                    window.parent.location.href = url.href;
                     document.getElementById('context-menu').style.display = 'none';
-                    return;
+                }});
+
+                buildScene(designData);
+
+                window.addEventListener('resize', function() {{
+                    var w = container.clientWidth;
+                    var h = container.clientHeight;
+                    camera.aspect = w / h;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(w, h);
+                }});
+
+                function animate() {{
+                    requestAnimationFrame(animate);
+                    controls.update();
+                    renderer.render(scene, camera);
                 }}
-                const bay = parseInt(target.dataset.bay);
-                const idx = parseInt(target.dataset.idx);
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set('sds_event', action);
-                url.searchParams.set('sds_bay', bay);
-                url.searchParams.set('sds_idx', idx);
-                window.parent.location.href = url.href;
-                document.getElementById('context-menu').style.display = 'none';
-            }});
+                animate();
 
-            buildScene(designData);
-
-            window.addEventListener('resize', () => {{
-                const w = container.clientWidth;
-                const h = container.clientHeight;
-                camera.aspect = w / h;
-                camera.updateProjectionMatrix();
-                renderer.setSize(w, h);
-                labelRenderer.setSize(w, h);
-            }});
-
-            function animate() {{
-                requestAnimationFrame(animate);
-                controls.update();
-                renderer.render(scene, camera);
-                labelRenderer.render(scene, camera);
-            }}
-            animate();
-
-            window.addEventListener('message', (event) => {{
-                if (event.data.type === 'update-scene') {{
-                    Object.assign(designData, event.data.data);
-                    buildScene(designData);
-                }}
-            }});
+                window.addEventListener('message', function(event) {{
+                    if (event.data.type === 'update-scene') {{
+                        Object.assign(designData, event.data.data);
+                        buildScene(designData);
+                    }}
+                }});
+            }})();
         </script>
     </body>
     </html>
@@ -1087,15 +992,15 @@ def handle_threejs_events():
                 bp = st.session_state.bracing_points[idx]
                 v_angle = np.radians(st.session_state.materials.get("tie_down_vertical_angle", 45))
                 h_angle = np.radians(st.session_state.materials.get("tie_down_horizontal_spread", 25))
-                distance = bp.z * np.tan(v_angle)
-                anchor_x = bp.x + distance * np.sin(h_angle)
-                anchor_y = bp.y
+                distance = bp["z"] * np.tan(v_angle)
+                anchor_x = bp["x"] + distance * np.sin(h_angle)
+                anchor_y = bp["y"]
                 anchor_z = 0
                 td = {
                     "bayIndex": bay,
-                    "startX": bp.x,
-                    "startY": bp.y,
-                    "startZ": bp.z,
+                    "startX": bp["x"],
+                    "startY": bp["y"],
+                    "startZ": bp["z"],
                     "endX": anchor_x,
                     "endY": anchor_y,
                     "endZ": anchor_z,
@@ -1111,7 +1016,7 @@ def handle_threejs_events():
                 A = st.session_state.params.get("A", 6)
                 B = st.session_state.params.get("B", 10)
                 LAA = st.session_state.params.get("LAA", 15)
-                x_pos = bp.x
+                x_pos = bp["x"]
                 z = A * (1 - (2*x_pos/B)**2)
                 y_left = -LAA/2 * (1 - (2*x_pos/B)**2)
                 y_right = LAA/2 * (1 - (2*x_pos/B)**2)
@@ -1188,7 +1093,7 @@ def generate_bq():
     return bq_data
 
 # ============================================================
-# UNIFIED BOARD – WITH VISIBLE GEOMETRY INPUTS
+# UNIFIED BOARD – CLEAN WORKFLOW
 # ============================================================
 def render_unified_workspace():
     params = st.session_state.params
@@ -1202,7 +1107,7 @@ def render_unified_workspace():
 
     handle_threejs_events()
 
-    col_left, col_right = st.columns([1, 1.8])
+    col_left, col_right = st.columns([1, 2])
 
     with col_left:
         # Photo / Reference
@@ -1295,48 +1200,64 @@ def render_unified_workspace():
             st.success("✅ Design locked! You can now view the final model and export.")
 
     with col_right:
-        st.subheader("🔬 Interactive 3D Model (Three.js)")
+        # --- 3D VIEWER (at the top) ---
+        st.subheader("🔬 Interactive 3D Model")
         st.caption("Click a bracing point (blue sphere) to attach a tie‑down or add a strut.")
 
-        # --- GEOMETRY INPUTS – ALWAYS VISIBLE ---
+        # Prepare data for Three.js
+        num_bays = materials.get("num_bays", 2)
+        span = params.get("B", 10)
+        laa = params.get("LAA", 15)
+        rise = params.get("A", 6)
+        positions = generate_bracing_positions(span, num_bays)
+        bracing_points = []
+        for idx, x_pos in enumerate(positions):
+            z = rise * (1 - (2*x_pos/span)**2)
+            y1 = -laa/2 * (1 - (2*x_pos/span)**2)
+            y2 = laa/2 * (1 - (2*x_pos/span)**2)
+            bracing_points.append({"x": x_pos, "y": y1, "z": z, "bayIndex": idx})
+            bracing_points.append({"x": x_pos, "y": y2, "z": z, "bayIndex": idx})
+        st.session_state.bracing_points = bracing_points
+
+        three_data = {
+            "params": params,
+            "materials": materials,
+            "custom_members": st.session_state.custom_members,
+            "tie_down_attachments": st.session_state.tie_down_attachments,
+            "bracing_points": bracing_points,
+            "annotations": st.session_state.engineering_annotations
+        }
+
+        html = threejs_component(three_data)
+        st.components.v1.html(html, height=500, scrolling=False)
+
+        # --- CONTROLS BELOW THE VIEWER ---
+        st.divider()
         st.markdown("### 📐 Edit Geometry (A, B, LAA)")
         col_a, col_b, col_c = st.columns(3)
         with col_a:
-            new_a = st.number_input(
-                "Rise (A) (m)",
-                min_value=2.0,
-                max_value=20.0,
-                step=0.5,
-                value=float(params.get("A", 6.0)),
-                format="%.1f",
-                key="right_a"
-            )
+            new_a = st.number_input("Rise (A) (m)", min_value=2.0, max_value=20.0, step=0.5, value=float(params.get("A", 6.0)), format="%.1f", key="right_a")
             params["A"] = new_a
         with col_b:
-            new_b = st.number_input(
-                "Span (B) (m)",
-                min_value=4.0,
-                max_value=40.0,
-                step=0.5,
-                value=float(params.get("B", 10.0)),
-                format="%.1f",
-                key="right_b"
-            )
+            new_b = st.number_input("Span (B) (m)", min_value=4.0, max_value=40.0, step=0.5, value=float(params.get("B", 10.0)), format="%.1f", key="right_b")
             params["B"] = new_b
         with col_c:
-            new_laa = st.number_input(
-                "LAA (m)",
-                min_value=4.0,
-                max_value=50.0,
-                step=0.5,
-                value=float(params.get("LAA", 15.0)),
-                format="%.1f",
-                key="right_laa"
-            )
+            new_laa = st.number_input("LAA (m)", min_value=4.0, max_value=50.0, step=0.5, value=float(params.get("LAA", 15.0)), format="%.1f", key="right_laa")
             params["LAA"] = new_laa
-        st.divider()
 
-        # --- MATERIALS & BRACING (in expander) ---
+        # Annotation toggles
+        st.divider()
+        anno_cols = st.columns(4)
+        with anno_cols[0]:
+            st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind", value=st.session_state.engineering_annotations.get("show_wind", True))
+        with anno_cols[1]:
+            st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie-Down", value=st.session_state.engineering_annotations.get("show_tie_down", True))
+        with anno_cols[2]:
+            st.session_state.engineering_annotations["show_bracing"] = st.checkbox("📐 Bracing", value=st.session_state.engineering_annotations.get("show_bracing", True))
+        with anno_cols[3]:
+            st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load", value=st.session_state.engineering_annotations.get("show_load_path", True))
+
+        # Materials & Bracing (in expander)
         with st.expander("🏗️ Materials & Bracing", expanded=False):
             col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
@@ -1375,44 +1296,6 @@ def render_unified_workspace():
                 materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", min_value=10, max_value=60, step=5, value=materials.get("tie_down_horizontal_spread", 25), key="right_spread", help="Angle of tie-down spread outward from beam")
             with col_b5:
                 st.caption("💡 Tie-downs auto-align to bracing positions")
-
-        # Prepare data for Three.js
-        num_bays = materials.get("num_bays", 2)
-        span = params.get("B", 10)
-        laa = params.get("LAA", 15)
-        rise = params.get("A", 6)
-        positions = generate_bracing_positions(span, num_bays)
-        bracing_points = []
-        for idx, x_pos in enumerate(positions):
-            z = rise * (1 - (2*x_pos/span)**2)
-            y1 = -laa/2 * (1 - (2*x_pos/span)**2)
-            y2 = laa/2 * (1 - (2*x_pos/span)**2)
-            bracing_points.append({"x": x_pos, "y": y1, "z": z, "bayIndex": idx})
-            bracing_points.append({"x": x_pos, "y": y2, "z": z, "bayIndex": idx})
-        st.session_state.bracing_points = bracing_points
-
-        three_data = {
-            "params": params,
-            "materials": materials,
-            "custom_members": st.session_state.custom_members,
-            "tie_down_attachments": st.session_state.tie_down_attachments,
-            "bracing_points": bracing_points,
-            "annotations": st.session_state.engineering_annotations
-        }
-
-        html = threejs_component(three_data)
-        st.components.v1.html(html, height=600, scrolling=False)
-
-        # Annotation toggles
-        anno_cols = st.columns(4)
-        with anno_cols[0]:
-            st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind", value=st.session_state.engineering_annotations.get("show_wind", True))
-        with anno_cols[1]:
-            st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie-Down", value=st.session_state.engineering_annotations.get("show_tie_down", True))
-        with anno_cols[2]:
-            st.session_state.engineering_annotations["show_bracing"] = st.checkbox("📐 Bracing", value=st.session_state.engineering_annotations.get("show_bracing", True))
-        with anno_cols[3]:
-            st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load", value=st.session_state.engineering_annotations.get("show_load_path", True))
 
         # Structural Checks
         with st.expander("📊 Preliminary Structural Checks", expanded=True):
@@ -1477,7 +1360,7 @@ def render_unified_workspace():
         with col_act1:
             if st.button("📸 Render High-Res Image", use_container_width=True, type="primary"):
                 render_high_res_image_from_threejs()
-                st.info("Use right‑click → Save image as from the 3D view, or use the browser's screenshot tool.")
+                st.info("Use right‑click → Save image as from the 3D view.")
         with col_act2:
             if st.button("📄 Export JSON", use_container_width=True):
                 export_data = {
