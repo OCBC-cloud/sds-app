@@ -1065,7 +1065,8 @@ def generate_structural_health_report(params, materials):
         standard
     )
     
-    membrane_area = span * laa * 1.1    wind_force = wind_result["design_pressure"] * membrane_area
+    membrane_area = span * laa * 1.1
+wind_force = wind_result["design_pressure"] * membrane_area
     
     num_anchors = m.get("num_bays", 2) * 2
     tie_down_force = (wind_force * 0.8) / num_anchors if num_anchors > 0 else 0
