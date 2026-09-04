@@ -406,7 +406,8 @@ def go_to_dashboard():
     st.session_state.tie_down_attachments = []
     if os.path.exists(CACHE_FILE):
         os.remove(CACHE_FILE)
-    save_cache()
+    save_cache}"
+()
 
 def clear_cache():
     if os.path.exists(CACHE_FILE):
@@ -415,9 +416,9 @@ def clear_cache():
     st.session_state.project_info = {}
     st.session_state.typology = None
     st.session_state.params = {}
-    st.session_state.qa_answers = {}
-    st.session_state.locked = False
-    st.session_state.design_phase = "understand"
+    st.session_state   .qa_answers = {}
+    st.session_state.l projectsocked = False
+    st.session_state.design_ =phase = "understand"
     st.session_state.comments = ""
     st.session_state.user_notes = ""
     st.session_state.show_project_browser = False
@@ -432,8 +433,7 @@ def save_project_as_new():
         return
     ref = st.session_state.project_info.get("reference")
     if not ref:
-        ref = f"SDS-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
-    projects = get_projects_list()
+        ref = f"SDS-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6)) get_projects_list()
     existing_file = None
     for proj in projects:
         if proj.get("reference") == ref:
@@ -660,7 +660,7 @@ def get_preset_description(preset):
     return descriptions.get(preset, "Engineering-preset bracing positions.")
 
 # ============================================================
-# 3D GENERATORS (Plotly) – UPDATED WITH RADIAL ANCHORS & SMALL MARKERS
+# 3D GENERATORS – WITH RADIAL ANCHORS, SMALL MARKERS, AND ASPECT RATIO
 # ============================================================
 
 def generate_tie_down_anchors_at_positions(span, laa, height, x_positions, vertical_angle_deg, horizontal_spread_deg):
@@ -683,7 +683,6 @@ def generate_tie_down_anchors_at_positions(span, laa, height, x_positions, verti
                 vec = vec / norm
             else:
                 vec = np.array([1.0, 0.0])
-            # No extra rotation – use radial direction.
             anchor_x = beam_x + distance * vec[0]
             anchor_y = beam_y + distance * vec[1]
             anchor_z = 0
@@ -860,7 +859,9 @@ def generate_saddle_span(params, materials=None, annotations=None):
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))
+            camera=dict(eye=dict(x=1.8, y=1.8, z=1.2)),
+            aspectmode='manual',
+            aspectratio=dict(x=1.5, y=1.5, z=1.0)
         ),
         paper_bgcolor='#0a0e17',
         margin=dict(l=0, r=0, b=0, t=0),
@@ -880,7 +881,7 @@ def generate_saddle_span(params, materials=None, annotations=None):
     return fig
 
 # ============================================================
-# OTHER GENERATORS (unchanged – tent, tensile, portal, custom)
+# OTHER GENERATORS (tent, tensile, portal, custom) with aspect ratio fix
 # ============================================================
 
 def generate_tent(params):
@@ -904,7 +905,9 @@ def generate_tent(params):
             xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0)),
+            aspectmode='manual',
+            aspectratio=dict(x=1.5, y=1.5, z=1.0)
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
         legend=dict(font=dict(color='#ffffff', size=6), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
@@ -934,7 +937,9 @@ def generate_tensile(params):
             xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0)),
+            aspectmode='manual',
+            aspectratio=dict(x=1.5, y=1.5, z=1.0)
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
         legend=dict(font=dict(color='#ffffff', size=6), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
@@ -966,7 +971,9 @@ def generate_portal(params):
             xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+            bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0)),
+            aspectmode='manual',
+            aspectratio=dict(x=1.5, y=1.5, z=1.0)
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
         legend=dict(font=dict(color='#ffffff', size=6), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
@@ -1094,7 +1101,7 @@ def generate_bq():
     return bq_data
 
 # ============================================================
-# UNIFIED BOARD – WITH ENGINEERING-DRIVEN BRACING
+# UNIFIED BOARD – WITH REMOVED "USER GIVEN DIMENSIONS"
 # ============================================================
 def render_unified_workspace():
     params = st.session_state.params
@@ -1109,7 +1116,7 @@ def render_unified_workspace():
     col_left, col_right = st.columns([1, 1.8])
 
     with col_left:
-        # Photo / Reference
+        # PHOTO / REFERENCE
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📷 PHOTO / REFERENCE</div>', unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload reference image", type=["png", "jpg", "jpeg", "webp"], key="photo_ref")
@@ -1120,20 +1127,7 @@ def render_unified_workspace():
             st.caption("🖼️ Upload a sketch, photo, or reference image.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # User Given Dimensions
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📏 USER GIVEN DIMENSIONS</div>', unsafe_allow_html=True)
-        col_d1, col_d2, col_d3 = st.columns(3)
-        with col_d1:
-            st.metric("A (Rise)", f"{params.get('A', 6.0):.1f} m")
-        with col_d2:
-            st.metric("B (Span)", f"{params.get('B', 10.0):.1f} m")
-        with col_d3:
-            st.metric("LAA (Apex to Apex)", f"{params.get('LAA', 15.0):.1f} m")
-        st.caption("✏️ Adjust these values in the right column.")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Notes
+        # NOTES FROM USER
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📝 NOTES FROM USER</div>', unsafe_allow_html=True)
         user_notes = st.text_area(
@@ -1146,7 +1140,7 @@ def render_unified_workspace():
         st.session_state.user_notes = user_notes
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Summary
+        # CURRENT INTERPRETATION SUMMARY
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📊 Current Interpretation Summary</div>', unsafe_allow_html=True)
         m = materials
@@ -1168,7 +1162,7 @@ def render_unified_workspace():
                         f'</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Structured Questions
+        # STRUCTURED QUESTIONS
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">❓ Structured Questions</div>', unsafe_allow_html=True)
         st.caption("Confirm the following assumptions. These will be locked and stored in the engineering report.")
@@ -1183,7 +1177,7 @@ def render_unified_workspace():
             st.session_state.qa_answers[key] = ans
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Legend
+        # LEGEND
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📌 Legend (Data Identity)</div>', unsafe_allow_html=True)
         st.markdown(f'<span class="badge badge-confirmed">CONFIRMED</span> <span style="color:#b0c4de;">Confirmed by User</span> &nbsp;|&nbsp; '
@@ -1193,7 +1187,7 @@ def render_unified_workspace():
                     f'<span class="badge badge-autogen">AUTO-GEN</span> <span style="color:#b0c4de;">Auto-Generated</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Lock button
+        # LOCK BUTTON
         if st.button("🔒 LOCK & PROCEED TO INVESTIGATION", use_container_width=True, type="primary"):
             st.session_state.locked = True
             save_cache()
@@ -1688,5 +1682,5 @@ if st.session_state.show_registration or (st.session_state.project_registered an
 if st.session_state.typology is not None:
     render_unified_workspace()
 
-st.caption("SDS Platform v4.3 | Radial Outward Anchors, Small Markers | Roots Protected. Branches Free. Ecosystem Growing.")
+st.caption("SDS Platform v4.4 | Clean Left Column (No Redundant Dimensions) | Roots Protected. Branches Free. Ecosystem Growing.")
 save_cache()
