@@ -1267,7 +1267,7 @@ def render_unified_workspace():
         st.markdown('<div class="title">📷 PHOTO / REFERENCE</div>', unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload reference image", type=["png", "jpg", "jpeg", "webp"], key="photo_ref")
         if uploaded_file is not None:
-            st.image(uploaded_file, caption="Reference Image", use_column_width=True)
+            st.image(uploaded_file, caption="Reference Image", use_container_width=True)  # <-- FIXED
             st.caption("📌 Note: Uploaded image is for reference only.")
         else:
             st.caption("🖼️ Upload a sketch, photo, or reference image.")
