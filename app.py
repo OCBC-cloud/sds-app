@@ -657,7 +657,7 @@ def get_preset_description(preset):
     return descriptions.get(preset, "Engineering-preset bracing positions.")
 
 # ============================================================
-# 3D GENERATORS
+# 3D GENERATORS – WITH 1:1:1 ASPECT RATIO AND TIGHTER MEMBRANE
 # ============================================================
 
 def generate_tie_down_anchors_at_positions(span, laa, height, x_positions, vertical_angle_deg, horizontal_spread_deg):
@@ -704,6 +704,7 @@ def generate_saddle_span(params, materials=None, annotations=None):
     y1 = -laa/2 * (1 - (2 * x / span)**2)
     y2 = laa/2 * (1 - (2 * x / span)**2)
 
+    # Membrane surface – tighter saddle (factor 0.1 instead of 0.3)
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
@@ -714,7 +715,8 @@ def generate_saddle_span(params, materials=None, annotations=None):
         z_at_x = z_beam[i]
         for j, v_val in enumerate(np.linspace(0, 1, num_points)):
             y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
-            saddle_factor = 1 - 0.3 * (1 - (2 * v_val - 1)**2)
+            # Tighter saddle: reduce the droop factor from 0.3 to 0.1
+            saddle_factor = 1 - 0.1 * (1 - (2 * v_val - 1)**2)
             z_pos = z_at_x * saddle_factor
             X_surf[i, j] = x_pos
             Y_surf[i, j] = y_pos
@@ -841,7 +843,7 @@ def generate_saddle_span(params, materials=None, annotations=None):
             bgcolor='#0a0e17',
             camera=dict(eye=dict(x=1.8, y=1.8, z=1.2)),
             aspectmode='manual',
-            aspectratio=dict(x=1.5, y=1.5, z=1.0)
+            aspectratio=dict(x=1, y=1, z=1)   # <-- 1:1:1 aspect ratio
         ),
         paper_bgcolor='#0a0e17',
         margin=dict(l=0, r=0, b=0, t=0),
@@ -883,7 +885,7 @@ def generate_tent(params):
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0)),
             aspectmode='manual',
-            aspectratio=dict(x=1.5, y=1.5, z=1.0)
+            aspectratio=dict(x=1, y=1, z=1)
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
         legend=dict(font=dict(color='#ffffff', size=6), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
@@ -915,7 +917,7 @@ def generate_tensile(params):
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0)),
             aspectmode='manual',
-            aspectratio=dict(x=1.5, y=1.5, z=1.0)
+            aspectratio=dict(x=1, y=1, z=1)
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
         legend=dict(font=dict(color='#ffffff', size=6), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
@@ -949,7 +951,7 @@ def generate_portal(params):
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0)),
             aspectmode='manual',
-            aspectratio=dict(x=1.5, y=1.5, z=1.0)
+            aspectratio=dict(x=1, y=1, z=1)
         ),
         paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0),
         legend=dict(font=dict(color='#ffffff', size=6), orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5, bgcolor='rgba(10,14,23,0.7)')
@@ -981,7 +983,7 @@ def generate_custom_bounding_box(params):
     fig.update_layout(
         scene=dict(
             xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
-            aspectmode='manual', aspectratio=dict(x=1.5, y=2.0, z=0.8),
+            aspectmode='manual', aspectratio=dict(x=1, y=1, z=1),
             xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
@@ -1638,5 +1640,5 @@ if st.session_state.show_registration or (st.session_state.project_registered an
 if st.session_state.typology is not None:
     render_unified_workspace()
 
-st.caption("SDS Platform v4.4 | Clean Left Column (No Redundant Dimensions) | Roots Protected. Branches Free. Ecosystem Growing.")
+st.caption("SDS Platform v4.5 | 1:1:1 Aspect Ratio, Tighter Membrane | Roots Protected. Branches Free. Ecosystem Growing.")
 save_cache()
