@@ -67,10 +67,6 @@ dark_mode_css = """
     .sds-card .title { color: #ffffff; font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; }
     .sds-card .content { color: #b0c4de; font-size: 0.9rem; }
     
-    .health-score-good { color: #2ecc71; font-weight: 700; font-size: 1.5rem; }
-    .health-score-fair { color: #f39c12; font-weight: 700; font-size: 1.5rem; }
-    .health-score-poor { color: #e74c3c; font-weight: 700; font-size: 1.5rem; }
-    
     .standard-badge {
         display: inline-block;
         padding: 0.2rem 0.6rem;
@@ -84,6 +80,10 @@ dark_mode_css = """
     .badge-uk { background-color: #012169; color: #ffffff; }
     .badge-my { background-color: #CC0000; color: #ffffff; }
     .badge-us { background-color: #B22234; color: #ffffff; }
+    
+    .health-score-good { color: #2ecc71; font-weight: 700; font-size: 1.5rem; }
+    .health-score-fair { color: #f39c12; font-weight: 700; font-size: 1.5rem; }
+    .health-score-poor { color: #e74c3c; font-weight: 700; font-size: 1.5rem; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -92,48 +92,48 @@ st.markdown(dark_mode_css, unsafe_allow_html=True)
 # INTERNATIONAL STANDARDS - MATERIAL PROPERTIES
 # ============================================================
 
-# ===== EUROCODE (EU) - MS EN 1993-1-1 =====
+# ===== EUROCODE (EU) =====
 EU_STEEL_GRADES = {
-    "S235 (EN 10025)": {"fy": 235, "fu": 360, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"},
-    "S275 (EN 10025)": {"fy": 275, "fu": 430, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"},
-    "S355 (EN 10025)": {"fy": 355, "fu": 490, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"},
-    "S420 (EN 10025)": {"fy": 420, "fu": 520, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"},
-    "S460 (EN 10025)": {"fy": 460, "fu": 550, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "EU"}
+    "S235 (EN 10025)": {"fy": 235, "fu": 360, "E": 210000, "density": 7850, "standard": "EU"},
+    "S275 (EN 10025)": {"fy": 275, "fu": 430, "E": 210000, "density": 7850, "standard": "EU"},
+    "S355 (EN 10025)": {"fy": 355, "fu": 490, "E": 210000, "density": 7850, "standard": "EU"},
+    "S420 (EN 10025)": {"fy": 420, "fu": 520, "E": 210000, "density": 7850, "standard": "EU"},
+    "S460 (EN 10025)": {"fy": 460, "fu": 550, "E": 210000, "density": 7850, "standard": "EU"}
 }
 
-# ===== CHINA STANDARD (GB/T 1591) =====
+# ===== CHINA (CN) =====
 CN_STEEL_GRADES = {
-    "Q235 (GB/T 700)": {"fy": 235, "fu": 375, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"},
-    "Q345 (GB/T 1591)": {"fy": 345, "fu": 470, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"},
-    "Q390 (GB/T 1591)": {"fy": 390, "fu": 490, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"},
-    "Q420 (GB/T 1591)": {"fy": 420, "fu": 520, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"},
-    "Q460 (GB/T 1591)": {"fy": 460, "fu": 550, "E": 206000, "density": 7850, "alpha": 1.2e-5, "standard": "CN"}
+    "Q235 (GB/T 700)": {"fy": 235, "fu": 375, "E": 206000, "density": 7850, "standard": "CN"},
+    "Q345 (GB/T 1591)": {"fy": 345, "fu": 470, "E": 206000, "density": 7850, "standard": "CN"},
+    "Q390 (GB/T 1591)": {"fy": 390, "fu": 490, "E": 206000, "density": 7850, "standard": "CN"},
+    "Q420 (GB/T 1591)": {"fy": 420, "fu": 520, "E": 206000, "density": 7850, "standard": "CN"},
+    "Q460 (GB/T 1591)": {"fy": 460, "fu": 550, "E": 206000, "density": 7850, "standard": "CN"}
 }
 
-# ===== BRITISH STANDARD (BS 5950) =====
+# ===== BRITISH (UK) =====
 UK_STEEL_GRADES = {
-    "BS 43A (BS 4360)": {"fy": 275, "fu": 430, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"},
-    "BS 50B (BS 4360)": {"fy": 355, "fu": 490, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"},
-    "BS 50C (BS 4360)": {"fy": 355, "fu": 490, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"},
-    "BS 55C (BS 4360)": {"fy": 460, "fu": 550, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"},
-    "BS 55E (BS 4360)": {"fy": 460, "fu": 550, "E": 205000, "density": 7850, "alpha": 1.2e-5, "standard": "UK"}
+    "BS 43A (BS 4360)": {"fy": 275, "fu": 430, "E": 205000, "density": 7850, "standard": "UK"},
+    "BS 50B (BS 4360)": {"fy": 355, "fu": 490, "E": 205000, "density": 7850, "standard": "UK"},
+    "BS 50C (BS 4360)": {"fy": 355, "fu": 490, "E": 205000, "density": 7850, "standard": "UK"},
+    "BS 55C (BS 4360)": {"fy": 460, "fu": 550, "E": 205000, "density": 7850, "standard": "UK"},
+    "BS 55E (BS 4360)": {"fy": 460, "fu": 550, "E": 205000, "density": 7850, "standard": "UK"}
 }
 
-# ===== MALAYSIAN STANDARD (MS EN 1993) =====
+# ===== MALAYSIA (MY) =====
 MY_STEEL_GRADES = {
-    "S275 (MS EN 10025)": {"fy": 275, "fu": 430, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "MY"},
-    "S355 (MS EN 10025)": {"fy": 355, "fu": 490, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "MY"},
-    "S460 (MS EN 10025)": {"fy": 460, "fu": 550, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "MY"},
-    "S550 (MS EN 10025)": {"fy": 550, "fu": 620, "E": 210000, "density": 7850, "alpha": 1.2e-5, "standard": "MY"}
+    "S275 (MS EN 10025)": {"fy": 275, "fu": 430, "E": 210000, "density": 7850, "standard": "MY"},
+    "S355 (MS EN 10025)": {"fy": 355, "fu": 490, "E": 210000, "density": 7850, "standard": "MY"},
+    "S460 (MS EN 10025)": {"fy": 460, "fu": 550, "E": 210000, "density": 7850, "standard": "MY"},
+    "S550 (MS EN 10025)": {"fy": 550, "fu": 620, "E": 210000, "density": 7850, "standard": "MY"}
 }
 
-# ===== USA STANDARD (ASTM A992) =====
+# ===== USA (US) =====
 US_STEEL_GRADES = {
-    "A36 (ASTM A36)": {"fy": 250, "fu": 400, "E": 200000, "density": 7850, "alpha": 1.2e-5, "standard": "US"},
-    "A572 Gr50 (ASTM A572)": {"fy": 345, "fu": 450, "E": 200000, "density": 7850, "alpha": "1.2e-5", "standard": "US"},
-    "A992 (ASTM A992)": {"fy": 345, "fu": 450, "E": 200000, "density": 7850, "alpha": 1.2e-5, "standard": "US"},
-    "A913 Gr65 (ASTM A913)": {"fy": 450, "fu": 550, "E": 200000, "density": 7850, "alpha": 1.2e-5, "standard": "US"},
-    "A514 (ASTM A514)": {"fy": 690, "fu": 760, "E": 200000, "density": 7850, "alpha": 1.2e-5, "standard": "US"}
+    "A36 (ASTM A36)": {"fy": 250, "fu": 400, "E": 200000, "density": 7850, "standard": "US"},
+    "A572 Gr50 (ASTM A572)": {"fy": 345, "fu": 450, "E": 200000, "density": 7850, "standard": "US"},
+    "A992 (ASTM A992)": {"fy": 345, "fu": 450, "E": 200000, "density": 7850, "standard": "US"},
+    "A913 Gr65 (ASTM A913)": {"fy": 450, "fu": 550, "E": 200000, "density": 7850, "standard": "US"},
+    "A514 (ASTM A514)": {"fy": 690, "fu": 760, "E": 200000, "density": 7850, "standard": "US"}
 }
 
 # Combine all steel grades
@@ -144,9 +144,7 @@ ALL_STEEL_GRADES.update(UK_STEEL_GRADES)
 ALL_STEEL_GRADES.update(MY_STEEL_GRADES)
 ALL_STEEL_GRADES.update(US_STEEL_GRADES)
 
-# ===== INTERNATIONAL WIND STANDARDS =====
-
-# Eurocode (EU) - EN 1991-1-4
+# ===== WIND STANDARDS =====
 EU_WIND_ZONES = {
     "Zone 1": {"basic_wind_speed": 26.0, "description": "Inland areas"},
     "Zone 2": {"basic_wind_speed": 30.0, "description": "Coastal areas"},
@@ -154,7 +152,6 @@ EU_WIND_ZONES = {
     "Zone 4": {"basic_wind_speed": 40.0, "description": "Exposed coastal"}
 }
 
-# China (CN) - GB 50009
 CN_WIND_ZONES = {
     "Zone I": {"basic_wind_speed": 28.0, "description": "Inland, low wind"},
     "Zone II": {"basic_wind_speed": 32.0, "description": "Inland, moderate wind"},
@@ -163,7 +160,6 @@ CN_WIND_ZONES = {
     "Zone V": {"basic_wind_speed": 45.0, "description": "Special coastal regions"}
 }
 
-# British Standard (UK) - BS 6399-2
 UK_WIND_ZONES = {
     "Zone 1": {"basic_wind_speed": 26.0, "description": "Inland low"},
     "Zone 2": {"basic_wind_speed": 30.0, "description": "Inland moderate"},
@@ -172,7 +168,6 @@ UK_WIND_ZONES = {
     "Zone 5": {"basic_wind_speed": 42.0, "description": "Exposed coastal"}
 }
 
-# Malaysian Standard - MS EN 1991-1-4
 MY_WIND_ZONES = {
     "Zone 1": {"basic_wind_speed": 32.6, "description": "Less than 32.6 m/s"},
     "Zone 2": {"basic_wind_speed": 37.2, "description": "32.6 - 37.2 m/s"},
@@ -181,7 +176,6 @@ MY_WIND_ZONES = {
     "Coastal": {"basic_wind_speed": 55.0, "description": "Coastal areas"}
 }
 
-# USA Standard (ASCE 7-16)
 US_WIND_ZONES = {
     "Zone 1": {"basic_wind_speed": 38.0, "description": "Inland low"},
     "Zone 2": {"basic_wind_speed": 42.0, "description": "Inland moderate"},
@@ -190,63 +184,42 @@ US_WIND_ZONES = {
     "Zone 5": {"basic_wind_speed": 56.0, "description": "Hurricane prone"}
 }
 
-# Combine all wind zones
 ALL_WIND_ZONES = {
-    "EU": EU_WIND_ZONES,
-    "CN": CN_WIND_ZONES,
-    "UK": UK_WIND_ZONES,
-    "MY": MY_WIND_ZONES,
-    "US": US_WIND_ZONES
+    "EU": EU_WIND_ZONES, "CN": CN_WIND_ZONES, "UK": UK_WIND_ZONES,
+    "MY": MY_WIND_ZONES, "US": US_WIND_ZONES
 }
 
-# ===== INTERNATIONAL TERRAIN CATEGORIES =====
+# ===== TERRAIN CATEGORIES =====
+EU_TERRAIN = {"0": {"name": "Sea", "z0": 0.003, "z_min": 1, "alpha": 0.11},
+              "I": {"name": "Open country", "z0": 0.01, "z_min": 1, "alpha": 0.12},
+              "II": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
+              "III": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20},
+              "IV": {"name": "Dense urban", "z0": 1.00, "z_min": 10, "alpha": 0.24}}
 
-EU_TERRAIN_CATEGORIES = {
-    "0": {"name": "Sea, coastal", "z0": 0.003, "z_min": 1, "alpha": 0.11},
-    "I": {"name": "Open country", "z0": 0.01, "z_min": 1, "alpha": 0.12},
-    "II": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
-    "III": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20},
-    "IV": {"name": "Dense urban", "z0": 1.00, "z_min": 10, "alpha": 0.24}
-}
+CN_TERRAIN = {"A": {"name": "Open sea", "z0": 0.003, "z_min": 1, "alpha": 0.12},
+              "B": {"name": "Open country", "z0": 0.02, "z_min": 2, "alpha": 0.15},
+              "C": {"name": "Suburban", "z0": 0.05, "z_min": 3, "alpha": 0.18},
+              "D": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.22}}
 
-CN_TERRAIN_CATEGORIES = {
-    "A": {"name": "Open sea, lake", "z0": 0.003, "z_min": 1, "alpha": 0.12},
-    "B": {"name": "Open country", "z0": 0.02, "z_min": 2, "alpha": 0.15},
-    "C": {"name": "Suburban", "z0": 0.05, "z_min": 3, "alpha": 0.18},
-    "D": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.22}
-}
+UK_TERRAIN = {"1": {"name": "Open country", "z0": 0.01, "z_min": 1, "alpha": 0.12},
+              "2": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
+              "3": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20},
+              "4": {"name": "Dense urban", "z0": 1.00, "z_min": 10, "alpha": 0.24}}
 
-UK_TERRAIN_CATEGORIES = {
-    "1": {"name": "Open country", "z0": 0.01, "z_min": 1, "alpha": 0.12},
-    "2": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
-    "3": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20},
-    "4": {"name": "Dense urban", "z0": 1.00, "z_min": 10, "alpha": 0.24}
-}
+MY_TERRAIN = {"0": {"name": "Sea", "z0": 0.003, "z_min": 1, "alpha": 0.11},
+              "I": {"name": "Open country", "z0": 0.01, "z_min": 1, "alpha": 0.12},
+              "II": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
+              "III": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20},
+              "IV": {"name": "Dense urban", "z0": 1.00, "z_min": 10, "alpha": 0.24}}
 
-MY_TERRAIN_CATEGORIES = {
-    "0": {"name": "Sea, coastal", "z0": 0.003, "z_min": 1, "alpha": 0.11},
-    "I": {"name": "Open country", "z0": 0.01, "z_min": 1, "alpha": 0.12},
-    "II": {"name": "Suburban, industrial", "z0": 0.05, "z_min": 2, "alpha": 0.14},
-    "III": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20},
-    "IV": {"name": "Dense urban", "z0": 1.00, "z_min": 10, "alpha": 0.24}
-}
+US_TERRAIN = {"A": {"name": "Open water", "z0": 0.003, "z_min": 1, "alpha": 0.11},
+              "B": {"name": "Open country", "z0": 0.02, "z_min": 1, "alpha": 0.12},
+              "C": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
+              "D": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20}}
 
-US_TERRAIN_CATEGORIES = {
-    "A": {"name": "Open water", "z0": 0.003, "z_min": 1, "alpha": 0.11},
-    "B": {"name": "Open country", "z0": 0.02, "z_min": 1, "alpha": 0.12},
-    "C": {"name": "Suburban", "z0": 0.05, "z_min": 2, "alpha": 0.14},
-    "D": {"name": "City centre", "z0": 0.30, "z_min": 5, "alpha": 0.20}
-}
+ALL_TERRAIN = {"EU": EU_TERRAIN, "CN": CN_TERRAIN, "UK": UK_TERRAIN, "MY": MY_TERRAIN, "US": US_TERRAIN}
 
-ALL_TERRAIN_CATEGORIES = {
-    "EU": EU_TERRAIN_CATEGORIES,
-    "CN": CN_TERRAIN_CATEGORIES,
-    "UK": UK_TERRAIN_CATEGORIES,
-    "MY": MY_TERRAIN_CATEGORIES,
-    "US": US_TERRAIN_CATEGORIES
-}
-
-# ===== CABLE SPECIFICATIONS (International) =====
+# ===== CABLE SPECS =====
 CABLE_SPECS = {
     "6x19 Galvanized (EU)": {
         "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
@@ -256,17 +229,7 @@ CABLE_SPECS = {
         "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
                         18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
                         30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
-        "min_factor": 1.5,
-        "description": "Galvanized steel wire rope - EU Standard"
-    },
-    "6x19 Stainless (EU)": {
-        "diameters": [6, 8, 10, 12, 14, 16, 18, 20],
-        "breaking_load": {6: 25.0, 8: 42.0, 10: 65.0, 12: 95.0, 14: 125.0, 16: 160.0,
-                          18: 200.0, 20: 245.0},
-        "weight_kg_m": {6: 0.15, 8: 0.27, 10: 0.42, 12: 0.60, 14: 0.82, 16: 1.08,
-                        18: 1.36, 20: 1.68},
-        "min_factor": 1.5,
-        "description": "Stainless steel wire rope - EU Standard"
+        "min_factor": 1.5, "description": "Galvanized steel wire rope - EU"
     },
     "GB/T 20118 (China)": {
         "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
@@ -276,8 +239,7 @@ CABLE_SPECS = {
         "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
                         18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
                         30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
-        "min_factor": 1.6,
-        "description": "GB/T 20118 - China Standard"
+        "min_factor": 1.6, "description": "GB/T 20118 - China"
     },
     "BS 302 (UK)": {
         "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
@@ -287,19 +249,7 @@ CABLE_SPECS = {
         "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
                         18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
                         30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
-        "min_factor": 1.5,
-        "description": "BS 302 - UK Standard"
-    },
-    "ASTM A1023 (US)": {
-        "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
-        "breaking_load": {6: 23.0, 8: 40.0, 10: 62.0, 12: 88.0, 14: 115.0, 16: 155.0,
-                          18: 195.0, 20: 240.0, 22: 280.0, 24: 330.0, 26: 380.0,
-                          28: 440.0, 30: 500.0, 32: 560.0, 36: 700.0, 40: 860.0},
-        "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
-                        18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
-                        30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
-        "min_factor": 1.5,
-        "description": "ASTM A1023 - US Standard"
+        "min_factor": 1.5, "description": "BS 302 - UK"
     },
     "MS EN 1993-1-11 (Malaysia)": {
         "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
@@ -309,8 +259,17 @@ CABLE_SPECS = {
         "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
                         18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
                         30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
-        "min_factor": 1.5,
-        "description": "MS EN 1993-1-11 - Malaysia Standard"
+        "min_factor": 1.5, "description": "MS EN 1993-1-11 - Malaysia"
+    },
+    "ASTM A1023 (US)": {
+        "diameters": [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40],
+        "breaking_load": {6: 23.0, 8: 40.0, 10: 62.0, 12: 88.0, 14: 115.0, 16: 155.0,
+                          18: 195.0, 20: 240.0, 22: 280.0, 24: 330.0, 26: 380.0,
+                          28: 440.0, 30: 500.0, 32: 560.0, 36: 700.0, 40: 860.0},
+        "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02,
+                        18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20,
+                        30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
+        "min_factor": 1.5, "description": "ASTM A1023 - US"
     }
 }
 
@@ -331,8 +290,7 @@ SECTION_PROPERTIES = {
     "I-250": {"A": 4820, "I": 76.0e6, "W_el": 608e3, "i": 125.6, "weight": 37.8},
     "I-300": {"A": 6720, "I": 136e6, "W_el": 907e3, "i": 142.3, "weight": 52.8},
     "I-350": {"A": 9020, "I": 226e6, "W_el": 1290e3, "i": 158.3, "weight": 70.8},
-    "I-400": {"A": 11800, "I": 348e6, "W_el": 1740e3, "i": 171.8, "weight": 92.6},
-    "I-450": {"A": 14800, "I": 512e6, "W_el": 2270e3, "i": 186.0, "weight": 116.0}
+    "I-400": {"A": 11800, "I": 348e6, "W_el": 1740e3, "i": 171.8, "weight": 92.6}
 }
 
 # ============================================================
@@ -525,7 +483,6 @@ if cached:
 # ============================================================
 
 def get_standard_label(standard_code):
-    """Get human-readable standard label"""
     labels = {
         "EU": "🇪🇺 Eurocode (EN 1993/EN 1991)",
         "CN": "🇨🇳 China (GB 50009/GB/T 1591)",
@@ -536,35 +493,25 @@ def get_standard_label(standard_code):
     return labels.get(standard_code, standard_code)
 
 def get_steel_grades_for_standard(standard):
-    """Get steel grades for selected standard"""
-    if standard == "EU":
-        return EU_STEEL_GRADES
-    elif standard == "CN":
-        return CN_STEEL_GRADES
-    elif standard == "UK":
-        return UK_STEEL_GRADES
-    elif standard == "MY":
-        return MY_STEEL_GRADES
-    elif standard == "US":
-        return US_STEEL_GRADES
-    else:
-        return EU_STEEL_GRADES
+    if standard == "EU": return EU_STEEL_GRADES
+    elif standard == "CN": return CN_STEEL_GRADES
+    elif standard == "UK": return UK_STEEL_GRADES
+    elif standard == "MY": return MY_STEEL_GRADES
+    elif standard == "US": return US_STEEL_GRADES
+    else: return EU_STEEL_GRADES
 
 def get_wind_zones_for_standard(standard):
-    """Get wind zones for selected standard"""
     return ALL_WIND_ZONES.get(standard, ALL_WIND_ZONES["EU"])
 
 def get_terrain_categories_for_standard(standard):
-    """Get terrain categories for selected standard"""
-    return ALL_TERRAIN_CATEGORIES.get(standard, ALL_TERRAIN_CATEGORIES["EU"])
+    return ALL_TERRAIN.get(standard, ALL_TERRAIN["EU"])
 
 def calculate_wind_pressure_standard(wind_zone, terrain_category, height, importance_factor, standard="EU"):
-    """Calculate wind pressure using selected standard"""
     wind_zones = get_wind_zones_for_standard(standard)
     terrain_cats = get_terrain_categories_for_standard(standard)
     
-    wind_data = wind_zones.get(wind_zone, wind_zones["Zone 2"])
-    terrain = terrain_cats.get(terrain_category, terrain_cats["II"])
+    wind_data = wind_zones.get(wind_zone, list(wind_zones.values())[0])
+    terrain = terrain_cats.get(terrain_category, list(terrain_cats.values())[0])
     
     vb = wind_data["basic_wind_speed"]
     z0 = terrain["z0"]
@@ -592,9 +539,13 @@ def calculate_wind_pressure_standard(wind_zone, terrain_category, height, import
     }
 
 def calculate_steel_capacity_standard(grade, section, length, safety_factor, standard="EU"):
-    """Calculate steel capacity using selected standard"""
     steel_grades = get_steel_grades_for_standard(standard)
-    steel = steel_grades.get(grade, steel_grades["S355 (EN 10025)"])
+    
+    # FIX: If grade not found, use first available grade
+    if grade not in steel_grades:
+        grade = list(steel_grades.keys())[0] if steel_grades else "S355 (EN 10025)"
+    
+    steel = steel_grades[grade]
     section_data = SECTION_PROPERTIES.get(section, SECTION_PROPERTIES["CHS 168.3x7.1"])
     
     fy = steel["fy"]
@@ -636,7 +587,6 @@ def calculate_steel_capacity_standard(grade, section, length, safety_factor, sta
     }
 
 def calculate_cable_size_standard(force_kn, safety_factor, cable_type):
-    """Calculate cable size using selected cable type"""
     cable_data = CABLE_SPECS.get(cable_type, CABLE_SPECS["6x19 Galvanized (EU)"])
     required_breaking_load = force_kn * safety_factor
     
@@ -1085,11 +1035,112 @@ GENERATORS = {
 }
 
 # ============================================================
-# UI FUNCTIONS
+# STRUCTURAL HEALTH REPORT FUNCTION
 # ============================================================
+def generate_structural_health_report(params, materials):
+    """Generate comprehensive structural health report using selected standard"""
+    span = params.get("B", 10.0)
+    laa = params.get("LAA", 15.0)
+    rise = params.get("A", 6.0)
+    
+    m = materials
+    standard = m.get("standard", "EU")
+    
+    # Wind analysis
+    wind_result = calculate_wind_pressure_standard(
+        m.get("wind_zone", "Zone 2"),
+        m.get("terrain_category", "II"),
+        m.get("building_height", 10.0),
+        m.get("importance_factor", 1.0),
+        standard
+    )
+    
+    # Steel capacity - FIXED with safe grade handling
+    steel_grade = m.get("steel_grade", "S355 (EN 10025)")
+    steel_capacity = calculate_steel_capacity_standard(
+        steel_grade,
+        m.get("section_size", "CHS 168.3x7.1"),
+        span,
+        m.get("safety_factor", 1.5),
+        standard
+    )
+    
+    membrane_area = span * laa * 1.1    wind_force = wind_result["design_pressure"] * membrane_area
+    
+    num_anchors = m.get("num_bays", 2) * 2
+    tie_down_force = (wind_force * 0.8) / num_anchors if num_anchors > 0 else 0
+    
+    cable_selection = calculate_cable_size_standard(
+        tie_down_force,
+        m.get("safety_factor", 1.5),
+        m.get("wire_rope_type", "6x19 Galvanized (EU)")
+    )
+    
+    # Health Score
+    health_score = 100
+    
+    if wind_result["design_pressure"] > 1.5:
+        health_score -= 10
+    elif wind_result["design_pressure"] > 1.0:
+        health_score -= 5
+    
+    if steel_capacity["efficiency"] < 0.5:
+        health_score -= 15
+    elif steel_capacity["efficiency"] < 0.7:
+        health_score -= 8
+    
+    if not cable_selection["is_adequate"]:
+        health_score -= 20
+    elif cable_selection["capacity_ratio"] > 0.9:
+        health_score -= 5
+    
+    if steel_capacity["slenderness"] > 100:
+        health_score -= 10
+    elif steel_capacity["slenderness"] > 50:
+        health_score -= 5
+    
+    health_score = max(0, min(100, health_score))
+    
+    if health_score >= 80:
+        status = "GOOD"
+        color = "#2ecc71"
+        recommendation = "✅ Structure appears sound. Continue with design."
+    elif health_score >= 60:
+        status = "FAIR"
+        color = "#f39c12"
+        recommendation = "⚠️ Some minor concerns identified. Consider reinforcing weak areas."
+    else:
+        status = "POOR"
+        color = "#e74c3c"
+        recommendation = "❌ Significant concerns identified. Major strengthening required."
+    
+    return {
+        "health_score": health_score,
+        "health_status": status,
+        "health_color": color,
+        "recommendation": recommendation,
+        "standard_label": get_standard_label(standard),
+        "wind_analysis": wind_result,
+        "steel_capacity": steel_capacity,
+        "wind_force": wind_force,
+        "tie_down_force": tie_down_force,
+        "cable_selection": cable_selection,
+        "membrane_area": membrane_area,
+        "num_anchors": num_anchors,
+        "span": span,
+        "rise": rise,
+        "laa": laa,
+        "detailed_checks": {
+            "wind_pressure_check": wind_result["design_pressure"] < 2.0,
+            "steel_capacity_check": steel_capacity["efficiency"] > 0.5,
+            "cable_adequacy_check": cable_selection["is_adequate"],
+            "slenderness_check": steel_capacity["slenderness"] < 100
+        }
+    }
+
 def render_structural_health_report(report):
     """Render the structural health report with all details"""
-    st.markdown("## 🏥 Structural Health Report")
+    st.markdown("## 🏥 STRUCTURAL HEALTH REPORT")
     st.markdown(f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}*")
     st.markdown(f"*Standard: {report.get('standard_label', 'EU')}*")
     st.markdown("---")
@@ -1101,10 +1152,10 @@ def render_structural_health_report(report):
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown(f"""
-        <div style="text-align: center; padding: 2rem; background-color: #141e2b; border-radius: 16px; border: 2px solid {color};">
+        <div style="text-align: center; padding: 2rem; background-color: #141e2b; border-radius: 16px; border: 3px solid {color};">
             <div style="font-size: 4rem; font-weight: 700; color: {color};">{score}%</div>
             <div style="font-size: 2rem; font-weight: 600; color: {color};">{status}</div>
-            <div style="color: #b0c4de; margin-top: 0.5rem;">{report['recommendation']}</div>
+            <div style="color: #b0c4de; margin-top: 0.5rem; font-size: 1.1rem;">{report['recommendation']}</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1192,107 +1243,6 @@ def render_structural_health_report(report):
     df = pd.DataFrame(summary_data)
     st.dataframe(df, use_container_width=True, hide_index=True)
 
-def generate_structural_health_report(params, materials):
-    """Generate comprehensive structural health report using selected standard"""
-    span = params.get("B", 10.0)
-    laa = params.get("LAA", 15.0)
-    rise = params.get("A", 6.0)
-    
-    m = materials
-    standard = m.get("standard", "EU")
-    
-    # Wind analysis
-    wind_result = calculate_wind_pressure_standard(
-        m.get("wind_zone", "Zone 2"),
-        m.get("terrain_category", "II"),
-        m.get("building_height", 10.0),
-        m.get("importance_factor", 1.0),
-        standard
-    )
-    
-    # Steel capacity
-    steel_capacity = calculate_steel_capacity_standard(
-        m.get("steel_grade", "S355 (EN 10025)"),
-        m.get("section_size", "CHS 168.3x7.1"),
-        span,
-        m.get("safety_factor", 1.5),
-        standard
-    )
-    
-    membrane_area = span * laa * 1.1
-    wind_force = wind_result["design_pressure"] * membrane_area
-    
-    num_anchors = m.get("num_bays", 2) * 2
-    tie_down_force = (wind_force * 0.8) / num_anchors if num_anchors > 0 else 0
-    
-    cable_selection = calculate_cable_size_standard(
-        tie_down_force,
-        m.get("safety_factor", 1.5),
-        m.get("wire_rope_type", "6x19 Galvanized (EU)")
-    )
-    
-    # Health Score
-    health_score = 100
-    
-    if wind_result["design_pressure"] > 1.5:
-        health_score -= 10
-    elif wind_result["design_pressure"] > 1.0:
-        health_score -= 5
-    
-    if steel_capacity["efficiency"] < 0.5:
-        health_score -= 15
-    elif steel_capacity["efficiency"] < 0.7:
-        health_score -= 8
-    
-    if not cable_selection["is_adequate"]:
-        health_score -= 20
-    elif cable_selection["capacity_ratio"] > 0.9:
-        health_score -= 5
-    
-    if steel_capacity["slenderness"] > 100:
-        health_score -= 10
-    elif steel_capacity["slenderness"] > 50:
-        health_score -= 5
-    
-    health_score = max(0, min(100, health_score))
-    
-    if health_score >= 80:
-        status = "GOOD"
-        color = "#2ecc71"
-        recommendation = "Structure appears sound. Continue with design."
-    elif health_score >= 60:
-        status = "FAIR"
-        color = "#f39c12"
-        recommendation = "Some minor concerns identified. Consider reinforcing weak areas."
-    else:
-        status = "POOR"
-        color = "#e74c3c"
-        recommendation = "Significant concerns identified. Major strengthening required."
-    
-    return {
-        "health_score": health_score,
-        "health_status": status,
-        "health_color": color,
-        "recommendation": recommendation,
-        "standard_label": get_standard_label(standard),
-        "wind_analysis": wind_result,
-        "steel_capacity": steel_capacity,
-        "wind_force": wind_force,
-        "tie_down_force": tie_down_force,
-        "cable_selection": cable_selection,
-        "membrane_area": membrane_area,
-        "num_anchors": num_anchors,
-        "span": span,
-        "rise": rise,
-        "laa": laa,
-        "detailed_checks": {
-            "wind_pressure_check": wind_result["design_pressure"] < 2.0,
-            "steel_capacity_check": steel_capacity["efficiency"] > 0.5,
-            "cable_adequacy_check": cable_selection["is_adequate"],
-            "slenderness_check": steel_capacity["slenderness"] < 100
-        }
-    }
-
 def render_dashboard():
     st.title("🏗️ SDS Design Studio - International Standards")
     st.caption("Design with EU, China, British, Malaysian, and US Standards")
@@ -1374,6 +1324,22 @@ def render_workspace():
     st.markdown("## 🧠 Design Workspace")
     st.caption(f"🇪🇺🇨🇳🇬🇧🇲🇾🇺🇸 {get_standard_label(standard)} Compliant")
     
+    # Health Report Button - VISIBLE at top
+    col_report1, col_report2 = st.columns([4, 1])
+    with col_report2:
+        if st.button("📊 Generate Health Report", use_container_width=True, type="primary"):
+            st.session_state.show_structural_report = True
+            st.rerun()
+    
+    # Show Health Report if requested
+    if st.session_state.show_structural_report:
+        report = generate_structural_health_report(params, materials)
+        render_structural_health_report(report)
+        if st.button("❌ Close Report", use_container_width=True, key="close_report"):
+            st.session_state.show_structural_report = False
+            st.rerun()
+        st.markdown("---")
+    
     col_left, col_right = st.columns([1, 1.5])
     
     with col_left:
@@ -1404,17 +1370,8 @@ def render_workspace():
         materials["standard"] = standard_options[standard_labels.index(selected_label)]
         st.session_state.selected_standard = materials["standard"]
         
-        # Show standard badge
-        standard_code = materials["standard"]
-        badge_class = {
-            "EU": "badge-eu",
-            "CN": "badge-cn",
-            "UK": "badge-uk",
-            "MY": "badge-my",
-            "US": "badge-us"
-        }.get(standard_code, "badge-eu")
-        
-        st.markdown(f'<span class="standard-badge {badge_class}">{standard_code}</span> {get_standard_label(standard_code)}', unsafe_allow_html=True)
+        badge_class = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(materials["standard"], "badge-eu")
+        st.markdown(f'<span class="standard-badge {badge_class}">{materials["standard"]}</span> {get_standard_label(materials["standard"])}', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
         # Geometry
@@ -1443,7 +1400,6 @@ def render_workspace():
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">🏗️ Steel Materials</div>', unsafe_allow_html=True)
         
-        # Steel Grade - Standard specific
         steel_grades = get_steel_grades_for_standard(standard)
         steel_grades_list = list(steel_grades.keys())
         current_grade = materials.get("steel_grade", steel_grades_list[0] if steel_grades_list else "S355 (EN 10025)")
@@ -1457,7 +1413,6 @@ def render_workspace():
             key="steel_grade_select"
         )
         
-        # Section Size
         section_options = list(SECTION_PROPERTIES.keys())
         current_section = materials.get("section_size", "CHS 168.3x7.1")
         if current_section not in section_options:
@@ -1469,7 +1424,6 @@ def render_workspace():
             key="section_select"
         )
         
-        # Fabric
         materials["fabric_type"] = st.selectbox(
             "Fabric Type",
             ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"],
@@ -1534,7 +1488,6 @@ def render_workspace():
         materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=1, key="num_bays")
         materials["tie_down_angle"] = st.slider("Tie-Down Angle (°)", 20, 70, 45, 5, key="tie_down_angle")
         
-        # Cable Type
         cable_options = list(CABLE_SPECS.keys())
         current_cable = materials.get("wire_rope_type", cable_options[0] if cable_options else "6x19 Galvanized (EU)")
         if current_cable not in cable_options:
@@ -1547,7 +1500,6 @@ def render_workspace():
             key="cable_type"
         )
         
-        # Cable Diameter
         available_diameters = CABLE_SPECS[materials["wire_rope_type"]]["diameters"]
         current_diameter = materials.get("wire_rope_diameter", available_diameters[0] if available_diameters else 12)
         if current_diameter not in available_diameters:
@@ -1619,14 +1571,6 @@ def render_workspace():
         ans = st.radio(q, ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"qa_{i}")
         st.session_state.qa_answers[key] = ans
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Generate structural report if requested
-    if st.session_state.show_structural_report:
-        report = generate_structural_health_report(params, materials)
-        render_structural_health_report(report)
-        if st.button("Close Report", use_container_width=True, key="close_report"):
-            st.session_state.show_structural_report = False
-            st.rerun()
     
     save_cache()
 
@@ -1766,6 +1710,6 @@ render_workspace()
 
 # Footer
 st.divider()
-st.caption("SDS Design Studio | EU / China / British / Malaysia / USA Standards | v7.0")
+st.caption("SDS Design Studio | EU / China / British / Malaysia / USA Standards | v7.1")
 
 save_cache()
