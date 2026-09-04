@@ -406,8 +406,7 @@ def go_to_dashboard():
     st.session_state.tie_down_attachments = []
     if os.path.exists(CACHE_FILE):
         os.remove(CACHE_FILE)
-    save_cache}"
-()
+    save_cache()
 
 def clear_cache():
     if os.path.exists(CACHE_FILE):
@@ -416,9 +415,9 @@ def clear_cache():
     st.session_state.project_info = {}
     st.session_state.typology = None
     st.session_state.params = {}
-    st.session_state   .qa_answers = {}
-    st.session_state.l projectsocked = False
-    st.session_state.design_ =phase = "understand"
+    st.session_state.qa_answers = {}
+    st.session_state.locked = False
+    st.session_state.design_phase = "understand"
     st.session_state.comments = ""
     st.session_state.user_notes = ""
     st.session_state.show_project_browser = False
@@ -433,7 +432,8 @@ def save_project_as_new():
         return
     ref = st.session_state.project_info.get("reference")
     if not ref:
-        ref = f"SDS-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6)) get_projects_list()
+        ref = f"SDS-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
+    projects = get_projects_list()
     existing_file = None
     for proj in projects:
         if proj.get("reference") == ref:
@@ -623,9 +623,6 @@ TYPOLOGIES = {
 # ============================================================
 
 def get_bracing_preset(span, preset, num_custom_points=None):
-    """
-    Returns X-positions for bracing points based on engineering presets.
-    """
     if preset == "two_quarter":
         return [-span/4, span/4]
     elif preset == "three_quarter":
@@ -646,7 +643,7 @@ def get_bracing_preset(span, preset, num_custom_points=None):
                 spacing = span / (num_custom_points + 1)
                 return [(-span/2) + spacing * (i+1) for i in range(num_custom_points)]
     else:
-        return [-span/4, 0.0, span/4]  # default
+        return [-span/4, 0.0, span/4]
 
 def get_preset_description(preset):
     descriptions = {
@@ -660,20 +657,16 @@ def get_preset_description(preset):
     return descriptions.get(preset, "Engineering-preset bracing positions.")
 
 # ============================================================
-# 3D GENERATORS – WITH RADIAL ANCHORS, SMALL MARKERS, AND ASPECT RATIO
+# 3D GENERATORS
 # ============================================================
 
 def generate_tie_down_anchors_at_positions(span, laa, height, x_positions, vertical_angle_deg, horizontal_spread_deg):
-    """
-    Generate ground anchor positions along radial outward direction from the structure centre.
-    """
     vertical_rad = np.radians(vertical_angle_deg)
     distance = height * np.tan(vertical_rad)
     anchors = []
     beam_ys = [-laa/2, laa/2]
     for beam_idx, beam_y in enumerate(beam_ys):
         for beam_x in x_positions:
-            # Outward radial vector from centre (0,0) to the beam point
             if abs(beam_x) < 1e-6 and abs(beam_y) < 1e-6:
                 vec = np.array([1.0, 0.0])
             else:
@@ -711,7 +704,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
     y1 = -laa/2 * (1 - (2 * x / span)**2)
     y2 = laa/2 * (1 - (2 * x / span)**2)
 
-    # Membrane surface
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
@@ -730,26 +722,22 @@ def generate_saddle_span(params, materials=None, annotations=None):
 
     fig = go.Figure()
 
-    # Beams
     fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=8)))
     fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=8)))
     fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, 
                              colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
                              opacity=0.6, showscale=False))
 
-    # Apex markers
     fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
                                mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=6, symbol='diamond')))
     fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], 
                                mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=6, symbol='diamond')))
 
-    # Supports
     fig.add_trace(go.Scatter3d(x=[-span/2], y=[0], z=[0], 
                                mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=8, symbol='square')))
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
                                mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=8, symbol='square')))
 
-    # --- BRACING ---
     show_bracing = True
     if annotations is not None:
         show_bracing = annotations.get("show_bracing", True)
@@ -765,14 +753,12 @@ def generate_saddle_span(params, materials=None, annotations=None):
             y1_pos = y1[idx]
             y2_pos = y2[idx]
             z_pos = z_beam[idx]
-            # Cross bracing lines
             fig.add_trace(go.Scatter3d(
                 x=[bx, bx], y=[y1_pos, y2_pos], z=[z_pos, z_pos],
                 mode='lines', name='Cross Bracing',
                 line=dict(color='#FF6B6B', width=4, dash='dash'),
                 showlegend=False
             ))
-            # Bracing point markers (small blue)
             fig.add_trace(go.Scatter3d(
                 x=[bx], y=[y1_pos], z=[z_pos],
                 mode='markers', marker=dict(color='#4ECDC4', size=4),
@@ -784,7 +770,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 showlegend=False
             ))
 
-    # --- TIE-DOWNS ---
     show_tie_down = True
     if annotations is not None:
         show_tie_down = annotations.get("show_tie_down", True)
@@ -799,7 +784,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
             idx = np.argmin(np.abs(x - a["beam_x"]))
             beam_z = z_beam[idx]
             
-            # Tie-down rope (thicker yellow)
             fig.add_trace(go.Scatter3d(
                 x=[a["beam_x"], a["anchor_x"]],
                 y=[a["beam_y"], a["anchor_y"]],
@@ -808,14 +792,12 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 line=dict(color='#FFD93D', width=5),
                 showlegend=False
             ))
-            # Connection sphere on beam (small gold)
             fig.add_trace(go.Scatter3d(
                 x=[a["beam_x"]], y=[a["beam_y"]], z=[beam_z],
                 mode='markers',
                 marker=dict(color='#FFD93D', size=4, symbol='circle'),
                 showlegend=False
             ))
-            # Ground anchor (small red X)
             fig.add_trace(go.Scatter3d(
                 x=[a["anchor_x"]], y=[a["anchor_y"]], z=[a["anchor_z"]],
                 mode='markers',
@@ -823,7 +805,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 showlegend=False
             ))
 
-    # --- Wind arrows ---
     show_wind = True
     if annotations is not None:
         show_wind = annotations.get("show_wind", True)
@@ -839,7 +820,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
             line=dict(color='#FF6B6B', width=4, dash='dash'), showlegend=False
         ))
 
-    # --- Load path ---
     show_load_path = True
     if annotations is not None:
         show_load_path = annotations.get("show_load_path", True)
@@ -879,10 +859,6 @@ def generate_saddle_span(params, materials=None, annotations=None):
         )
     )
     return fig
-
-# ============================================================
-# OTHER GENERATORS (tent, tensile, portal, custom) with aspect ratio fix
-# ============================================================
 
 def generate_tent(params):
     span = params.get("span_width", 10.0)
@@ -1024,7 +1000,7 @@ GENERATORS = {
 }
 
 # ============================================================
-# OTHER FUNCTIONS (unchanged)
+# OTHER FUNCTIONS
 # ============================================================
 
 def calculate_steel_weight(grade, section_type, section_size, length):
@@ -1101,7 +1077,7 @@ def generate_bq():
     return bq_data
 
 # ============================================================
-# UNIFIED BOARD – WITH REMOVED "USER GIVEN DIMENSIONS"
+# UNIFIED BOARD
 # ============================================================
 def render_unified_workspace():
     params = st.session_state.params
@@ -1116,7 +1092,6 @@ def render_unified_workspace():
     col_left, col_right = st.columns([1, 1.8])
 
     with col_left:
-        # PHOTO / REFERENCE
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📷 PHOTO / REFERENCE</div>', unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload reference image", type=["png", "jpg", "jpeg", "webp"], key="photo_ref")
@@ -1127,7 +1102,6 @@ def render_unified_workspace():
             st.caption("🖼️ Upload a sketch, photo, or reference image.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # NOTES FROM USER
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📝 NOTES FROM USER</div>', unsafe_allow_html=True)
         user_notes = st.text_area(
@@ -1140,7 +1114,6 @@ def render_unified_workspace():
         st.session_state.user_notes = user_notes
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # CURRENT INTERPRETATION SUMMARY
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📊 Current Interpretation Summary</div>', unsafe_allow_html=True)
         m = materials
@@ -1162,7 +1135,6 @@ def render_unified_workspace():
                         f'</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # STRUCTURED QUESTIONS
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">❓ Structured Questions</div>', unsafe_allow_html=True)
         st.caption("Confirm the following assumptions. These will be locked and stored in the engineering report.")
@@ -1177,7 +1149,6 @@ def render_unified_workspace():
             st.session_state.qa_answers[key] = ans
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # LEGEND
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📌 Legend (Data Identity)</div>', unsafe_allow_html=True)
         st.markdown(f'<span class="badge badge-confirmed">CONFIRMED</span> <span style="color:#b0c4de;">Confirmed by User</span> &nbsp;|&nbsp; '
@@ -1187,14 +1158,12 @@ def render_unified_workspace():
                     f'<span class="badge badge-autogen">AUTO-GEN</span> <span style="color:#b0c4de;">Auto-Generated</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # LOCK BUTTON
         if st.button("🔒 LOCK & PROCEED TO INVESTIGATION", use_container_width=True, type="primary"):
             st.session_state.locked = True
             save_cache()
             st.success("✅ Design locked! You can now view the final model and export.")
 
     with col_right:
-        # --- 3D Model at the top ---
         st.subheader("🔬 3D Model")
         anno_cols = st.columns(4)
         with anno_cols[0]:
@@ -1216,7 +1185,6 @@ def render_unified_workspace():
                 fig = GENERATORS[typ_key](params)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
 
-        # --- Editable Geometry ---
         st.divider()
         st.markdown("### 📐 Edit Geometry")
         col_a, col_b, col_c = st.columns(3)
@@ -1230,12 +1198,10 @@ def render_unified_workspace():
             new_laa = st.number_input("LAA (m)", min_value=4.0, max_value=50.0, step=0.5, value=float(params.get("LAA", 15.0)), format="%.1f", key="right_laa")
             params["LAA"] = new_laa
 
-        # --- Engineering-Driven Bracing & Tie-Downs ---
         with st.expander("🏗️ Engineering-Driven Bracing & Tie-Downs", expanded=True):
             st.markdown("### 🔧 Bracing Preset")
             st.caption("Select an engineering‑based bracing layout. Tie‑downs are automatically aligned to bracing points.")
             
-            # Preset selection
             preset_options = {
                 "two_quarter": "🔄 Two Quarter Points (1/4 and 3/4)",
                 "three_quarter": "🏗️ Three Quarter Points (1/4, 1/2, 3/4)",
@@ -1254,10 +1220,8 @@ def render_unified_workspace():
             )
             materials["bracing_preset"] = selected_preset
             
-            # Show description
             st.info(get_preset_description(selected_preset))
             
-            # If custom, allow entering positions
             if selected_preset == "custom":
                 st.markdown("### 📍 Custom Bracing Positions")
                 st.caption("Enter X‑coordinates (in metres) for each bracing point. Use comma‑separated values.")
@@ -1275,7 +1239,6 @@ def render_unified_workspace():
                 except:
                     st.warning("⚠️ Please enter valid numbers separated by commas.")
             
-            # Show current positions
             span = params.get("B", 10.0)
             if selected_preset == "custom":
                 bracing_x = materials.get("custom_bracing_positions", [])
@@ -1291,7 +1254,6 @@ def render_unified_workspace():
             
             st.divider()
             
-            # Tie-down settings
             st.markdown("### ⛓️ Tie-Down Settings")
             col_t1, col_t2, col_t3 = st.columns(3)
             with col_t1:
@@ -1309,7 +1271,7 @@ def render_unified_workspace():
                     step=5,
                     value=materials.get("tie_down_vertical_angle", 45),
                     key="right_vertical",
-                    help="Angle of tie-down rope from horizontal (max 45° recommended for efficiency)"
+                    help="Angle of tie-down rope from horizontal (max 45° recommended)"
                 )
             with col_t3:
                 materials["tie_down_horizontal_spread"] = st.slider(
@@ -1322,13 +1284,11 @@ def render_unified_workspace():
                     help="Angle of tie-down spread outward from beam"
                 )
             
-            # Engineering note
             if materials["tie_down_vertical_angle"] > 45:
                 st.warning("⚠️ Vertical angle >45° reduces cable efficiency. Consider reducing to 45° or less.")
             
             st.info("💡 Tie‑downs are automatically placed at all bracing positions, with anchors located radially outward from the structure centre.")
 
-        # --- Materials (in expander) ---
         with st.expander("🏗️ Materials", expanded=False):
             col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
@@ -1358,7 +1318,6 @@ def render_unified_workspace():
             with col_w2:
                 st.caption("💨 Used for structural checks and uplift calculations.")
 
-        # --- Structural Checks ---
         if typ_key == "saddle_span":
             with st.expander("📊 Preliminary Structural Checks", expanded=True):
                 m = materials
@@ -1372,7 +1331,6 @@ def render_unified_workspace():
                 total_weight_kn = total_weight_kg / 100
                 wind_load = calculate_wind_load(m.get("wind_speed", 40), membrane_area)
                 
-                # Get bracing positions for anchor count
                 bracing_preset = m.get("bracing_preset", "two_quarter")
                 if bracing_preset == "custom":
                     bracing_x = m.get("custom_bracing_positions", [])
@@ -1399,7 +1357,6 @@ def render_unified_workspace():
                 else:
                     st.success(f"✅ All preliminary checks passed. Structure is stable under wind loads.")
 
-        # --- BQ ---
         with st.expander("📋 Bill of Quantities"):
             bq = generate_bq()
             df = pd.DataFrame(list(bq.items()), columns=["Item", "Value"])
@@ -1407,7 +1364,6 @@ def render_unified_workspace():
             csv = df.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Download BQ as CSV", data=csv, file_name="bq.csv", mime="text/csv")
 
-        # --- Actions ---
         st.divider()
         col_act1, col_act2, col_act3, col_act4 = st.columns(4)
         with col_act1:
@@ -1471,7 +1427,7 @@ def render_unified_workspace():
     st.caption("Understanding Design → Confirm Model → Engineering Investigation → Better Design → Roots Protected. Branches Free. Ecosystem Growing.")
 
 # ============================================================
-# MAIN DASHBOARD (unchanged)
+# MAIN DASHBOARD
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio")
