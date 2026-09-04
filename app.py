@@ -541,7 +541,6 @@ def calculate_wind_pressure_standard(wind_zone, terrain_category, height, import
 def calculate_steel_capacity_standard(grade, section, length, safety_factor, standard="EU"):
     steel_grades = get_steel_grades_for_standard(standard)
     
-    # FIX: If grade not found, use first available grade
     if grade not in steel_grades:
         grade = list(steel_grades.keys())[0] if steel_grades else "S355 (EN 10025)"
     
@@ -1035,7 +1034,7 @@ GENERATORS = {
 }
 
 # ============================================================
-# STRUCTURAL HEALTH REPORT FUNCTION
+# STRUCTURAL HEALTH REPORT FUNCTION (FIXED)
 # ============================================================
 def generate_structural_health_report(params, materials):
     """Generate comprehensive structural health report using selected standard"""
@@ -1055,7 +1054,7 @@ def generate_structural_health_report(params, materials):
         standard
     )
     
-    # Steel capacity - FIXED with safe grade handling
+    # Steel capacity
     steel_grade = m.get("steel_grade", "S355 (EN 10025)")
     steel_capacity = calculate_steel_capacity_standard(
         steel_grade,
@@ -1066,7 +1065,7 @@ def generate_structural_health_report(params, materials):
     )
     
     membrane_area = span * laa * 1.1
-wind_force = wind_result["design_pressure"] * membrane_area
+    wind_force = wind_result["design_pressure"] * membrane_area
     
     num_anchors = m.get("num_bays", 2) * 2
     tie_down_force = (wind_force * 0.8) / num_anchors if num_anchors > 0 else 0
