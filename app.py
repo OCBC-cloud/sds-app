@@ -24,15 +24,14 @@ st.set_page_config(
 )
 
 # ============================================================
-# FORCE BOARD MODE (DEBUG) – must be before any session state
+# FORCE BOARD MODE (DEBUG)
 # ============================================================
 query_params = st.query_params
 if query_params.get("force_board") == "true":
-    # This will force the board to render immediately
-    pass  # We'll apply after session state init
+    pass  # handled later
 
 # ============================================================
-# CUSTOM DARK MODE CSS
+# CUSTOM DARK MODE CSS (same as before)
 # ============================================================
 dark_mode_css = """
     <style>
@@ -256,7 +255,7 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# SESSION STATE
+# SESSION STATE (same as before)
 # ============================================================
 if "project_registered" not in st.session_state:
     st.session_state.project_registered = False
@@ -285,6 +284,8 @@ if "design_phase" not in st.session_state:
     st.session_state.design_phase = "understand"
 if "comments" not in st.session_state:
     st.session_state.comments = ""
+if "user_notes" not in st.session_state:
+    st.session_state.user_notes = ""
 if "show_project_browser" not in st.session_state:
     st.session_state.show_project_browser = False
 if "show_registration" not in st.session_state:
@@ -316,7 +317,7 @@ if "materials" not in st.session_state:
     }
 
 # ============================================================
-# CACHE HANDLER
+# CACHE HANDLER (same as before)
 # ============================================================
 CACHE_DIR = ".sds_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -336,6 +337,7 @@ def save_cache():
         "engineering_annotations": st.session_state.engineering_annotations,
         "design_phase": st.session_state.design_phase,
         "comments": st.session_state.comments,
+        "user_notes": st.session_state.get("user_notes", ""),
         "materials": st.session_state.materials
     }
     with open(CACHE_FILE, "w") as f:
@@ -377,10 +379,8 @@ def load_project_from_file(filename):
             data = json.load(f)
             st.session_state.project_registered = data.get("project_registered", False)
             st.session_state.project_info = data.get("project_info", {})
-            # If typology missing, try to infer
             typ = data.get("typology")
             if typ is None:
-                # Infer from params
                 params = data.get("params", {})
                 if "A" in params and "B" in params and "LAA" in params:
                     typ = "saddle_span"
@@ -406,6 +406,7 @@ def load_project_from_file(filename):
             })
             st.session_state.design_phase = data.get("design_phase", "understand")
             st.session_state.comments = data.get("comments", "")
+            st.session_state.user_notes = data.get("user_notes", "")
             st.session_state.materials = data.get("materials", {
                 "steel_grade": "S355",
                 "section_type": "Circular Hollow Section (CHS)",
@@ -451,6 +452,7 @@ def go_to_dashboard():
     st.session_state.custom_description = ""
     st.session_state.design_phase = "understand"
     st.session_state.comments = ""
+    st.session_state.user_notes = ""
     st.session_state.show_project_browser = False
     st.session_state.show_registration = False
     st.session_state.show_export = False
@@ -472,6 +474,7 @@ def clear_cache():
     st.session_state.custom_description = ""
     st.session_state.design_phase = "understand"
     st.session_state.comments = ""
+    st.session_state.user_notes = ""
     st.session_state.show_project_browser = False
     st.session_state.show_registration = False
     st.session_state.show_export = False
@@ -503,6 +506,7 @@ def save_project_as_new():
         "engineering_annotations": st.session_state.engineering_annotations,
         "design_phase": st.session_state.design_phase,
         "comments": st.session_state.comments,
+        "user_notes": st.session_state.get("user_notes", ""),
         "materials": st.session_state.materials
     }
     if existing_file:
@@ -530,7 +534,6 @@ if cached:
     st.session_state.project_info = cached.get("project_info", {})
     typ = cached.get("typology")
     if typ is None:
-        # Infer typology
         params = cached.get("params", {})
         if "A" in params and "B" in params and "LAA" in params:
             typ = "saddle_span"
@@ -556,6 +559,7 @@ if cached:
     })
     st.session_state.design_phase = cached.get("design_phase", "understand")
     st.session_state.comments = cached.get("comments", "")
+    st.session_state.user_notes = cached.get("user_notes", "")
     st.session_state.materials = cached.get("materials", {
         "steel_grade": "S355",
         "section_type": "Circular Hollow Section (CHS)",
@@ -575,7 +579,6 @@ if cached:
         "tie_down_horizontal_spread": 25
     })
 
-# If force_board mode, override session state to force board
 if query_params.get("force_board") == "true":
     st.session_state.typology = "saddle_span"
     st.session_state.project_registered = True
@@ -614,6 +617,7 @@ if query_params.get("force_board") == "true":
     st.session_state.locked = False
     st.session_state.qa_answers = {}
     st.session_state.comments = "Debug mode - force board"
+    st.session_state.user_notes = "Debug project"
     st.session_state.show_registration = False
     st.session_state.show_project_browser = False
     st.session_state.show_export = False
@@ -621,7 +625,7 @@ if query_params.get("force_board") == "true":
     save_cache()
 
 # ============================================================
-# TYPOLOGIES
+# TYPOLOGIES (same as before)
 # ============================================================
 TYPOLOGIES = {
     "saddle_span": {
@@ -716,7 +720,7 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# AUTO-GENERATION FUNCTIONS
+# AUTO-GENERATION FUNCTIONS (same as before)
 # ============================================================
 
 def generate_bracing_positions(span, num_bays):
@@ -781,7 +785,7 @@ def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_an
     return cable_force
 
 # ============================================================
-# 3D GENERATOR
+# 3D GENERATORS (same as before)
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -1098,11 +1102,11 @@ def get_json_download_link(data, filename="project_data.json"):
     return href
 
 # ============================================================
-# UNIFIED UI RENDERER
+# THE EXACT UNIFIED BOARD – MATCHING YOUR MOCKUP
 # ============================================================
 
 def render_unified_workspace():
-    """The single SDS-UNDERSTAND workspace where everything happens"""
+    """The exact SDS-UNDERSTAND board as per your mockup"""
     
     params = st.session_state.params
     materials = st.session_state.materials
@@ -1113,9 +1117,51 @@ def render_unified_workspace():
     st.markdown("## 🧠 SDS-UNDERSTAND — Engineering Understanding & Model Confirmation")
     st.caption("Review, confirm, and edit your design in one unified workspace. Changes update the 3D model in real-time.")
     
+    # Two columns
     col_left, col_right = st.columns([1, 1.5])
     
+    # ============================================================
+    # LEFT COLUMN – exactly in your mockup order
+    # ============================================================
     with col_left:
+        # 1. PHOTO / REFERENCE
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">📷 PHOTO / REFERENCE</div>', unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("Upload reference image", type=["png", "jpg", "jpeg", "webp"], key="photo_ref")
+        if uploaded_file is not None:
+            st.image(uploaded_file, caption="Reference Image", use_column_width=True)
+            st.caption("📌 Note: Uploaded image is for reference only. Platform limitation prevents live image-to-model conversion.")
+        else:
+            st.caption("🖼️ Upload a sketch, photo, or reference image of the structure.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # 2. USER GIVEN DIMENSIONS
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">📏 USER GIVEN DIMENSIONS</div>', unsafe_allow_html=True)
+        col_d1, col_d2, col_d3 = st.columns(3)
+        with col_d1:
+            st.metric("A (Rise / Height)", f"{params.get('A', 6.0):.1f} m")
+        with col_d2:
+            st.metric("B (Plan / Horizontal)", f"{params.get('B', 10.0):.1f} m")
+        with col_d3:
+            st.metric("LAA (Apex to Apex)", f"{params.get('LAA', 15.0):.1f} m")
+        st.caption("📌 These dimensions are provided by the user. Adjust them below if needed.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # 3. NOTES FROM USER
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">📝 NOTES FROM USER</div>', unsafe_allow_html=True)
+        user_notes = st.text_area(
+            "Add your design notes here",
+            value=st.session_state.get("user_notes", ""),
+            height=100,
+            key="user_notes_area",
+            placeholder="e.g., Two main curved primary beams, Membrane roof between the beams, Find best ratio A/B..."
+        )
+        st.session_state.user_notes = user_notes
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # 4. CURRENT INTERPRETATION SUMMARY
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📊 Current Interpretation Summary</div>', unsafe_allow_html=True)
         m = materials
@@ -1137,6 +1183,22 @@ def render_unified_workspace():
                         f'</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # 5. STRUCTURED QUESTIONS – moved here, right after summary
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">❓ Structured Questions</div>', unsafe_allow_html=True)
+        st.caption("Confirm the following assumptions. These will be locked and stored in the engineering report.")
+        for i, q in enumerate(typ["qa"]):
+            key = f"qa_{i}"
+            default = st.session_state.qa_answers.get(key, "Yes")
+            if "?" in q:
+                ans = st.radio(f"{i+1}. {q}", ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"left_qa_{i}")
+            else:
+                options = ["Open", "Enclosed", "PVC", "PTFE", "Steel"]
+                ans = st.selectbox(f"{i+1}. {q}", options, index=options.index(default) if default in options else 0, key=f"left_qa_{i}")
+            st.session_state.qa_answers[key] = ans
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # 6. LEGEND
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📌 Legend (Data Identity)</div>', unsafe_allow_html=True)
         st.markdown(f'<span class="badge badge-confirmed">CONFIRMED</span> <span style="color:#b0c4de;">Confirmed by User</span> &nbsp;|&nbsp; '
@@ -1146,67 +1208,71 @@ def render_unified_workspace():
                     f'<span class="badge badge-autogen">AUTO-GEN</span> <span style="color:#b0c4de;">Auto-Generated</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📐 Geometry</div>', unsafe_allow_html=True)
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            new_a = st.number_input("Rise (A) (m)", min_value=2.0, max_value=20.0, step=0.5, value=float(params.get("A", 6.0)), format="%.1f", key="unified_a")
-            params["A"] = new_a
-        with col_b:
-            new_b = st.number_input("Span (B) (m)", min_value=4.0, max_value=40.0, step=0.5, value=float(params.get("B", 10.0)), format="%.1f", key="unified_b")
-            params["B"] = new_b
-        with col_c:
-            new_laa = st.number_input("Apex Distance (LAA) (m)", min_value=4.0, max_value=50.0, step=0.5, value=float(params.get("LAA", 15.0)), format="%.1f", key="unified_laa")
-            params["LAA"] = new_laa
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">🏗️ Materials</div>', unsafe_allow_html=True)
-        col_m1, col_m2, col_m3 = st.columns(3)
-        with col_m1:
-            materials["steel_grade"] = st.selectbox("Steel Grade", ["S275", "S355", "S460", "6061-T6 (Aluminum)"], index=["S275", "S355", "S460", "6061-T6 (Aluminum)"].index(materials.get("steel_grade", "S355")), key="unified_steel")
-        with col_m2:
-            materials["section_type"] = st.selectbox("Section Type", ["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"], index=["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"].index(materials.get("section_type", "Circular Hollow Section (CHS)")), key="unified_section_type")
-        with col_m3:
-            section_sizes = {
-                "Circular Hollow Section (CHS)": ["CHS 100x5", "CHS 150x6", "CHS 200x8", "CHS 250x10"],
-                "Rectangular Hollow Section (RHS)": ["RHS 150x100x6", "RHS 200x150x8", "RHS 250x150x10"],
-                "I-Beam": ["I-100", "I-150", "I-200", "I-250"],
-                "Pipe": ["Pipe 100x5", "Pipe 150x6", "Pipe 200x8"]
-            }
-            materials["section_size"] = st.selectbox("Section Size", section_sizes.get(materials["section_type"], ["CHS 150x6"]), index=0, key="unified_section_size")
-        
-        col_m4, col_m5, col_m6 = st.columns(3)
-        with col_m4:
-            materials["fabric_type"] = st.selectbox("Fabric Type", ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"], index=["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"].index(materials.get("fabric_type", "PVC-coated Polyester")), key="unified_fabric")
-        with col_m5:
-            materials["fabric_thickness"] = st.selectbox("Thickness (mm)", [0.5, 0.8, 1.0, 1.2], index=[0.5, 0.8, 1.0, 1.2].index(materials.get("fabric_thickness", 0.8)), key="unified_thickness")
-        with col_m6:
-            materials["prestress"] = st.selectbox("Prestress (kN/m)", [1.0, 3.0, 5.0], index=[1.0, 3.0, 5.0].index(materials.get("prestress", 3.0)), key="unified_prestress")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">🔗 Bracing & Tie-Downs</div>', unsafe_allow_html=True)
-        col_b1, col_b2, col_b3 = st.columns(3)
-        with col_b1:
-            materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(materials.get("num_bays", 2)), key="unified_bays", help="1=Apex only, 2=Third points, 3=Quarter points")
-            span = params.get("B", 10.0)
-            positions = generate_bracing_positions(span, materials["num_bays"])
-            st.caption(f"📍 Positions: {', '.join([f'{p:.1f}m' for p in positions])}")
-        with col_b2:
-            materials["wire_rope_diameter"] = st.selectbox("Wire Rope Diameter (mm)", [6, 8, 10, 12, 14, 16, 20], index=[6, 8, 10, 12, 14, 16, 20].index(materials.get("wire_rope_diameter", 10)), key="unified_rope")
-        with col_b3:
-            materials["tie_down_vertical_angle"] = st.slider("Vertical Angle (°)", min_value=20, max_value=70, step=5, value=materials.get("tie_down_vertical_angle", 45), key="unified_vertical", help="Angle of tie-down rope from horizontal")
-        col_b4, col_b5 = st.columns(2)
-        with col_b4:
-            materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", min_value=10, max_value=60, step=5, value=materials.get("tie_down_horizontal_spread", 25), key="unified_spread", help="Angle of tie-down spread outward from beam")
-        with col_b5:
-            st.caption("💡 Tie-downs auto-align to bracing positions")
-        st.markdown('</div>', unsafe_allow_html=True)
+        # 7. LOCK & PROCEED – at the very bottom of left column
+        if st.button("🔒 LOCK & PROCEED TO INVESTIGATION", use_container_width=True, type="primary"):
+            st.session_state.locked = True
+            save_cache()
+            st.success("✅ Design locked! You can now view the final model and export.")
     
+    # ============================================================
+    # RIGHT COLUMN – 3D Model, Checks, Actions (same as before)
+    # ============================================================
     with col_right:
-        st.subheader("🔬 3D Model")
+        # Geometry and Materials controls are now placed in the right column for easy editing
+        st.subheader("🔬 3D Model & Controls")
         
+        # Quick geometry and materials edit
+        with st.expander("📐 Edit Geometry & Materials", expanded=True):
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                new_a = st.number_input("Rise (A) (m)", min_value=2.0, max_value=20.0, step=0.5, value=float(params.get("A", 6.0)), format="%.1f", key="right_a")
+                params["A"] = new_a
+            with col_b:
+                new_b = st.number_input("Span (B) (m)", min_value=4.0, max_value=40.0, step=0.5, value=float(params.get("B", 10.0)), format="%.1f", key="right_b")
+                params["B"] = new_b
+            with col_c:
+                new_laa = st.number_input("LAA (m)", min_value=4.0, max_value=50.0, step=0.5, value=float(params.get("LAA", 15.0)), format="%.1f", key="right_laa")
+                params["LAA"] = new_laa
+            
+            col_m1, col_m2, col_m3 = st.columns(3)
+            with col_m1:
+                materials["steel_grade"] = st.selectbox("Steel Grade", ["S275", "S355", "S460", "6061-T6 (Aluminum)"], index=["S275", "S355", "S460", "6061-T6 (Aluminum)"].index(materials.get("steel_grade", "S355")), key="right_steel")
+            with col_m2:
+                materials["section_type"] = st.selectbox("Section Type", ["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"], index=["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"].index(materials.get("section_type", "Circular Hollow Section (CHS)")), key="right_section_type")
+            with col_m3:
+                section_sizes = {
+                    "Circular Hollow Section (CHS)": ["CHS 100x5", "CHS 150x6", "CHS 200x8", "CHS 250x10"],
+                    "Rectangular Hollow Section (RHS)": ["RHS 150x100x6", "RHS 200x150x8", "RHS 250x150x10"],
+                    "I-Beam": ["I-100", "I-150", "I-200", "I-250"],
+                    "Pipe": ["Pipe 100x5", "Pipe 150x6", "Pipe 200x8"]
+                }
+                materials["section_size"] = st.selectbox("Section Size", section_sizes.get(materials["section_type"], ["CHS 150x6"]), index=0, key="right_section_size")
+            
+            col_m4, col_m5, col_m6 = st.columns(3)
+            with col_m4:
+                materials["fabric_type"] = st.selectbox("Fabric Type", ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"], index=["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"].index(materials.get("fabric_type", "PVC-coated Polyester")), key="right_fabric")
+            with col_m5:
+                materials["fabric_thickness"] = st.selectbox("Thickness (mm)", [0.5, 0.8, 1.0, 1.2], index=[0.5, 0.8, 1.0, 1.2].index(materials.get("fabric_thickness", 0.8)), key="right_thickness")
+            with col_m6:
+                materials["prestress"] = st.selectbox("Prestress (kN/m)", [1.0, 3.0, 5.0], index=[1.0, 3.0, 5.0].index(materials.get("prestress", 3.0)), key="right_prestress")
+            
+            col_b1, col_b2, col_b3 = st.columns(3)
+            with col_b1:
+                materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(materials.get("num_bays", 2)), key="right_bays", help="1=Apex only, 2=Third points, 3=Quarter points")
+                span = params.get("B", 10.0)
+                positions = generate_bracing_positions(span, materials["num_bays"])
+                st.caption(f"📍 Positions: {', '.join([f'{p:.1f}m' for p in positions])}")
+            with col_b2:
+                materials["wire_rope_diameter"] = st.selectbox("Wire Rope Diameter (mm)", [6, 8, 10, 12, 14, 16, 20], index=[6, 8, 10, 12, 14, 16, 20].index(materials.get("wire_rope_diameter", 10)), key="right_rope")
+            with col_b3:
+                materials["tie_down_vertical_angle"] = st.slider("Vertical Angle (°)", min_value=20, max_value=70, step=5, value=materials.get("tie_down_vertical_angle", 45), key="right_vertical", help="Angle of tie-down rope from horizontal")
+            col_b4, col_b5 = st.columns(2)
+            with col_b4:
+                materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", min_value=10, max_value=60, step=5, value=materials.get("tie_down_horizontal_spread", 25), key="right_spread", help="Angle of tie-down spread outward from beam")
+            with col_b5:
+                st.caption("💡 Tie-downs auto-align to bracing positions")
+        
+        # Annotation toggles
         anno_cols = st.columns(4)
         with anno_cols[0]:
             st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind", value=st.session_state.engineering_annotations.get("show_wind", True))
@@ -1217,6 +1283,7 @@ def render_unified_workspace():
         with anno_cols[3]:
             st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load", value=st.session_state.engineering_annotations.get("show_load_path", True))
         
+        # 3D Model
         if typ_key == "custom":
             fig = generate_custom_bounding_box(params)
             st.info("📝 Custom design — 3D view shows bounding box.")
@@ -1227,6 +1294,7 @@ def render_unified_workspace():
                 fig = GENERATORS[typ_key](params)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
         
+        # Structural Checks
         if typ_key == "saddle_span":
             with st.expander("📊 Preliminary Structural Checks", expanded=True):
                 m = materials
@@ -1286,6 +1354,7 @@ def render_unified_workspace():
                     "parameters": params,
                     "qa_answers": st.session_state.qa_answers,
                     "comments": st.session_state.comments,
+                    "user_notes": st.session_state.get("user_notes", ""),
                     "materials": materials,
                     "locked": st.session_state.locked,
                     "export_date": datetime.now().isoformat()
@@ -1321,102 +1390,14 @@ def render_unified_workspace():
                 save_cache()
                 st.rerun()
     
+    # ============================================================
+    # FOOTER – Understanding Design → Confirm Model → Engineering Investigation
+    # ============================================================
     st.divider()
-    
-    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-    st.markdown('<div class="title">❓ Structured Questions</div>', unsafe_allow_html=True)
-    st.caption("Confirm the following assumptions. These will be locked and stored in the engineering report.")
-    for i, q in enumerate(typ["qa"]):
-        key = f"qa_{i}"
-        default = st.session_state.qa_answers.get(key, "Yes")
-        if "?" in q:
-            ans = st.radio(f"{i+1}. {q}", ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"understand_{i}")
-        else:
-            options = ["Open", "Enclosed", "PVC", "PTFE", "Steel"]
-            ans = st.selectbox(f"{i+1}. {q}", options, index=options.index(default) if default in options else 0, key=f"understand_{i}")
-        st.session_state.qa_answers[key] = ans
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-    st.markdown('<div class="title">💬 Comments / Instructions</div>', unsafe_allow_html=True)
-    comments = st.text_area("", value=st.session_state.comments, height=80, key="understand_comments", placeholder="Type your comment here...")
-    st.session_state.comments = comments
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    if st.button("🔒 LOCK & PROCEED TO INVESTIGATION", use_container_width=True, type="primary"):
-        st.session_state.locked = True
-        save_cache()
-        st.success("✅ Design locked! You can now view the final model and export.")
+    st.caption("Understanding Design → Confirm Model → Engineering Investigation → Better Design → Roots Protected. Branches Free. Ecosystem Growing.")
 
 # ============================================================
-# MAIN DASHBOARD
-# ============================================================
-
-def render_dashboard():
-    st.title("🏗️ SDS Design Studio")
-    st.caption("Parametric design for tensile structures, membrane roofs, and steel frames.")
-    st.markdown("### *Roots Protected. Branches Free. Ecosystem Growing.*")
-    
-    projects = get_projects_list()
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f"""
-        <div class="dashboard-card">
-            <div class="icon">📂</div>
-            <div class="value">{len(projects)}</div>
-            <div class="label">Saved Projects</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"""
-        <div class="dashboard-card">
-            <div class="icon">🏕️</div>
-            <div class="value">{len(TYPOLOGIES)}</div>
-            <div class="label">Structure Types</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        locked_count = sum(1 for p in projects if p.get("locked", False))
-        st.markdown(f"""
-        <div class="dashboard-card">
-            <div class="icon">🔒</div>
-            <div class="value">{locked_count}</div>
-            <div class="label">Locked Designs</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.divider()
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("➕ New Design", use_container_width=True, type="primary"):
-            st.session_state.show_registration = True
-            st.rerun()
-    with col2:
-        if projects:
-            if st.button("📂 Open Saved Project", use_container_width=True):
-                st.session_state.show_project_browser = True
-                st.rerun()
-        else:
-            st.button("📂 No Saved Projects", use_container_width=True, disabled=True)
-    
-    if projects:
-        st.subheader("📋 Recent Projects")
-        for proj in projects[:5]:
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.write(f"**{proj.get('name', 'Untitled')}** — 👤 {proj.get('client', 'N/A')} | {proj.get('typology', 'Unknown')}")
-            with col2:
-                if st.button("Open", key=f"dash_load_{proj.get('file')}", use_container_width=True):
-                    if load_project_from_file(proj.get('file')):
-                        st.rerun()
-            st.divider()
-    
-    st.caption("💡 Select 'New Design' to start a project, or open an existing project from the list above.")
-
-# ============================================================
-# MAIN UI RENDER LOOP
+# MAIN UI RENDER LOOP (same as before)
 # ============================================================
 
 # --- TOP BAR ---
@@ -1503,13 +1484,11 @@ if st.session_state.show_project_browser:
 # AUTO-LOAD SADDLE SPAN FOR NEW PROJECTS
 # ============================================================
 if st.session_state.project_registered and st.session_state.typology is None:
-    # Auto-select Saddle Span
     st.session_state.typology = "saddle_span"
     st.session_state.params = {p: v["default"] for p, v in TYPOLOGIES["saddle_span"]["params"].items()}
     st.session_state.qa_answers = {}
     st.session_state.locked = False
     save_cache()
-    # Optionally, we can force a rerun to show the board immediately
     st.rerun()
 
 # --- DASHBOARD ---
@@ -1554,7 +1533,6 @@ if st.session_state.show_registration or (st.session_state.project_registered an
                     st.session_state.project_registered = True
                     st.session_state.design_phase = "understand"
                     st.session_state.show_registration = False
-                    # Auto-select Saddle Span after registration
                     st.session_state.typology = "saddle_span"
                     st.session_state.params = {p: v["default"] for p, v in TYPOLOGIES["saddle_span"]["params"].items()}
                     st.session_state.qa_answers = {}
@@ -1568,5 +1546,5 @@ if st.session_state.show_registration or (st.session_state.project_registered an
 if st.session_state.typology is not None:
     render_unified_workspace()
 
-st.caption("SDS Platform v4.0 | Main Dashboard + Unified Workspace | Roots Protected. Branches Free. Ecosystem Growing.")
+st.caption("SDS Platform v4.1 | Exact Unified Board | Roots Protected. Branches Free. Ecosystem Growing.")
 save_cache()
