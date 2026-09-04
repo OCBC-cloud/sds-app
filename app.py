@@ -31,7 +31,7 @@ if query_params.get("force_board") == "true":
     pass  # handled later
 
 # ============================================================
-# CUSTOM DARK MODE CSS (same as before)
+# CUSTOM DARK MODE CSS
 # ============================================================
 dark_mode_css = """
     <style>
@@ -255,7 +255,7 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# SESSION STATE (same as before)
+# SESSION STATE
 # ============================================================
 if "project_registered" not in st.session_state:
     st.session_state.project_registered = False
@@ -317,7 +317,7 @@ if "materials" not in st.session_state:
     }
 
 # ============================================================
-# CACHE HANDLER (same as before)
+# CACHE HANDLER
 # ============================================================
 CACHE_DIR = ".sds_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -603,13 +603,13 @@ if query_params.get("force_board") == "true":
             "fabric_type": "PVC-coated Polyester",
             "fabric_thickness": 0.8,
             "prestress": 3.0,
-            "wire_rope_type": "Galvanized Steel (6x19)",
-            "wire_rope_diameter": 10,
+            "40wire_rope_type": "Gal,
+vanized Steel (6x19)",
+                       "wire_rope_diameter": 10 ",
             "num_bays": 2,
             "num_anchors": 2,
             "anchor_angle": 30,
-            "wind_speed": 40,
-            "snow_load": 0.5,
+            "wind_speed": snow_load": 0.5,
             "live_load": 0.5,
             "tie_down_vertical_angle": 45,
             "tie_down_horizontal_spread": 25
@@ -625,7 +625,7 @@ if query_params.get("force_board") == "true":
     save_cache()
 
 # ============================================================
-# TYPOLOGIES (same as before)
+# TYPOLOGIES
 # ============================================================
 TYPOLOGIES = {
     "saddle_span": {
@@ -720,7 +720,7 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# AUTO-GENERATION FUNCTIONS (same as before)
+# AUTO-GENERATION FUNCTIONS
 # ============================================================
 
 def generate_bracing_positions(span, num_bays):
@@ -785,7 +785,7 @@ def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_an
     return cable_force
 
 # ============================================================
-# 3D GENERATORS (same as before)
+# 3D GENERATORS
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -1218,9 +1218,6 @@ def render_unified_workspace():
     # RIGHT COLUMN – 3D Model, Checks, Actions (same as before)
     # ============================================================
     with col_right:
-        # Geometry and Materials controls are now placed in the right column for easy editing
-        st.subheader("🔬 3D Model & Controls")
-        
         # Quick geometry and materials edit
         with st.expander("📐 Edit Geometry & Materials", expanded=True):
             col_a, col_b, col_c = st.columns(3)
@@ -1397,7 +1394,74 @@ def render_unified_workspace():
     st.caption("Understanding Design → Confirm Model → Engineering Investigation → Better Design → Roots Protected. Branches Free. Ecosystem Growing.")
 
 # ============================================================
-# MAIN UI RENDER LOOP (same as before)
+# MAIN DASHBOARD – defined BEFORE the main loop
+# ============================================================
+
+def render_dashboard():
+    st.title("🏗️ SDS Design Studio")
+    st.caption("Parametric design for tensile structures, membrane roofs, and steel frames.")
+    st.markdown("### *Roots Protected. Branches Free. Ecosystem Growing.*")
+    
+    projects = get_projects_list()
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">📂</div>
+            <div class="value">{len(projects)}</div>
+            <div class="label">Saved Projects</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">🏕️</div>
+            <div class="value">{len(TYPOLOGIES)}</div>
+            <div class="label">Structure Types</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        locked_count = sum(1 for p in projects if p.get("locked", False))
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">🔒</div>
+            <div class="value">{locked_count}</div>
+            <div class="label">Locked Designs</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("➕ New Design", use_container_width=True, type="primary"):
+            st.session_state.show_registration = True
+            st.rerun()
+    with col2:
+        if projects:
+            if st.button("📂 Open Saved Project", use_container_width=True):
+                st.session_state.show_project_browser = True
+                st.rerun()
+        else:
+            st.button("📂 No Saved Projects", use_container_width=True, disabled=True)
+    
+    if projects:
+        st.subheader("📋 Recent Projects")
+        for proj in projects[:5]:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"**{proj.get('name', 'Untitled')}** — 👤 {proj.get('client', 'N/A')} | {proj.get('typology', 'Unknown')}")
+            with col2:
+                if st.button("Open", key=f"dash_load_{proj.get('file')}", use_container_width=True):
+                    if load_project_from_file(proj.get('file')):
+                        st.rerun()
+            st.divider()
+    
+    st.caption("💡 Select 'New Design' to start a project, or open an existing project from the list above.")
+
+# ============================================================
+# MAIN UI RENDER LOOP
 # ============================================================
 
 # --- TOP BAR ---
