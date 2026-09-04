@@ -1,17 +1,13 @@
 import streamlit as st
 import json
 import os
+import plotly.graph_objects as go
 import numpy as np
 from datetime import datetime
-import random
-import string
 import base64
-import glob
-import plotly.graph_objects as go  # kept for fallback, but not used
-import pandas as pd
 
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIG (Mobile-Friendly)
 # ============================================================
 st.set_page_config(
     page_title="SDS Design Studio",
@@ -19,606 +15,63 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ============================================================
-# CUSTOM DARK MODE CSS (same as before)
-# ============================================================
-dark_mode_css = """
+# Hide Streamlit's default menu/footer for a clean app
+hide_streamlit_style = """
     <style>
-    .stApp {
-        background-color: #0a0e17 !important;
-        color: #f0f4fa !important;
-    }
-    .stApp > header {
-        background-color: transparent !important;
-        display: none !important;
-    }
-    .stApp > header > div {
-        display: none !important;
-    }
-    .stApp > div > div {
-        background-color: #0a0e17 !important;
-    }
-    .block-container {
-        padding-top: 0.5rem !important;
-        padding-bottom: 0rem !important;
-        max-width: 100% !important;
-    }
-    h1, h2, h3, h4, h5, h6 {
-        color: #ffffff !important;
-        font-weight: 600 !important;
-    }
-    .stSubheader {
-        color: #e0e8f0 !important;
-    }
-    label, .stTextInput label, .stTextArea label, .stSelectbox label, .stNumberInput label {
-        color: #ffffff !important;
-        font-weight: 400 !important;
-        font-size: 1rem !important;
-    }
-    .stCaption, .stMarkdown, .stInfo, .stWarning {
-        color: #e0e8f0 !important;
-    }
-    .stRadio label {
-        color: #ffffff !important;
-        font-weight: 500 !important;
-        font-size: 1rem !important;
-        text-shadow: 0 0 4px rgba(0,0,0,0.8) !important;
-    }
-    .stRadio label span {
-        color: #ffffff !important;
-        font-weight: 500 !important;
-    }
-    .stRadio > div {
-        background-color: #141e2b !important;
-        padding: 0.75rem !important;
-        border-radius: 8px !important;
-        border: 1px solid #2a3a4f !important;
-    }
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .block-container {padding-top: 1rem; padding-bottom: 0rem;}
     .stButton > button {
-        background-color: #1e2a3a !important;
-        color: #ffffff !important;
-        border: 1px solid #2a3a4f !important;
-        border-radius: 8px !important;
-        padding: 0.3rem 0.4rem !important;
-        font-weight: 500 !important;
-        font-size: 0.7rem !important;
-        transition: all 0.2s !important;
-        width: 100% !important;
-        white-space: nowrap !important;
-        min-height: 30px !important;
-    }
-    .stButton > button:hover {
-        background-color: #2a3a4f !important;
-        border-color: #4a7a9c !important;
-        color: white !important;
-    }
-    .stButton > button[kind="primary"] {
-        background-color: #f39c12 !important;
-        color: #0a0e17 !important;
-        border: none !important;
-        font-weight: 600 !important;
-    }
-    .stButton > button[kind="primary"]:hover {
-        background-color: #f1c40f !important;
-        color: #0a0e17 !important;
-    }
-    .stNumberInput > div > div > input {
-        background-color: #141e2b !important;
-        color: #ffffff !important;
-        border: 1px solid #2a3a4f !important;
-        border-radius: 8px !important;
-        font-size: 1.1rem !important;
-        padding: 0.5rem !important;
-    }
-    .stNumberInput > div > div > input:focus {
-        border-color: #f39c12 !important;
-        box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2) !important;
-    }
-    .stTextInput > div > div > input,
-    .stTextArea > div > div > textarea,
-    .stSelectbox > div > div > div {
-        background-color: #141e2b !important;
-        color: #ffffff !important;
-        border: 1px solid #2a3a4f !important;
-        border-radius: 8px !important;
-    }
-    .stTextArea textarea {
-        color: #ffffff !important;
-        background-color: #141e2b !important;
-    }
-    .streamlit-expanderHeader {
-        background-color: #141e2b !important;
-        border-radius: 8px !important;
-        border: 1px solid #1e2a3a !important;
-        color: #ffffff !important;
-    }
-    .streamlit-expanderContent {
-        background-color: #0f1822 !important;
-        border: 1px solid #1e2a3a !important;
-        border-top: none !important;
-        border-radius: 0 0 8px 8px !important;
-        color: #f0f4fa !important;
-    }
-    .streamlit-expanderContent p, 
-    .streamlit-expanderContent span, 
-    .streamlit-expanderContent label {
-        color: #f0f4fa !important;
-    }
-    .stAlert {
-        background-color: #1e2a3a !important;
-        border-left: 4px solid #f39c12 !important;
-        color: #f0f4fa !important;
-    }
-    .stInfo {
-        background-color: #1a2a3a !important;
-        border-left: 4px solid #4a7a9c !important;
-        color: #f0f4fa !important;
-    }
-    #MainMenu {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    header {visibility: hidden !important;}
-    .stDeployButton {display: none !important;}
-    
-    .dashboard-card {
-        background-color: #141e2b;
-        border-radius: 12px;
-        padding: 1.5rem 1rem;
-        border: 1px solid #1e2a3a;
-        text-align: center;
-        transition: all 0.2s;
-    }
-    .dashboard-card:hover {
-        border-color: #4a7a9c;
-        background-color: #1a2a3a;
-    }
-    .dashboard-card .icon {
-        font-size: 2.5rem;
-    }
-    .dashboard-card .label {
-        color: #8a9aaa;
-        font-size: 0.8rem;
-        margin-top: 0.5rem;
-    }
-    .dashboard-card .value {
-        color: #ffffff;
         font-size: 1.2rem;
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
         font-weight: 600;
     }
-    
-    .sds-card {
-        background-color: #141e2b;
-        border-radius: 12px;
-        padding: 1rem 1.2rem;
-        border: 1px solid #1e2a3a;
-        margin-bottom: 0.8rem;
+    .stSlider > div > div > div {
+        padding: 0.5rem 0;
     }
-    .sds-card .title {
-        color: #ffffff;
-        font-weight: 600;
-        font-size: 1rem;
-        margin-bottom: 0.4rem;
+    div[data-testid="stMetricValue"] {
+        font-size: 1.5rem;
+        font-weight: 700;
     }
-    .sds-card .content {
-        color: #b0c4de;
-        font-size: 0.9rem;
-    }
-    .sds-card .badge {
-        display: inline-block;
-        padding: 0.1rem 0.5rem;
-        border-radius: 12px;
-        font-size: 0.7rem;
-        font-weight: 500;
-        margin-left: 0.5rem;
-    }
-    .badge-confirmed { background-color: #2d6a4f; color: #a7f3d0; }
-    .badge-inferred { background-color: #7d5a2d; color: #fcd34d; }
-    .badge-unknown { background-color: #6b2d2d; color: #fca5a5; }
-    .badge-provided { background-color: #1e3a5f; color: #93c5fd; }
-    .badge-autogen { background-color: #3b3b6b; color: #c4b5fd; }
-    
-    .export-section {
-        background-color: #141e2b;
-        border-radius: 12px;
+    .reportview-container .markdown-text-container {
         padding: 1rem;
-        border: 1px solid #2a3a4f;
-        margin: 1rem 0;
-    }
-    .export-section a {
-        color: #4a7a9c !important;
-        text-decoration: underline;
-        font-weight: 500;
-    }
-    .export-section a:hover {
-        color: #f39c12 !important;
-    }
-    
-    .proposal-drawings {
-        background-color: #0a0e17;
-        border-radius: 12px;
-        padding: 0.5rem;
-        border: 1px solid #1e2a3a;
-        margin: 0.5rem 0;
     }
     </style>
 """
-st.markdown(dark_mode_css, unsafe_allow_html=True)
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # ============================================================
-# SESSION STATE (extended for Three.js)
-# ============================================================
-if "project_registered" not in st.session_state:
-    st.session_state.project_registered = False
-if "project_info" not in st.session_state:
-    st.session_state.project_info = {}
-if "typology" not in st.session_state:
-    st.session_state.typology = None
-if "params" not in st.session_state:
-    st.session_state.params = {}
-if "qa_answers" not in st.session_state:
-    st.session_state.qa_answers = {}
-if "locked" not in st.session_state:
-    st.session_state.locked = False
-if "custom_image" not in st.session_state:
-    st.session_state.custom_image = None
-if "custom_description" not in st.session_state:
-    st.session_state.custom_description = ""
-if "engineering_annotations" not in st.session_state:
-    st.session_state.engineering_annotations = {
-        "show_wind": True,
-        "show_tie_down": True,
-        "show_load_path": True,
-        "show_bracing": True
-    }
-if "design_phase" not in st.session_state:
-    st.session_state.design_phase = "understand"
-if "comments" not in st.session_state:
-    st.session_state.comments = ""
-if "user_notes" not in st.session_state:
-    st.session_state.user_notes = ""
-if "show_project_browser" not in st.session_state:
-    st.session_state.show_project_browser = False
-if "show_registration" not in st.session_state:
-    st.session_state.show_registration = False
-if "show_export" not in st.session_state:
-    st.session_state.show_export = False
-if "show_proposal" not in st.session_state:
-    st.session_state.show_proposal = False
-
-# Materials State
-if "materials" not in st.session_state:
-    st.session_state.materials = {
-        "steel_grade": "S355",
-        "section_type": "Circular Hollow Section (CHS)",
-        "section_size": "CHS 150x6",
-        "fabric_type": "PVC-coated Polyester",
-        "fabric_thickness": 0.8,
-        "prestress": 3.0,
-        "wire_rope_type": "Galvanized Steel (6x19)",
-        "wire_rope_diameter": 10,
-        "num_bays": 2,
-        "num_anchors": 2,
-        "anchor_angle": 30,
-        "wind_speed": 40,
-        "snow_load": 0.5,
-        "live_load": 0.5,
-        "tie_down_vertical_angle": 45,
-        "tie_down_horizontal_spread": 25
-    }
-
-# New session state for Three.js interactive editing
-if "custom_members" not in st.session_state:
-    st.session_state.custom_members = []  # list of {type, section, bay, offset, startX, startY, startZ, endX, endY, endZ}
-if "tie_down_attachments" not in st.session_state:
-    st.session_state.tie_down_attachments = []  # list of {bayIndex, startX, startY, startZ, endX, endY, endZ, ropeDiameter, verticalAngle, horizontalAngle}
-if "bracing_points" not in st.session_state:
-    st.session_state.bracing_points = []
-
-# ============================================================
-# CACHE HANDLER (same as before, with added keys)
-# ============================================================
-CACHE_DIR = ".sds_cache"
-os.makedirs(CACHE_DIR, exist_ok=True)
-CACHE_FILE = os.path.join(CACHE_DIR, "current_session.json")
-PROJECTS_LIST_FILE = os.path.join(CACHE_DIR, "projects_index.json")
-
-def save_cache():
-    data = {
-        "project_registered": st.session_state.project_registered,
-        "project_info": st.session_state.project_info,
-        "typology": st.session_state.typology,
-        "params": st.session_state.params,
-        "qa_answers": st.session_state.qa_answers,
-        "locked": st.session_state.locked,
-        "custom_image": st.session_state.custom_image,
-        "custom_description": st.session_state.custom_description,
-        "engineering_annotations": st.session_state.engineering_annotations,
-        "design_phase": st.session_state.design_phase,
-        "comments": st.session_state.comments,
-        "user_notes": st.session_state.user_notes,
-        "materials": st.session_state.materials,
-        "custom_members": st.session_state.custom_members,
-        "tie_down_attachments": st.session_state.tie_down_attachments,
-        "bracing_points": st.session_state.bracing_points
-    }
-    with open(CACHE_FILE, "w") as f:
-        json.dump(data, f)
-    update_projects_index()
-
-def load_cache():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as f:
-            return json.load(f)
-    return None
-
-def update_projects_index():
-    projects_index = []
-    if os.path.exists(CACHE_DIR):
-        for f in glob.glob(os.path.join(CACHE_DIR, "project_*.json")):
-            try:
-                with open(f, "r") as file:
-                    data = json.load(file)
-                    info = data.get("project_info", {})
-                    projects_index.append({
-                        "file": os.path.basename(f),
-                        "name": info.get("name", "Untitled"),
-                        "client": info.get("client", "Unknown"),
-                        "reference": info.get("reference", "N/A"),
-                        "typology": data.get("typology", "Unknown"),
-                        "date": info.get("date", datetime.now().isoformat()),
-                        "locked": data.get("locked", False)
-                    })
-            except:
-                pass
-    with open(PROJECTS_LIST_FILE, "w") as f:
-        json.dump(projects_index, f, indent=2)
-
-def load_project_from_file(filename):
-    filepath = os.path.join(CACHE_DIR, filename)
-    if os.path.exists(filepath):
-        with open(filepath, "r") as f:
-            data = json.load(f)
-            st.session_state.project_registered = data.get("project_registered", False)
-            st.session_state.project_info = data.get("project_info", {})
-            typ = data.get("typology")
-            if typ is None:
-                params = data.get("params", {})
-                if "A" in params and "B" in params and "LAA" in params:
-                    typ = "saddle_span"
-                elif "span_width" in params and "ridge_height" in params:
-                    typ = "clear_span_tent"
-                elif "mast_height" in params:
-                    typ = "tensile_membrane"
-                elif "eave_height" in params:
-                    typ = "portal_frame"
-                else:
-                    typ = "custom"
-            st.session_state.typology = typ
-            st.session_state.params = data.get("params", {})
-            st.session_state.qa_answers = data.get("qa_answers", {})
-            st.session_state.locked = data.get("locked", False)
-            st.session_state.custom_image = data.get("custom_image")
-            st.session_state.custom_description = data.get("custom_description", "")
-            st.session_state.engineering_annotations = data.get("engineering_annotations", {
-                "show_wind": True,
-                "show_tie_down": True,
-                "show_load_path": True,
-                "show_bracing": True
-            })
-            st.session_state.design_phase = data.get("design_phase", "understand")
-            st.session_state.comments = data.get("comments", "")
-            st.session_state.user_notes = data.get("user_notes", "")
-            st.session_state.materials = data.get("materials", {
-                "steel_grade": "S355",
-                "section_type": "Circular Hollow Section (CHS)",
-                "section_size": "CHS 150x6",
-                "fabric_type": "PVC-coated Polyester",
-                "fabric_thickness": 0.8,
-                "prestress": 3.0,
-                "wire_rope_type": "Galvanized Steel (6x19)",
-                "wire_rope_diameter": 10,
-                "num_bays": 2,
-                "num_anchors": 2,
-                "anchor_angle": 30,
-                "wind_speed": 40,
-                "snow_load": 0.5,
-                "live_load": 0.5,
-                "tie_down_vertical_angle": 45,
-                "tie_down_horizontal_spread": 25
-            })
-            st.session_state.custom_members = data.get("custom_members", [])
-            st.session_state.tie_down_attachments = data.get("tie_down_attachments", [])
-            st.session_state.bracing_points = data.get("bracing_points", [])
-            st.session_state.show_registration = False
-            st.session_state.show_project_browser = False
-            st.session_state.show_export = False
-            st.session_state.show_proposal = False
-            save_cache()
-            return True
-    return False
-
-def delete_project_file(filename):
-    filepath = os.path.join(CACHE_DIR, filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
-        update_projects_index()
-        return True
-    return False
-
-def go_to_dashboard():
-    st.session_state.project_registered = False
-    st.session_state.project_info = {}
-    st.session_state.typology = None
-    st.session_state.params = {}
-    st.session_state.qa_answers = {}
-    st.session_state.locked = False
-    st.session_state.custom_image = None
-    st.session_state.custom_description = ""
-    st.session_state.design_phase = "understand"
-    st.session_state.comments = ""
-    st.session_state.user_notes = ""
-    st.session_state.show_project_browser = False
-    st.session_state.show_registration = False
-    st.session_state.show_export = False
-    st.session_state.show_proposal = False
-    st.session_state.custom_members = []
-    st.session_state.tie_down_attachments = []
-    st.session_state.bracing_points = []
-    if os.path.exists(CACHE_FILE):
-        os.remove(CACHE_FILE)
-    save_cache()
-
-def clear_cache():
-    if os.path.exists(CACHE_FILE):
-        os.remove(CACHE_FILE)
-    st.session_state.project_registered = False
-    st.session_state.project_info = {}
-    st.session_state.typology = None
-    st.session_state.params = {}
-    st.session_state.qa_answers = {}
-    st.session_state.locked = False
-    st.session_state.custom_image = None
-    st.session_state.custom_description = ""
-    st.session_state.design_phase = "understand"
-    st.session_state.comments = ""
-    st.session_state.user_notes = ""
-    st.session_state.show_project_browser = False
-    st.session_state.show_registration = False
-    st.session_state.show_export = False
-    st.session_state.show_proposal = False
-    st.session_state.custom_members = []
-    st.session_state.tie_down_attachments = []
-    st.session_state.bracing_points = []
-    update_projects_index()
-
-def save_project_as_new():
-    if not st.session_state.project_info.get("name"):
-        st.error("⚠️ Project name is required to save.")
-        return
-    ref = st.session_state.project_info.get("reference")
-    if not ref:
-        ref = f"SDS-{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
-    projects = get_projects_list()
-    existing_file = None
-    for proj in projects:
-        if proj.get("reference") == ref:
-            existing_file = proj.get("file")
-            break
-    data = {
-        "project_registered": st.session_state.project_registered,
-        "project_info": st.session_state.project_info,
-        "typology": st.session_state.typology,
-        "params": st.session_state.params,
-        "qa_answers": st.session_state.qa_answers,
-        "locked": st.session_state.locked,
-        "custom_image": st.session_state.custom_image,
-        "custom_description": st.session_state.custom_description,
-        "engineering_annotations": st.session_state.engineering_annotations,
-        "design_phase": st.session_state.design_phase,
-        "comments": st.session_state.comments,
-        "user_notes": st.session_state.user_notes,
-        "materials": st.session_state.materials,
-        "custom_members": st.session_state.custom_members,
-        "tie_down_attachments": st.session_state.tie_down_attachments,
-        "bracing_points": st.session_state.bracing_points
-    }
-    if existing_file:
-        filepath = os.path.join(CACHE_DIR, existing_file)
-        with open(filepath, "w") as f:
-            json.dump(data, f)
-        st.success(f"✅ Project updated: {existing_file}")
-    else:
-        filename = f"project_{ref}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        filepath = os.path.join(CACHE_DIR, filename)
-        with open(filepath, "w") as f:
-            json.dump(data, f)
-        st.success(f"✅ Project saved as: {filename}")
-    update_projects_index()
-
-def get_projects_list():
-    if os.path.exists(PROJECTS_LIST_FILE):
-        with open(PROJECTS_LIST_FILE, "r") as f:
-            return json.load(f)
-    return []
-
-cached = load_cache()
-if cached:
-    st.session_state.project_registered = cached.get("project_registered", False)
-    st.session_state.project_info = cached.get("project_info", {})
-    typ = cached.get("typology")
-    if typ is None:
-        params = cached.get("params", {})
-        if "A" in params and "B" in params and "LAA" in params:
-            typ = "saddle_span"
-        elif "span_width" in params and "ridge_height" in params:
-            typ = "clear_span_tent"
-        elif "mast_height" in params:
-            typ = "tensile_membrane"
-        elif "eave_height" in params:
-            typ = "portal_frame"
-        else:
-            typ = "custom"
-    st.session_state.typology = typ
-    st.session_state.params = cached.get("params", {})
-    st.session_state.qa_answers = cached.get("qa_answers", {})
-    st.session_state.locked = cached.get("locked", False)
-    st.session_state.custom_image = cached.get("custom_image")
-    st.session_state.custom_description = cached.get("custom_description", "")
-    st.session_state.engineering_annotations = cached.get("engineering_annotations", {
-        "show_wind": True,
-        "show_tie_down": True,
-        "show_load_path": True,
-        "show_bracing": True
-    })
-    st.session_state.design_phase = cached.get("design_phase", "understand")
-    st.session_state.comments = cached.get("comments", "")
-    st.session_state.user_notes = cached.get("user_notes", "")
-    st.session_state.materials = cached.get("materials", {
-        "steel_grade": "S355",
-        "section_type": "Circular Hollow Section (CHS)",
-        "section_size": "CHS 150x6",
-        "fabric_type": "PVC-coated Polyester",
-        "fabric_thickness": 0.8,
-        "prestress": 3.0,
-        "wire_rope_type": "Galvanized Steel (6x19)",
-        "wire_rope_diameter": 10,
-        "num_bays": 2,
-        "num_anchors": 2,
-        "anchor_angle": 30,
-        "wind_speed": 40,
-        "snow_load": 0.5,
-        "live_load": 0.5,
-        "tie_down_vertical_angle": 45,
-        "tie_down_horizontal_spread": 25
-    })
-    st.session_state.custom_members = cached.get("custom_members", [])
-    st.session_state.tie_down_attachments = cached.get("tie_down_attachments", [])
-    st.session_state.bracing_points = cached.get("bracing_points", [])
-
-# ============================================================
-# TYPOLOGIES (same as before)
+# ENHANCED TYPOLOGY CONFIGURATIONS
 # ============================================================
 TYPOLOGIES = {
     "saddle_span": {
         "name": "Saddle Span",
         "icon": "🏕️",
+        "description": "Dual curved beams with saddle membrane",
+        "color": "#FF6B35",
         "params": {
             "A": {"label": "Rise (m)", "min": 2.0, "max": 20.0, "step": 0.5, "default": 6.0},
             "B": {"label": "Span (m)", "min": 4.0, "max": 40.0, "step": 0.5, "default": 10.0},
-            "LAA": {"label": "Apex Distance (m)", "min": 4.0, "max": 50.0, "step": 0.5, "default": 15.0}
+            "LAA": {"label": "Apex Distance (m)", "min": 4.0, "max": 50.0, "step": 0.5, "default": 15.0},
+            "H": {"label": "Exp. Rise (m)", "min": 2.0, "max": 20.0, "step": 0.5, "default": 6.0}
         },
         "qa": [
-            "Are these the two primary structural beams?",
-            "Are both beams supported at their lower ends?",
-            "Is the membrane attached continuously along the curved beams?",
-            "Is the apex/high point correctly identified at the top of the structure?",
-            "Is dimension A (rise) the vertical height from support level to apex as shown?",
-            "Is dimension B the horizontal plan width between supports as shown?",
-            "Is LAA the distance between apex of Beam 1 and apex of Beam 2?"
+            "Two primary curved beams?",
+            "Supported at lower ends?",
+            "Membrane continuous along beams?",
+            "P_A is the apex?",
+            "A is vertical rise?",
+            "B is horizontal span?",
+            "LAA is apex-to-apex distance?"
         ]
     },
     "clear_span_tent": {
         "name": "Clear-Span Tent",
         "icon": "🏗️",
+        "description": "Column-free tension fabric structure",
+        "color": "#E74C3C",
         "params": {
             "span_width": {"label": "Span Width (m)", "min": 3.0, "max": 80.0, "step": 0.5, "default": 10.0},
             "ridge_height": {"label": "Ridge Height (m)", "min": 2.5, "max": 12.0, "step": 0.5, "default": 5.0},
@@ -638,6 +91,8 @@ TYPOLOGIES = {
     "tensile_membrane": {
         "name": "Tensile Membrane",
         "icon": "⛺",
+        "description": "Mast-supported tensile fabric structure",
+        "color": "#2ECC71",
         "params": {
             "mast_height": {"label": "Mast Height (m)", "min": 3.0, "max": 30.0, "step": 0.5, "default": 8.0},
             "span_length": {"label": "Span Length (m)", "min": 5.0, "max": 100.0, "step": 0.5, "default": 20.0},
@@ -657,6 +112,8 @@ TYPOLOGIES = {
     "portal_frame": {
         "name": "Portal Frame",
         "icon": "🏛️",
+        "description": "Rigid steel frame with crane capability",
+        "color": "#3498DB",
         "params": {
             "eave_height": {"label": "Eave Height (m)", "min": 3.0, "max": 15.0, "step": 0.5, "default": 6.0},
             "span_width": {"label": "Span Width (m)", "min": 10.0, "max": 50.0, "step": 0.5, "default": 20.0},
@@ -675,1062 +132,882 @@ TYPOLOGIES = {
             "Crane loads considered?"
         ]
     },
-    "custom": {
-        "name": "Custom Design",
-        "icon": "🧩",
+    # NEW: Hyperbolic Paraboloid
+    "hypar": {
+        "name": "Hypar Roof",
+        "icon": "🌀",
+        "description": "Hyperbolic paraboloid shell structure",
+        "color": "#9B59B6",
         "params": {
-            "width": {"label": "Overall Width (m)", "min": 1.0, "max": 100.0, "step": 0.5, "default": 10.0},
-            "length": {"label": "Overall Length (m)", "min": 1.0, "max": 100.0, "step": 0.5, "default": 15.0},
-            "height": {"label": "Overall Height (m)", "min": 1.0, "max": 50.0, "step": 0.5, "default": 8.0}
+            "span_x": {"label": "X-Span (m)", "min": 5.0, "max": 40.0, "step": 0.5, "default": 15.0},
+            "span_y": {"label": "Y-Span (m)", "min": 5.0, "max": 40.0, "step": 0.5, "default": 15.0},
+            "height": {"label": "Height (m)", "min": 2.0, "max": 15.0, "step": 0.5, "default": 6.0},
+            "twist": {"label": "Twist Factor", "min": 0.1, "max": 1.0, "step": 0.05, "default": 0.5}
         },
         "qa": [
-            "This is a custom design. Add your description below."
+            "Double-curved surface?",
+            "Supported at corners?",
+            "Concrete or steel shell?",
+            "Thickness adequate?",
+            "Edge beams included?",
+            "Formwork required?",
+            "Architectural finish?"
+        ]
+    },
+    # NEW: Truss System
+    "truss": {
+        "name": "Truss System",
+        "icon": "📐",
+        "description": "Triangulated steel truss framework",
+        "color": "#F39C12",
+        "params": {
+            "span": {"label": "Span (m)", "min": 5.0, "max": 60.0, "step": 0.5, "default": 20.0},
+            "depth": {"label": "Depth (m)", "min": 0.5, "max": 5.0, "step": 0.25, "default": 2.0},
+            "bay_count": {"label": "Number of Bays", "min": 2, "max": 20, "step": 1, "default": 8},
+            "loading": {"label": "Loading (kN/m²)", "min": 0.5, "max": 10.0, "step": 0.5, "default": 2.0}
+        },
+        "qa": [
+            "Parallel chord truss?",
+            "Pin or fixed connections?",
+            "Roof cladding attached?",
+            "Bracing provided?",
+            "Deflection limits met?",
+            "Fire protection needed?",
+            "Lifting points included?"
         ]
     }
 }
 
 # ============================================================
-# AUTO-GENERATION FUNCTIONS (same as before)
+# SESSION STATE INITIALIZATION
 # ============================================================
-def generate_bracing_positions(span, num_bays):
-    if num_bays == 1:
-        return [0.0]
-    elif num_bays == 2:
-        return [-span/3, span/3]
-    elif num_bays == 3:
-        return [-span/4, 0.0, span/4]
-    else:
-        return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
-
-def calculate_steel_weight(grade, section_type, section_size, length):
-    weight_per_m = {
-        "CHS 100x5": 11.7, "CHS 150x6": 21.3, "CHS 200x8": 37.9,
-        "RHS 150x100x6": 22.2, "RHS 200x150x8": 39.3,
-        "I-100": 10.0, "I-150": 18.0, "I-200": 26.0,
-        "Pipe 100x5": 11.7, "Pipe 150x6": 21.3
-    }
-    return weight_per_m.get(section_size, 20.0) * length
-
-def calculate_fabric_weight(fabric_type, thickness, area):
-    weight_per_m2 = {
-        "PVC-coated Polyester": {0.5: 0.6, 0.8: 0.9, 1.0: 1.2, 1.2: 1.4},
-        "PTFE-coated Fiberglass": {0.5: 1.0, 0.8: 1.4, 1.0: 1.8, 1.2: 2.2},
-        "ETFE": {0.5: 0.5, 0.8: 0.8, 1.0: 1.0, 1.2: 1.2}
-    }
-    return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area
-
-def calculate_wind_load(wind_speed, area, drag_coefficient=1.2):
-    rho = 1.225
-    q = 0.5 * rho * wind_speed**2 / 1000
-    return q * drag_coefficient * area
-
-def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_angle_deg, safety_factor=1.5):
-    uplift = wind_load * 0.8
-    net_uplift = max(0, uplift - self_weight_kn * 0.5)
-    per_anchor = net_uplift / num_anchors * safety_factor
-    cable_force = per_anchor / np.cos(np.radians(vertical_angle_deg))
-    return cable_force
-
-# ============================================================
-# THREE.JS COMPONENT – the interactive 3D viewer
-# ============================================================
-
-def threejs_component(data):
-    """
-    Build the HTML for the Three.js viewer with the given design data.
-    data is a dict with keys: params, materials, custom_members, tie_down_attachments,
-    bracing_points, annotations, and also computed geometry.
-    """
-    # Convert data to JSON string for embedding
-    data_json = json.dumps(data, default=str)
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>SDS 3D Viewer</title>
-        <style>
-            body {{ margin: 0; overflow: hidden; background-color: #0a0e17; font-family: sans-serif; }}
-            #container {{ width: 100%; height: 100%; }}
-            #info {{ position: absolute; bottom: 10px; left: 10px; color: #b0c4de; font-size: 12px; pointer-events: none; }}
-            #controls-hint {{ position: absolute; top: 10px; right: 10px; color: #b0c4de; font-size: 12px; background: rgba(10,14,23,0.7); padding: 6px 12px; border-radius: 4px; border: 1px solid #2a3a4f; pointer-events: none; }}
-            #context-menu {{ position: absolute; background: #141e2b; border: 1px solid #2a3a4f; border-radius: 8px; padding: 10px; display: none; min-width: 150px; z-index: 100; color: #f0f4fa; }}
-            #context-menu button {{ background: #1e2a3a; border: none; color: #f0f4fa; padding: 5px 12px; margin: 3px 0; width: 100%; text-align: left; border-radius: 4px; cursor: pointer; }}
-            #context-menu button:hover {{ background: #2a3a4f; }}
-        </style>
-    </head>
-    <body>
-        <div id="container"></div>
-        <div id="info">SDS 3D Viewer – Click a bracing point to attach tie‑down</div>
-        <div id="controls-hint">🖱️ Rotate: drag | Zoom: scroll | Click: select</div>
-        <div id="context-menu"></div>
-
-        <script type="importmap">
-            {{
-                "imports": {{
-                    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-                }}
-            }}
-        </script>
-        <script type="module">
-            import * as THREE from 'three';
-            import {{ OrbitControls }} from 'three/addons/controls/OrbitControls.js';
-            import {{ CSS2DRenderer, CSS2DObject }} from 'three/addons/renderers/CSS2DRenderer.js';
-
-            // --- Data from Python ---
-            const designData = {data_json};
-
-            // --- Setup ---
-            const container = document.getElementById('container');
-            const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0a0e17);
-
-            const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-            camera.position.set(12, 8, 16);
-            camera.lookAt(0, 3, 0);
-
-            const renderer = new THREE.WebGLRenderer({{ antialias: true }});
-            renderer.setSize(container.clientWidth, container.clientHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            container.appendChild(renderer.domElement);
-
-            const labelRenderer = new CSS2DRenderer();
-            labelRenderer.setSize(container.clientWidth, container.clientHeight);
-            labelRenderer.domElement.style.position = 'absolute';
-            labelRenderer.domElement.style.top = '0';
-            labelRenderer.domElement.style.left = '0';
-            labelRenderer.domElement.style.pointerEvents = 'none';
-            container.appendChild(labelRenderer.domElement);
-
-            const controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.1;
-            controls.target.set(0, 3, 0);
-            controls.update();
-
-            // Lights
-            const ambient = new THREE.AmbientLight(0x404060);
-            scene.add(ambient);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-            dirLight.position.set(10, 20, 10);
-            scene.add(dirLight);
-            const fillLight = new THREE.DirectionalLight(0x4488ff, 0.5);
-            fillLight.position.set(-10, 0, 10);
-            scene.add(fillLight);
-
-            const gridHelper = new THREE.GridHelper(30, 20, 0x2a3a4f, 0x1a2a3a);
-            gridHelper.position.y = -0.01;
-            scene.add(gridHelper);
-
-            // --- Groups ---
-            const mainGroup = new THREE.Group();
-            scene.add(mainGroup);
-            const labelGroup = new THREE.Group();
-            scene.add(labelGroup);
-            const clickableObjects = [];
-
-            // --- Helper: create beam ---
-            function createBeam(points, color = 0xFF6B6B, width = 0.15) {{
-                const curve = new THREE.CatmullRomCurve3(points);
-                const geometry = new THREE.TubeGeometry(curve, 50, width, 8, false);
-                const material = new THREE.MeshStandardMaterial({{ color, roughness: 0.6, metalness: 0.3 }});
-                const mesh = new THREE.Mesh(geometry, material);
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-                return mesh;
-            }}
-
-            // --- Build the scene ---
-            function buildScene(data) {{
-                // Clear previous
-                while(mainGroup.children.length) mainGroup.remove(mainGroup.children[0]);
-                while(labelGroup.children.length) labelGroup.remove(labelGroup.children[0]);
-                clickableObjects.length = 0;
-
-                const {{ params, materials, custom_members, tie_down_attachments, bracing_points, annotations }} = data;
-                const A = params.A || 6;
-                const B = params.B || 10;
-                const LAA = params.LAA || 15;
-                const numPoints = 50;
-
-                // Generate beam points
-                const x = Array.from({{length: numPoints}}, (_, i) => -B/2 + i * B/(numPoints-1));
-                const z_beam = x.map(xi => A * (1 - (2*xi/B)**2));
-                const y1 = x.map(xi => -LAA/2 * (1 - (2*xi/B)**2));
-                const y2 = x.map(xi => LAA/2 * (1 - (2*xi/B)**2));
-
-                // Beam 1
-                const pts1 = x.map((xi, i) => new THREE.Vector3(xi, y1[i], z_beam[i]));
-                const beam1 = createBeam(pts1, 0xFF6B6B, 0.15);
-                mainGroup.add(beam1);
-                // Beam 2
-                const pts2 = x.map((xi, i) => new THREE.Vector3(xi, y2[i], z_beam[i]));
-                const beam2 = createBeam(pts2, 0xFF6B6B, 0.15);
-                mainGroup.add(beam2);
-
-                // Membrane (simplified)
-                const membranePoints = [];
-                for (let i = 0; i < numPoints; i++) {{
-                    for (let j = 0; j < numPoints; j++) {{
-                        const t = j / (numPoints-1);
-                        const xi = x[i];
-                        const y = y1[i] * (1 - t) + y2[i] * t;
-                        const z = z_beam[i] * (1 - 0.3 * (1 - (2*t - 1)**2));
-                        membranePoints.push(new THREE.Vector3(xi, y, z));
-                    }}
-                }}
-                // Using BufferGeometry with quads
-                const geom = new THREE.BufferGeometry();
-                const vertices = [];
-                const indices = [];
-                for (let i = 0; i < numPoints - 1; i++) {{
-                    for (let j = 0; j < numPoints - 1; j++) {{
-                        const idx = i * numPoints + j;
-                        const p1 = membranePoints[idx];
-                        const p2 = membranePoints[idx + 1];
-                        const p3 = membranePoints[idx + numPoints + 1];
-                        const p4 = membranePoints[idx + numPoints];
-                        vertices.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
-                        const base = (i * (numPoints-1) + j) * 4;
-                        indices.push(base, base+1, base+2, base, base+2, base+3);
-                    }}
-                }}
-                geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-                geom.setIndex(indices);
-                geom.computeVertexNormals();
-                const mat = new THREE.MeshPhongMaterial({{
-                    color: 0x4a7a9c,
-                    transparent: true,
-                    opacity: 0.5,
-                    side: THREE.DoubleSide,
-                    roughness: 0.4,
-                    metalness: 0.1
-                }});
-                const membrane = new THREE.Mesh(geom, mat);
-                mainGroup.add(membrane);
-
-                // Apex markers
-                const apexMat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.3 }});
-                const sphereGeo = new THREE.SphereGeometry(0.3, 16, 16);
-                const apex1 = new THREE.Mesh(sphereGeo, apexMat);
-                apex1.position.set(0, y1[Math.floor(numPoints/2)], A);
-                mainGroup.add(apex1);
-                const apex2 = new THREE.Mesh(sphereGeo, apexMat);
-                apex2.position.set(0, y2[Math.floor(numPoints/2)], A);
-                mainGroup.add(apex2);
-
-                // Supports
-                const supportMat = new THREE.MeshStandardMaterial({{ color: 0x4ECDC4 }});
-                const supportGeo = new THREE.BoxGeometry(0.4, 0.1, 0.4);
-                const s1 = new THREE.Mesh(supportGeo, supportMat);
-                s1.position.set(-B/2, 0, 0);
-                mainGroup.add(s1);
-                const s2 = new THREE.Mesh(supportGeo, supportMat);
-                s2.position.set(B/2, 0, 0);
-                mainGroup.add(s2);
-
-                // Bracing points (from data)
-                if (bracing_points && bracing_points.length) {{
-                    const bpMat = new THREE.MeshStandardMaterial({{ color: 0x4ECDC4, emissive: 0x4ECDC4, emissiveIntensity: 0.2 }});
-                    bracing_points.forEach((bp, idx) => {{
-                        const pos = new THREE.Vector3(bp.x, bp.y, bp.z);
-                        const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), bpMat);
-                        sphere.position.copy(pos);
-                        sphere.userData = {{ type: 'bracingPoint', bayIndex: bp.bayIndex, index: idx }};
-                        mainGroup.add(sphere);
-                        clickableObjects.push(sphere);
-                        // Label
-                        const div = document.createElement('div');
-                        div.textContent = `B${{bp.bayIndex}}`;
-                        div.style.color = '#b0c4de';
-                        div.style.fontSize = '10px';
-                        div.style.fontWeight = 'bold';
-                        div.style.textShadow = '1px 1px 2px rgba(0,0,0,0.8)';
-                        const label = new CSS2DObject(div);
-                        label.position.set(bp.x, bp.y + 0.4, bp.z);
-                        labelGroup.add(label);
-                    }});
-                }}
-
-                // Tie-downs
-                if (annotations.showTieDown && tie_down_attachments) {{
-                    tie_down_attachments.forEach(td => {{
-                        const start = new THREE.Vector3(td.startX, td.startY, td.startZ);
-                        const end = new THREE.Vector3(td.endX, td.endY, td.endZ);
-                        const points = [start, end];
-                        const curve = new THREE.CatmullRomCurve3(points);
-                        const tubeGeo = new THREE.TubeGeometry(curve, 10, 0.03, 6, false);
-                        const ropeMat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.1 }});
-                        const rope = new THREE.Mesh(tubeGeo, ropeMat);
-                        mainGroup.add(rope);
-                        const anchorMat = new THREE.MeshStandardMaterial({{ color: 0xFF6B6B }});
-                        const anchor = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), anchorMat);
-                        anchor.position.copy(end);
-                        mainGroup.add(anchor);
-                    }});
-                }}
-
-                // Wind arrows
-                if (annotations.showWind) {{
-                    const arrowColor = 0xFF6B6B;
-                    const dir = new THREE.Vector3(0, 1, 0);
-                    const origin = new THREE.Vector3(-B/4, -LAA/4, A*0.8);
-                    const arrowLen = 1.5;
-                    const arrowHelper = new THREE.ArrowHelper(dir, origin, arrowLen, arrowColor, 0.3, 0.2);
-                    mainGroup.add(arrowHelper);
-                    const origin2 = new THREE.Vector3(B/4, LAA/4, A*0.8);
-                    const arrowHelper2 = new THREE.ArrowHelper(dir, origin2, arrowLen, arrowColor, 0.3, 0.2);
-                    mainGroup.add(arrowHelper2);
-                }}
-
-                // Load path
-                if (annotations.showLoadPath) {{
-                    const pts = [new THREE.Vector3(0, 0, A), new THREE.Vector3(0, 0, A-2)];
-                    const curve = new THREE.CatmullRomCurve3(pts);
-                    const tubeGeo = new THREE.TubeGeometry(curve, 10, 0.04, 6, false);
-                    const mat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.2, transparent: true, opacity: 0.6 }});
-                    const loadLine = new THREE.Mesh(tubeGeo, mat);
-                    mainGroup.add(loadLine);
-                }}
-
-                // Custom members (struts, purlins)
-                if (custom_members && custom_members.length) {{
-                    custom_members.forEach(m => {{
-                        const start = new THREE.Vector3(m.startX, m.startY, m.startZ);
-                        const end = new THREE.Vector3(m.endX, m.endY, m.endZ);
-                        const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-                        const direction = new THREE.Vector3().subVectors(end, start);
-                        const length = direction.length();
-                        const cylinder = new THREE.Mesh(
-                            new THREE.CylinderGeometry(0.06, 0.06, length, 6),
-                            new THREE.MeshStandardMaterial({{ color: 0x4a7a9c, emissive: 0x4a7a9c, emissiveIntensity: 0.1 }})
-                        );
-                        cylinder.position.copy(mid);
-                        cylinder.quaternion.setFromUnitVectors(
-                            new THREE.Vector3(0, 1, 0),
-                            direction.clone().normalize()
-                        );
-                        mainGroup.add(cylinder);
-                    }});
-                }}
-            }}
-
-            // --- Click handler ---
-            const raycaster = new THREE.Raycaster();
-            const pointer = new THREE.Vector2();
-            let selectedObject = null;
-
-            renderer.domElement.addEventListener('click', (event) => {{
-                const rect = renderer.domElement.getBoundingClientRect();
-                pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-                raycaster.setFromCamera(pointer, camera);
-                const intersects = raycaster.intersectObjects(clickableObjects);
-
-                const menu = document.getElementById('context-menu');
-                if (intersects.length > 0) {{
-                    const hit = intersects[0].object;
-                    if (hit.userData.type === 'bracingPoint') {{
-                        menu.style.display = 'block';
-                        menu.style.left = event.clientX + 'px';
-                        menu.style.top = event.clientY + 'px';
-                        menu.innerHTML = `
-                            <div style="font-weight:bold; margin-bottom:5px;">Bracing Point ${{hit.userData.bayIndex}}</div>
-                            <button data-action="attach-tie" data-bay="${{hit.userData.bayIndex}}" data-idx="${{hit.userData.index}}">🔗 Attach Tie‑down</button>
-                            <button data-action="add-strut" data-bay="${{hit.userData.bayIndex}}">➕ Add Strut here</button>
-                            <button data-action="close" style="margin-top:5px;">✖ Cancel</button>
-                        `;
-                        window._selectedBay = hit.userData.bayIndex;
-                        window._selectedIdx = hit.userData.index;
-                    }} else {{
-                        menu.style.display = 'none';
-                    }}
-                }} else {{
-                    menu.style.display = 'none';
-                }}
-            }});
-
-            // --- Context menu actions ---
-            document.getElementById('context-menu').addEventListener('click', (e) => {{
-                const target = e.target.closest('button');
-                if (!target) return;
-                const action = target.dataset.action;
-                if (action === 'close') {{
-                    document.getElementById('context-menu').style.display = 'none';
-                    return;
-                }}
-                const bay = parseInt(target.dataset.bay);
-                const idx = parseInt(target.dataset.idx);
-                // Send event to Python via URL query param
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set('sds_event', action);
-                url.searchParams.set('sds_bay', bay);
-                url.searchParams.set('sds_idx', idx);
-                window.parent.location.href = url.href;
-                document.getElementById('context-menu').style.display = 'none';
-            }});
-
-            // --- Build the initial scene ---
-            buildScene(designData);
-
-            // --- Resize ---
-            window.addEventListener('resize', () => {{
-                const w = container.clientWidth;
-                const h = container.clientHeight;
-                camera.aspect = w / h;
-                camera.updateProjectionMatrix();
-                renderer.setSize(w, h);
-                labelRenderer.setSize(w, h);
-            }});
-
-            // --- Animation loop ---
-            function animate() {{
-                requestAnimationFrame(animate);
-                controls.update();
-                renderer.render(scene, camera);
-                labelRenderer.render(scene, camera);
-            }}
-            animate();
-
-            // --- Listen for updates from Python (via postMessage) ---
-            window.addEventListener('message', (event) => {{
-                if (event.data.type === 'update-scene') {{
-                    Object.assign(designData, event.data.data);
-                    buildScene(designData);
-                }}
-            }});
-        </script>
-    </body>
-    </html>
-    """
-    return html
-
-# ============================================================
-# HANDLE EVENTS FROM THREE.JS (via query params)
-# ============================================================
-def handle_threejs_events():
-    """Process events sent by the Three.js component via query parameters."""
-    qp = st.query_params
-    event = qp.get("sds_event")
-    if event:
-        bay = int(qp.get("sds_bay", 0))
-        idx = int(qp.get("sds_idx", 0))
-        if event == "attach-tie":
-            # Add a tie-down to this bay
-            # We'll use the bracing point position and create a default anchor at ground level with some offset
-            if st.session_state.bracing_points and idx < len(st.session_state.bracing_points):
-                bp = st.session_state.bracing_points[idx]
-                # Calculate anchor position based on tie-down angles
-                v_angle = np.radians(st.session_state.materials.get("tie_down_vertical_angle", 45))
-                h_angle = np.radians(st.session_state.materials.get("tie_down_horizontal_spread", 25))
-                distance = bp.z * np.tan(v_angle)  # height * tan(vertical)
-                anchor_x = bp.x + distance * np.sin(h_angle)
-                anchor_y = bp.y  # same y as the bracing point
-                anchor_z = 0
-                td = {
-                    "bayIndex": bay,
-                    "startX": bp.x,
-                    "startY": bp.y,
-                    "startZ": bp.z,
-                    "endX": anchor_x,
-                    "endY": anchor_y,
-                    "endZ": anchor_z,
-                    "ropeDiameter": st.session_state.materials.get("wire_rope_diameter", 10),
-                    "verticalAngle": st.session_state.materials.get("tie_down_vertical_angle", 45),
-                    "horizontalAngle": st.session_state.materials.get("tie_down_horizontal_spread", 25)
-                }
-                st.session_state.tie_down_attachments.append(td)
-                st.success(f"✅ Tie-down attached to bay {bay}")
-        elif event == "add-strut":
-            # Add a strut at this bay: we'll create a member between the two beams at this bay
-            if st.session_state.bracing_points and idx < len(st.session_state.bracing_points):
-                bp = st.session_state.bracing_points[idx]
-                # Find the corresponding point on the other beam (same x, z, opposite y)
-                # Since we have bracing points for each beam, we need to find the pair.
-                # For simplicity, we'll just add a strut at the same x,z with y=0 (mid-span)
-                # But better: we'll use the two beams' points at this bay index.
-                # Let's retrieve the actual beam points from the params.
-                A = st.session_state.params.get("A", 6)
-                B = st.session_state.params.get("B", 10)
-                LAA = st.session_state.params.get("LAA", 15)
-                # Compute beam points at this x position
-                x_pos = bp.x
-                z = A * (1 - (2*x_pos/B)**2)
-                y_left = -LAA/2 * (1 - (2*x_pos/B)**2)
-                y_right = LAA/2 * (1 - (2*x_pos/B)**2)
-                # Add a strut between these two points
-                member = {
-                    "type": "Strut",
-                    "section": st.session_state.materials.get("section_size", "CHS 150x6"),
-                    "bay": bay,
-                    "startX": x_pos,
-                    "startY": y_left,
-                    "startZ": z,
-                    "endX": x_pos,
-                    "endY": y_right,
-                    "endZ": z
-                }
-                st.session_state.custom_members.append(member)
-                st.success(f"✅ Strut added at bay {bay}")
-        # Clear the query params to avoid re-processing
-        st.query_params.clear()
-        st.rerun()
-
-# ============================================================
-# RENDER HIGH-RES IMAGE (Three.js fallback – we can capture via canvas)
-# ============================================================
-def render_high_res_image_from_threejs():
-    # This will be handled by the Three.js component's internal export,
-    # but we can provide a button that triggers a download.
-    # For now, we'll use a placeholder.
-    st.info("High-res image export will be available from the Three.js viewer (right‑click → Save as).")
-
-# ============================================================
-# BILL OF QUANTITIES
-# ============================================================
-def generate_bq():
-    params = st.session_state.params
-    materials = st.session_state.materials
-    custom_members = st.session_state.custom_members
-    tie_attachments = st.session_state.tie_down_attachments
-    A = params.get("A", 6)
-    B = params.get("B", 10)
-    LAA = params.get("LAA", 15)
-    membrane_area = B * LAA * 1.1
-    # Steel weight for main beams (two beams)
-    steel_weight_kg = 2 * calculate_steel_weight(
-        materials.get("steel_grade", "S355"),
-        materials.get("section_type", "CHS"),
-        materials.get("section_size", "CHS 150x6"),
-        B
-    )
-    fabric_weight_kg = calculate_fabric_weight(
-        materials.get("fabric_type", "PVC-coated Polyester"),
-        materials.get("fabric_thickness", 0.8),
-        membrane_area
-    )
-    # Custom members
-    extra_steel = 0
-    for m in custom_members:
-        # approximate length
-        length = np.sqrt((m["endX"]-m["startX"])**2 + (m["endY"]-m["startY"])**2 + (m["endZ"]-m["startZ"])**2)
-        extra_steel += calculate_steel_weight(
-            materials.get("steel_grade", "S355"),
-            materials.get("section_type", "CHS"),
-            m.get("section", "CHS 150x6"),
-            length
-        )
-    total_steel = steel_weight_kg + extra_steel
-    total_weight_kn = (total_steel + fabric_weight_kg) / 100
-    # Tie-down rope lengths
-    rope_length = 0
-    for td in tie_attachments:
-        length = np.sqrt((td["endX"]-td["startX"])**2 + (td["endY"]-td["startY"])**2 + (td["endZ"]-td["startZ"])**2)
-        rope_length += length
-    bq_data = {
-        "Membrane Area (m²)": membrane_area,
-        "Fabric Weight (kg)": fabric_weight_kg,
-        "Main Beams Steel (kg)": steel_weight_kg,
-        "Additional Members (kg)": extra_steel,
-        "Total Steel (kg)": total_steel,
-        "Total Structure Weight (kN)": total_weight_kn,
-        "Number of Tie-down Ropes": len(tie_attachments),
-        "Total Rope Length (m)": rope_length
-    }
-    return bq_data
-
-# ============================================================
-# UNIFIED BOARD – with Three.js integration
-# ============================================================
-def render_unified_workspace():
-    """The SDS-UNDERSTAND board with Three.js interactive 3D."""
-    params = st.session_state.params
-    materials = st.session_state.materials
-    typ_key = st.session_state.typology
-    typ = TYPOLOGIES[typ_key]
-    info = st.session_state.project_info
-
-    st.markdown("## 🧠 SDS-UNDERSTAND — Engineering Understanding & Model Confirmation")
-    st.caption("Interactive 3D board with click‑to‑edit. Click a bracing point to attach tie‑downs or add struts.")
-
-    # Handle events from Three.js
-    handle_threejs_events()
-
-    col_left, col_right = st.columns([1, 1.8])
-
-    with col_left:
-        # Photo / Reference
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📷 PHOTO / REFERENCE</div>', unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Upload reference image", type=["png", "jpg", "jpeg", "webp"], key="photo_ref")
-        if uploaded_file is not None:
-            st.image(uploaded_file, caption="Reference Image", use_column_width=True)
-            st.caption("📌 Note: Uploaded image is for reference only.")
-        else:
-            st.caption("🖼️ Upload a sketch, photo, or reference image.")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # User Given Dimensions
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📏 USER GIVEN DIMENSIONS</div>', unsafe_allow_html=True)
-        col_d1, col_d2, col_d3 = st.columns(3)
-        with col_d1:
-            st.metric("A (Rise)", f"{params.get('A', 6.0):.1f} m")
-        with col_d2:
-            st.metric("B (Span)", f"{params.get('B', 10.0):.1f} m")
-        with col_d3:
-            st.metric("LAA (Apex to Apex)", f"{params.get('LAA', 15.0):.1f} m")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Notes
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📝 NOTES FROM USER</div>', unsafe_allow_html=True)
-        user_notes = st.text_area(
-            "Add your design notes here",
-            value=st.session_state.get("user_notes", ""),
-            height=100,
-            key="user_notes_area",
-            placeholder="e.g., Two main curved primary beams..."
-        )
-        st.session_state.user_notes = user_notes
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Summary
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📊 Current Interpretation Summary</div>', unsafe_allow_html=True)
-        m = materials
-        summary_items = [
-            ("PRIMARY STRUCTURE", f"{m.get('steel_grade', 'S355')} {m.get('section_type', 'CHS')} {m.get('section_size', '150x6')}", "badge-provided"),
-            ("MEMBRANE", f"{m.get('fabric_type', 'PVC')} {m.get('fabric_thickness', 0.8)}mm, {m.get('prestress', 3.0)}kN/m", "badge-provided"),
-            ("APEX POINT (P_A)", f"High point at {params.get('A', 6.0)}m", "badge-inferred"),
-            ("SUPPORTS", "Two supports at beam bases", "badge-inferred"),
-            ("DIMENSIONS", f"A={params.get('A', 6.0)}m, B={params.get('B', 10.0)}m, LAA={params.get('LAA', 15.0)}m", "badge-confirmed"),
-            ("WIND BRACING", f"{m.get('num_bays', 2)} bays", "badge-autogen"),
-            ("TIE-DOWNS", f"{len(st.session_state.tie_down_attachments)} attached", "badge-autogen"),
-            ("CUSTOM MEMBERS", f"{len(st.session_state.custom_members)} added", "badge-autogen")
-        ]
-        for label, value, badge in summary_items:
-            st.markdown(f'<div style="display:flex; justify-content:space-between; padding:0.1rem 0; border-bottom:1px solid #1a2a3a;">'
-                        f'<span style="color:#ffffff; font-weight:500;">{label}</span>'
-                        f'<span style="color:#b0c4de;">{value} <span class="badge {badge}">{badge.replace("badge-", "").upper()}</span></span>'
-                        f'</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Structured Questions
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">❓ Structured Questions</div>', unsafe_allow_html=True)
-        st.caption("Confirm the following assumptions.")
-        for i, q in enumerate(typ["qa"]):
-            key = f"qa_{i}"
-            default = st.session_state.qa_answers.get(key, "Yes")
-            if "?" in q:
-                ans = st.radio(f"{i+1}. {q}", ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"left_qa_{i}")
-            else:
-                options = ["Open", "Enclosed", "PVC", "PTFE", "Steel"]
-                ans = st.selectbox(f"{i+1}. {q}", options, index=options.index(default) if default in options else 0, key=f"left_qa_{i}")
-            st.session_state.qa_answers[key] = ans
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Legend
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📌 Legend</div>', unsafe_allow_html=True)
-        st.markdown(f'<span class="badge badge-confirmed">CONFIRMED</span> <span style="color:#b0c4de;">Confirmed by User</span> &nbsp;|&nbsp; '
-                    f'<span class="badge badge-inferred">INFERRED</span> <span style="color:#b0c4de;">Inferred by SDS</span> &nbsp;|&nbsp; '
-                    f'<span class="badge badge-unknown">UNKNOWN</span> <span style="color:#b0c4de;">Not Yet Defined</span> &nbsp;|&nbsp; '
-                    f'<span class="badge badge-provided">PROVIDED</span> <span style="color:#b0c4de;">Provided by User</span> &nbsp;|&nbsp; '
-                    f'<span class="badge badge-autogen">AUTO-GEN</span> <span style="color:#b0c4de;">Auto-Generated</span>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Lock button
-        if st.button("🔒 LOCK & PROCEED TO INVESTIGATION", use_container_width=True, type="primary"):
-            st.session_state.locked = True
-            save_cache()
-            st.success("✅ Design locked! You can now view the final model and export.")
-
-    with col_right:
-        st.subheader("🔬 Interactive 3D Model (Three.js)")
-        st.caption("Click a bracing point (blue sphere) to attach a tie‑down or add a strut.")
-
-        # Prepare data for Three.js
-        # Generate bracing points based on current bays
-        num_bays = materials.get("num_bays", 2)
-        span = params.get("B", 10)
-        laa = params.get("LAA", 15)
-        rise = params.get("A", 6)
-        positions = generate_bracing_positions(span, num_bays)
-        bracing_points = []
-        for idx, x_pos in enumerate(positions):
-            # Compute z at this x
-            z = rise * (1 - (2*x_pos/span)**2)
-            y1 = -laa/2 * (1 - (2*x_pos/span)**2)
-            y2 = laa/2 * (1 - (2*x_pos/span)**2)
-            # Two beams -> two points per bay
-            bracing_points.append({"x": x_pos, "y": y1, "z": z, "bayIndex": idx})
-            bracing_points.append({"x": x_pos, "y": y2, "z": z, "bayIndex": idx})
-        st.session_state.bracing_points = bracing_points
-
-        # Build the data dict
-        three_data = {
-            "params": params,
-            "materials": materials,
-            "custom_members": st.session_state.custom_members,
-            "tie_down_attachments": st.session_state.tie_down_attachments,
-            "bracing_points": bracing_points,
-            "annotations": st.session_state.engineering_annotations
-        }
-
-        # Render the component
-        html = threejs_component(three_data)
-        st.components.v1.html(html, height=600, scrolling=False)
-
-        # Annotation toggles
-        anno_cols = st.columns(4)
-        with anno_cols[0]:
-            st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind", value=st.session_state.engineering_annotations.get("show_wind", True))
-        with anno_cols[1]:
-            st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie-Down", value=st.session_state.engineering_annotations.get("show_tie_down", True))
-        with anno_cols[2]:
-            st.session_state.engineering_annotations["show_bracing"] = st.checkbox("📐 Bracing", value=st.session_state.engineering_annotations.get("show_bracing", True))
-        with anno_cols[3]:
-            st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load", value=st.session_state.engineering_annotations.get("show_load_path", True))
-
-        # Structural Checks (Python-based)
-        with st.expander("📊 Preliminary Structural Checks", expanded=True):
-            m = materials
-            span = params.get("B", 10.0)
-            laa = params.get("LAA", 15.0)
-            rise = params.get("A", 6.0)
-            membrane_area = span * laa * 1.1
-            steel_weight_kg = 2 * calculate_steel_weight(
-                m.get("steel_grade", "S355"),
-                m.get("section_type", "CHS"),
-                m.get("section_size", "CHS 150x6"),
-                span
-            )
-            fabric_weight_kg = calculate_fabric_weight(
-                m.get("fabric_type", "PVC-coated Polyester"),
-                m.get("fabric_thickness", 0.8),
-                membrane_area
-            )
-            total_weight_kg = steel_weight_kg + fabric_weight_kg
-            total_weight_kn = total_weight_kg / 100
-            wind_load = calculate_wind_load(m.get("wind_speed", 40), membrane_area)
-            num_bays = m.get("num_bays", 2)
-            bracing_x = generate_bracing_positions(span, num_bays)
-            num_anchors = len(bracing_x) * 2
-            tie_down_force = calculate_tie_down_force(
-                wind_load,
-                total_weight_kn,
-                num_anchors,
-                m.get("tie_down_vertical_angle", 45)
-            )
-            rope_breaking_load = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 20: 220}
-            rope_capacity = rope_breaking_load.get(m.get("wire_rope_diameter", 10), 55)
-            rope_check = tie_down_force < rope_capacity / 1.5
-
-            col_s1, col_s2, col_s3 = st.columns(3)
-            with col_s1:
-                st.metric("Self-Weight", f"{total_weight_kn:.1f} kN")
-                st.metric("Membrane Area", f"{membrane_area:.1f} m²")
-            with col_s2:
-                st.metric("Wind Load", f"{wind_load:.1f} kN")
-                st.metric("Tie-Down Force/Anchor", f"{tie_down_force:.1f} kN")
-            with col_s3:
-                st.metric("Wire Rope Capacity", f"{rope_capacity:.1f} kN")
-                st.metric("✅ Rope Check", "✅ PASS" if rope_check else "❌ FAIL")
-            if not rope_check:
-                st.error(f"⚠️ Tie-down force ({tie_down_force:.1f} kN) exceeds rope capacity ({rope_capacity:.1f} kN).")
-            else:
-                st.success("✅ All preliminary checks passed.")
-
-        # Bill of Quantities
-        with st.expander("📋 Bill of Quantities"):
-            bq = generate_bq()
-            df = pd.DataFrame(list(bq.items()), columns=["Item", "Value"])
-            st.dataframe(df, use_container_width=True)
-            # Export CSV
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download BQ as CSV", data=csv, file_name="bq.csv", mime="text/csv")
-
-        # Actions
-        st.divider()
-        col_act1, col_act2, col_act3, col_act4 = st.columns(4)
-        with col_act1:
-            if st.button("📸 Render High-Res Image", use_container_width=True, type="primary"):
-                render_high_res_image_from_threejs()
-                st.info("Use right‑click → Save image as from the 3D view, or use the browser's screenshot tool.")
-        with col_act2:
-            if st.button("📄 Export JSON", use_container_width=True):
-                export_data = {
-                    "project": info,
-                    "typology": typ_key,
-                    "parameters": params,
-                    "qa_answers": st.session_state.qa_answers,
-                    "comments": st.session_state.comments,
-                    "user_notes": st.session_state.user_notes,
-                    "materials": materials,
-                    "custom_members": st.session_state.custom_members,
-                    "tie_down_attachments": st.session_state.tie_down_attachments,
-                    "locked": st.session_state.locked,
-                    "export_date": datetime.now().isoformat()
-                }
-                json_str = json.dumps(export_data, indent=2)
-                b64 = base64.b64encode(json_str.encode()).decode()
-                href = f'<a href="data:application/json;base64,{b64}" download="project_data.json">📄 Download JSON</a>'
-                st.markdown(href, unsafe_allow_html=True)
-        with col_act3:
-            if st.button("🔒 Lock", use_container_width=True):
-                st.session_state.locked = True
-                save_cache()
-                st.rerun()
-        with col_act4:
-            if st.button("🔄 Reset All", use_container_width=True):
-                st.session_state.params = {p: v["default"] for p, v in typ["params"].items()}
-                st.session_state.materials = {
-                    "steel_grade": "S355",
-                    "section_type": "Circular Hollow Section (CHS)",
-                    "section_size": "CHS 150x6",
-                    "fabric_type": "PVC-coated Polyester",
-                    "fabric_thickness": 0.8,
-                    "prestress": 3.0,
-                    "wire_rope_type": "Galvanized Steel (6x19)",
-                    "wire_rope_diameter": 10,
-                    "num_bays": 2,
-                    "num_anchors": 2,
-                    "anchor_angle": 30,
-                    "wind_speed": 40,
-                    "snow_load": 0.5,
-                    "live_load": 0.5,
-                    "tie_down_vertical_angle": 45,
-                    "tie_down_horizontal_spread": 25
-                }
-                st.session_state.custom_members = []
-                st.session_state.tie_down_attachments = []
-                st.session_state.bracing_points = []
-                save_cache()
-                st.rerun()
-
-    st.divider()
-    st.caption("Understanding Design → Confirm Model → Engineering Investigation → Better Design → Roots Protected. Branches Free. Ecosystem Growing.")
-
-# ============================================================
-# MAIN DASHBOARD (unchanged)
-# ============================================================
-def render_dashboard():
-    st.title("🏗️ SDS Design Studio")
-    st.caption("Parametric design for tensile structures, membrane roofs, and steel frames.")
-    st.markdown("### *Roots Protected. Branches Free. Ecosystem Growing.*")
-    
-    projects = get_projects_list()
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f"""
-        <div class="dashboard-card">
-            <div class="icon">📂</div>
-            <div class="value">{len(projects)}</div>
-            <div class="label">Saved Projects</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"""
-        <div class="dashboard-card">
-            <div class="icon">🏕️</div>
-            <div class="value">{len(TYPOLOGIES)}</div>
-            <div class="label">Structure Types</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        locked_count = sum(1 for p in projects if p.get("locked", False))
-        st.markdown(f"""
-        <div class="dashboard-card">
-            <div class="icon">🔒</div>
-            <div class="value">{locked_count}</div>
-            <div class="label">Locked Designs</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.divider()
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("➕ New Design", use_container_width=True, type="primary"):
-            st.session_state.show_registration = True
-            st.rerun()
-    with col2:
-        if projects:
-            if st.button("📂 Open Saved Project", use_container_width=True):
-                st.session_state.show_project_browser = True
-                st.rerun()
-        else:
-            st.button("📂 No Saved Projects", use_container_width=True, disabled=True)
-    
-    if projects:
-        st.subheader("📋 Recent Projects")
-        for proj in projects[:5]:
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.write(f"**{proj.get('name', 'Untitled')}** — 👤 {proj.get('client', 'N/A')} | {proj.get('typology', 'Unknown')}")
-            with col2:
-                if st.button("Open", key=f"dash_load_{proj.get('file')}", use_container_width=True):
-                    if load_project_from_file(proj.get('file')):
-                        st.rerun()
-            st.divider()
-    
-    st.caption("💡 Select 'New Design' to start a project, or open an existing project from the list above.")
-
-# ============================================================
-# MAIN UI RENDER LOOP (unchanged)
-# ============================================================
-
-# --- TOP BAR ---
-cols = st.columns([0.8, 1.5, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
-with cols[0]:
-    if st.button("🏗️", key="sds_logo", help="Go to Dashboard"):
-        go_to_dashboard()
-        st.rerun()
-    st.caption("SDS")
-with cols[1]:
-    if st.session_state.project_registered and st.session_state.project_info:
-        st.caption(f"📌 {st.session_state.project_info.get('name', 'Project')[:20]}")
-    else:
-        st.caption("📌 No Project")
-with cols[2]:
-    if st.session_state.typology:
-        typ = TYPOLOGIES.get(st.session_state.typology, {})
-        st.caption(f"{typ.get('icon', '')} {typ.get('name', '')[:10]}")
-    else:
-        st.caption("")
-with cols[3]:
-    if st.button("🏠 Dash", use_container_width=True, help="Return to Main Dashboard"):
-        go_to_dashboard()
-        st.rerun()
-with cols[4]:
-    if st.session_state.project_registered:
-        if st.button("📂 Proj", use_container_width=True, help="View saved projects"):
-            st.session_state.show_project_browser = not st.session_state.show_project_browser
-            st.rerun()
-with cols[5]:
-    if st.session_state.project_registered and st.session_state.typology:
-        if st.button("💾 Save", use_container_width=True, help="Save current project"):
-            save_project_as_new()
-            st.rerun()
-with cols[6]:
-    if st.session_state.project_registered:
-        if st.button("📋 New", use_container_width=True, help="Start new project"):
-            clear_cache()
-            st.rerun()
-with cols[7]:
-    pass
-with cols[8]:
-    if st.session_state.locked and st.session_state.typology:
-        if st.button("🔓 Unlock", use_container_width=True, type="primary", help="Unlock the design to make changes"):
-            st.session_state.locked = False
-            save_cache()
-            st.rerun()
-
-# --- PROJECT BROWSER ---
-if st.session_state.show_project_browser:
-    st.subheader("📂 Saved Projects")
-    if st.button("⬅ Back to Dashboard", use_container_width=True):
-        go_to_dashboard()
-        st.rerun()
-    projects = get_projects_list()
-    if not projects:
-        st.info("No saved projects found.")
-    else:
-        projects.sort(key=lambda x: x.get("date", ""), reverse=True)
-        for proj in projects:
-            st.markdown(f"""
-            <div style="background-color:#141e2b; padding:0.5rem 1rem; border-radius:8px; margin-bottom:0.5rem; border-left:3px solid #4a7a9c;">
-                <span style="color:#ffffff; font-weight:600;">📌 Name:</span> <span style="color:#b0c4de;">{proj.get('name', 'Untitled')}</span><br>
-                <span style="color:#ffffff; font-weight:600;">👤 Client:</span> <span style="color:#b0c4de;">{proj.get('client', 'Unknown')}</span> &nbsp;|&nbsp; 
-                <span style="color:#ffffff; font-weight:600;">🔑 Ref:</span> <span style="color:#b0c4de;">{proj.get('reference', 'N/A')}</span> &nbsp;|&nbsp; 
-                <span style="color:#ffffff; font-weight:600;">🏗️ Type:</span> <span style="color:#b0c4de;">{proj.get('typology', 'Unknown')}</span> {'🔒' if proj.get('locked') else '📝'}
-            </div>
-            """, unsafe_allow_html=True)
-            col1, col2, col3 = st.columns([4, 1, 1])
-            with col2:
-                if st.button("📂 Load", key=f"load_{proj.get('file')}", use_container_width=True):
-                    if load_project_from_file(proj.get('file')):
-                        st.success("✅ Project loaded!")
-                        st.session_state.show_project_browser = False
-                        st.rerun()
-            with col3:
-                if st.button("🗑️ Delete", key=f"del_{proj.get('file')}", use_container_width=True):
-                    if delete_project_file(proj.get('file')):
-                        st.success(f"✅ Project {proj.get('name')} deleted.")
-                        st.rerun()
-    st.stop()
-
-# ============================================================
-# AUTO-LOAD SADDLE SPAN FOR NEW PROJECTS
-# ============================================================
-if st.session_state.project_registered and st.session_state.typology is None:
-    st.session_state.typology = "saddle_span"
-    st.session_state.params = {p: v["default"] for p, v in TYPOLOGIES["saddle_span"]["params"].items()}
+if "typology" not in st.session_state:
+    st.session_state.typology = None
+if "params" not in st.session_state:
+    st.session_state.params = {}
+if "mode" not in st.session_state:
+    st.session_state.mode = "design"
+if "qa_answers" not in st.session_state:
     st.session_state.qa_answers = {}
+if "locked" not in st.session_state:
     st.session_state.locked = False
-    save_cache()
-    st.rerun()
+if "view_history" not in st.session_state:
+    st.session_state.view_history = []
+if "favorites" not in st.session_state:
+    st.session_state.favorites = []
+if "design_notes" not in st.session_state:
+    st.session_state.design_notes = ""
 
-# --- DASHBOARD ---
-if not st.session_state.project_registered and not st.session_state.show_registration:
-    render_dashboard()
-    st.stop()
+# ============================================================
+# ENHANCED CACHE HANDLER
+# ============================================================
+CACHE_DIR = ".sds_cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
+CACHE_FILE = os.path.join(CACHE_DIR, "current_session.json")
+HISTORY_FILE = os.path.join(CACHE_DIR, "design_history.json")
 
-# --- PROJECT REGISTRATION ---
-if st.session_state.show_registration or (st.session_state.project_registered and not st.session_state.typology):
-    if st.session_state.show_registration or not st.session_state.project_registered:
-        st.subheader("📋 New Project Registration")
-        st.caption("Fill in the project details to get started.")
-        if st.button("⬅ Back to Dashboard", use_container_width=True):
-            go_to_dashboard()
-            st.rerun()
-        with st.form("project_registration_form"):
-            col1, col2 = st.columns(2)
-            with col1:
-                project_name = st.text_input("📌 Project Name *", placeholder="e.g., Marina Bay Canopy")
-                client_name = st.text_input("👤 Client Name *", placeholder="e.g., Marina Bay Sands")
-            with col2:
-                architect = st.text_input("🏛️ Architect (optional)", placeholder="e.g., Foster + Partners")
-                engineer = st.text_input("🔧 Engineer (optional)", placeholder="e.g., Arup")
-            location = st.text_input("📍 Location", placeholder="e.g., Singapore")
-            project_date = st.date_input("📅 Date", value=datetime.today())
-            ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-            project_ref = st.text_input("🔑 Project Reference", value=f"SDS-{ref}")
-            submitted = st.form_submit_button("🚀 Start Design Studio", use_container_width=True, type="primary")
-            if submitted:
-                if not project_name or not client_name:
-                    st.error("⚠️ Project Name and Client Name are required.")
-                else:
-                    st.session_state.project_info = {
-                        "name": project_name,
-                        "client": client_name,
-                        "architect": architect,
-                        "engineer": engineer,
-                        "location": location,
-                        "date": project_date.isoformat(),
-                        "reference": project_ref
-                    }
-                    st.session_state.project_registered = True
-                    st.session_state.design_phase = "understand"
-                    st.session_state.show_registration = False
-                    st.session_state.typology = "saddle_span"
-                    st.session_state.params = {p: v["default"] for p, v in TYPOLOGIES["saddle_span"]["params"].items()}
+def save_cache():
+    data = {
+        "typology": st.session_state.typology,
+        "params": st.session_state.params,
+        "qa_answers": st.session_state.qa_answers,
+        "locked": st.session_state.locked,
+        "design_notes": st.session_state.design_notes,
+        "timestamp": datetime.now().isoformat()
+    }
+    with open(CACHE_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+    
+    # Save to history
+    if st.session_state.typology:
+        history = load_history()
+        history.append(data)
+        if len(history) > 50:  # Keep last 50 designs
+            history = history[-50:]
+        with open(HISTORY_FILE, "w") as f:
+            json.dump(history, f, indent=2)
+
+def load_cache():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            return json.load(f)
+    return None
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+# Auto-load cache on boot
+cached = load_cache()
+if cached:
+    st.session_state.typology = cached.get("typology")
+    st.session_state.params = cached.get("params", {})
+    st.session_state.qa_answers = cached.get("qa_answers", {})
+    st.session_state.locked = cached.get("locked", False)
+    st.session_state.design_notes = cached.get("design_notes", "")
+
+# ============================================================
+# ADVANCED 3D GEOMETRY GENERATORS
+# ============================================================
+def generate_saddle_span(params):
+    A = params.get("A", 6.0)
+    B = params.get("B", 10.0)
+    LAA = params.get("LAA", 15.0)
+    H = params.get("H", 6.0)
+    
+    x = np.linspace(-B/2, B/2, 30)
+    y1 = A * (1 - (x/(B/2))**2)
+    y2 = A * (1 - (x/(B/2))**2)
+    
+    fig = go.Figure()
+    
+    # Beams with gradient
+    fig.add_trace(go.Scatter3d(
+        x=x, y=[0]*len(x), z=y1, 
+        mode='lines', 
+        name='Beam 1', 
+        line=dict(width=10, color='#FF6B35')
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=x, y=[LAA]*len(x), z=y2, 
+        mode='lines', 
+        name='Beam 2', 
+        line=dict(width=10, color='#FF6B35')
+    ))
+    
+    # Support points with labels
+    support_points = [
+        (-B/2, 0, 0), (B/2, 0, 0),
+        (-B/2, LAA, 0), (B/2, LAA, 0)
+    ]
+    sx, sy, sz = zip(*support_points)
+    fig.add_trace(go.Scatter3d(
+        x=sx, y=sy, z=sz,
+        mode='markers+text',
+        name='Supports',
+        marker=dict(size=12, color='red', symbol='circle'),
+        text=['Support']*4,
+        textposition='bottom center'
+    ))
+    
+    # Apex points
+    fig.add_trace(go.Scatter3d(
+        x=[0, 0], y=[0, LAA], z=[A, A],
+        mode='markers+text',
+        name='Apex',
+        marker=dict(size=16, color='gold', symbol='diamond'),
+        text=['Apex']*2,
+        textposition='top center'
+    ))
+    
+    # Enhanced saddle surface with curvature lines
+    Y, X = np.meshgrid(np.linspace(0, LAA, 30), x)
+    Z = A * (1 - (X/(B/2))**2) * (1 - 0.3 * (Y/LAA)**2) + 0.2 * A * (Y/LAA) * (1 - Y/LAA)
+    
+    fig.add_trace(go.Surface(
+        x=X, y=Y, z=Z, 
+        opacity=0.6, 
+        colorscale='Viridis', 
+        showscale=True,
+        name='Membrane'
+    ))
+    
+    # Add contour lines for structural analysis
+    fig.add_trace(go.Surface(
+        x=X, y=Y, z=Z-0.01,
+        opacity=0.1,
+        colorscale='RdBu',
+        showscale=False,
+        contours={
+            "z": {"show": True, "usecolormap": True, "highlightcolor": "#ffffff", "project": {"z": True}}
+        }
+    ))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Span (m)',
+            yaxis_title='Width (m)',
+            zaxis_title='Height (m)',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.2)),
+            annotations=[
+                dict(showarrow=False, x=0, y=LAA/2, z=A*0.8, text=f"A={A}m", font=dict(size=12))
+            ]
+        ),
+        margin=dict(l=0, r=0, b=0, t=0),
+        showlegend=True
+    )
+    return fig
+
+def generate_hypar(params):
+    span_x = params.get("span_x", 15.0)
+    span_y = params.get("span_y", 15.0)
+    height = params.get("height", 6.0)
+    twist = params.get("twist", 0.5)
+    
+    x = np.linspace(-span_x/2, span_x/2, 30)
+    y = np.linspace(-span_y/2, span_y/2, 30)
+    X, Y = np.meshgrid(x, y)
+    Z = height * (X/span_x)**2 - twist * height * (Y/span_y)**2
+    
+    fig = go.Figure()
+    
+    # Hypar surface
+    fig.add_trace(go.Surface(
+        x=X, y=Y, z=Z,
+        opacity=0.7,
+        colorscale='Plasma',
+        showscale=True,
+        name='Hypar Surface'
+    ))
+    
+    # Edge beams
+    for x_val in [-span_x/2, span_x/2]:
+        fig.add_trace(go.Scatter3d(
+            x=[x_val]*len(y), y=y, z=height * (x_val/span_x)**2 - twist * height * (y/span_y)**2,
+            mode='lines',
+            line=dict(width=6, color='white'),
+            name='Edge Beam'
+        ))
+    
+    # Corner supports
+    corners = [(-span_x/2, -span_y/2), (-span_x/2, span_y/2), 
+               (span_x/2, -span_y/2), (span_x/2, span_y/2)]
+    cx, cy, cz = [], [], []
+    for c in corners:
+        cx.append(c[0])
+        cy.append(c[1])
+        cz.append(height * (c[0]/span_x)**2 - twist * height * (c[1]/span_y)**2)
+    
+    fig.add_trace(go.Scatter3d(
+        x=cx, y=cy, z=cz,
+        mode='markers',
+        marker=dict(size=12, color='red'),
+        name='Support Points'
+    ))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='X (m)',
+            yaxis_title='Y (m)',
+            zaxis_title='Height (m)',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
+        ),
+        margin=dict(l=0, r=0, b=0, t=0)
+    )
+    return fig
+
+def generate_truss(params):
+    span = params.get("span", 20.0)
+    depth = params.get("depth", 2.0)
+    bays = params.get("bay_count", 8)
+    loading = params.get("loading", 2.0)
+    
+    bay_len = span / bays
+    fig = go.Figure()
+    
+    # Top chord
+    x_top = np.linspace(-span/2, span/2, bays+1)
+    y_top = [depth/2] * len(x_top)
+    
+    # Bottom chord
+    x_bot = np.linspace(-span/2, span/2, bays+1)
+    y_bot = [-depth/2] * len(x_bot)
+    
+    # Top chord line
+    fig.add_trace(go.Scatter3d(
+        x=x_top, y=[0]*len(x_top), z=y_top,
+        mode='lines+markers',
+        line=dict(width=6, color='#2C3E50'),
+        marker=dict(size=4, color='#2C3E50'),
+        name='Top Chord'
+    ))
+    
+    # Bottom chord line
+    fig.add_trace(go.Scatter3d(
+        x=x_bot, y=[0]*len(x_bot), z=y_bot,
+        mode='lines+markers',
+        line=dict(width=6, color='#2C3E50'),
+        marker=dict(size=4, color='#2C3E50'),
+        name='Bottom Chord'
+    ))
+    
+    # Web members (zigzag pattern)
+    for i in range(bays):
+        # Diagonal members
+        x1 = -span/2 + i * bay_len
+        x2 = -span/2 + (i+1) * bay_len
+        
+        # V-formation
+        fig.add_trace(go.Scatter3d(
+            x=[x1, x1 + bay_len/2],
+            y=[0, 0],
+            z=[depth/2, -depth/2],
+            mode='lines',
+            line=dict(width=3, color='#E74C3C'),
+            showlegend=False
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=[x1 + bay_len/2, x2],
+            y=[0, 0],
+            z=[-depth/2, depth/2],
+            mode='lines',
+            line=dict(width=3, color='#E74C3C'),
+            showlegend=False
+        ))
+        
+        # Vertical members
+        fig.add_trace(go.Scatter3d(
+            x=[x1, x1],
+            y=[0, 0],
+            z=[depth/2, -depth/2],
+            mode='lines',
+            line=dict(width=2, color='#95A5A6', dash='dash'),
+            showlegend=False
+        ))
+    
+    # Deflection indicator (visual only)
+    defl_factor = loading * 0.01  # Simplified deflection
+    x_def = np.linspace(-span/2, span/2, 20)
+    y_def = -defl_factor * (1 - (x_def/(span/2))**2)
+    fig.add_trace(go.Scatter3d(
+        x=x_def, y=[0.2]*len(x_def), z=y_def,
+        mode='lines',
+        line=dict(width=2, color='red', dash='dash'),
+        name=f'Deflection (approx)'
+    ))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Span (m)',
+            yaxis_title='Bay',
+            zaxis_title='Depth (m)',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
+        ),
+        margin=dict(l=0, r=0, b=0, t=0),
+        legend=dict(x=0.01, y=0.99)
+    )
+    return fig
+
+def generate_tent(params):
+    span = params.get("span_width", 10.0)
+    ridge = params.get("ridge_height", 5.0)
+    bays = params.get("num_bays", 4)
+    bay_dist = params.get("bay_distance", 5.0)
+    total_len = bays * bay_dist
+    
+    x = np.linspace(-span/2, span/2, 20)
+    z = ridge * (1 - (x/(span/2))**2)
+    
+    fig = go.Figure()
+    
+    # Ridge line with gradient
+    fig.add_trace(go.Scatter3d(
+        x=[0,0], y=[0,total_len], z=[ridge,ridge],
+        mode='lines',
+        name='Ridge',
+        line=dict(width=12, color='#FF6B35')
+    ))
+    
+    # Eave lines
+    fig.add_trace(go.Scatter3d(
+        x=[-span/2,-span/2], y=[0,total_len], z=[0,0],
+        mode='lines',
+        name='Eave Left',
+        line=dict(width=4, color='#2C3E50')
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[span/2,span/2], y=[0,total_len], z=[0,0],
+        mode='lines',
+        name='Eave Right',
+        line=dict(width=4, color='#2C3E50')
+    ))
+    
+    # Fabric surface with improved rendering
+    Y, X = np.meshgrid(np.linspace(0, total_len, 20), x)
+    Z = ridge * (1 - (X/(span/2))**2) * (1 - (Y/total_len)**2 * 0.1)
+    
+    fig.add_trace(go.Surface(
+        x=X, y=Y, z=Z,
+        opacity=0.6,
+        colorscale='Reds',
+        showscale=True,
+        name='Fabric'
+    ))
+    
+    # Support points
+    fig.add_trace(go.Scatter3d(
+        x=[-span/2, span/2, -span/2, span/2],
+        y=[0, 0, total_len, total_len],
+        z=[0, 0, 0, 0],
+        mode='markers',
+        marker=dict(size=10, color='green'),
+        name='Supports'
+    ))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Width (m)',
+            yaxis_title='Length (m)',
+            zaxis_title='Height (m)',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
+        ),
+        margin=dict(l=0, r=0, b=0, t=0)
+    )
+    return fig
+
+def generate_tensile(params):
+    mast = params.get("mast_height", 8.0)
+    length = params.get("span_length", 20.0)
+    width = params.get("span_width", 15.0)
+    cables = params.get("cable_count", 4)
+    
+    fig = go.Figure()
+    
+    # Mast with gradient
+    fig.add_trace(go.Scatter3d(
+        x=[0,0], y=[0,0], z=[0,mast],
+        mode='lines',
+        name='Mast',
+        line=dict(width=14, color='#2C3E50')
+    ))
+    
+    # Mast top with glow effect
+    fig.add_trace(go.Scatter3d(
+        x=[0], y=[0], z=[mast],
+        mode='markers',
+        name='Mast Top',
+        marker=dict(size=16, color='gold', symbol='diamond')
+    ))
+    
+    # Membrane surface
+    X = np.linspace(-length/2, length/2, 30)
+    Y = np.linspace(-width/2, width/2, 30)
+    X, Y = np.meshgrid(X, Y)
+    Z = mast * np.exp(-((X/(length/2))**2 + (Y/(width/2))**2) * 0.5)
+    
+    fig.add_trace(go.Surface(
+        x=X, y=Y, z=Z,
+        opacity=0.6,
+        colorscale='Greens',
+        showscale=True,
+        name='Membrane'
+    ))
+    
+    # Cable lines with stress indication
+    for i in range(cables):
+        angle = i * 2*np.pi/cables
+        x_end = length/2 * np.cos(angle)
+        y_end = width/2 * np.sin(angle)
+        # Cable thickness varies with angle
+        thickness = 3 + np.sin(angle)  # Visual stress indicator
+        fig.add_trace(go.Scatter3d(
+            x=[0, x_end], y=[0, y_end], z=[mast, 0],
+            mode='lines',
+            line=dict(width=thickness, color='gray'),
+            name=f'Cable {i+1}'
+        ))
+    
+    # Anchor points
+    for i in range(cables):
+        angle = i * 2*np.pi/cables
+        x_end = length/2 * np.cos(angle)
+        y_end = width/2 * np.sin(angle)
+        fig.add_trace(go.Scatter3d(
+            x=[x_end], y=[y_end], z=[0],
+            mode='markers',
+            marker=dict(size=8, color='red'),
+            showlegend=False
+        ))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Length (m)',
+            yaxis_title='Width (m)',
+            zaxis_title='Height (m)',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
+        ),
+        margin=dict(l=0, r=0, b=0, t=0)
+    )
+    return fig
+
+def generate_portal(params):
+    eave = params.get("eave_height", 6.0)
+    span = params.get("span_width", 20.0)
+    pitch = params.get("roof_pitch", 5.0)
+    bays = params.get("num_bays", 5)
+    bay_spacing = params.get("bay_spacing", 6.0)
+    crane_load = params.get("crane_load", 0.0)
+    total_len = bays * bay_spacing
+    
+    roof_rise = span/2 * np.tan(np.radians(pitch))
+    ridge = eave + roof_rise
+    
+    fig = go.Figure()
+    
+    # Portal frame geometry
+    x = [-span/2, -span/2, 0, span/2, span/2]
+    z = [0, eave, ridge, eave, 0]
+    
+    # Main frame (highlighted)
+    fig.add_trace(go.Scatter3d(
+        x=x, y=[0]*len(x), z=z,
+        mode='lines+markers',
+        name='Main Frame',
+        line=dict(width=10, color='#2C3E50'),
+        marker=dict(size=6, color='#2C3E50')
+    ))
+    
+    # All bays with fading opacity
+    for i in range(bays):
+        y = i * bay_spacing
+        opacity = 1.0 if i == 0 else 0.3 + 0.7 * (1 - i/bays)
+        color = '#3498DB' if i % 2 == 0 else '#2980B9'
+        fig.add_trace(go.Scatter3d(
+            x=x, y=[y]*len(x), z=z,
+            mode='lines',
+            line=dict(width=4, color=color, opacity=opacity),
+            name=f'Bay {i+1}' if i == 0 else None,
+            showlegend=(i == 0)
+        ))
+    
+    # Roof sheeting with gradient
+    Y, X = np.meshgrid(np.linspace(0, total_len, 20), np.linspace(-span/2, span/2, 30))
+    Z = np.where(np.abs(X) < span/2, eave + (span/2 - np.abs(X)) * np.tan(np.radians(pitch)), 0)
+    
+    fig.add_trace(go.Surface(
+        x=X, y=Y, z=Z,
+        opacity=0.4,
+        colorscale='Greys',
+        showscale=True,
+        name='Roof Sheeting'
+    ))
+    
+    # Crane system if load > 0
+    if crane_load > 0:
+        crane_height = eave * 0.6
+        # Crane bridge
+        fig.add_trace(go.Scatter3d(
+            x=[-span/3, span/3],
+            y=[total_len/4, total_len/4],
+            z=[crane_height, crane_height],
+            mode='lines',
+            name=f'Crane Bridge ({crane_load}t)',
+            line=dict(width=8, color='#E74C3C')
+        ))
+        # Crane hook
+        fig.add_trace(go.Scatter3d(
+            x=[0], y=[total_len/4], z=[0],
+            mode='markers',
+            marker=dict(size=10, color='#E74C3C', symbol='circle'),
+            name='Hook Point'
+        ))
+        # Crane travel path
+        fig.add_trace(go.Scatter3d(
+            x=[-span/4, span/4],
+            y=[total_len/4, total_len/4],
+            z=[crane_height, crane_height],
+            mode='lines',
+            line=dict(width=2, color='#E74C3C', dash='dash'),
+            name='Travel Path'
+        ))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Width (m)',
+            yaxis_title='Length (m)',
+            zaxis_title='Height (m)',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.2))
+        ),
+        margin=dict(l=0, r=0, b=0, t=0)
+    )
+    return fig
+
+GENERATORS = {
+    "saddle_span": generate_saddle_span,
+    "clear_span_tent": generate_tent,
+    "tensile_membrane": generate_tensile,
+    "portal_frame": generate_portal,
+    "hypar": generate_hypar,
+    "truss": generate_truss
+}
+
+# ============================================================
+# ENHANCED UI RENDERING
+# ============================================================
+st.title("🏗️ SDS Design Studio")
+
+# ---- SIDEBAR (Hidden but accessible) ----
+with st.sidebar:
+    st.header("⚙️ Tools")
+    if st.button("📊 Export Design Summary", use_container_width=True):
+        st.session_state.show_export = True
+    if st.button("🔄 Reset All", use_container_width=True):
+        for key in st.session_state.keys():
+            if key not in ["typology", "params", "qa_answers"]:
+                del st.session_state[key]
+        st.session_state.typology = None
+        st.session_state.params = {}
+        st.session_state.qa_answers = {}
+        st.rerun()
+    st.divider()
+    st.caption(f"Session: {datetime.now().strftime('%H:%M')}")
+
+# ---- CATALOG VIEW ----
+if st.session_state.typology is None:
+    st.subheader("Choose a structure type:")
+    
+    # Enhanced catalog with descriptions
+    cols = st.columns(2)
+    idx = 0
+    for key, typ in TYPOLOGIES.items():
+        with cols[idx % 2]:
+            with st.container():
+                st.markdown(f"""
+                <div style='border: 2px solid {typ["color"]}; border-radius: 12px; padding: 0.75rem; margin-bottom: 0.5rem;'>
+                    <h3 style='margin: 0;'>{typ['icon']} {typ['name']}</h3>
+                    <p style='margin: 0; font-size: 0.8rem; opacity: 0.7;'>{typ['description']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button(f"Select {typ['name']}", use_container_width=True, key=f"btn_{key}"):
+                    st.session_state.typology = key
+                    st.session_state.params = {p: v["default"] for p, v in typ["params"].items()}
                     st.session_state.qa_answers = {}
                     st.session_state.locked = False
                     save_cache()
                     st.rerun()
-        st.caption("All data is cached locally. Your project will resume where you left off.")
-        st.stop()
+        idx += 1
+    
+    # Design history
+    history = load_history()
+    if history:
+        with st.expander("📜 Recent Designs"):
+            for i, design in enumerate(history[-5:]):
+                typ = design.get("typology", "Unknown")
+                if typ in TYPOLOGIES:
+                    st.write(f"{TYPOLOGIES[typ]['icon']} {TYPOLOGIES[typ]['name']} - {design.get('timestamp', '')[:10]}")
+    
+    st.stop()
 
-# --- UNIFIED SDS-UNDERSTAND WORKSPACE ---
-if st.session_state.typology is not None:
-    render_unified_workspace()
+# ---- ACTIVE TYPOLOGY VIEW ----
+typ_key = st.session_state.typology
+typ = TYPOLOGIES[typ_key]
+params = st.session_state.params
 
-st.caption("SDS Platform v5.0 | Three.js Interactive Board | Roots Protected. Branches Free. Ecosystem Growing.")
+# Header with enhanced controls
+col1, col2, col3, col4 = st.columns([1, 3, 2, 2])
+with col1:
+    if st.button("⬅", help="Back to catalog", key="back_btn"):
+        st.session_state.typology = None
+        st.session_state.mode = "design"
+        st.session_state.locked = False
+        save_cache()
+        st.rerun()
+with col2:
+    st.subheader(f"{typ['icon']} {typ['name']}")
+with col3:
+    if st.session_state.mode == "design":
+        if st.button("🔍 Pro View", use_container_width=True, key="pro_btn"):
+            st.session_state.mode = "engineer"
+            save_cache()
+            st.rerun()
+    else:
+        if st.button("✏️ Edit", use_container_width=True, key="edit_btn"):
+            st.session_state.mode = "design"
+            save_cache()
+            st.rerun()
+with col4:
+    if st.button("⭐ Favorite", use_container_width=True, key="fav_btn"):
+        if typ_key not in st.session_state.favorites:
+            st.session_state.favorites.append(typ_key)
+            st.success("Added to favorites!")
+
+# ---- LOCK STATUS ----
+if st.session_state.locked:
+    st.warning("🔒 Design is LOCKED. Edit mode is disabled.")
+
+# ---- 3D PREVIEW with controls ----
+st.subheader("📐 3D Preview")
+if typ_key in GENERATORS:
+    fig = GENERATORS[typ_key](params)
+    st.plotly_chart(fig, use_container_width=True, config={
+        "displayModeBar": True,
+        "modeBarButtonsToRemove": ["toImage"],
+        "displaylogo": False
+    })
+
+# ---- DESIGN MODE: Sliders + Q&A ----
+if st.session_state.mode == "design" and not st.session_state.locked:
+    # Parameters with enhanced layout
+    st.subheader("📐 Dimensions")
+    
+    # Group sliders in rows
+    param_items = list(typ["params"].items())
+    for i in range(0, len(param_items), 2):
+        cols = st.columns(2)
+        for j in range(2):
+            if i + j < len(param_items):
+                p_key, p_def = param_items[i + j]
+                with cols[j]:
+                    val = st.slider(
+                        p_def["label"],
+                        min_value=float(p_def["min"]),
+                        max_value=float(p_def["max"]),
+                        step=float(p_def["step"]),
+                        value=float(params.get(p_key, p_def["default"])),
+                        key=f"slider_{p_key}"
+                    )
+                    params[p_key] = val
+                    # Show real-time value
+                    st.caption(f"Current: {val:.1f}")
+    
+    # Auto-save
+    save_cache()
+    
+    # Design Notes
+    st.subheader("📝 Design Notes")
+    st.session_state.design_notes = st.text_area(
+        "Add notes about your design:",
+        value=st.session_state.design_notes,
+        height=100,
+        placeholder="Enter design notes, constraints, or special requirements..."
+    )
+    
+    # Q&A Board with categorization
+    st.subheader("📋 Confirm Design")
+    
+    # Split Q&A into categories
+    qa_items = typ["qa"]
+    for i, q in enumerate(qa_items):
+        key = f"qa_{i}"
+        default = st.session_state.qa_answers.get(key, "Yes")
+        
+        # Categorize questions
+        if "material" in q.lower() or "fabric" in q.lower():
+            options = ["PVC", "PTFE", "Steel", "Aluminum", "Glass"]
+        elif "support" in q.lower() or "base" in q.lower():
+            options = ["Yes", "No", "Not Sure", "N/A"]
+        elif "load" in q.lower() or "crane" in q.lower():
+            options = ["Yes", "No", "N/A"]
+        else:
+            options = ["Yes", "No", "Not Sure"]
+        
+        ans = st.radio(q, options, index=options.index(default) if default in options else 0, key=key)
+        st.session_state.qa_answers[key] = ans
+    
+    save_cache()
+    
+    # Lock Button with confirmation
+    if st.button("🔒 LOCK & PROCEED", use_container_width=True, type="primary", key="lock_btn"):
+        if st.session_state.design_notes.strip():
+            st.session_state.locked = True
+            save_cache()
+            st.rerun()
+        else:
+            st.warning("Please add design notes before locking.")
+            st.session_state.locked = True  # Allow lock even without notes
+            save_cache()
+            st.rerun()
+
+# ---- ENGINEER MODE ----
+if st.session_state.mode == "engineer" or st.session_state.locked:
+    st.subheader("🔬 Structural Analysis")
+    
+    # Key metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("📊 Parameter Count", len(params))
+    with col2:
+        total_load = sum(params.values()) / len(params) if params else 0
+        st.metric("⚖️ Avg Load", f"{total_load:.1f}")
+    with col3:
+        st.metric("📅 Saved", datetime.now().strftime("%H:%M"))
+    
+    # Parameter summary
+    with st.expander("📊 Parameters Summary", expanded=True):
+        for p_key, p_def in typ["params"].items():
+            val = params.get(p_key, p_def["default"])
+            st.metric(p_def["label"], f"{val:.1f}")
+    
+    # Design notes
+    if st.session_state.design_notes:
+        with st.expander("📝 Design Notes", expanded=True):
+            st.write(st.session_state.design_notes)
+    
+    # Q&A summary
+    with st.expander("📋 Design Confirmations"):
+        for i, q in enumerate(typ["qa"]):
+            ans = st.session_state.qa_answers.get(f"qa_{i}", "Not answered")
+            st.write(f"**{q}** → {ans}")
+    
+    # Structural analysis indicators
+    with st.expander("📐 Structural Indicators"):
+        # Calculate some simple indicators
+        if typ_key == "saddle_span":
+            A = params.get("A", 6.0)
+            B = params.get("B", 10.0)
+            ratio = A/B
+            st.metric("A/B Ratio", f"{ratio:.2f}", 
+                     delta="Shallow" if ratio < 0.5 else "Steep" if ratio > 1.0 else "Optimal")
+            st.progress(min(ratio, 1.0))
+            
+        elif typ_key == "portal_frame":
+            eave = params.get("eave_height", 6.0)
+            span = params.get("span_width", 20.0)
+            pitch = params.get("roof_pitch", 5.0)
+            st.metric("Span/Height Ratio", f"{span/eave:.1f}")
+            st.metric("Roof Slope", f"{pitch}°")
+            
+        elif typ_key == "truss":
+            span = params.get("span", 20.0)
+            depth = params.get("depth", 2.0)
+            st.metric("Span/Depth Ratio", f"{span/depth:.1f}")
+            if span/depth > 15:
+                st.warning("⚠️ High span/depth ratio - consider increasing depth")
+    
+    # Export function
+    if st.button("📊 Export Design Summary", use_container_width=True):
+        summary = f"""
+        SDS Design Studio - Export
+        ============================
+        Typology: {typ['icon']} {typ['name']}
+        Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+        
+        Parameters:
+        {chr(10).join([f"  {p_def['label']}: {params.get(p_key, p_def['default']):.1f}" for p_key, p_def in typ['params'].items()])}
+        
+        Design Notes:
+        {st.session_state.design_notes if st.session_state.design_notes else 'None'}
+        
+        Confirmations:
+        {chr(10).join([f"  {q}: {st.session_state.qa_answers.get(f'qa_{i}', 'Not answered')}" for i, q in enumerate(typ['qa'])])}
+        """
+        st.download_button(
+            label="📥 Download Summary",
+            data=summary,
+            file_name=f"SDS_Design_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+    
+    # Unlock button
+    if st.session_state.locked:
+        if st.button("🔓 Unlock to Edit", use_container_width=True, key="unlock_btn"):
+            st.session_state.locked = False
+            st.session_state.mode = "design"
+            save_cache()
+            st.rerun()
+
+# ---- FOOTER ----
+st.divider()
+col1, col2 = st.columns(2)
+with col1:
+    st.caption("SDS Platform v1.1 | Built for mobile")
+with col2:
+    st.caption(f"Auto-saved: {datetime.now().strftime('%H:%M:%S')}")
+
+# ============================================================
+# RUN: Save cache on every interaction
+# ============================================================
 save_cache()
