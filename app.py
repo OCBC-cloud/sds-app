@@ -622,18 +622,280 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# AUTO-GENERATION FUNCTIONS
+# ENGINEERING-DRIVEN BRACING & TIE-DOWN POSITIONS
 # ============================================================
 
-def generate_bracing_positions(span, num_bays):
-    if num_bays == 1:
-        return [0.0]
-    elif num_bays == 2:
-        return [-span/3, span/3]
-    elif num_bays == 3:
+def get_bracing_preset(span, preset, num_custom_points=None):
+    """
+    Returns X-positions for bracing points based on engineering presets.
+    
+    Presets:
+    - "quarter": 1/4, 1/2, 3/4 points (most common for symmetrical structures)
+    - "third": 1/3, 2/3 points (for longer spans, shear-critical)
+    - "support_mid": supports + mid-span (for structures with concentrated loads)
+    - "custom": user-defined positions (passed as list)
+    """
+    if preset == "quarter":
         return [-span/4, 0.0, span/4]
+    elif preset == "third":
+        return [-span/3, span/3]
+    elif preset == "support_mid":
+        return [-span/2, 0.0, span/2]
+    elif preset == "custom" and num_custom_points:
+        if isinstance(num_custom_points, list):
+            return num_custom_points
+        else:
+            # Generate evenly spaced points
+            if num_custom_points == 1:
+                return [0.0]
+            else:
+                spacing = span / (num_custom_points + 1)
+                return [(-span/2) + spacing * (i+1) for i in range(num_custom_points)]
     else:
-        return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
+        return [-span/4, 0.0, span/4]  # Default to quarter points
+
+def get_preset_description(preset):
+    descriptions = {
+        "quarter": "🏗️ Quarter Points (1/4, 1/2, 3/4) – Most common for symmetrical structures. Provides balanced support for wind uplift and lateral stability. Recommended for standard designs.",
+        "third": "📐 Third Points (1/3, 2/3) – Suitable for longer spans where shear forces are more critical. Positions bracing at points of maximum shear.",
+        "support_mid": "🏛️ Supports + Mid-Span – Recommended for structures with concentrated loads at mid-span. Provides direct load transfer to supports.",
+        "custom": "🛠️ Custom Positions – Define exact X-coordinates for advanced users. Useful for asymmetric structures or special load cases."
+    }
+    return descriptions.get(preset, "Engineering-preset bracing positions.")
+
+def calculate_uplift_distribution(span, rise, wind_load):
+    """
+    Simplified uplift force distribution along the beam.
+    Returns a list of (x, uplift_force) for visualization.
+    """
+    # Simplified model: uplift varies parabolically, highest at mid-span
+    x = np.linspace(-span/2, span/2, 50)
+    # Parabolic uplift: zero at supports, max at mid-span
+    uplift = wind_load * (1 - (2 * x / span)**2)
+    # Scale to be meaningful
+    uplift = uplift * 0.8  # 80% of wind load goes to uplift
+    return list(zip(x, uplift))
+
+def get_optimal_tie_down_positions(span, bracing_x_positions, uplift_curve):
+    """
+    Determine which bracing points should have tie-downs based on uplift forces.
+    Returns a list of (x, uplift_value) for positions with significant uplift.
+    """
+    # For each bracing position, find the uplift value at that point
+    positions_with_uplift = []
+    for bx in bracing_x_positions:
+        # Find nearest uplift point
+        x_vals = [p[0] for p in uplift_curve]
+        u_vals = [p[1] for p in uplift_curve]
+        idx = np.argmin(np.abs(np.array(x_vals) - bx))
+        uplift_val = u_vals[idx]
+        # Only suggest tie-down if uplift is significant (> 10% of max)
+        if uplift_val > 0.1 * max(u_vals):
+            positions_with_uplift.append((bx, uplift_val))
+    return positions_with_uplift
+
+# ============================================================
+# 3D GENERATOR – UPDATED TO USE ENGINEERING PRESETS
+# ============================================================
+
+def generate_saddle_span(params, materials=None, annotations=None):
+    span = params.get("B", 10.0)
+    rise = params.get("A", 6.0)
+    laa = params.get("LAA", 15.0)
+    num_points = 50
+
+    if span <= 0 or rise <= 0 or laa <= 0:
+        return go.Figure()
+
+    x = np.linspace(-span/2, span/2, num_points)
+    z_beam = rise * (1 - (2 * x / span)**2)
+    y1 = -laa/2 * (1 - (2 * x / span)**2)
+    y2 = laa/2 * (1 - (2 * x / span)**2)
+
+    # Membrane surface
+    X_surf = np.zeros((num_points, num_points))
+    Y_surf = np.zeros((num_points, num_points))
+    Z_surf = np.zeros((num_points, num_points))
+
+    for i, x_pos in enumerate(x):
+        y_beam1 = y1[i]
+        y_beam2 = y2[i]
+        z_at_x = z_beam[i]
+        for j, v_val in enumerate(np.linspace(0, 1, num_points)):
+            y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
+            saddle_factor = 1 - 0.3 * (1 - (2 * v_val - 1)**2)
+            z_pos = z_at_x * saddle_factor
+            X_surf[i, j] = x_pos
+            Y_surf[i, j] = y_pos
+            Z_surf[i, j] = z_pos
+
+    fig = go.Figure()
+
+    # Beams
+    fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=8)))
+    fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=8)))
+    fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, 
+                             colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
+                             opacity=0.6, showscale=False))
+
+    # Apex markers
+    fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
+                               mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=8, symbol='diamond')))
+    fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], 
+                               mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=8, symbol='diamond')))
+
+    # Supports
+    fig.add_trace(go.Scatter3d(x=[-span/2], y=[0], z=[0], 
+                               mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=10, symbol='square')))
+    fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
+                               mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=10, symbol='square')))
+
+    # --- BRACING (using engineering presets) ---
+    show_bracing = True
+    if annotations is not None:
+        show_bracing = annotations.get("show_bracing", True)
+    
+    if materials is not None and show_bracing:
+        # Get the bracing preset from materials
+        bracing_preset = materials.get("bracing_preset", "quarter")
+        # Get custom points if needed
+        custom_points = materials.get("custom_bracing_positions", [])
+        
+        bracing_x = get_bracing_preset(span, bracing_preset, custom_points)
+        
+        # Store in session for later use in tie-down logic
+        st.session_state.current_bracing_x = bracing_x
+        
+        for bx in bracing_x:
+            idx = np.argmin(np.abs(x - bx))
+            y1_pos = y1[idx]
+            y2_pos = y2[idx]
+            z_pos = z_beam[idx]
+            # Cross bracing lines
+            fig.add_trace(go.Scatter3d(
+                x=[bx, bx], y=[y1_pos, y2_pos], z=[z_pos, z_pos],
+                mode='lines', name='Cross Bracing',
+                line=dict(color='#FF6B6B', width=4, dash='dash'),
+                showlegend=False
+            ))
+            # Bracing point markers
+            fig.add_trace(go.Scatter3d(
+                x=[bx], y=[y1_pos], z=[z_pos],
+                mode='markers', marker=dict(color='#4ECDC4', size=7),
+                showlegend=False
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[bx], y=[y2_pos], z=[z_pos],
+                mode='markers', marker=dict(color='#4ECDC4', size=7),
+                showlegend=False
+            ))
+
+    # --- TIE-DOWNS (using engineering logic) ---
+    show_tie_down = True
+    if annotations is not None:
+        show_tie_down = annotations.get("show_tie_down", True)
+    
+    if materials is not None and show_tie_down:
+        # Use the same bracing positions for tie-downs
+        bracing_x = st.session_state.get("current_bracing_x", get_bracing_preset(span, "quarter", []))
+        
+        vertical_angle = materials.get("tie_down_vertical_angle", 45)
+        horizontal_spread = materials.get("tie_down_horizontal_spread", 25)
+        
+        # Calculate uplift distribution to recommend which points need tie-downs
+        wind_load = calculate_wind_load(materials.get("wind_speed", 40), span * laa * 1.1)
+        uplift_curve = calculate_uplift_distribution(span, rise, wind_load)
+        optimal_positions = get_optimal_tie_down_positions(span, bracing_x, uplift_curve)
+        
+        # Create anchors at bracing positions (all, but highlighted for optimal ones)
+        anchors = generate_tie_down_anchors_at_positions(span, laa, rise, bracing_x, vertical_angle, horizontal_spread)
+        for a in anchors:
+            idx = np.argmin(np.abs(x - a["beam_x"]))
+            beam_z = z_beam[idx]
+            
+            # Determine if this is an optimal position (highlight)
+            is_optimal = any(abs(a["beam_x"] - opt[0]) < 0.01 for opt in optimal_positions)
+            rope_color = '#FFD93D' if is_optimal else '#FFA500'  # Gold for optimal, orange for others
+            rope_width = 5 if is_optimal else 3
+            
+            # Tie-down rope
+            fig.add_trace(go.Scatter3d(
+                x=[a["beam_x"], a["anchor_x"]],
+                y=[a["beam_y"], a["anchor_y"]],
+                z=[beam_z, a["anchor_z"]],
+                mode='lines', name='Tie-Down Rope',
+                line=dict(color=rope_color, width=rope_width),
+                showlegend=False
+            ))
+            # Connection sphere on beam
+            fig.add_trace(go.Scatter3d(
+                x=[a["beam_x"]], y=[a["beam_y"]], z=[beam_z],
+                mode='markers',
+                marker=dict(color='#FFD93D' if is_optimal else '#FFA500', size=8, symbol='circle'),
+                showlegend=False
+            ))
+            # Ground anchor
+            fig.add_trace(go.Scatter3d(
+                x=[a["anchor_x"]], y=[a["anchor_y"]], z=[a["anchor_z"]],
+                mode='markers',
+                marker=dict(color='#FF6B6B', size=10, symbol='x'),
+                showlegend=False
+            ))
+
+    # --- Wind arrows ---
+    show_wind = True
+    if annotations is not None:
+        show_wind = annotations.get("show_wind", True)
+    if show_wind:
+        fig.add_trace(go.Scatter3d(
+            x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
+            mode='lines', name='Wind Load',
+            line=dict(color='#FF6B6B', width=4, dash='dash'), showlegend=True
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=[span/4, span/4], y=[laa/4, laa/4], z=[rise*0.8, rise*1.2],
+            mode='lines', name='Wind Load',
+            line=dict(color='#FF6B6B', width=4, dash='dash'), showlegend=False
+        ))
+
+    # --- Load path ---
+    show_load_path = True
+    if annotations is not None:
+        show_load_path = annotations.get("show_load_path", True)
+    if show_load_path:
+        fig.add_trace(go.Scatter3d(
+            x=[0, 0], y=[0, 0], z=[rise, rise-2],
+            mode='lines', name='Load Path',
+            line=dict(color='#FFD93D', width=5), showlegend=True
+        ))
+
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Span (m)',
+            yaxis_title='Width (m)',
+            zaxis_title='Height (m)',
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))
+        ),
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0, r=0, b=0, t=0),
+        legend=dict(
+            font=dict(color='#ffffff', size=8),
+            orientation="h",
+            yanchor="bottom",
+            y=-0.15,
+            xanchor="center",
+            x=0.5,
+            bgcolor='rgba(10,14,23,0.7)',
+            bordercolor='#2a3a4f',
+            borderwidth=1,
+            itemsizing='constant'
+        )
+    )
+    return fig
 
 def generate_tie_down_anchors_at_positions(span, laa, height, x_positions, vertical_angle_deg, horizontal_spread_deg):
     vertical_rad = np.radians(vertical_angle_deg)
@@ -657,195 +919,9 @@ def generate_tie_down_anchors_at_positions(span, laa, height, x_positions, verti
             })
     return anchors
 
-def calculate_steel_weight(grade, section_type, section_size, length):
-    weight_per_m = {
-        "CHS 100x5": 11.7, "CHS 150x6": 21.3, "CHS 200x8": 37.9,
-        "RHS 150x100x6": 22.2, "RHS 200x150x8": 39.3,
-        "I-100": 10.0, "I-150": 18.0, "I-200": 26.0,
-        "Pipe 100x5": 11.7, "Pipe 150x6": 21.3
-    }
-    return weight_per_m.get(section_size, 20.0) * length
-
-def calculate_fabric_weight(fabric_type, thickness, area):
-    weight_per_m2 = {
-        "PVC-coated Polyester": {0.5: 0.6, 0.8: 0.9, 1.0: 1.2, 1.2: 1.4},
-        "PTFE-coated Fiberglass": {0.5: 1.0, 0.8: 1.4, 1.0: 1.8, 1.2: 2.2},
-        "ETFE": {0.5: 0.5, 0.8: 0.8, 1.0: 1.0, 1.2: 1.2}
-    }
-    return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area
-
-def calculate_wind_load(wind_speed, area, drag_coefficient=1.2):
-    rho = 1.225
-    q = 0.5 * rho * wind_speed**2 / 1000
-    return q * drag_coefficient * area
-
-def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_angle_deg, safety_factor=1.5):
-    uplift = wind_load * 0.8
-    net_uplift = max(0, uplift - self_weight_kn * 0.5)
-    per_anchor = net_uplift / num_anchors * safety_factor
-    cable_force = per_anchor / np.cos(np.radians(vertical_angle_deg))
-    return cable_force
-
 # ============================================================
-# 3D GENERATORS (Plotly)
+# OTHER GENERATORS (unchanged)
 # ============================================================
-
-def generate_saddle_span(params, materials=None, annotations=None):
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    laa = params.get("LAA", 15.0)
-    num_points = 50
-
-    if span <= 0 or rise <= 0 or laa <= 0:
-        return go.Figure()
-
-    x = np.linspace(-span/2, span/2, num_points)
-    z_beam = rise * (1 - (2 * x / span)**2)
-    y1 = -laa/2 * (1 - (2 * x / span)**2)
-    y2 = laa/2 * (1 - (2 * x / span)**2)
-
-    X_surf = np.zeros((num_points, num_points))
-    Y_surf = np.zeros((num_points, num_points))
-    Z_surf = np.zeros((num_points, num_points))
-
-    for i, x_pos in enumerate(x):
-        y_beam1 = y1[i]
-        y_beam2 = y2[i]
-        z_at_x = z_beam[i]
-        for j, v_val in enumerate(np.linspace(0, 1, num_points)):
-            y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
-            saddle_factor = 1 - 0.3 * (1 - (2 * v_val - 1)**2)
-            z_pos = z_at_x * saddle_factor
-            X_surf[i, j] = x_pos
-            Y_surf[i, j] = y_pos
-            Z_surf[i, j] = z_pos
-
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=6)))
-    fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=6)))
-    fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, 
-                             colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
-                             opacity=0.7, showscale=False))
-
-    fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
-                               mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
-    fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], 
-                               mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
-
-    fig.add_trace(go.Scatter3d(x=[-span/2], y=[0], z=[0], 
-                               mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=4, symbol='square')))
-    fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
-                               mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=4, symbol='square')))
-
-    num_bays = 2
-    if materials is not None:
-        num_bays = materials.get("num_bays", 2)
-    bracing_x = generate_bracing_positions(span, num_bays)
-
-    show_bracing = True
-    if annotations is not None:
-        show_bracing = annotations.get("show_bracing", True)
-    
-    if materials is not None and show_bracing:
-        for bx in bracing_x:
-            idx = np.argmin(np.abs(x - bx))
-            y1_pos = y1[idx]
-            y2_pos = y2[idx]
-            z_pos = z_beam[idx]
-            fig.add_trace(go.Scatter3d(
-                x=[bx, bx], y=[y1_pos, y2_pos], z=[z_pos, z_pos],
-                mode='lines', name='Cross Bracing',
-                line=dict(color='#FF6B6B', width=2, dash='dash'),
-                showlegend=False
-            ))
-            fig.add_trace(go.Scatter3d(
-                x=[bx, bx], y=[y2_pos, y1_pos], z=[z_pos, z_pos],
-                mode='lines', name='Cross Bracing',
-                line=dict(color='#FF6B6B', width=2, dash='dash'),
-                showlegend=False
-            ))
-
-    show_tie_down = True
-    if annotations is not None:
-        show_tie_down = annotations.get("show_tie_down", True)
-    
-    if materials is not None and show_tie_down:
-        vertical_angle = materials.get("tie_down_vertical_angle", 45)
-        horizontal_spread = materials.get("tie_down_horizontal_spread", 25)
-        anchors = generate_tie_down_anchors_at_positions(span, laa, rise, bracing_x, vertical_angle, horizontal_spread)
-        for a in anchors:
-            idx = np.argmin(np.abs(x - a["beam_x"]))
-            beam_z = z_beam[idx]
-            fig.add_trace(go.Scatter3d(
-                x=[a["beam_x"], a["anchor_x"]],
-                y=[a["beam_y"], a["anchor_y"]],
-                z=[beam_z, a["anchor_z"]],
-                mode='lines', name='Tie-Down Rope',
-                line=dict(color='#FFD93D', width=2),
-                showlegend=False
-            ))
-            fig.add_trace(go.Scatter3d(
-                x=[a["anchor_x"]],
-                y=[a["anchor_y"]],
-                z=[a["anchor_z"]],
-                mode='markers', name='Ground Anchor',
-                marker=dict(color='#FF6B6B', size=4, symbol='x'),
-                showlegend=False
-            ))
-
-    show_wind = True
-    if annotations is not None:
-        show_wind = annotations.get("show_wind", True)
-    if show_wind:
-        fig.add_trace(go.Scatter3d(
-            x=[-span/4, -span/4], y=[-laa/4, -laa/4], z=[rise*0.8, rise*1.2],
-            mode='lines', name='Wind Load',
-            line=dict(color='#FF6B6B', width=3, dash='dash'), showlegend=True
-        ))
-        fig.add_trace(go.Scatter3d(
-            x=[span/4, span/4], y=[laa/4, laa/4], z=[rise*0.8, rise*1.2],
-            mode='lines', name='Wind Load',
-            line=dict(color='#FF6B6B', width=3, dash='dash'), showlegend=False
-        ))
-
-    show_load_path = True
-    if annotations is not None:
-        show_load_path = annotations.get("show_load_path", True)
-    if show_load_path:
-        fig.add_trace(go.Scatter3d(
-            x=[0, 0], y=[0, 0], z=[rise, rise-2],
-            mode='lines', name='Load Path',
-            line=dict(color='#FFD93D', width=4), showlegend=True
-        ))
-
-    fig.update_layout(
-        scene=dict(
-            xaxis_title='Span (m)',
-            yaxis_title='Width (m)',
-            zaxis_title='Height (m)',
-            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))
-        ),
-        paper_bgcolor='#0a0e17',
-        margin=dict(l=0, r=0, b=0, t=0),
-        legend=dict(
-            font=dict(color='#ffffff', size=6),
-            orientation="h",
-            yanchor="bottom",
-            y=-0.15,
-            xanchor="center",
-            x=0.5,
-            bgcolor='rgba(10,14,23,0.7)',
-            bordercolor='#2a3a4f',
-            borderwidth=1,
-            itemsizing='constant'
-        )
-    )
-    return fig
 
 def generate_tent(params):
     span = params.get("span_width", 10.0)
@@ -981,8 +1057,37 @@ GENERATORS = {
 }
 
 # ============================================================
-# RENDER HIGH-RES IMAGE (Plotly)
+# OTHER FUNCTIONS (unchanged)
 # ============================================================
+
+def calculate_steel_weight(grade, section_type, section_size, length):
+    weight_per_m = {
+        "CHS 100x5": 11.7, "CHS 150x6": 21.3, "CHS 200x8": 37.9,
+        "RHS 150x100x6": 22.2, "RHS 200x150x8": 39.3,
+        "I-100": 10.0, "I-150": 18.0, "I-200": 26.0,
+        "Pipe 100x5": 11.7, "Pipe 150x6": 21.3
+    }
+    return weight_per_m.get(section_size, 20.0) * length
+
+def calculate_fabric_weight(fabric_type, thickness, area):
+    weight_per_m2 = {
+        "PVC-coated Polyester": {0.5: 0.6, 0.8: 0.9, 1.0: 1.2, 1.2: 1.4},
+        "PTFE-coated Fiberglass": {0.5: 1.0, 0.8: 1.4, 1.0: 1.8, 1.2: 2.2},
+        "ETFE": {0.5: 0.5, 0.8: 0.8, 1.0: 1.0, 1.2: 1.2}
+    }
+    return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area
+
+def calculate_wind_load(wind_speed, area, drag_coefficient=1.2):
+    rho = 1.225
+    q = 0.5 * rho * wind_speed**2 / 1000
+    return q * drag_coefficient * area
+
+def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_angle_deg, safety_factor=1.5):
+    uplift = wind_load * 0.8
+    net_uplift = max(0, uplift - self_weight_kn * 0.5)
+    per_anchor = net_uplift / num_anchors * safety_factor
+    cable_force = per_anchor / np.cos(np.radians(vertical_angle_deg))
+    return cable_force
 
 def render_high_res_image(fig, filename="design_high_res.png"):
     try:
@@ -993,19 +1098,12 @@ def render_high_res_image(fig, filename="design_high_res.png"):
     except Exception as e:
         return f"⚠️ Image export failed: {str(e)}. Please use screenshot feature."
 
-# ============================================================
-# EXPORT FUNCTIONS
-# ============================================================
-
 def get_json_download_link(data, filename="project_data.json"):
     json_str = json.dumps(data, indent=2)
     b64 = base64.b64encode(json_str.encode()).decode()
     href = f'<a href="data:application/json;base64,{b64}" download="{filename}">📄 Download Design Data (JSON)</a>'
     return href
 
-# ============================================================
-# BILL OF QUANTITIES
-# ============================================================
 def generate_bq():
     params = st.session_state.params
     materials = st.session_state.materials
@@ -1031,12 +1129,12 @@ def generate_bq():
         "Fabric Weight (kg)": fabric_weight_kg,
         "Steel Weight (kg)": steel_weight_kg,
         "Total Structure Weight (kN)": total_weight_kn,
-        "Number of Tie-down Ropes": 0  # Placeholder
+        "Number of Tie-down Ropes": 0
     }
     return bq_data
 
 # ============================================================
-# UNIFIED BOARD – WORKING PLOTLY VERSION
+# UNIFIED BOARD – WITH ENGINEERING-DRIVEN BRACING
 # ============================================================
 def render_unified_workspace():
     params = st.session_state.params
@@ -1046,7 +1144,7 @@ def render_unified_workspace():
     info = st.session_state.project_info
 
     st.markdown("## 🧠 SDS-UNDERSTAND — Engineering Understanding & Model Confirmation")
-    st.caption("Review, confirm, and edit your design in one unified workspace. Changes update the 3D model in real-time.")
+    st.caption("Review, confirm, and edit your design. Bracing and tie‑down positions are driven by engineering presets.")
 
     col_left, col_right = st.columns([1, 1.8])
 
@@ -1098,8 +1196,8 @@ def render_unified_workspace():
             ("APEX POINT (P_A)", f"High point at {params.get('A', 6.0)}m", "badge-inferred"),
             ("SUPPORTS", "Two supports at beam bases", "badge-inferred"),
             ("DIMENSIONS", f"A={params.get('A', 6.0)}m, B={params.get('B', 10.0)}m, LAA={params.get('LAA', 15.0)}m", "badge-confirmed"),
-            ("WIND BRACING", f"{m.get('num_bays', 2)} bays at {', '.join([f'{p:.1f}m' for p in generate_bracing_positions(params.get('B', 10.0), m.get('num_bays', 2))])}", "badge-autogen"),
-            ("TIE-DOWNS", f"Aligned to bracing: {m.get('num_bays', 2)} positions, {m.get('tie_down_vertical_angle', 45)}° vertical, {m.get('tie_down_horizontal_spread', 25)}° spread", "badge-autogen"),
+            ("BRACING PRESET", f"{m.get('bracing_preset', 'quarter').title()} – {get_preset_description(m.get('bracing_preset', 'quarter')).split('–')[0].strip()}", "badge-autogen"),
+            ("TIE-DOWNS", f"Aligned to bracing positions, {m.get('tie_down_vertical_angle', 45)}° vertical", "badge-autogen"),
             ("WIRE ROPE", f"{m.get('wire_rope_diameter', 10)}mm {m.get('wire_rope_type', 'Galvanized')}", "badge-provided"),
             ("UNKNOWN ITEMS", "Foundations, Connection Details", "badge-unknown")
         ]
@@ -1164,7 +1262,7 @@ def render_unified_workspace():
                 fig = GENERATORS[typ_key](params)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
 
-        # --- Editable Geometry (always visible, below model) ---
+        # --- Editable Geometry ---
         st.divider()
         st.markdown("### 📐 Edit Geometry")
         col_a, col_b, col_c = st.columns(3)
@@ -1178,8 +1276,104 @@ def render_unified_workspace():
             new_laa = st.number_input("LAA (m)", min_value=4.0, max_value=50.0, step=0.5, value=float(params.get("LAA", 15.0)), format="%.1f", key="right_laa")
             params["LAA"] = new_laa
 
-        # --- Materials & Bracing (expander) ---
-        with st.expander("🏗️ Materials & Bracing", expanded=False):
+        # --- Engineering-Driven Bracing & Tie-Downs ---
+        with st.expander("🏗️ Engineering-Driven Bracing & Tie-Downs", expanded=True):
+            st.markdown("### 🔧 Bracing Preset")
+            st.caption("Select an engineering‑based bracing layout. Tie‑downs are automatically aligned to bracing points.")
+            
+            # Preset selection
+            preset_options = {
+                "quarter": "🏗️ Quarter Points (1/4, 1/2, 3/4)",
+                "third": "📐 Third Points (1/3, 2/3)",
+                "support_mid": "🏛️ Supports + Mid-Span",
+                "custom": "🛠️ Custom Positions"
+            }
+            current_preset = materials.get("bracing_preset", "quarter")
+            selected_preset = st.selectbox(
+                "Bracing Layout",
+                options=list(preset_options.keys()),
+                format_func=lambda x: preset_options.get(x, x),
+                index=list(preset_options.keys()).index(current_preset) if current_preset in preset_options else 0,
+                key="bracing_preset_select"
+            )
+            materials["bracing_preset"] = selected_preset
+            
+            # Show description
+            st.info(get_preset_description(selected_preset))
+            
+            # If custom, allow entering positions
+            if selected_preset == "custom":
+                st.markdown("### 📍 Custom Bracing Positions")
+                st.caption("Enter X‑coordinates (in metres) for each bracing point. Use comma‑separated values.")
+                custom_input = st.text_input(
+                    "Custom Positions (e.g., -3, 0, 4.5)",
+                    value=", ".join([str(p) for p in materials.get("custom_bracing_positions", [])]),
+                    key="custom_bracing_input"
+                )
+                try:
+                    if custom_input.strip():
+                        positions = [float(x.strip()) for x in custom_input.split(",") if x.strip()]
+                        materials["custom_bracing_positions"] = positions
+                    else:
+                        materials["custom_bracing_positions"] = []
+                except:
+                    st.warning("⚠️ Please enter valid numbers separated by commas.")
+            
+            # Show current positions
+            span = params.get("B", 10.0)
+            if selected_preset == "custom":
+                bracing_x = materials.get("custom_bracing_positions", [])
+            else:
+                bracing_x = get_bracing_preset(span, selected_preset, [])
+            
+            if bracing_x:
+                st.markdown("**📍 Current Bracing Positions:**")
+                for i, pos in enumerate(bracing_x):
+                    st.write(f"  • Bay {i+1}: X = **{pos:.2f} m**")
+            else:
+                st.info("No bracing positions defined. Please enter custom positions or select a preset.")
+            
+            st.divider()
+            
+            # Tie-down settings
+            st.markdown("### ⛓️ Tie-Down Settings")
+            col_t1, col_t2, col_t3 = st.columns(3)
+            with col_t1:
+                materials["wire_rope_diameter"] = st.selectbox(
+                    "Wire Rope Diameter (mm)",
+                    [6, 8, 10, 12, 14, 16, 20],
+                    index=[6, 8, 10, 12, 14, 16, 20].index(materials.get("wire_rope_diameter", 10)),
+                    key="right_rope"
+                )
+            with col_t2:
+                materials["tie_down_vertical_angle"] = st.slider(
+                    "Vertical Angle (°)",
+                    min_value=20,
+                    max_value=70,
+                    step=5,
+                    value=materials.get("tie_down_vertical_angle", 45),
+                    key="right_vertical",
+                    help="Angle of tie-down rope from horizontal (max 45° recommended for efficiency)"
+                )
+            with col_t3:
+                materials["tie_down_horizontal_spread"] = st.slider(
+                    "Horizontal Spread (°)",
+                    min_value=10,
+                    max_value=60,
+                    step=5,
+                    value=materials.get("tie_down_horizontal_spread", 25),
+                    key="right_spread",
+                    help="Angle of tie-down spread outward from beam"
+                )
+            
+            # Engineering note
+            if materials["tie_down_vertical_angle"] > 45:
+                st.warning("⚠️ Vertical angle >45° reduces cable efficiency. Consider reducing to 45° or less.")
+            
+            st.info("💡 Tie‑downs are automatically placed at all bracing positions. Gold ropes indicate optimal tie‑down locations based on uplift force distribution.")
+
+        # --- Materials (in expander) ---
+        with st.expander("🏗️ Materials", expanded=False):
             col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
                 materials["steel_grade"] = st.selectbox("Steel Grade", ["S275", "S355", "S460", "6061-T6 (Aluminum)"], index=["S275", "S355", "S460", "6061-T6 (Aluminum)"].index(materials.get("steel_grade", "S355")), key="right_steel")
@@ -1202,21 +1396,11 @@ def render_unified_workspace():
             with col_m6:
                 materials["prestress"] = st.selectbox("Prestress (kN/m)", [1.0, 3.0, 5.0], index=[1.0, 3.0, 5.0].index(materials.get("prestress", 3.0)), key="right_prestress")
             
-            col_b1, col_b2, col_b3 = st.columns(3)
-            with col_b1:
-                materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(materials.get("num_bays", 2)), key="right_bays", help="1=Apex only, 2=Third points, 3=Quarter points")
-                span = params.get("B", 10.0)
-                positions = generate_bracing_positions(span, materials["num_bays"])
-                st.caption(f"📍 Positions: {', '.join([f'{p:.1f}m' for p in positions])}")
-            with col_b2:
-                materials["wire_rope_diameter"] = st.selectbox("Wire Rope Diameter (mm)", [6, 8, 10, 12, 14, 16, 20], index=[6, 8, 10, 12, 14, 16, 20].index(materials.get("wire_rope_diameter", 10)), key="right_rope")
-            with col_b3:
-                materials["tie_down_vertical_angle"] = st.slider("Vertical Angle (°)", min_value=20, max_value=70, step=5, value=materials.get("tie_down_vertical_angle", 45), key="right_vertical", help="Angle of tie-down rope from horizontal")
-            col_b4, col_b5 = st.columns(2)
-            with col_b4:
-                materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", min_value=10, max_value=60, step=5, value=materials.get("tie_down_horizontal_spread", 25), key="right_spread", help="Angle of tie-down spread outward from beam")
-            with col_b5:
-                st.caption("💡 Tie-downs auto-align to bracing positions")
+            col_w1, col_w2 = st.columns(2)
+            with col_w1:
+                materials["wind_speed"] = st.number_input("Wind Speed (m/s)", min_value=10, max_value=100, step=5, value=materials.get("wind_speed", 40), key="right_wind")
+            with col_w2:
+                st.caption("💨 Used for structural checks and uplift calculations.")
 
         # --- Structural Checks ---
         if typ_key == "saddle_span":
@@ -1231,8 +1415,13 @@ def render_unified_workspace():
                 total_weight_kg = steel_weight_kg + fabric_weight_kg
                 total_weight_kn = total_weight_kg / 100
                 wind_load = calculate_wind_load(m.get("wind_speed", 40), membrane_area)
-                num_bays = m.get("num_bays", 2)
-                bracing_x = generate_bracing_positions(span, num_bays)
+                
+                # Get bracing positions for anchor count
+                bracing_preset = m.get("bracing_preset", "quarter")
+                if bracing_preset == "custom":
+                    bracing_x = m.get("custom_bracing_positions", [])
+                else:
+                    bracing_x = get_bracing_preset(span, bracing_preset, [])
                 num_anchors = len(bracing_x) * 2
                 tie_down_force = calculate_tie_down_force(wind_load, total_weight_kn, num_anchors, m.get("tie_down_vertical_angle", 45))
                 rope_breaking_load = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 20: 220}
@@ -1311,9 +1500,8 @@ def render_unified_workspace():
                     "prestress": 3.0,
                     "wire_rope_type": "Galvanized Steel (6x19)",
                     "wire_rope_diameter": 10,
-                    "num_bays": 2,
-                    "num_anchors": 2,
-                    "anchor_angle": 30,
+                    "bracing_preset": "quarter",
+                    "custom_bracing_positions": [],
                     "wind_speed": 40,
                     "snow_load": 0.5,
                     "live_load": 0.5,
@@ -1327,7 +1515,7 @@ def render_unified_workspace():
     st.caption("Understanding Design → Confirm Model → Engineering Investigation → Better Design → Roots Protected. Branches Free. Ecosystem Growing.")
 
 # ============================================================
-# MAIN DASHBOARD
+# MAIN DASHBOARD (unchanged)
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio")
@@ -1526,6 +1714,9 @@ if st.session_state.show_registration or (st.session_state.project_registered an
                     st.session_state.params = {p: v["default"] for p, v in TYPOLOGIES["saddle_span"]["params"].items()}
                     st.session_state.qa_answers = {}
                     st.session_state.locked = False
+                    # Initialize bracing preset
+                    st.session_state.materials["bracing_preset"] = "quarter"
+                    st.session_state.materials["custom_bracing_positions"] = []
                     save_cache()
                     st.rerun()
         st.caption("All data is cached locally. Your project will resume where you left off.")
@@ -1534,5 +1725,5 @@ if st.session_state.show_registration or (st.session_state.project_registered an
 if st.session_state.typology is not None:
     render_unified_workspace()
 
-st.caption("SDS Platform v4.1 | Unified Board (Plotly) | Roots Protected. Branches Free. Ecosystem Growing.")
+st.caption("SDS Platform v4.2 | Engineering-Driven Bracing & Tie-Downs | Roots Protected. Branches Free. Ecosystem Growing.")
 save_cache()
