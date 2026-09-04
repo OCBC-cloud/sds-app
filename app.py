@@ -346,8 +346,8 @@ TYPOLOGIES = {
         "name": "Tensile Membrane",
         "icon": "⛺",
         "params": {
-            "mast_height": {"label": "Mast Height (m)", "min": 3.0, "max": 30.0, "step": 0":.5, "default": 8.0},
-            "span_length": {"label": "Span Length (m)", "min": 5.0, "max": 100.0, "step 0.5, "default": 20.0},
+            "mast_height": {"label": "Mast Height (m)", "min": 3.0, "max": 30.0, "step": 0.5, "default": 8.0},
+            "span_length": {"label": "Span Length (m)", "min": 5.0, "max": 100.0, "step": 0.5, "default": 20.0},
             "span_width": {"label": "Span Width (m)", "min": 5.0, "max": 80.0, "step": 0.5, "default": 15.0},
             "cable_count": {"label": "Number of Cables", "min": 2, "max": 12, "step": 1, "default": 4}
         },
@@ -626,4 +626,314 @@ def generate_custom(params):
         [-width/2, -length/2, height], [width/2, -length/2, height],
         [width/2, length/2, height], [-width/2, length/2, height]
     ]
-    edges = [(0,1), (1,2), (2,3), (3,0),
+    edges = [(0,1), (1,2), (2,3), (3,0), (4,5), (5,6), (6,7), (7,4), (0,4), (1,5), (2,6), (3,7)]
+    for i, j in edges:
+        fig.add_trace(go.Scatter3d(
+            x=[corners[i][0], corners[j][0]],
+            y=[corners[i][1], corners[j][1]],
+            z=[corners[i][2], corners[j][2]],
+            mode='lines', line=dict(color='#4a7a9c', width=3), showlegend=False
+        ))
+    fig.update_layout(
+        scene=dict(xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
+                   xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+                   yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+                   zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+                   bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))),
+        paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
+    )
+    return fig
+
+GENERATORS = {
+    "saddle_span": generate_saddle_span,
+    "clear_span_tent": generate_tent,
+    "tensile_membrane": generate_tensile,
+    "portal_frame": generate_portal,
+    "custom": generate_custom
+}
+
+# ============================================================
+# RENDER UNIFIED WORKSPACE
+# ============================================================
+
+def render_unified_workspace():
+    params = st.session_state.params
+    materials = st.session_state.materials
+    typ_key = st.session_state.typology
+    typ = TYPOLOGIES[typ_key]
+    info = st.session_state.project_info
+    
+    st.markdown("## 🧠 SDS Design Studio")
+    st.caption("Design, confirm, and visualize your structure in real-time.")
+    
+    col_left, col_right = st.columns([1, 1.5])
+    
+    with col_left:
+        # Project Info
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">📊 Project Summary</div>', unsafe_allow_html=True)
+        st.write(f"**Project:** {info.get('name', 'Untitled')}")
+        st.write(f"**Client:** {info.get('client', 'Unknown')}")
+        st.write(f"**Reference:** {info.get('reference', 'N/A')}")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Geometry
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">📐 Geometry</div>', unsafe_allow_html=True)
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            new_a = st.number_input("Rise (A) m", min_value=2.0, max_value=20.0, step=0.5, value=float(params.get("A", 6.0)), format="%.1f")
+            params["A"] = new_a
+        with col_b:
+            new_b = st.number_input("Span (B) m", min_value=4.0, max_value=40.0, step=0.5, value=float(params.get("B", 10.0)), format="%.1f")
+            params["B"] = new_b
+        with col_c:
+            new_laa = st.number_input("LAA (m)", min_value=4.0, max_value=50.0, step=0.5, value=float(params.get("LAA", 15.0)), format="%.1f")
+            params["LAA"] = new_laa
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Materials
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">🏗️ Materials</div>', unsafe_allow_html=True)
+        materials["steel_grade"] = st.selectbox("Steel Grade", ["S275", "S355", "S460"], index=1)
+        materials["fabric_type"] = st.selectbox("Fabric Type", ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"], index=0)
+        materials["fabric_thickness"] = st.selectbox("Fabric Thickness (mm)", [0.5, 0.8, 1.0, 1.2], index=1)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Bracing
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">🔗 Bracing</div>', unsafe_allow_html=True)
+        materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=1)
+        materials["tie_down_vertical_angle"] = st.slider("Tie-Down Angle (°)", min_value=20, max_value=70, step=5, value=45)
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col_right:
+        st.subheader("🔬 3D Model")
+        
+        # Annotation toggles
+        col_anno1, col_anno2, col_anno3, col_anno4 = st.columns(4)
+        with col_anno1:
+            st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind", value=True)
+        with col_anno2:
+            st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie", value=True)
+        with col_anno3:
+            st.session_state.engineering_annotations["show_bracing"] = st.checkbox("📐 Brace", value=True)
+        with col_anno4:
+            st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load", value=True)
+        
+        # Generate 3D
+        if typ_key == "custom":
+            fig = generate_custom(params)
+        else:
+            fig = GENERATORS[typ_key](params)
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
+        
+        # Actions
+        st.divider()
+        col_act1, col_act2, col_act3, col_act4 = st.columns(4)
+        with col_act1:
+            if st.button("🔒 Lock", use_container_width=True):
+                st.session_state.locked = True
+                save_cache()
+                st.rerun()
+        with col_act2:
+            if st.button("💾 Save", use_container_width=True, type="primary"):
+                save_project_as_new()
+        with col_act3:
+            if st.button("📋 New", use_container_width=True):
+                go_to_dashboard()
+                st.rerun()
+        with col_act4:
+            if st.button("🏠 Home", use_container_width=True):
+                go_to_dashboard()
+                st.rerun()
+    
+    st.divider()
+    
+    # Q&A
+    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">❓ Design Confirmation</div>', unsafe_allow_html=True)
+    for i, q in enumerate(typ["qa"]):
+        key = f"qa_{i}"
+        default = st.session_state.qa_answers.get(key, "Yes")
+        ans = st.radio(q, ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"q_{i}")
+        st.session_state.qa_answers[key] = ans
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Comments
+    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">💬 Comments</div>', unsafe_allow_html=True)
+    comments = st.text_area("", value=st.session_state.comments, height=80)
+    st.session_state.comments = comments
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ============================================================
+# DASHBOARD
+# ============================================================
+
+def render_dashboard():
+    st.title("🏗️ SDS Design Studio")
+    st.caption("Parametric design for tensile structures, membrane roofs, and steel frames.")
+    
+    projects = get_projects_list()
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">📂</div>
+            <div class="value">{len(projects)}</div>
+            <div class="label">Saved Projects</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">🏕️</div>
+            <div class="value">{len(TYPOLOGIES)}</div>
+            <div class="label">Structure Types</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        locked_count = sum(1 for p in projects if p.get("locked", False))
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">🔒</div>
+            <div class="value">{locked_count}</div>
+            <div class="label">Locked Designs</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("➕ New Design", use_container_width=True, type="primary"):
+            st.session_state.show_registration = True
+            st.rerun()
+    with col2:
+        if projects:
+            if st.button("📂 Open Project", use_container_width=True):
+                st.session_state.show_project_browser = True
+                st.rerun()
+    
+    if projects:
+        st.subheader("📋 Recent Projects")
+        for proj in projects[:5]:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"**{proj.get('name', 'Untitled')}** — {proj.get('client', 'Unknown')}")
+            with col2:
+                if st.button("Open", key=f"dash_load_{proj.get('file')}"):
+                    if load_project_from_file(proj.get('file')):
+                        st.rerun()
+            st.divider()
+
+# ============================================================
+# MAIN UI
+# ============================================================
+
+# Top Bar
+col1, col2, col3, col4, col5 = st.columns([1, 3, 1, 1, 1])
+with col1:
+    if st.button("🏗️", help="Dashboard"):
+        go_to_dashboard()
+        st.rerun()
+with col2:
+    if st.session_state.project_registered:
+        st.caption(f"📌 {st.session_state.project_info.get('name', 'Project')}")
+    else:
+        st.caption("📌 No Project")
+with col3:
+    if st.session_state.typology:
+        typ = TYPOLOGIES.get(st.session_state.typology, {})
+        st.caption(f"{typ.get('icon', '')} {typ.get('name', '')}")
+with col4:
+    if st.session_state.locked:
+        st.caption("🔒 Locked")
+with col5:
+    if st.session_state.locked:
+        if st.button("🔓 Unlock", use_container_width=True):
+            st.session_state.locked = False
+            save_cache()
+            st.rerun()
+
+# Project Browser
+if st.session_state.show_project_browser:
+    st.subheader("📂 Saved Projects")
+    if st.button("⬅ Back"):
+        st.session_state.show_project_browser = False
+        st.rerun()
+    projects = get_projects_list()
+    if not projects:
+        st.info("No saved projects found.")
+    else:
+        for proj in projects:
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.write(f"**{proj.get('name', 'Untitled')}** — {proj.get('client', 'Unknown')}")
+            with col2:
+                if st.button("Load", key=f"load_{proj.get('file')}"):
+                    if load_project_from_file(proj.get('file')):
+                        st.session_state.show_project_browser = False
+                        st.rerun()
+            with col3:
+                if st.button("Delete", key=f"del_{proj.get('file')}"):
+                    delete_project_file(proj.get('file'))
+                    st.rerun()
+            st.divider()
+    st.stop()
+
+# Dashboard
+if not st.session_state.project_registered and not st.session_state.show_registration:
+    render_dashboard()
+    st.stop()
+
+# Registration
+if st.session_state.show_registration:
+    st.subheader("📋 New Project")
+    if st.button("⬅ Back"):
+        st.session_state.show_registration = False
+        st.rerun()
+    with st.form("register"):
+        name = st.text_input("Project Name *")
+        client = st.text_input("Client Name *")
+        ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        submitted = st.form_submit_button("Start Design")
+        if submitted and name and client:
+            st.session_state.project_info = {
+                "name": name,
+                "client": client,
+                "reference": f"SDS-{ref}",
+                "date": datetime.now().isoformat()
+            }
+            st.session_state.project_registered = True
+            st.session_state.show_registration = False
+            save_cache()
+            st.rerun()
+    st.stop()
+
+# Typology Selection
+if st.session_state.typology is None:
+    st.subheader("Choose a structure type:")
+    cols = st.columns(2)
+    idx = 0
+    for key, typ in TYPOLOGIES.items():
+        with cols[idx % 2]:
+            if st.button(f"{typ['icon']} {typ['name']}", use_container_width=True):
+                st.session_state.typology = key
+                st.session_state.params = {p: v["default"] for p, v in typ["params"].items()}
+                st.session_state.qa_answers = {}
+                save_cache()
+                st.rerun()
+        idx += 1
+    st.stop()
+
+# Main Workspace
+render_unified_workspace()
+
+# Footer
+st.divider()
+st.caption("SDS Design Studio | Auto-saved locally")
+
+save_cache()
