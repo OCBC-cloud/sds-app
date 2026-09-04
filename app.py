@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# CUSTOM DARK MODE CSS (same as before)
+# CUSTOM DARK MODE CSS
 # ============================================================
 dark_mode_css = """
     <style>
@@ -312,7 +312,7 @@ if "bracing_points" not in st.session_state:
     st.session_state.bracing_points = []
 
 # ============================================================
-# CACHE HANDLER (same as before)
+# CACHE HANDLER
 # ============================================================
 CACHE_DIR = ".sds_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -322,10 +322,10 @@ PROJECTS_LIST_FILE = os.path.join(CACHE_DIR, "projects_index.json")
 def save_cache():
     data = {
         "project_registered": st.session_state.project_registered,
-        "project_info": st       .session_state.project_info,
+        "project_info": st.session_state.project_info,
         "typology": st.session_state.typology,
-        " "params": st.session_state.params,
-qa_answers": st.session_state.qa_answers,
+        "params": st.session_state.params,
+        "qa_answers": st.session_state.qa_answers,
         "locked": st.session_state.locked,
         "custom_image": st.session_state.custom_image,
         "custom_description": st.session_state.custom_description,
