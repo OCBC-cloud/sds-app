@@ -7,7 +7,7 @@ import random
 import string
 import base64
 import glob
-import plotly.graph_objects as go  # kept for fallback, but not used
+import plotly.graph_objects as go
 import pandas as pd
 
 # ============================================================
@@ -244,7 +244,7 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# SESSION STATE (extended for Three.js)
+# SESSION STATE
 # ============================================================
 if "project_registered" not in st.session_state:
     st.session_state.project_registered = False
@@ -284,7 +284,6 @@ if "show_export" not in st.session_state:
 if "show_proposal" not in st.session_state:
     st.session_state.show_proposal = False
 
-# Materials State
 if "materials" not in st.session_state:
     st.session_state.materials = {
         "steel_grade": "S355",
@@ -305,16 +304,15 @@ if "materials" not in st.session_state:
         "tie_down_horizontal_spread": 25
     }
 
-# New session state for Three.js interactive editing
 if "custom_members" not in st.session_state:
-    st.session_state.custom_members = []  # list of {type, section, bay, offset, startX, startY, startZ, endX, endY, endZ}
+    st.session_state.custom_members = []
 if "tie_down_attachments" not in st.session_state:
-    st.session_state.tie_down_attachments = []  # list of {bayIndex, startX, startY, startZ, endX, endY, endZ, ropeDiameter, verticalAngle, horizontalAngle}
+    st.session_state.tie_down_attachments = []
 if "bracing_points" not in st.session_state:
     st.session_state.bracing_points = []
 
 # ============================================================
-# CACHE HANDLER (same as before, with added keys)
+# CACHE HANDLER (same as before)
 # ============================================================
 CACHE_DIR = ".sds_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -324,10 +322,10 @@ PROJECTS_LIST_FILE = os.path.join(CACHE_DIR, "projects_index.json")
 def save_cache():
     data = {
         "project_registered": st.session_state.project_registered,
-        "project_info": st.session_state.project_info,
+        "project_info": st       .session_state.project_info,
         "typology": st.session_state.typology,
-        "params": st.session_state.params,
-        "qa_answers": st.session_state.qa_answers,
+        " "params": st.session_state.params,
+qa_answers": st.session_state.qa_answers,
         "locked": st.session_state.locked,
         "custom_image": st.session_state.custom_image,
         "custom_description": st.session_state.custom_description,
@@ -595,7 +593,7 @@ if cached:
     st.session_state.bracing_points = cached.get("bracing_points", [])
 
 # ============================================================
-# TYPOLOGIES (same as before)
+# TYPOLOGIES
 # ============================================================
 TYPOLOGIES = {
     "saddle_span": {
@@ -690,7 +688,7 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# AUTO-GENERATION FUNCTIONS (same as before)
+# AUTO-GENERATION FUNCTIONS
 # ============================================================
 def generate_bracing_positions(span, num_bays):
     if num_bays == 1:
@@ -732,16 +730,10 @@ def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_an
     return cable_force
 
 # ============================================================
-# THREE.JS COMPONENT – the interactive 3D viewer
+# THREE.JS COMPONENT
 # ============================================================
 
 def threejs_component(data):
-    """
-    Build the HTML for the Three.js viewer with the given design data.
-    data is a dict with keys: params, materials, custom_members, tie_down_attachments,
-    bracing_points, annotations, and also computed geometry.
-    """
-    # Convert data to JSON string for embedding
     data_json = json.dumps(data, default=str)
     html = f"""
     <!DOCTYPE html>
@@ -779,10 +771,8 @@ def threejs_component(data):
             import {{ OrbitControls }} from 'three/addons/controls/OrbitControls.js';
             import {{ CSS2DRenderer, CSS2DObject }} from 'three/addons/renderers/CSS2DRenderer.js';
 
-            // --- Data from Python ---
             const designData = {data_json};
 
-            // --- Setup ---
             const container = document.getElementById('container');
             const scene = new THREE.Scene();
             scene.background = new THREE.Color(0x0a0e17);
@@ -810,7 +800,6 @@ def threejs_component(data):
             controls.target.set(0, 3, 0);
             controls.update();
 
-            // Lights
             const ambient = new THREE.AmbientLight(0x404060);
             scene.add(ambient);
             const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -824,14 +813,12 @@ def threejs_component(data):
             gridHelper.position.y = -0.01;
             scene.add(gridHelper);
 
-            // --- Groups ---
             const mainGroup = new THREE.Group();
             scene.add(mainGroup);
             const labelGroup = new THREE.Group();
             scene.add(labelGroup);
             const clickableObjects = [];
 
-            // --- Helper: create beam ---
             function createBeam(points, color = 0xFF6B6B, width = 0.15) {{
                 const curve = new THREE.CatmullRomCurve3(points);
                 const geometry = new THREE.TubeGeometry(curve, 50, width, 8, false);
@@ -842,9 +829,7 @@ def threejs_component(data):
                 return mesh;
             }}
 
-            // --- Build the scene ---
             function buildScene(data) {{
-                // Clear previous
                 while(mainGroup.children.length) mainGroup.remove(mainGroup.children[0]);
                 while(labelGroup.children.length) labelGroup.remove(labelGroup.children[0]);
                 clickableObjects.length = 0;
@@ -855,22 +840,18 @@ def threejs_component(data):
                 const LAA = params.LAA || 15;
                 const numPoints = 50;
 
-                // Generate beam points
                 const x = Array.from({{length: numPoints}}, (_, i) => -B/2 + i * B/(numPoints-1));
                 const z_beam = x.map(xi => A * (1 - (2*xi/B)**2));
                 const y1 = x.map(xi => -LAA/2 * (1 - (2*xi/B)**2));
                 const y2 = x.map(xi => LAA/2 * (1 - (2*xi/B)**2));
 
-                // Beam 1
                 const pts1 = x.map((xi, i) => new THREE.Vector3(xi, y1[i], z_beam[i]));
                 const beam1 = createBeam(pts1, 0xFF6B6B, 0.15);
                 mainGroup.add(beam1);
-                // Beam 2
                 const pts2 = x.map((xi, i) => new THREE.Vector3(xi, y2[i], z_beam[i]));
                 const beam2 = createBeam(pts2, 0xFF6B6B, 0.15);
                 mainGroup.add(beam2);
 
-                // Membrane (simplified)
                 const membranePoints = [];
                 for (let i = 0; i < numPoints; i++) {{
                     for (let j = 0; j < numPoints; j++) {{
@@ -881,7 +862,6 @@ def threejs_component(data):
                         membranePoints.push(new THREE.Vector3(xi, y, z));
                     }}
                 }}
-                // Using BufferGeometry with quads
                 const geom = new THREE.BufferGeometry();
                 const vertices = [];
                 const indices = [];
@@ -911,7 +891,6 @@ def threejs_component(data):
                 const membrane = new THREE.Mesh(geom, mat);
                 mainGroup.add(membrane);
 
-                // Apex markers
                 const apexMat = new THREE.MeshStandardMaterial({{ color: 0xFFD93D, emissive: 0xFFD93D, emissiveIntensity: 0.3 }});
                 const sphereGeo = new THREE.SphereGeometry(0.3, 16, 16);
                 const apex1 = new THREE.Mesh(sphereGeo, apexMat);
@@ -921,7 +900,6 @@ def threejs_component(data):
                 apex2.position.set(0, y2[Math.floor(numPoints/2)], A);
                 mainGroup.add(apex2);
 
-                // Supports
                 const supportMat = new THREE.MeshStandardMaterial({{ color: 0x4ECDC4 }});
                 const supportGeo = new THREE.BoxGeometry(0.4, 0.1, 0.4);
                 const s1 = new THREE.Mesh(supportGeo, supportMat);
@@ -931,7 +909,6 @@ def threejs_component(data):
                 s2.position.set(B/2, 0, 0);
                 mainGroup.add(s2);
 
-                // Bracing points (from data)
                 if (bracing_points && bracing_points.length) {{
                     const bpMat = new THREE.MeshStandardMaterial({{ color: 0x4ECDC4, emissive: 0x4ECDC4, emissiveIntensity: 0.2 }});
                     bracing_points.forEach((bp, idx) => {{
@@ -941,7 +918,6 @@ def threejs_component(data):
                         sphere.userData = {{ type: 'bracingPoint', bayIndex: bp.bayIndex, index: idx }};
                         mainGroup.add(sphere);
                         clickableObjects.push(sphere);
-                        // Label
                         const div = document.createElement('div');
                         div.textContent = `B${{bp.bayIndex}}`;
                         div.style.color = '#b0c4de';
@@ -954,7 +930,6 @@ def threejs_component(data):
                     }});
                 }}
 
-                // Tie-downs
                 if (annotations.showTieDown && tie_down_attachments) {{
                     tie_down_attachments.forEach(td => {{
                         const start = new THREE.Vector3(td.startX, td.startY, td.startZ);
@@ -972,7 +947,6 @@ def threejs_component(data):
                     }});
                 }}
 
-                // Wind arrows
                 if (annotations.showWind) {{
                     const arrowColor = 0xFF6B6B;
                     const dir = new THREE.Vector3(0, 1, 0);
@@ -985,7 +959,6 @@ def threejs_component(data):
                     mainGroup.add(arrowHelper2);
                 }}
 
-                // Load path
                 if (annotations.showLoadPath) {{
                     const pts = [new THREE.Vector3(0, 0, A), new THREE.Vector3(0, 0, A-2)];
                     const curve = new THREE.CatmullRomCurve3(pts);
@@ -995,7 +968,6 @@ def threejs_component(data):
                     mainGroup.add(loadLine);
                 }}
 
-                // Custom members (struts, purlins)
                 if (custom_members && custom_members.length) {{
                     custom_members.forEach(m => {{
                         const start = new THREE.Vector3(m.startX, m.startY, m.startZ);
@@ -1017,7 +989,6 @@ def threejs_component(data):
                 }}
             }}
 
-            // --- Click handler ---
             const raycaster = new THREE.Raycaster();
             const pointer = new THREE.Vector2();
             let selectedObject = null;
@@ -1053,7 +1024,6 @@ def threejs_component(data):
                 }}
             }});
 
-            // --- Context menu actions ---
             document.getElementById('context-menu').addEventListener('click', (e) => {{
                 const target = e.target.closest('button');
                 if (!target) return;
@@ -1064,7 +1034,6 @@ def threejs_component(data):
                 }}
                 const bay = parseInt(target.dataset.bay);
                 const idx = parseInt(target.dataset.idx);
-                // Send event to Python via URL query param
                 const url = new URL(window.parent.location.href);
                 url.searchParams.set('sds_event', action);
                 url.searchParams.set('sds_bay', bay);
@@ -1073,10 +1042,8 @@ def threejs_component(data):
                 document.getElementById('context-menu').style.display = 'none';
             }});
 
-            // --- Build the initial scene ---
             buildScene(designData);
 
-            // --- Resize ---
             window.addEventListener('resize', () => {{
                 const w = container.clientWidth;
                 const h = container.clientHeight;
@@ -1086,7 +1053,6 @@ def threejs_component(data):
                 labelRenderer.setSize(w, h);
             }});
 
-            // --- Animation loop ---
             function animate() {{
                 requestAnimationFrame(animate);
                 controls.update();
@@ -1095,7 +1061,6 @@ def threejs_component(data):
             }}
             animate();
 
-            // --- Listen for updates from Python (via postMessage) ---
             window.addEventListener('message', (event) => {{
                 if (event.data.type === 'update-scene') {{
                     Object.assign(designData, event.data.data);
@@ -1109,26 +1074,22 @@ def threejs_component(data):
     return html
 
 # ============================================================
-# HANDLE EVENTS FROM THREE.JS (via query params)
+# HANDLE EVENTS FROM THREE.JS
 # ============================================================
 def handle_threejs_events():
-    """Process events sent by the Three.js component via query parameters."""
     qp = st.query_params
     event = qp.get("sds_event")
     if event:
         bay = int(qp.get("sds_bay", 0))
         idx = int(qp.get("sds_idx", 0))
         if event == "attach-tie":
-            # Add a tie-down to this bay
-            # We'll use the bracing point position and create a default anchor at ground level with some offset
             if st.session_state.bracing_points and idx < len(st.session_state.bracing_points):
                 bp = st.session_state.bracing_points[idx]
-                # Calculate anchor position based on tie-down angles
                 v_angle = np.radians(st.session_state.materials.get("tie_down_vertical_angle", 45))
                 h_angle = np.radians(st.session_state.materials.get("tie_down_horizontal_spread", 25))
-                distance = bp.z * np.tan(v_angle)  # height * tan(vertical)
+                distance = bp.z * np.tan(v_angle)
                 anchor_x = bp.x + distance * np.sin(h_angle)
-                anchor_y = bp.y  # same y as the bracing point
+                anchor_y = bp.y
                 anchor_z = 0
                 td = {
                     "bayIndex": bay,
@@ -1145,23 +1106,15 @@ def handle_threejs_events():
                 st.session_state.tie_down_attachments.append(td)
                 st.success(f"✅ Tie-down attached to bay {bay}")
         elif event == "add-strut":
-            # Add a strut at this bay: we'll create a member between the two beams at this bay
             if st.session_state.bracing_points and idx < len(st.session_state.bracing_points):
                 bp = st.session_state.bracing_points[idx]
-                # Find the corresponding point on the other beam (same x, z, opposite y)
-                # Since we have bracing points for each beam, we need to find the pair.
-                # For simplicity, we'll just add a strut at the same x,z with y=0 (mid-span)
-                # But better: we'll use the two beams' points at this bay index.
-                # Let's retrieve the actual beam points from the params.
                 A = st.session_state.params.get("A", 6)
                 B = st.session_state.params.get("B", 10)
                 LAA = st.session_state.params.get("LAA", 15)
-                # Compute beam points at this x position
                 x_pos = bp.x
                 z = A * (1 - (2*x_pos/B)**2)
                 y_left = -LAA/2 * (1 - (2*x_pos/B)**2)
                 y_right = LAA/2 * (1 - (2*x_pos/B)**2)
-                # Add a strut between these two points
                 member = {
                     "type": "Strut",
                     "section": st.session_state.materials.get("section_size", "CHS 150x6"),
@@ -1175,17 +1128,13 @@ def handle_threejs_events():
                 }
                 st.session_state.custom_members.append(member)
                 st.success(f"✅ Strut added at bay {bay}")
-        # Clear the query params to avoid re-processing
         st.query_params.clear()
         st.rerun()
 
 # ============================================================
-# RENDER HIGH-RES IMAGE (Three.js fallback – we can capture via canvas)
+# RENDER HIGH-RES IMAGE
 # ============================================================
 def render_high_res_image_from_threejs():
-    # This will be handled by the Three.js component's internal export,
-    # but we can provide a button that triggers a download.
-    # For now, we'll use a placeholder.
     st.info("High-res image export will be available from the Three.js viewer (right‑click → Save as).")
 
 # ============================================================
@@ -1200,7 +1149,6 @@ def generate_bq():
     B = params.get("B", 10)
     LAA = params.get("LAA", 15)
     membrane_area = B * LAA * 1.1
-    # Steel weight for main beams (two beams)
     steel_weight_kg = 2 * calculate_steel_weight(
         materials.get("steel_grade", "S355"),
         materials.get("section_type", "CHS"),
@@ -1212,10 +1160,8 @@ def generate_bq():
         materials.get("fabric_thickness", 0.8),
         membrane_area
     )
-    # Custom members
     extra_steel = 0
     for m in custom_members:
-        # approximate length
         length = np.sqrt((m["endX"]-m["startX"])**2 + (m["endY"]-m["startY"])**2 + (m["endZ"]-m["startZ"])**2)
         extra_steel += calculate_steel_weight(
             materials.get("steel_grade", "S355"),
@@ -1225,7 +1171,6 @@ def generate_bq():
         )
     total_steel = steel_weight_kg + extra_steel
     total_weight_kn = (total_steel + fabric_weight_kg) / 100
-    # Tie-down rope lengths
     rope_length = 0
     for td in tie_attachments:
         length = np.sqrt((td["endX"]-td["startX"])**2 + (td["endY"]-td["startY"])**2 + (td["endZ"]-td["startZ"])**2)
@@ -1243,10 +1188,9 @@ def generate_bq():
     return bq_data
 
 # ============================================================
-# UNIFIED BOARD – with Three.js integration
+# UNIFIED BOARD – WITH VISIBLE GEOMETRY INPUTS
 # ============================================================
 def render_unified_workspace():
-    """The SDS-UNDERSTAND board with Three.js interactive 3D."""
     params = st.session_state.params
     materials = st.session_state.materials
     typ_key = st.session_state.typology
@@ -1256,7 +1200,6 @@ def render_unified_workspace():
     st.markdown("## 🧠 SDS-UNDERSTAND — Engineering Understanding & Model Confirmation")
     st.caption("Interactive 3D board with click‑to‑edit. Click a bracing point to attach tie‑downs or add struts.")
 
-    # Handle events from Three.js
     handle_threejs_events()
 
     col_left, col_right = st.columns([1, 1.8])
@@ -1267,13 +1210,13 @@ def render_unified_workspace():
         st.markdown('<div class="title">📷 PHOTO / REFERENCE</div>', unsafe_allow_html=True)
         uploaded_file = st.file_uploader("Upload reference image", type=["png", "jpg", "jpeg", "webp"], key="photo_ref")
         if uploaded_file is not None:
-            st.image(uploaded_file, caption="Reference Image", use_container_width=True)  # <-- FIXED
+            st.image(uploaded_file, caption="Reference Image", use_container_width=True)
             st.caption("📌 Note: Uploaded image is for reference only.")
         else:
             st.caption("🖼️ Upload a sketch, photo, or reference image.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # User Given Dimensions
+        # User Given Dimensions (read-only summary)
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📏 USER GIVEN DIMENSIONS</div>', unsafe_allow_html=True)
         col_d1, col_d2, col_d3 = st.columns(3)
@@ -1283,6 +1226,7 @@ def render_unified_workspace():
             st.metric("B (Span)", f"{params.get('B', 10.0):.1f} m")
         with col_d3:
             st.metric("LAA (Apex to Apex)", f"{params.get('LAA', 15.0):.1f} m")
+        st.caption("✏️ Edit these values in the right column below.")
         st.markdown('</div>', unsafe_allow_html=True)
 
         # Notes
@@ -1354,8 +1298,85 @@ def render_unified_workspace():
         st.subheader("🔬 Interactive 3D Model (Three.js)")
         st.caption("Click a bracing point (blue sphere) to attach a tie‑down or add a strut.")
 
+        # --- GEOMETRY INPUTS – ALWAYS VISIBLE ---
+        st.markdown("### 📐 Edit Geometry (A, B, LAA)")
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            new_a = st.number_input(
+                "Rise (A) (m)",
+                min_value=2.0,
+                max_value=20.0,
+                step=0.5,
+                value=float(params.get("A", 6.0)),
+                format="%.1f",
+                key="right_a"
+            )
+            params["A"] = new_a
+        with col_b:
+            new_b = st.number_input(
+                "Span (B) (m)",
+                min_value=4.0,
+                max_value=40.0,
+                step=0.5,
+                value=float(params.get("B", 10.0)),
+                format="%.1f",
+                key="right_b"
+            )
+            params["B"] = new_b
+        with col_c:
+            new_laa = st.number_input(
+                "LAA (m)",
+                min_value=4.0,
+                max_value=50.0,
+                step=0.5,
+                value=float(params.get("LAA", 15.0)),
+                format="%.1f",
+                key="right_laa"
+            )
+            params["LAA"] = new_laa
+        st.divider()
+
+        # --- MATERIALS & BRACING (in expander) ---
+        with st.expander("🏗️ Materials & Bracing", expanded=False):
+            col_m1, col_m2, col_m3 = st.columns(3)
+            with col_m1:
+                materials["steel_grade"] = st.selectbox("Steel Grade", ["S275", "S355", "S460", "6061-T6 (Aluminum)"], index=["S275", "S355", "S460", "6061-T6 (Aluminum)"].index(materials.get("steel_grade", "S355")), key="right_steel")
+            with col_m2:
+                materials["section_type"] = st.selectbox("Section Type", ["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"], index=["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"].index(materials.get("section_type", "Circular Hollow Section (CHS)")), key="right_section_type")
+            with col_m3:
+                section_sizes = {
+                    "Circular Hollow Section (CHS)": ["CHS 100x5", "CHS 150x6", "CHS 200x8", "CHS 250x10"],
+                    "Rectangular Hollow Section (RHS)": ["RHS 150x100x6", "RHS 200x150x8", "RHS 250x150x10"],
+                    "I-Beam": ["I-100", "I-150", "I-200", "I-250"],
+                    "Pipe": ["Pipe 100x5", "Pipe 150x6", "Pipe 200x8"]
+                }
+                materials["section_size"] = st.selectbox("Section Size", section_sizes.get(materials["section_type"], ["CHS 150x6"]), index=0, key="right_section_size")
+            
+            col_m4, col_m5, col_m6 = st.columns(3)
+            with col_m4:
+                materials["fabric_type"] = st.selectbox("Fabric Type", ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"], index=["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"].index(materials.get("fabric_type", "PVC-coated Polyester")), key="right_fabric")
+            with col_m5:
+                materials["fabric_thickness"] = st.selectbox("Thickness (mm)", [0.5, 0.8, 1.0, 1.2], index=[0.5, 0.8, 1.0, 1.2].index(materials.get("fabric_thickness", 0.8)), key="right_thickness")
+            with col_m6:
+                materials["prestress"] = st.selectbox("Prestress (kN/m)", [1.0, 3.0, 5.0], index=[1.0, 3.0, 5.0].index(materials.get("prestress", 3.0)), key="right_prestress")
+            
+            col_b1, col_b2, col_b3 = st.columns(3)
+            with col_b1:
+                materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(materials.get("num_bays", 2)), key="right_bays", help="1=Apex only, 2=Third points, 3=Quarter points")
+                span = params.get("B", 10.0)
+                positions = generate_bracing_positions(span, materials["num_bays"])
+                st.caption(f"📍 Positions: {', '.join([f'{p:.1f}m' for p in positions])}")
+            with col_b2:
+                materials["wire_rope_diameter"] = st.selectbox("Wire Rope Diameter (mm)", [6, 8, 10, 12, 14, 16, 20], index=[6, 8, 10, 12, 14, 16, 20].index(materials.get("wire_rope_diameter", 10)), key="right_rope")
+            with col_b3:
+                materials["tie_down_vertical_angle"] = st.slider("Vertical Angle (°)", min_value=20, max_value=70, step=5, value=materials.get("tie_down_vertical_angle", 45), key="right_vertical", help="Angle of tie-down rope from horizontal")
+            col_b4, col_b5 = st.columns(2)
+            with col_b4:
+                materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", min_value=10, max_value=60, step=5, value=materials.get("tie_down_horizontal_spread", 25), key="right_spread", help="Angle of tie-down spread outward from beam")
+            with col_b5:
+                st.caption("💡 Tie-downs auto-align to bracing positions")
+
         # Prepare data for Three.js
-        # Generate bracing points based on current bays
         num_bays = materials.get("num_bays", 2)
         span = params.get("B", 10)
         laa = params.get("LAA", 15)
@@ -1363,16 +1384,13 @@ def render_unified_workspace():
         positions = generate_bracing_positions(span, num_bays)
         bracing_points = []
         for idx, x_pos in enumerate(positions):
-            # Compute z at this x
             z = rise * (1 - (2*x_pos/span)**2)
             y1 = -laa/2 * (1 - (2*x_pos/span)**2)
             y2 = laa/2 * (1 - (2*x_pos/span)**2)
-            # Two beams -> two points per bay
             bracing_points.append({"x": x_pos, "y": y1, "z": z, "bayIndex": idx})
             bracing_points.append({"x": x_pos, "y": y2, "z": z, "bayIndex": idx})
         st.session_state.bracing_points = bracing_points
 
-        # Build the data dict
         three_data = {
             "params": params,
             "materials": materials,
@@ -1382,7 +1400,6 @@ def render_unified_workspace():
             "annotations": st.session_state.engineering_annotations
         }
 
-        # Render the component
         html = threejs_component(three_data)
         st.components.v1.html(html, height=600, scrolling=False)
 
@@ -1397,7 +1414,7 @@ def render_unified_workspace():
         with anno_cols[3]:
             st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load", value=st.session_state.engineering_annotations.get("show_load_path", True))
 
-        # Structural Checks (Python-based)
+        # Structural Checks
         with st.expander("📊 Preliminary Structural Checks", expanded=True):
             m = materials
             span = params.get("B", 10.0)
@@ -1451,7 +1468,6 @@ def render_unified_workspace():
             bq = generate_bq()
             df = pd.DataFrame(list(bq.items()), columns=["Item", "Value"])
             st.dataframe(df, use_container_width=True)
-            # Export CSV
             csv = df.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Download BQ as CSV", data=csv, file_name="bq.csv", mime="text/csv")
 
@@ -1517,7 +1533,7 @@ def render_unified_workspace():
     st.caption("Understanding Design → Confirm Model → Engineering Investigation → Better Design → Roots Protected. Branches Free. Ecosystem Growing.")
 
 # ============================================================
-# MAIN DASHBOARD (unchanged)
+# MAIN DASHBOARD
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio")
@@ -1583,10 +1599,9 @@ def render_dashboard():
     st.caption("💡 Select 'New Design' to start a project, or open an existing project from the list above.")
 
 # ============================================================
-# MAIN UI RENDER LOOP (unchanged)
+# MAIN UI RENDER LOOP
 # ============================================================
 
-# --- TOP BAR ---
 cols = st.columns([0.8, 1.5, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
 with cols[0]:
     if st.button("🏗️", key="sds_logo", help="Go to Dashboard"):
@@ -1632,7 +1647,6 @@ with cols[8]:
             save_cache()
             st.rerun()
 
-# --- PROJECT BROWSER ---
 if st.session_state.show_project_browser:
     st.subheader("📂 Saved Projects")
     if st.button("⬅ Back to Dashboard", use_container_width=True):
@@ -1666,9 +1680,6 @@ if st.session_state.show_project_browser:
                         st.rerun()
     st.stop()
 
-# ============================================================
-# AUTO-LOAD SADDLE SPAN FOR NEW PROJECTS
-# ============================================================
 if st.session_state.project_registered and st.session_state.typology is None:
     st.session_state.typology = "saddle_span"
     st.session_state.params = {p: v["default"] for p, v in TYPOLOGIES["saddle_span"]["params"].items()}
@@ -1677,12 +1688,10 @@ if st.session_state.project_registered and st.session_state.typology is None:
     save_cache()
     st.rerun()
 
-# --- DASHBOARD ---
 if not st.session_state.project_registered and not st.session_state.show_registration:
     render_dashboard()
     st.stop()
 
-# --- PROJECT REGISTRATION ---
 if st.session_state.show_registration or (st.session_state.project_registered and not st.session_state.typology):
     if st.session_state.show_registration or not st.session_state.project_registered:
         st.subheader("📋 New Project Registration")
@@ -1728,7 +1737,6 @@ if st.session_state.show_registration or (st.session_state.project_registered an
         st.caption("All data is cached locally. Your project will resume where you left off.")
         st.stop()
 
-# --- UNIFIED SDS-UNDERSTAND WORKSPACE ---
 if st.session_state.typology is not None:
     render_unified_workspace()
 
