@@ -24,6 +24,14 @@ st.set_page_config(
 )
 
 # ============================================================
+# FORCE BOARD MODE (DEBUG) – must be before any session state
+# ============================================================
+query_params = st.query_params
+if query_params.get("force_board") == "true":
+    # This will force the board to render immediately
+    pass  # We'll apply after session state init
+
+# ============================================================
 # CUSTOM DARK MODE CSS
 # ============================================================
 dark_mode_css = """
@@ -369,7 +377,22 @@ def load_project_from_file(filename):
             data = json.load(f)
             st.session_state.project_registered = data.get("project_registered", False)
             st.session_state.project_info = data.get("project_info", {})
-            st.session_state.typology = data.get("typology")
+            # If typology missing, try to infer
+            typ = data.get("typology")
+            if typ is None:
+                # Infer from params
+                params = data.get("params", {})
+                if "A" in params and "B" in params and "LAA" in params:
+                    typ = "saddle_span"
+                elif "span_width" in params and "ridge_height" in params:
+                    typ = "clear_span_tent"
+                elif "mast_height" in params:
+                    typ = "tensile_membrane"
+                elif "eave_height" in params:
+                    typ = "portal_frame"
+                else:
+                    typ = "custom"
+            st.session_state.typology = typ
             st.session_state.params = data.get("params", {})
             st.session_state.qa_answers = data.get("qa_answers", {})
             st.session_state.locked = data.get("locked", False)
@@ -505,7 +528,21 @@ cached = load_cache()
 if cached:
     st.session_state.project_registered = cached.get("project_registered", False)
     st.session_state.project_info = cached.get("project_info", {})
-    st.session_state.typology = cached.get("typology")
+    typ = cached.get("typology")
+    if typ is None:
+        # Infer typology
+        params = cached.get("params", {})
+        if "A" in params and "B" in params and "LAA" in params:
+            typ = "saddle_span"
+        elif "span_width" in params and "ridge_height" in params:
+            typ = "clear_span_tent"
+        elif "mast_height" in params:
+            typ = "tensile_membrane"
+        elif "eave_height" in params:
+            typ = "portal_frame"
+        else:
+            typ = "custom"
+    st.session_state.typology = typ
     st.session_state.params = cached.get("params", {})
     st.session_state.qa_answers = cached.get("qa_answers", {})
     st.session_state.locked = cached.get("locked", False)
@@ -537,6 +574,51 @@ if cached:
         "tie_down_vertical_angle": 45,
         "tie_down_horizontal_spread": 25
     })
+
+# If force_board mode, override session state to force board
+if query_params.get("force_board") == "true":
+    st.session_state.typology = "saddle_span"
+    st.session_state.project_registered = True
+    if not st.session_state.project_info:
+        st.session_state.project_info = {
+            "name": "Debug Project",
+            "client": "SDS Test",
+            "date": datetime.now().isoformat(),
+            "reference": "SDS-DEBUG"
+        }
+    if not st.session_state.params:
+        st.session_state.params = {
+            "A": 6.0,
+            "B": 10.0,
+            "LAA": 15.0
+        }
+    if not st.session_state.materials:
+        st.session_state.materials = {
+            "steel_grade": "S355",
+            "section_type": "Circular Hollow Section (CHS)",
+            "section_size": "CHS 150x6",
+            "fabric_type": "PVC-coated Polyester",
+            "fabric_thickness": 0.8,
+            "prestress": 3.0,
+            "wire_rope_type": "Galvanized Steel (6x19)",
+            "wire_rope_diameter": 10,
+            "num_bays": 2,
+            "num_anchors": 2,
+            "anchor_angle": 30,
+            "wind_speed": 40,
+            "snow_load": 0.5,
+            "live_load": 0.5,
+            "tie_down_vertical_angle": 45,
+            "tie_down_horizontal_spread": 25
+        }
+    st.session_state.locked = False
+    st.session_state.qa_answers = {}
+    st.session_state.comments = "Debug mode - force board"
+    st.session_state.show_registration = False
+    st.session_state.show_project_browser = False
+    st.session_state.show_export = False
+    st.session_state.show_proposal = False
+    save_cache()
 
 # ============================================================
 # TYPOLOGIES
@@ -1417,6 +1499,19 @@ if st.session_state.show_project_browser:
                         st.rerun()
     st.stop()
 
+# ============================================================
+# AUTO-LOAD SADDLE SPAN FOR NEW PROJECTS
+# ============================================================
+if st.session_state.project_registered and st.session_state.typology is None:
+    # Auto-select Saddle Span
+    st.session_state.typology = "saddle_span"
+    st.session_state.params = {p: v["default"] for p, v in TYPOLOGIES["saddle_span"]["params"].items()}
+    st.session_state.qa_answers = {}
+    st.session_state.locked = False
+    save_cache()
+    # Optionally, we can force a rerun to show the board immediately
+    st.rerun()
+
 # --- DASHBOARD ---
 if not st.session_state.project_registered and not st.session_state.show_registration:
     render_dashboard()
@@ -1459,29 +1554,15 @@ if st.session_state.show_registration or (st.session_state.project_registered an
                     st.session_state.project_registered = True
                     st.session_state.design_phase = "understand"
                     st.session_state.show_registration = False
+                    # Auto-select Saddle Span after registration
+                    st.session_state.typology = "saddle_span"
+                    st.session_state.params = {p: v["default"] for p, v in TYPOLOGIES["saddle_span"]["params"].items()}
+                    st.session_state.qa_answers = {}
+                    st.session_state.locked = False
                     save_cache()
                     st.rerun()
         st.caption("All data is cached locally. Your project will resume where you left off.")
         st.stop()
-
-# --- TYPOLOGY CATALOG ---
-if st.session_state.project_registered and st.session_state.typology is None:
-    st.subheader("Choose a structure type:")
-    cols = st.columns(2)
-    idx = 0
-    for key, typ in TYPOLOGIES.items():
-        with cols[idx % 2]:
-            if st.button(f"{typ['icon']} {typ['name']}", use_container_width=True):
-                st.session_state.typology = key
-                st.session_state.params = {p: v["default"] for p, v in typ["params"].items()}
-                st.session_state.qa_answers = {}
-                st.session_state.locked = False
-                st.session_state.design_phase = "understand"
-                save_cache()
-                st.rerun()
-        idx += 1
-    st.caption("💡 Select a structure type to begin designing.")
-    st.stop()
 
 # --- UNIFIED SDS-UNDERSTAND WORKSPACE ---
 if st.session_state.typology is not None:
