@@ -13,12 +13,15 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import io
 from PIL import Image
+import pandas as pd
+from io import BytesIO
+import hashlib
 
 # ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio",
+    page_title="SDS Design Studio Pro",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -158,6 +161,16 @@ dark_mode_css = """
         border-left: 4px solid #4a7a9c !important;
         color: #f0f4fa !important;
     }
+    .stSuccess {
+        background-color: #1a3a2a !important;
+        border-left: 4px solid #2ecc71 !important;
+        color: #f0f4fa !important;
+    }
+    .stError {
+        background-color: #3a1a1a !important;
+        border-left: 4px solid #e74c3c !important;
+        color: #f0f4fa !important;
+    }
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     header {visibility: hidden !important;}
@@ -219,6 +232,8 @@ dark_mode_css = """
     .badge-unknown { background-color: #6b2d2d; color: #fca5a5; }
     .badge-provided { background-color: #1e3a5f; color: #93c5fd; }
     .badge-autogen { background-color: #3b3b6b; color: #c4b5fd; }
+    .badge-pass { background-color: #2d6a4f; color: #a7f3d0; }
+    .badge-fail { background-color: #6b2d2d; color: #fca5a5; }
     
     .export-section {
         background-color: #141e2b;
@@ -243,9 +258,120 @@ dark_mode_css = """
         border: 1px solid #1e2a3a;
         margin: 0.5rem 0;
     }
+    
+    .comparison-card {
+        background-color: #141e2b;
+        border-radius: 12px;
+        padding: 1rem;
+        border: 2px solid #2a3a4f;
+        margin: 0.5rem 0;
+    }
+    .comparison-card.best {
+        border-color: #2ecc71;
+    }
+    .comparison-card.worst {
+        border-color: #e74c3c;
+    }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
+
+# ============================================================
+# MATERIAL DATABASE (NEW)
+# ============================================================
+MATERIAL_DATABASE = {
+    "steel": {
+        "S275": {
+            "cost_per_kg": 0.90,
+            "density": 7850,
+            "yield_strength": 275,
+            "ultimate_strength": 430,
+            "modulus_elasticity": 210000,
+            "description": "Structural steel - general purpose"
+        },
+        "S355": {
+            "cost_per_kg": 1.20,
+            "density": 7850,
+            "yield_strength": 355,
+            "ultimate_strength": 490,
+            "modulus_elasticity": 210000,
+            "description": "High strength structural steel"
+        },
+        "S460": {
+            "cost_per_kg": 1.80,
+            "density": 7850,
+            "yield_strength": 460,
+            "ultimate_strength": 550,
+            "modulus_elasticity": 210000,
+            "description": "Ultra-high strength steel"
+        },
+        "Aluminum 6061-T6": {
+            "cost_per_kg": 4.50,
+            "density": 2700,
+            "yield_strength": 276,
+            "ultimate_strength": 310,
+            "modulus_elasticity": 69000,
+            "description": "Lightweight aluminum alloy"
+        }
+    },
+    "fabric": {
+        "PVC-coated Polyester": {
+            "cost_per_m2": 25.0,
+            "weight_per_m2": 1.2,
+            "lifespan_years": 20,
+            "tensile_strength": 40,
+            "fire_rating": "B1",
+            "description": "Standard tensile membrane"
+        },
+        "PTFE-coated Fiberglass": {
+            "cost_per_m2": 80.0,
+            "weight_per_m2": 1.8,
+            "lifespan_years": 35,
+            "tensile_strength": 60,
+            "fire_rating": "A",
+            "description": "Premium architectural membrane"
+        },
+        "ETFE": {
+            "cost_per_m2": 120.0,
+            "weight_per_m2": 0.8,
+            "lifespan_years": 50,
+            "tensile_strength": 45,
+            "fire_rating": "B1",
+            "description": "High-performance fluoropolymer"
+        }
+    },
+    "cables": {
+        "Galvanized Steel (6x19)": {
+            "cost_per_m": 5.0,
+            "weight_per_m": 0.5,
+            "breaking_load": 55,
+            "description": "Standard galvanized wire rope"
+        },
+        "Stainless Steel (1x19)": {
+            "cost_per_m": 12.0,
+            "weight_per_m": 0.8,
+            "breaking_load": 70,
+            "description": "Corrosion-resistant cable"
+        },
+        "Polyester Rope": {
+            "cost_per_m": 3.0,
+            "weight_per_m": 0.2,
+            "breaking_load": 30,
+            "description": "Lightweight synthetic rope"
+        }
+    },
+    "sections": {
+        "CHS 100x5": {"area": 1492, "weight_per_m": 11.7, "second_moment": 2.3e6},
+        "CHS 150x6": {"area": 2714, "weight_per_m": 21.3, "second_moment": 9.1e6},
+        "CHS 200x8": {"area": 4826, "weight_per_m": 37.9, "second_moment": 28.7e6},
+        "CHS 250x10": {"area": 7539, "weight_per_m": 59.2, "second_moment": 68.4e6},
+        "RHS 150x100x6": {"area": 2784, "weight_per_m": 21.8, "second_moment": 8.3e6},
+        "RHS 200x150x8": {"area": 5104, "weight_per_m": 40.0, "second_moment": 30.1e6},
+        "I-100": {"area": 1030, "weight_per_m": 8.1, "second_moment": 4.5e6},
+        "I-150": {"area": 2130, "weight_per_m": 16.7, "second_moment": 16.0e6},
+        "I-200": {"area": 3310, "weight_per_m": 26.0, "second_moment": 38.0e6}
+    }
+}
 
 # ============================================================
 # SESSION STATE
@@ -271,7 +397,8 @@ if "engineering_annotations" not in st.session_state:
         "show_wind": True,
         "show_tie_down": True,
         "show_load_path": True,
-        "show_bracing": True
+        "show_bracing": True,
+        "show_annotations": True
     }
 if "design_phase" not in st.session_state:
     st.session_state.design_phase = "understand"
@@ -285,6 +412,12 @@ if "show_export" not in st.session_state:
     st.session_state.show_export = False
 if "show_proposal" not in st.session_state:
     st.session_state.show_proposal = False
+if "design_history" not in st.session_state:
+    st.session_state.design_history = []
+if "comparison_mode" not in st.session_state:
+    st.session_state.comparison_mode = False
+if "selected_for_comparison" not in st.session_state:
+    st.session_state.selected_for_comparison = []
 
 # Materials State
 if "materials" not in st.session_state:
@@ -304,7 +437,8 @@ if "materials" not in st.session_state:
         "snow_load": 0.5,
         "live_load": 0.5,
         "tie_down_vertical_angle": 45,
-        "tie_down_horizontal_spread": 25
+        "tie_down_horizontal_spread": 25,
+        "safety_factor": 1.5
     }
 
 # ============================================================
@@ -314,6 +448,7 @@ CACHE_DIR = ".sds_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 CACHE_FILE = os.path.join(CACHE_DIR, "current_session.json")
 PROJECTS_LIST_FILE = os.path.join(CACHE_DIR, "projects_index.json")
+HISTORY_FILE = os.path.join(CACHE_DIR, "design_history.json")
 
 def save_cache():
     data = {
@@ -328,7 +463,8 @@ def save_cache():
         "engineering_annotations": st.session_state.engineering_annotations,
         "design_phase": st.session_state.design_phase,
         "comments": st.session_state.comments,
-        "materials": st.session_state.materials
+        "materials": st.session_state.materials,
+        "design_history": st.session_state.design_history[-10:]  # Keep last 10
     }
     with open(CACHE_FILE, "w") as f:
         json.dump(data, f)
@@ -355,7 +491,8 @@ def update_projects_index():
                         "reference": info.get("reference", "N/A"),
                         "typology": data.get("typology", "Unknown"),
                         "date": info.get("date", datetime.now().isoformat()),
-                        "locked": data.get("locked", False)
+                        "locked": data.get("locked", False),
+                        "hash": hashlib.md5(json.dumps(data).encode()).hexdigest()[:8]
                     })
             except:
                 pass
@@ -379,28 +516,13 @@ def load_project_from_file(filename):
                 "show_wind": True,
                 "show_tie_down": True,
                 "show_load_path": True,
-                "show_bracing": True
+                "show_bracing": True,
+                "show_annotations": True
             })
             st.session_state.design_phase = data.get("design_phase", "understand")
             st.session_state.comments = data.get("comments", "")
-            st.session_state.materials = data.get("materials", {
-                "steel_grade": "S355",
-                "section_type": "Circular Hollow Section (CHS)",
-                "section_size": "CHS 150x6",
-                "fabric_type": "PVC-coated Polyester",
-                "fabric_thickness": 0.8,
-                "prestress": 3.0,
-                "wire_rope_type": "Galvanized Steel (6x19)",
-                "wire_rope_diameter": 10,
-                "num_bays": 2,
-                "num_anchors": 2,
-                "anchor_angle": 30,
-                "wind_speed": 40,
-                "snow_load": 0.5,
-                "live_load": 0.5,
-                "tie_down_vertical_angle": 45,
-                "tie_down_horizontal_spread": 25
-            })
+            st.session_state.materials = data.get("materials", {})
+            st.session_state.design_history = data.get("design_history", [])
             st.session_state.show_registration = False
             st.session_state.show_project_browser = False
             st.session_state.show_export = False
@@ -432,28 +554,11 @@ def go_to_dashboard():
     st.session_state.show_registration = False
     st.session_state.show_export = False
     st.session_state.show_proposal = False
+    st.session_state.comparison_mode = False
+    st.session_state.selected_for_comparison = []
     if os.path.exists(CACHE_FILE):
         os.remove(CACHE_FILE)
     save_cache()
-
-def clear_cache():
-    if os.path.exists(CACHE_FILE):
-        os.remove(CACHE_FILE)
-    st.session_state.project_registered = False
-    st.session_state.project_info = {}
-    st.session_state.typology = None
-    st.session_state.params = {}
-    st.session_state.qa_answers = {}
-    st.session_state.locked = False
-    st.session_state.custom_image = None
-    st.session_state.custom_description = ""
-    st.session_state.design_phase = "understand"
-    st.session_state.comments = ""
-    st.session_state.show_project_browser = False
-    st.session_state.show_registration = False
-    st.session_state.show_export = False
-    st.session_state.show_proposal = False
-    update_projects_index()
 
 def save_project_as_new():
     if not st.session_state.project_info.get("name"):
@@ -480,7 +585,8 @@ def save_project_as_new():
         "engineering_annotations": st.session_state.engineering_annotations,
         "design_phase": st.session_state.design_phase,
         "comments": st.session_state.comments,
-        "materials": st.session_state.materials
+        "materials": st.session_state.materials,
+        "design_history": st.session_state.design_history
     }
     if existing_file:
         filepath = os.path.join(CACHE_DIR, existing_file)
@@ -493,7 +599,21 @@ def save_project_as_new():
         with open(filepath, "w") as f:
             json.dump(data, f)
         st.success(f"✅ Project saved as: {filename}")
+    
+    # Save to history
+    history_data = {
+        "timestamp": datetime.now().isoformat(),
+        "project": st.session_state.project_info.get("name"),
+        "typology": st.session_state.typology,
+        "params": st.session_state.params.copy(),
+        "hash": hashlib.md5(json.dumps(data).encode()).hexdigest()[:8]
+    }
+    st.session_state.design_history.append(history_data)
+    if len(st.session_state.design_history) > 20:
+        st.session_state.design_history = st.session_state.design_history[-20:]
+    
     update_projects_index()
+    save_cache()
 
 def get_projects_list():
     if os.path.exists(PROJECTS_LIST_FILE):
@@ -515,31 +635,16 @@ if cached:
         "show_wind": True,
         "show_tie_down": True,
         "show_load_path": True,
-        "show_bracing": True
+        "show_bracing": True,
+        "show_annotations": True
     })
     st.session_state.design_phase = cached.get("design_phase", "understand")
     st.session_state.comments = cached.get("comments", "")
-    st.session_state.materials = cached.get("materials", {
-        "steel_grade": "S355",
-        "section_type": "Circular Hollow Section (CHS)",
-        "section_size": "CHS 150x6",
-        "fabric_type": "PVC-coated Polyester",
-        "fabric_thickness": 0.8,
-        "prestress": 3.0,
-        "wire_rope_type": "Galvanized Steel (6x19)",
-        "wire_rope_diameter": 10,
-        "num_bays": 2,
-        "num_anchors": 2,
-        "anchor_angle": 30,
-        "wind_speed": 40,
-        "snow_load": 0.5,
-        "live_load": 0.5,
-        "tie_down_vertical_angle": 45,
-        "tie_down_horizontal_spread": 25
-    })
+    st.session_state.materials = cached.get("materials", {})
+    st.session_state.design_history = cached.get("design_history", [])
 
 # ============================================================
-# TYPOLOGIES
+# ENHANCED TYPOLOGIES
 # ============================================================
 TYPOLOGIES = {
     "saddle_span": {
@@ -634,7 +739,7 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# AUTO-GENERATION FUNCTIONS
+# ENHANCED ENGINEERING FUNCTIONS
 # ============================================================
 
 def generate_bracing_positions(span, num_bays):
@@ -670,21 +775,13 @@ def generate_tie_down_anchors_at_positions(span, laa, height, x_positions, verti
     return anchors
 
 def calculate_steel_weight(grade, section_type, section_size, length):
-    weight_per_m = {
-        "CHS 100x5": 11.7, "CHS 150x6": 21.3, "CHS 200x8": 37.9,
-        "RHS 150x100x6": 22.2, "RHS 200x150x8": 39.3,
-        "I-100": 10.0, "I-150": 18.0, "I-200": 26.0,
-        "Pipe 100x5": 11.7, "Pipe 150x6": 21.3
-    }
-    return weight_per_m.get(section_size, 20.0) * length
+    section = MATERIAL_DATABASE["sections"].get(section_size, {"weight_per_m": 20.0})
+    return section["weight_per_m"] * length
 
 def calculate_fabric_weight(fabric_type, thickness, area):
-    weight_per_m2 = {
-        "PVC-coated Polyester": {0.5: 0.6, 0.8: 0.9, 1.0: 1.2, 1.2: 1.4},
-        "PTFE-coated Fiberglass": {0.5: 1.0, 0.8: 1.4, 1.0: 1.8, 1.2: 2.2},
-        "ETFE": {0.5: 0.5, 0.8: 0.8, 1.0: 1.0, 1.2: 1.2}
-    }
-    return weight_per_m2.get(fabric_type, {}).get(thickness, 1.0) * area
+    fabric = MATERIAL_DATABASE["fabric"].get(fabric_type, {})
+    weight_per_m2 = fabric.get("weight_per_m2", 1.2)
+    return weight_per_m2 * area
 
 def calculate_wind_load(wind_speed, area, drag_coefficient=1.2):
     rho = 1.225
@@ -698,8 +795,220 @@ def calculate_tie_down_force(wind_load, self_weight_kn, num_anchors, vertical_an
     cable_force = per_anchor / np.cos(np.radians(vertical_angle_deg))
     return cable_force
 
+def generate_load_combinations(params, materials):
+    """Generate structural load combinations per Eurocode"""
+    dead_load = materials.get("dead_load", 1.0)
+    live_load = materials.get("live_load", 0.5)
+    snow_load = materials.get("snow_load", 0.5)
+    wind_load = materials.get("wind_load", 0.8)
+    
+    combinations = {
+        "ULS_1": 1.35 * dead_load + 1.5 * live_load,
+        "ULS_2": 1.35 * dead_load + 1.5 * snow_load,
+        "ULS_3": 1.35 * dead_load + 1.5 * wind_load,
+        "ULS_4": 1.0 * dead_load + 1.5 * wind_load + 0.7 * live_load,
+        "SLS_1": 1.0 * dead_load + 1.0 * live_load,
+        "SLS_2": 1.0 * dead_load + 0.7 * wind_load
+    }
+    return combinations
+
+def calculate_cost_estimate(params, materials, typology):
+    """Calculate total project cost with material database"""
+    span = params.get("B", 10.0)
+    laa = params.get("LAA", 15.0)
+    rise = params.get("A", 6.0)
+    
+    # Steel cost
+    steel_length = span * 2 + laa * 2
+    steel_weight = calculate_steel_weight(
+        materials.get("steel_grade", "S355"),
+        materials.get("section_type", "CHS"),
+        materials.get("section_size", "CHS 150x6"),
+        steel_length
+    )
+    steel_cost = steel_weight * MATERIAL_DATABASE["steel"][materials.get("steel_grade", "S355")]["cost_per_kg"]
+    
+    # Fabric cost
+    membrane_area = span * laa * 1.1
+    fabric_cost = membrane_area * MATERIAL_DATABASE["fabric"][materials.get("fabric_type", "PVC-coated Polyester")]["cost_per_m2"]
+    
+    # Cable cost
+    cable_length = laa * 2 + span * 2
+    cable_cost = cable_length * MATERIAL_DATABASE["cables"][materials.get("wire_rope_type", "Galvanized Steel (6x19)")]["cost_per_m"]
+    
+    # Labor and installation (estimated)
+    labor_cost = (steel_weight + membrane_area) * 2.0
+    
+    total_cost = steel_cost + fabric_cost + cable_cost + labor_cost
+    
+    return {
+        "steel_cost": steel_cost,
+        "fabric_cost": fabric_cost,
+        "cable_cost": cable_cost,
+        "labor_cost": labor_cost,
+        "total_cost": total_cost,
+        "cost_per_m2": total_cost / membrane_area if membrane_area > 0 else 0
+    }
+
 # ============================================================
-# 3D GENERATOR
+# PDF REPORT GENERATOR (NEW)
+# ============================================================
+def generate_pdf_report(params, materials, typology, project_info, qa_answers, comments):
+    """Generate a professional PDF report using reportlab"""
+    try:
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+        from reportlab.lib.units import inch, cm
+        
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1*cm, leftMargin=1*cm, topMargin=1*cm, bottomMargin=1*cm)
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#f39c12'),
+            spaceAfter=30
+        )
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=16,
+            textColor=colors.HexColor('#4a7a9c'),
+            spaceAfter=12
+        )
+        
+        # Cover page
+        story.append(Paragraph("SDS DESIGN STUDIO", title_style))
+        story.append(Paragraph("Professional Engineering Report", styles['Heading2']))
+        story.append(Spacer(1, 0.5*inch))
+        story.append(Paragraph(f"<b>Project:</b> {project_info.get('name', 'Untitled')}", styles['Normal']))
+        story.append(Paragraph(f"<b>Client:</b> {project_info.get('client', 'Unknown')}", styles['Normal']))
+        story.append(Paragraph(f"<b>Date:</b> {datetime.now().strftime('%Y-%m-%d')}", styles['Normal']))
+        story.append(Paragraph(f"<b>Reference:</b> {project_info.get('reference', 'N/A')}", styles['Normal']))
+        story.append(PageBreak())
+        
+        # Parameters summary
+        story.append(Paragraph("Design Parameters", heading_style))
+        param_data = [["Parameter", "Value", "Unit"]]
+        for key, value in params.items():
+            param_data.append([key.upper(), f"{value:.1f}", "m"])
+        param_table = Table(param_data, colWidths=[2*inch, 1.5*inch, 1*inch])
+        param_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2a3a4f')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#141e2b')),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#2a3a4f'))
+        ]))
+        story.append(param_table)
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Materials summary
+        story.append(Paragraph("Materials", heading_style))
+        mat_data = [
+            ["Material", "Specification", "Value"],
+            ["Steel", materials.get("steel_grade", "S355"), materials.get("section_size", "CHS 150x6")],
+            ["Fabric", materials.get("fabric_type", "PVC"), f"{materials.get('fabric_thickness', 0.8)}mm"],
+            ["Cables", materials.get("wire_rope_type", "Galvanized"), f"{materials.get('wire_rope_diameter', 10)}mm"]
+        ]
+        mat_table = Table(mat_data, colWidths=[2*inch, 2*inch, 1.5*inch])
+        mat_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2a3a4f')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#141e2b')),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#2a3a4f'))
+        ]))
+        story.append(mat_table)
+        story.append(PageBreak())
+        
+        # Load combinations
+        story.append(Paragraph("Load Combinations", heading_style))
+        load_combo = generate_load_combinations(params, materials)
+        combo_data = [["Combination", "Load Value (kN)"]]
+        for key, value in load_combo.items():
+            combo_data.append([key, f"{value:.2f}"])
+        combo_table = Table(combo_data, colWidths=[2*inch, 2*inch])
+        combo_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2a3a4f')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#141e2b')),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#2a3a4f'))
+        ]))
+        story.append(combo_table)
+        story.append(Spacer(1, 0.3*inch))
+        
+        # Cost estimate
+        story.append(Paragraph("Cost Estimate", heading_style))
+        cost_data = calculate_cost_estimate(params, materials, typology)
+        cost_table_data = [
+            ["Item", "Cost (USD)"],
+            ["Steel", f"${cost_data['steel_cost']:.2f}"],
+            ["Fabric", f"${cost_data['fabric_cost']:.2f}"],
+            ["Cables", f"${cost_data['cable_cost']:.2f}"],
+            ["Labor", f"${cost_data['labor_cost']:.2f}"],
+            ["", ""],
+            ["TOTAL", f"${cost_data['total_cost']:.2f}"],
+            ["Cost per m²", f"${cost_data['cost_per_m2']:.2f}"]
+        ]
+        cost_table = Table(cost_table_data, colWidths=[2*inch, 2*inch])
+        cost_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2a3a4f')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor('#141e2b')),
+            ('TEXTCOLOR', (0, 1), (-1, -2), colors.whitesmoke),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#f39c12')),
+            ('TEXTCOLOR', (0, -1), (-1, -1), colors.HexColor('#0a0e17')),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#2a3a4f'))
+        ]))
+        story.append(cost_table)
+        story.append(PageBreak())
+        
+        # Q&A Confirmations
+        story.append(Paragraph("Design Confirmations", heading_style))
+        for i, q in enumerate(typology.get("qa", [])):
+            ans = qa_answers.get(f"qa_{i}", "Not answered")
+            story.append(Paragraph(f"<b>{i+1}.</b> {q} <b>→</b> {ans}", styles['Normal']))
+            story.append(Spacer(1, 0.1*inch))
+        
+        # Comments
+        if comments:
+            story.append(Spacer(1, 0.2*inch))
+            story.append(Paragraph("Design Notes", heading_style))
+            story.append(Paragraph(comments, styles['Normal']))
+        
+        # Footer
+        story.append(Spacer(1, 0.5*inch))
+        story.append(Paragraph("<i>Generated by SDS Design Studio Pro</i>", styles['Normal']))
+        story.append(Paragraph(f"<i>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</i>", styles['Normal']))
+        
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.getvalue()
+    except ImportError:
+        return None
+
+# ============================================================
+# 3D GENERATOR WITH ANNOTATIONS (ENHANCED)
 # ============================================================
 
 def generate_saddle_span(params, materials=None, annotations=None):
@@ -734,22 +1043,59 @@ def generate_saddle_span(params, materials=None, annotations=None):
 
     fig = go.Figure()
 
+    # Beams
     fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=6)))
     fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=6)))
+    
+    # Membrane
     fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, 
                              colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
                              opacity=0.7, showscale=False))
 
+    # Apex and supports
     fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[rise], 
-                               mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
+                               mode='markers', name='Apex 1', marker=dict(color='#FFD93D', size=8, symbol='diamond')))
     fig.add_trace(go.Scatter3d(x=[0], y=[y2[num_points//2]], z=[rise], 
-                               mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=4, symbol='diamond')))
-
+                               mode='markers', name='Apex 2', marker=dict(color='#FFD93D', size=8, symbol='diamond')))
     fig.add_trace(go.Scatter3d(x=[-span/2], y=[0], z=[0], 
-                               mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=4, symbol='square')))
+                               mode='markers', name='Support 1', marker=dict(color='#4ECDC4', size=6, symbol='square')))
     fig.add_trace(go.Scatter3d(x=[span/2], y=[0], z=[0], 
-                               mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=4, symbol='square')))
+                               mode='markers', name='Support 2', marker=dict(color='#4ECDC4', size=6, symbol='square')))
 
+    # 3D Annotations (NEW)
+    show_annotations = True
+    if annotations is not None:
+        show_annotations = annotations.get("show_annotations", True)
+    
+    if show_annotations:
+        # Dimension annotations
+        fig.add_trace(go.Scatter3d(
+            x=[-span/2, 0], y=[0, 0], z=[0, rise],
+            mode='lines', name='Rise (A)',
+            line=dict(color='#FFD93D', width=2, dash='dash'),
+            showlegend=True
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=[-span/2, span/2], y=[-laa/2, -laa/2], z=[0, 0],
+            mode='lines', name='Span (B)',
+            line=dict(color='#4ECDC4', width=2, dash='dash'),
+            showlegend=True
+        ))
+        # Text annotations using scatter with text
+        fig.add_trace(go.Scatter3d(
+            x=[0], y=[-laa/2], z=[rise/2],
+            mode='text', text=[f'A = {rise:.1f}m'],
+            textfont=dict(color='#FFD93D', size=12),
+            showlegend=False
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=[0], y=[-laa/2 - 1.5], z=[0],
+            mode='text', text=[f'B = {span:.1f}m'],
+            textfont=dict(color='#4ECDC4', size=12),
+            showlegend=False
+        ))
+
+    # Engineering annotations (Wind, Tie-Down, Bracing, Load Path)
     num_bays = 2
     if materials is not None:
         num_bays = materials.get("num_bays", 2)
@@ -802,7 +1148,7 @@ def generate_saddle_span(params, materials=None, annotations=None):
                 y=[a["anchor_y"]],
                 z=[a["anchor_z"]],
                 mode='markers', name='Ground Anchor',
-                marker=dict(color='#FF6B6B', size=4, symbol='x'),
+                marker=dict(color='#FF6B6B', size=6, symbol='x'),
                 showlegend=False
             ))
 
@@ -815,10 +1161,12 @@ def generate_saddle_span(params, materials=None, annotations=None):
             mode='lines', name='Wind Load',
             line=dict(color='#FF6B6B', width=3, dash='dash'), showlegend=True
         ))
+        # Wind direction arrow (text)
         fig.add_trace(go.Scatter3d(
-            x=[span/4, span/4], y=[laa/4, laa/4], z=[rise*0.8, rise*1.2],
-            mode='lines', name='Wind Load',
-            line=dict(color='#FF6B6B', width=3, dash='dash'), showlegend=False
+            x=[-span/4], y=[-laa/4], z=[rise*1.3],
+            mode='text', text=['💨 WIND'],
+            textfont=dict(color='#FF6B6B', size=10),
+            showlegend=False
         ))
 
     show_load_path = True
@@ -993,27 +1341,79 @@ GENERATORS = {
 }
 
 # ============================================================
-# RENDER HIGH-RES IMAGE
+# DESIGN COMPARISON MODE (NEW)
 # ============================================================
-
-def render_high_res_image(fig, filename="design_high_res.png"):
+def render_comparison_mode():
+    st.subheader("📊 Design Comparison Mode")
+    
+    # Get available designs from history
+    history = st.session_state.design_history
+    if not history:
+        st.info("No design history available for comparison. Save some designs first!")
+        if st.button("⬅ Back to Design"):
+            st.session_state.comparison_mode = False
+            st.rerun()
+        return
+    
+    # Select designs to compare
+    st.write("Select up to 3 designs to compare:")
+    selected = []
+    cols = st.columns(3)
+    for i, design in enumerate(history[-10:]):
+        with cols[i % 3]:
+            if st.checkbox(f"Design {i+1}", key=f"compare_{i}"):
+                selected.append(design)
+    
+    if len(selected) < 2:
+        st.warning("Select at least 2 designs to compare")
+        return
+    
+    # Comparison table
+    st.subheader("📋 Comparison Summary")
+    compare_data = []
+    
+    for design in selected:
+        params = design.get("params", {})
+        row = {
+            "Design": f"{design.get('timestamp', '')[:10]}",
+            "Rise (m)": params.get("A", "N/A"),
+            "Span (m)": params.get("B", "N/A"),
+            "LAA (m)": params.get("LAA", "N/A"),
+            "Hash": design.get("hash", "N/A")
+        }
+        compare_data.append(row)
+    
+    df = pd.DataFrame(compare_data)
+    st.dataframe(df, use_container_width=True)
+    
+    # Visual comparison (radar chart)
     try:
-        img_bytes = fig.to_image(format="png", scale=4, width=1200, height=800)
-        b64 = base64.b64encode(img_bytes).decode()
-        href = f'<a href="data:image/png;base64,{b64}" download="{filename}">📸 Download High-Res Image (PNG)</a>'
-        return href
+        import plotly.express as px
+        df_radar = pd.DataFrame(compare_data)
+        df_radar = df_radar.set_index("Design")
+        numeric_cols = ["Rise (m)", "Span (m)", "LAA (m)"]
+        fig = go.Figure()
+        for design in df_radar.index:
+            fig.add_trace(go.Scatterpolar(
+                r=df_radar.loc[design, numeric_cols].values,
+                theta=numeric_cols,
+                fill='toself',
+                name=design
+            ))
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(visible=True, range=[0, max(df_radar[numeric_cols].max())])
+            ),
+            paper_bgcolor='#0a0e17',
+            font=dict(color='#ffffff')
+        )
+        st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
-        return f"⚠️ Image export failed: {str(e)}. Please use screenshot feature."
-
-# ============================================================
-# EXPORT FUNCTIONS
-# ============================================================
-
-def get_json_download_link(data, filename="project_data.json"):
-    json_str = json.dumps(data, indent=2)
-    b64 = base64.b64encode(json_str.encode()).decode()
-    href = f'<a href="data:application/json;base64,{b64}" download="{filename}">📄 Download Design Data (JSON)</a>'
-    return href
+        st.warning(f"Radar chart unavailable: {e}")
+    
+    if st.button("⬅ Back to Design"):
+        st.session_state.comparison_mode = False
+        st.rerun()
 
 # ============================================================
 # UNIFIED UI RENDERER
@@ -1034,6 +1434,7 @@ def render_unified_workspace():
     col_left, col_right = st.columns([1, 1.5])
     
     with col_left:
+        # Project summary card
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📊 Current Interpretation Summary</div>', unsafe_allow_html=True)
         m = materials
@@ -1044,9 +1445,8 @@ def render_unified_workspace():
             ("SUPPORTS", "Two supports at beam bases", "badge-inferred"),
             ("DIMENSIONS", f"A={params.get('A', 6.0)}m, B={params.get('B', 10.0)}m, LAA={params.get('LAA', 15.0)}m", "badge-confirmed"),
             ("WIND BRACING", f"{m.get('num_bays', 2)} bays at {', '.join([f'{p:.1f}m' for p in generate_bracing_positions(params.get('B', 10.0), m.get('num_bays', 2))])}", "badge-autogen"),
-            ("TIE-DOWNS", f"Aligned to bracing: {m.get('num_bays', 2)} positions, {m.get('tie_down_vertical_angle', 45)}° vertical, {m.get('tie_down_horizontal_spread', 25)}° spread", "badge-autogen"),
+            ("TIE-DOWNS", f"Aligned to bracing: {m.get('num_bays', 2)} positions, {m.get('tie_down_vertical_angle', 45)}° vertical", "badge-autogen"),
             ("WIRE ROPE", f"{m.get('wire_rope_diameter', 10)}mm {m.get('wire_rope_type', 'Galvanized')}", "badge-provided"),
-            ("UNKNOWN ITEMS", "Foundations, Connection Details", "badge-unknown")
         ]
         for label, value, badge in summary_items:
             st.markdown(f'<div style="display:flex; justify-content:space-between; padding:0.1rem 0; border-bottom:1px solid #1a2a3a;">'
@@ -1055,15 +1455,17 @@ def render_unified_workspace():
                         f'</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # Legend
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📌 Legend (Data Identity)</div>', unsafe_allow_html=True)
-        st.markdown(f'<span class="badge badge-confirmed">CONFIRMED</span> <span style="color:#b0c4de;">Confirmed by User</span> &nbsp;|&nbsp; '
-                    f'<span class="badge badge-inferred">INFERRED</span> <span style="color:#b0c4de;">Inferred by SDS</span> &nbsp;|&nbsp; '
-                    f'<span class="badge badge-unknown">UNKNOWN</span> <span style="color:#b0c4de;">Not Yet Defined</span> &nbsp;|&nbsp; '
-                    f'<span class="badge badge-provided">PROVIDED</span> <span style="color:#b0c4de;">Provided by User</span> &nbsp;|&nbsp; '
-                    f'<span class="badge badge-autogen">AUTO-GEN</span> <span style="color:#b0c4de;">Auto-Generated</span>', unsafe_allow_html=True)
+        st.markdown('<div class="title">📌 Legend</div>', unsafe_allow_html=True)
+        st.markdown(f'<span class="badge badge-confirmed">CONFIRMED</span> <span style="color:#b0c4de;">User</span> &nbsp;|&nbsp; '
+                    f'<span class="badge badge-inferred">INFERRED</span> <span style="color:#b0c4de;">SDS</span> &nbsp;|&nbsp; '
+                    f'<span class="badge badge-unknown">UNKNOWN</span> <span style="color:#b0c4de;">Not Defined</span> &nbsp;|&nbsp; '
+                    f'<span class="badge badge-provided">PROVIDED</span> <span style="color:#b0c4de;">User</span> &nbsp;|&nbsp; '
+                    f'<span class="badge badge-autogen">AUTO-GEN</span> <span style="color:#b0c4de;">Auto</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # Geometry inputs
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📐 Geometry</div>', unsafe_allow_html=True)
         col_a, col_b, col_c = st.columns(3)
@@ -1074,67 +1476,108 @@ def render_unified_workspace():
             new_b = st.number_input("Span (B) (m)", min_value=4.0, max_value=40.0, step=0.5, value=float(params.get("B", 10.0)), format="%.1f", key="unified_b")
             params["B"] = new_b
         with col_c:
-            new_laa = st.number_input("Apex Distance (LAA) (m)", min_value=4.0, max_value=50.0, step=0.5, value=float(params.get("LAA", 15.0)), format="%.1f", key="unified_laa")
+            new_laa = st.number_input("Apex Dist (LAA) (m)", min_value=4.0, max_value=50.0, step=0.5, value=float(params.get("LAA", 15.0)), format="%.1f", key="unified_laa")
             params["LAA"] = new_laa
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # Materials
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">🏗️ Materials</div>', unsafe_allow_html=True)
-        col_m1, col_m2, col_m3 = st.columns(3)
-        with col_m1:
-            materials["steel_grade"] = st.selectbox("Steel Grade", ["S275", "S355", "S460", "6061-T6 (Aluminum)"], index=["S275", "S355", "S460", "6061-T6 (Aluminum)"].index(materials.get("steel_grade", "S355")), key="unified_steel")
-        with col_m2:
-            materials["section_type"] = st.selectbox("Section Type", ["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"], index=["Circular Hollow Section (CHS)", "Rectangular Hollow Section (RHS)", "I-Beam", "Pipe"].index(materials.get("section_type", "Circular Hollow Section (CHS)")), key="unified_section_type")
-        with col_m3:
-            section_sizes = {
-                "Circular Hollow Section (CHS)": ["CHS 100x5", "CHS 150x6", "CHS 200x8", "CHS 250x10"],
-                "Rectangular Hollow Section (RHS)": ["RHS 150x100x6", "RHS 200x150x8", "RHS 250x150x10"],
-                "I-Beam": ["I-100", "I-150", "I-200", "I-250"],
-                "Pipe": ["Pipe 100x5", "Pipe 150x6", "Pipe 200x8"]
-            }
-            materials["section_size"] = st.selectbox("Section Size", section_sizes.get(materials["section_type"], ["CHS 150x6"]), index=0, key="unified_section_size")
         
-        col_m4, col_m5, col_m6 = st.columns(3)
+        # Material selection with database info
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            steel_options = list(MATERIAL_DATABASE["steel"].keys())
+            materials["steel_grade"] = st.selectbox("Steel Grade", steel_options, 
+                index=steel_options.index(materials.get("steel_grade", "S355")) if materials.get("steel_grade") in steel_options else 0, 
+                key="unified_steel")
+            # Show steel properties
+            steel_props = MATERIAL_DATABASE["steel"].get(materials["steel_grade"], {})
+            st.caption(f"Yield: {steel_props.get('yield_strength', 'N/A')} MPa | Cost: ${steel_props.get('cost_per_kg', 'N/A')}/kg")
+            
+        with col_m2:
+            fabric_options = list(MATERIAL_DATABASE["fabric"].keys())
+            materials["fabric_type"] = st.selectbox("Fabric Type", fabric_options,
+                index=fabric_options.index(materials.get("fabric_type", "PVC-coated Polyester")) if materials.get("fabric_type") in fabric_options else 0,
+                key="unified_fabric")
+            fabric_props = MATERIAL_DATABASE["fabric"].get(materials["fabric_type"], {})
+            st.caption(f"Lifespan: {fabric_props.get('lifespan_years', 'N/A')} yrs | Cost: ${fabric_props.get('cost_per_m2', 'N/A')}/m²")
+        
+        col_m3, col_m4 = st.columns(2)
+        with col_m3:
+            section_options = list(MATERIAL_DATABASE["sections"].keys())
+            materials["section_size"] = st.selectbox("Section Size", section_options,
+                index=section_options.index(materials.get("section_size", "CHS 150x6")) if materials.get("section_size") in section_options else 0,
+                key="unified_section")
         with col_m4:
-            materials["fabric_type"] = st.selectbox("Fabric Type", ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"], index=["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"].index(materials.get("fabric_type", "PVC-coated Polyester")), key="unified_fabric")
+            cable_options = list(MATERIAL_DATABASE["cables"].keys())
+            materials["wire_rope_type"] = st.selectbox("Cable Type", cable_options,
+                index=cable_options.index(materials.get("wire_rope_type", "Galvanized Steel (6x19)")) if materials.get("wire_rope_type") in cable_options else 0,
+                key="unified_cable")
+        
+        col_m5, col_m6 = st.columns(2)
         with col_m5:
-            materials["fabric_thickness"] = st.selectbox("Thickness (mm)", [0.5, 0.8, 1.0, 1.2], index=[0.5, 0.8, 1.0, 1.2].index(materials.get("fabric_thickness", 0.8)), key="unified_thickness")
+            materials["fabric_thickness"] = st.selectbox("Fabric Thickness (mm)", [0.5, 0.8, 1.0, 1.2],
+                index=[0.5, 0.8, 1.0, 1.2].index(materials.get("fabric_thickness", 0.8)), key="unified_thickness")
         with col_m6:
-            materials["prestress"] = st.selectbox("Prestress (kN/m)", [1.0, 3.0, 5.0], index=[1.0, 3.0, 5.0].index(materials.get("prestress", 3.0)), key="unified_prestress")
+            materials["wire_rope_diameter"] = st.selectbox("Cable Diameter (mm)", [6, 8, 10, 12, 14, 16, 20],
+                index=[6, 8, 10, 12, 14, 16, 20].index(materials.get("wire_rope_diameter", 10)), key="unified_rope")
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # Bracing & Tie-Downs
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">🔗 Bracing & Tie-Downs</div>', unsafe_allow_html=True)
-        col_b1, col_b2, col_b3 = st.columns(3)
+        col_b1, col_b2 = st.columns(2)
         with col_b1:
-            materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(materials.get("num_bays", 2)), key="unified_bays", help="1=Apex only, 2=Third points, 3=Quarter points")
+            materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], 
+                index=[1, 2, 3].index(materials.get("num_bays", 2)), key="unified_bays")
             span = params.get("B", 10.0)
             positions = generate_bracing_positions(span, materials["num_bays"])
             st.caption(f"📍 Positions: {', '.join([f'{p:.1f}m' for p in positions])}")
         with col_b2:
-            materials["wire_rope_diameter"] = st.selectbox("Wire Rope Diameter (mm)", [6, 8, 10, 12, 14, 16, 20], index=[6, 8, 10, 12, 14, 16, 20].index(materials.get("wire_rope_diameter", 10)), key="unified_rope")
-        with col_b3:
-            materials["tie_down_vertical_angle"] = st.slider("Vertical Angle (°)", min_value=20, max_value=70, step=5, value=materials.get("tie_down_vertical_angle", 45), key="unified_vertical", help="Angle of tie-down rope from horizontal")
-        col_b4, col_b5 = st.columns(2)
-        with col_b4:
-            materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", min_value=10, max_value=60, step=5, value=materials.get("tie_down_horizontal_spread", 25), key="unified_spread", help="Angle of tie-down spread outward from beam")
-        with col_b5:
-            st.caption("💡 Tie-downs auto-align to bracing positions")
+            materials["tie_down_vertical_angle"] = st.slider("Tie-Down Angle (°)", min_value=20, max_value=70, step=5, 
+                value=materials.get("tie_down_vertical_angle", 45), key="unified_vertical")
+        
+        # Wind and loads
+        col_w1, col_w2 = st.columns(2)
+        with col_w1:
+            materials["wind_speed"] = st.number_input("Wind Speed (m/s)", min_value=10, max_value=80, step=5, 
+                value=materials.get("wind_speed", 40), key="unified_wind")
+        with col_w2:
+            materials["safety_factor"] = st.number_input("Safety Factor", min_value=1.0, max_value=3.0, step=0.1,
+                value=materials.get("safety_factor", 1.5), key="unified_safety")
         st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Design history
+        if st.session_state.design_history:
+            st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+            st.markdown('<div class="title">📜 Design History</div>', unsafe_allow_html=True)
+            for i, design in enumerate(st.session_state.design_history[-5:]):
+                st.write(f"{i+1}. {design.get('timestamp', '')[:16]} - {design.get('project', 'Unknown')} ({design.get('hash', '')})")
+            st.markdown('</div>', unsafe_allow_html=True)
     
     with col_right:
         st.subheader("🔬 3D Model")
         
-        anno_cols = st.columns(4)
+        # Annotation toggles
+        anno_cols = st.columns(5)
         with anno_cols[0]:
-            st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind", value=st.session_state.engineering_annotations.get("show_wind", True))
+            st.session_state.engineering_annotations["show_annotations"] = st.checkbox("📏 Dims", 
+                value=st.session_state.engineering_annotations.get("show_annotations", True))
         with anno_cols[1]:
-            st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie-Down", value=st.session_state.engineering_annotations.get("show_tie_down", True))
+            st.session_state.engineering_annotations["show_wind"] = st.checkbox("💨 Wind", 
+                value=st.session_state.engineering_annotations.get("show_wind", True))
         with anno_cols[2]:
-            st.session_state.engineering_annotations["show_bracing"] = st.checkbox("📐 Bracing", value=st.session_state.engineering_annotations.get("show_bracing", True))
+            st.session_state.engineering_annotations["show_tie_down"] = st.checkbox("🔗 Tie", 
+                value=st.session_state.engineering_annotations.get("show_tie_down", True))
         with anno_cols[3]:
-            st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load", value=st.session_state.engineering_annotations.get("show_load_path", True))
+            st.session_state.engineering_annotations["show_bracing"] = st.checkbox("📐 Brace", 
+                value=st.session_state.engineering_annotations.get("show_bracing", True))
+        with anno_cols[4]:
+            st.session_state.engineering_annotations["show_load_path"] = st.checkbox("📊 Load", 
+                value=st.session_state.engineering_annotations.get("show_load_path", True))
         
+        # Generate 3D model
         if typ_key == "custom":
             fig = generate_custom_bounding_box(params)
             st.info("📝 Custom design — 3D view shows bounding box.")
@@ -1145,25 +1588,39 @@ def render_unified_workspace():
                 fig = GENERATORS[typ_key](params)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
         
+        # Structural analysis
         if typ_key == "saddle_span":
-            with st.expander("📊 Preliminary Structural Checks", expanded=True):
+            with st.expander("📊 Structural Analysis & Load Combinations", expanded=True):
                 m = materials
                 span = params.get("B", 10.0)
                 laa = params.get("LAA", 15.0)
                 rise = params.get("A", 6.0)
                 membrane_area = span * laa * 1.1
-                steel_weight_kg = calculate_steel_weight(m.get("steel_grade", "S355"), m.get("section_type", "CHS"), m.get("section_size", "CHS 150x6"), span * 2)
-                fabric_weight_kg = calculate_fabric_weight(m.get("fabric_type", "PVC-coated Polyester"), m.get("fabric_thickness", 0.8), membrane_area)
+                
+                steel_weight_kg = calculate_steel_weight(m.get("steel_grade", "S355"), 
+                    m.get("section_type", "CHS"), m.get("section_size", "CHS 150x6"), span * 2)
+                fabric_weight_kg = calculate_fabric_weight(m.get("fabric_type", "PVC-coated Polyester"), 
+                    m.get("fabric_thickness", 0.8), membrane_area)
                 total_weight_kg = steel_weight_kg + fabric_weight_kg
                 total_weight_kn = total_weight_kg / 100
                 wind_load = calculate_wind_load(m.get("wind_speed", 40), membrane_area)
                 num_bays = m.get("num_bays", 2)
                 bracing_x = generate_bracing_positions(span, num_bays)
                 num_anchors = len(bracing_x) * 2
-                tie_down_force = calculate_tie_down_force(wind_load, total_weight_kn, num_anchors, m.get("tie_down_vertical_angle", 45))
-                rope_breaking_load = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 20: 220}
-                rope_capacity = rope_breaking_load.get(m.get("wire_rope_diameter", 10), 55)
-                rope_check = tie_down_force < rope_capacity / 1.5
+                tie_down_force = calculate_tie_down_force(wind_load, total_weight_kn, num_anchors, 
+                    m.get("tie_down_vertical_angle", 45), m.get("safety_factor", 1.5))
+                rope_capacity = MATERIAL_DATABASE["cables"].get(m.get("wire_rope_type", "Galvanized Steel (6x19)"), {})
+                rope_capacity_kn = rope_capacity.get("breaking_load", 55)
+                rope_check = tie_down_force < rope_capacity_kn / 1.5
+                
+                # Load combinations
+                load_data = {
+                    "dead_load": total_weight_kn,
+                    "live_load": m.get("live_load", 0.5),
+                    "snow_load": m.get("snow_load", 0.5),
+                    "wind_load": wind_load
+                }
+                combinations = generate_load_combinations(load_data, m)
                 
                 col_s1, col_s2, col_s3 = st.columns(3)
                 with col_s1:
@@ -1173,74 +1630,71 @@ def render_unified_workspace():
                     st.metric("Wind Load", f"{wind_load:.1f} kN")
                     st.metric("Tie-Down Force/Anchor", f"{tie_down_force:.1f} kN")
                 with col_s3:
-                    st.metric("Wire Rope Capacity", f"{rope_capacity:.1f} kN")
-                    st.metric("✅ Rope Check", "✅ PASS" if rope_check else "❌ FAIL", delta="Required < Capacity" if rope_check else "Required > Capacity", delta_color="normal" if rope_check else "inverse")
+                    st.metric("Rope Capacity", f"{rope_capacity_kn:.1f} kN")
+                    st.metric("✅ Rope Check", "✅ PASS" if rope_check else "❌ FAIL", 
+                        delta="Safe" if rope_check else "Unsafe", 
+                        delta_color="normal" if rope_check else "inverse")
+                
+                # Load combinations table
+                st.write("**Load Combinations (Eurocode):**")
+                combo_df = pd.DataFrame({
+                    "Combination": list(combinations.keys()),
+                    "Value (kN)": [f"{v:.2f}" for v in combinations.values()]
+                })
+                st.dataframe(combo_df, use_container_width=True, hide_index=True)
+                
                 if not rope_check:
-                    st.error(f"⚠️ Tie-down force ({tie_down_force:.1f} kN) exceeds wire rope capacity ({rope_capacity:.1f} kN). Please increase rope diameter or add more anchors.")
+                    st.error(f"⚠️ Tie-down force ({tie_down_force:.1f} kN) exceeds rope capacity ({rope_capacity_kn:.1f} kN). Please increase cable diameter or add more anchors.")
                 else:
-                    st.success(f"✅ All preliminary checks passed. Structure is stable under wind loads.")
+                    st.success("✅ All preliminary checks passed. Structure is stable under wind loads.")
         
+        # Action buttons
         st.divider()
-        col_act1, col_act2, col_act3, col_act4 = st.columns(4)
+        col_act1, col_act2, col_act3, col_act4, col_act5 = st.columns(5)
         with col_act1:
-            if st.button("📸 Render High-Res Image", use_container_width=True, type="primary"):
+            if st.button("📸 Hi-Res Image", use_container_width=True, type="primary"):
                 if typ_key != "custom" and typ_key in GENERATORS:
                     try:
                         if typ_key == "saddle_span":
                             fig_render = generate_saddle_span(params, materials, st.session_state.engineering_annotations)
                         else:
                             fig_render = GENERATORS[typ_key](params)
-                        link = render_high_res_image(fig_render)
-                        st.markdown(link, unsafe_allow_html=True)
+                        img_bytes = fig_render.to_image(format="png", scale=3, width=1200, height=800)
+                        b64 = base64.b64encode(img_bytes).decode()
+                        href = f'<a href="data:image/png;base64,{b64}" download="design_high_res.png">📥 Download</a>'
+                        st.markdown(href, unsafe_allow_html=True)
                     except Exception as e:
-                        st.warning(f"⚠️ Render failed: {e}. Please use screenshot feature.")
+                        st.warning(f"⚠️ Render failed: {e}")
                 else:
                     st.info("Render available for standard typologies.")
         with col_act2:
-            if st.button("📄 Export JSON", use_container_width=True):
-                export_data = {
-                    "project": info,
-                    "typology": typ_key,
-                    "parameters": params,
-                    "qa_answers": st.session_state.qa_answers,
-                    "comments": st.session_state.comments,
-                    "materials": materials,
-                    "locked": st.session_state.locked,
-                    "export_date": datetime.now().isoformat()
-                }
-                link = get_json_download_link(export_data)
-                st.markdown(link, unsafe_allow_html=True)
+            if st.button("📄 PDF Report", use_container_width=True):
+                pdf_bytes = generate_pdf_report(
+                    params, materials, typ, info, 
+                    st.session_state.qa_answers, st.session_state.comments
+                )
+                if pdf_bytes:
+                    b64 = base64.b64encode(pdf_bytes).decode()
+                    href = f'<a href="data:application/pdf;base64,{b64}" download="SDS_Report_{info.get("reference", "project")}.pdf">📥 Download PDF</a>'
+                    st.markdown(href, unsafe_allow_html=True)
+                else:
+                    st.warning("PDF generation requires reportlab. Install: pip install reportlab")
         with col_act3:
+            if st.button("📊 Compare", use_container_width=True):
+                st.session_state.comparison_mode = True
+                st.rerun()
+        with col_act4:
             if st.button("🔒 Lock", use_container_width=True):
                 st.session_state.locked = True
                 save_cache()
                 st.rerun()
-        with col_act4:
-            if st.button("🔄 Reset All", use_container_width=True):
-                st.session_state.params = {p: v["default"] for p, v in typ["params"].items()}
-                st.session_state.materials = {
-                    "steel_grade": "S355",
-                    "section_type": "Circular Hollow Section (CHS)",
-                    "section_size": "CHS 150x6",
-                    "fabric_type": "PVC-coated Polyester",
-                    "fabric_thickness": 0.8,
-                    "prestress": 3.0,
-                    "wire_rope_type": "Galvanized Steel (6x19)",
-                    "wire_rope_diameter": 10,
-                    "num_bays": 2,
-                    "num_anchors": 2,
-                    "anchor_angle": 30,
-                    "wind_speed": 40,
-                    "snow_load": 0.5,
-                    "live_load": 0.5,
-                    "tie_down_vertical_angle": 45,
-                    "tie_down_horizontal_spread": 25
-                }
-                save_cache()
-                st.rerun()
+        with col_act5:
+            if st.button("💾 Save", use_container_width=True, type="primary"):
+                save_project_as_new()
     
     st.divider()
     
+    # Q&A Section
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     st.markdown('<div class="title">❓ Structured Questions</div>', unsafe_allow_html=True)
     st.caption("Confirm the following assumptions. These will be locked and stored in the engineering report.")
@@ -1255,13 +1709,15 @@ def render_unified_workspace():
         st.session_state.qa_answers[key] = ans
     st.markdown('</div>', unsafe_allow_html=True)
     
+    # Comments
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     st.markdown('<div class="title">💬 Comments / Instructions</div>', unsafe_allow_html=True)
-    comments = st.text_area("", value=st.session_state.comments, height=80, key="understand_comments", placeholder="Type your comment here...")
+    comments = st.text_area("", value=st.session_state.comments, height=80, key="understand_comments", 
+        placeholder="Type your comment here...")
     st.session_state.comments = comments
     st.markdown('</div>', unsafe_allow_html=True)
     
-    if st.button("🔒 LOCK & PROCEED TO INVESTIGATION", use_container_width=True, type="primary"):
+    if st.button("🔒 LOCK & PROCEED", use_container_width=True, type="primary"):
         st.session_state.locked = True
         save_cache()
         st.success("✅ Design locked! You can now view the final model and export.")
@@ -1271,13 +1727,14 @@ def render_unified_workspace():
 # ============================================================
 
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio")
+    st.title("🏗️ SDS Design Studio Pro")
     st.caption("Parametric design for tensile structures, membrane roofs, and steel frames.")
     st.markdown("### *Roots Protected. Branches Free. Ecosystem Growing.*")
     
     projects = get_projects_list()
     
-    col1, col2, col3 = st.columns(3)
+    # Dashboard cards
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown(f"""
         <div class="dashboard-card">
@@ -1303,32 +1760,51 @@ def render_dashboard():
             <div class="label">Locked Designs</div>
         </div>
         """, unsafe_allow_html=True)
+    with col4:
+        history_count = len(st.session_state.design_history)
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="icon">📊</div>
+            <div class="value">{history_count}</div>
+            <div class="label">Design History</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     st.divider()
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("➕ New Design", use_container_width=True, type="primary"):
             st.session_state.show_registration = True
             st.rerun()
     with col2:
         if projects:
-            if st.button("📂 Open Saved Project", use_container_width=True):
+            if st.button("📂 Open Project", use_container_width=True):
                 st.session_state.show_project_browser = True
                 st.rerun()
         else:
-            st.button("📂 No Saved Projects", use_container_width=True, disabled=True)
+            st.button("📂 No Projects", use_container_width=True, disabled=True)
+    with col3:
+        if st.session_state.design_history:
+            if st.button("📊 Compare Designs", use_container_width=True):
+                st.session_state.comparison_mode = True
+                st.rerun()
     
     if projects:
         st.subheader("📋 Recent Projects")
         for proj in projects[:5]:
-            col1, col2 = st.columns([3, 1])
+            col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
             with col1:
                 st.write(f"**{proj.get('name', 'Untitled')}** — 👤 {proj.get('client', 'N/A')} | {proj.get('typology', 'Unknown')}")
             with col2:
-                if st.button("Open", key=f"dash_load_{proj.get('file')}", use_container_width=True):
+                if st.button("📂 Open", key=f"dash_load_{proj.get('file')}", use_container_width=True):
                     if load_project_from_file(proj.get('file')):
                         st.rerun()
+            with col3:
+                status = "🔒" if proj.get("locked") else "📝"
+                st.write(status)
+            with col4:
+                st.caption(proj.get("date", "")[:10])
             st.divider()
     
     st.caption("💡 Select 'New Design' to start a project, or open an existing project from the list above.")
@@ -1343,7 +1819,7 @@ with cols[0]:
     if st.button("🏗️", key="sds_logo", help="Go to Dashboard"):
         go_to_dashboard()
         st.rerun()
-    st.caption("SDS")
+    st.caption("SDS Pro")
 with cols[1]:
     if st.session_state.project_registered and st.session_state.project_info:
         st.caption(f"📌 {st.session_state.project_info.get('name', 'Project')[:20]}")
@@ -1356,29 +1832,32 @@ with cols[2]:
     else:
         st.caption("")
 with cols[3]:
-    if st.button("🏠 Dash", use_container_width=True, help="Return to Main Dashboard"):
+    if st.button("🏠 Dash", use_container_width=True, help="Main Dashboard"):
         go_to_dashboard()
         st.rerun()
 with cols[4]:
     if st.session_state.project_registered:
-        if st.button("📂 Proj", use_container_width=True, help="View saved projects"):
+        if st.button("📂 Proj", use_container_width=True, help="Saved projects"):
             st.session_state.show_project_browser = not st.session_state.show_project_browser
             st.rerun()
 with cols[5]:
     if st.session_state.project_registered and st.session_state.typology:
-        if st.button("💾 Save", use_container_width=True, help="Save current project"):
+        if st.button("💾 Save", use_container_width=True, help="Save project"):
             save_project_as_new()
             st.rerun()
 with cols[6]:
     if st.session_state.project_registered:
-        if st.button("📋 New", use_container_width=True, help="Start new project"):
+        if st.button("📋 New", use_container_width=True, help="New project"):
             clear_cache()
             st.rerun()
 with cols[7]:
-    pass
+    if st.session_state.design_history:
+        if st.button("📊 Comp", use_container_width=True, help="Compare designs"):
+            st.session_state.comparison_mode = not st.session_state.comparison_mode
+            st.rerun()
 with cols[8]:
     if st.session_state.locked and st.session_state.typology:
-        if st.button("🔓 Unlock", use_container_width=True, type="primary", help="Unlock the design to make changes"):
+        if st.button("🔓 Unlock", use_container_width=True, type="primary"):
             st.session_state.locked = False
             save_cache()
             st.rerun()
@@ -1386,8 +1865,8 @@ with cols[8]:
 # --- PROJECT BROWSER ---
 if st.session_state.show_project_browser:
     st.subheader("📂 Saved Projects")
-    if st.button("⬅ Back to Dashboard", use_container_width=True):
-        go_to_dashboard()
+    if st.button("⬅ Back", use_container_width=True):
+        st.session_state.show_project_browser = False
         st.rerun()
     projects = get_projects_list()
     if not projects:
@@ -1395,15 +1874,10 @@ if st.session_state.show_project_browser:
     else:
         projects.sort(key=lambda x: x.get("date", ""), reverse=True)
         for proj in projects:
-            st.markdown(f"""
-            <div style="background-color:#141e2b; padding:0.5rem 1rem; border-radius:8px; margin-bottom:0.5rem; border-left:3px solid #4a7a9c;">
-                <span style="color:#ffffff; font-weight:600;">📌 Name:</span> <span style="color:#b0c4de;">{proj.get('name', 'Untitled')}</span><br>
-                <span style="color:#ffffff; font-weight:600;">👤 Client:</span> <span style="color:#b0c4de;">{proj.get('client', 'Unknown')}</span> &nbsp;|&nbsp; 
-                <span style="color:#ffffff; font-weight:600;">🔑 Ref:</span> <span style="color:#b0c4de;">{proj.get('reference', 'N/A')}</span> &nbsp;|&nbsp; 
-                <span style="color:#ffffff; font-weight:600;">🏗️ Type:</span> <span style="color:#b0c4de;">{proj.get('typology', 'Unknown')}</span> {'🔒' if proj.get('locked') else '📝'}
-            </div>
-            """, unsafe_allow_html=True)
-            col1, col2, col3 = st.columns([4, 1, 1])
+            col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+            with col1:
+                st.write(f"📌 {proj.get('name', 'Untitled')} — 👤 {proj.get('client', 'Unknown')}")
+                st.caption(f"🏗️ {proj.get('typology', 'Unknown')} | 🔑 {proj.get('reference', 'N/A')} {'🔒' if proj.get('locked') else '📝'}")
             with col2:
                 if st.button("📂 Load", key=f"load_{proj.get('file')}", use_container_width=True):
                     if load_project_from_file(proj.get('file')):
@@ -1411,10 +1885,18 @@ if st.session_state.show_project_browser:
                         st.session_state.show_project_browser = False
                         st.rerun()
             with col3:
-                if st.button("🗑️ Delete", key=f"del_{proj.get('file')}", use_container_width=True):
+                if st.button("🗑️ Del", key=f"del_{proj.get('file')}", use_container_width=True):
                     if delete_project_file(proj.get('file')):
-                        st.success(f"✅ Project {proj.get('name')} deleted.")
+                        st.success(f"✅ Deleted.")
                         st.rerun()
+            with col4:
+                st.caption(proj.get("date", "")[:10])
+            st.divider()
+    st.stop()
+
+# --- COMPARISON MODE ---
+if st.session_state.comparison_mode:
+    render_comparison_mode()
     st.stop()
 
 # --- DASHBOARD ---
@@ -1436,8 +1918,8 @@ if st.session_state.show_registration or (st.session_state.project_registered an
                 project_name = st.text_input("📌 Project Name *", placeholder="e.g., Marina Bay Canopy")
                 client_name = st.text_input("👤 Client Name *", placeholder="e.g., Marina Bay Sands")
             with col2:
-                architect = st.text_input("🏛️ Architect (optional)", placeholder="e.g., Foster + Partners")
-                engineer = st.text_input("🔧 Engineer (optional)", placeholder="e.g., Arup")
+                architect = st.text_input("🏛️ Architect", placeholder="e.g., Foster + Partners")
+                engineer = st.text_input("🔧 Engineer", placeholder="e.g., Arup")
             location = st.text_input("📍 Location", placeholder="e.g., Singapore")
             project_date = st.date_input("📅 Date", value=datetime.today())
             ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
@@ -1487,5 +1969,5 @@ if st.session_state.project_registered and st.session_state.typology is None:
 if st.session_state.typology is not None:
     render_unified_workspace()
 
-st.caption("SDS Platform v4.0 | Main Dashboard + Unified Workspace | Roots Protected. Branches Free. Ecosystem Growing.")
+st.caption("SDS Platform v5.0 | Pro Edition | Roots Protected. Branches Free. Ecosystem Growing.")
 save_cache()
