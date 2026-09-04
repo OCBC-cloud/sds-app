@@ -330,7 +330,8 @@ if "materials" not in st.session_state:
         "wire_rope_type": "6x19 Galvanized (EU)",
         "wire_rope_diameter": 12,
         "num_bays": 2,
-        "tie_down_angle": 45,
+        "tie_down_vertical_angle": 45,
+        "tie_down_horizontal_spread": 30,
         "wind_zone": "Zone 2",
         "terrain_category": "II",
         "building_height": 10.0,
@@ -510,8 +511,14 @@ def calculate_wind_pressure_standard(wind_zone, terrain_category, height, import
     wind_zones = get_wind_zones_for_standard(standard)
     terrain_cats = get_terrain_categories_for_standard(standard)
     
-    wind_data = wind_zones.get(wind_zone, list(wind_zones.values())[0])
-    terrain = terrain_cats.get(terrain_category, list(terrain_cats.values())[0])
+    if wind_zone not in wind_zones:
+        wind_zone = list(wind_zones.keys())[0] if wind_zones else "Zone 1"
+    
+    if terrain_category not in terrain_cats:
+        terrain_category = list(terrain_cats.keys())[0] if terrain_cats else "II"
+    
+    wind_data = wind_zones[wind_zone]
+    terrain = terrain_cats[terrain_category]
     
     vb = wind_data["basic_wind_speed"]
     z0 = terrain["z0"]
@@ -618,9 +625,10 @@ def calculate_cable_size_standard(force_kn, safety_factor, cable_type):
     }
 
 # ============================================================
-# ENGINEERING FUNCTIONS
+# ENGINEERING FUNCTIONS - IMPROVED TIE-DOWNS
 # ============================================================
 def generate_bracing_positions(span, num_bays):
+    """Generate bracing positions along the span"""
     if num_bays == 1:
         return [0.0]
     elif num_bays == 2:
@@ -630,20 +638,41 @@ def generate_bracing_positions(span, num_bays):
     else:
         return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
 
-def generate_tie_down_anchors(span, laa, height, x_positions, angle_deg):
-    angle_rad = np.radians(angle_deg)
-    distance = height * np.tan(angle_rad)
+def calculate_tie_down_positions(span, laa, height, bracing_positions, vertical_angle, horizontal_spread):
+    """
+    Calculate symmetrical tie-down anchor positions radiating outward
+    Returns: List of tie-down connections (beam_x, beam_y, anchor_x, anchor_y, anchor_z)
+    """
+    vertical_rad = np.radians(vertical_angle)
+    horizontal_rad = np.radians(horizontal_spread)
+    
+    # Distance from beam to anchor (horizontal)
+    distance = height * np.tan(vertical_rad)
+    
     anchors = []
-    beam_ys = [-laa/2, laa/2]
-    for beam_y in beam_ys:
-        for beam_x in x_positions:
+    beam_ys = [-laa/2, laa/2]  # Beam 1 (left) and Beam 2 (right)
+    
+    for bx in bracing_positions:
+        for beam_y in beam_ys:
+            # Determine outward direction
+            if beam_y < 0:  # Beam 1 - left side
+                y_direction = -1
+            else:  # Beam 2 - right side
+                y_direction = 1
+            
+            # Calculate anchor positions - radiating outward
+            anchor_x = bx + distance * np.cos(horizontal_rad) * (1 if bx >= 0 else -1)
+            anchor_y = beam_y + distance * np.sin(horizontal_rad) * y_direction
+            
             anchors.append({
-                "beam_x": beam_x,
+                "beam_x": bx,
                 "beam_y": beam_y,
-                "anchor_x": beam_x + distance,
-                "anchor_y": beam_y,
-                "anchor_z": 0
+                "anchor_x": anchor_x,
+                "anchor_y": anchor_y,
+                "anchor_z": 0,
+                "side": "left" if beam_y < 0 else "right"
             })
+    
     return anchors
 
 # ============================================================
@@ -731,7 +760,7 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# 3D GENERATORS
+# 3D GENERATOR - IMPROVED WITH PROPER TIE-DOWNS
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span = params.get("B", 10.0)
@@ -749,6 +778,7 @@ def generate_saddle_span(params, materials=None):
 
     fig = go.Figure()
 
+    # ===== BEAMS =====
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode='lines', name='Beam 1',
@@ -760,6 +790,7 @@ def generate_saddle_span(params, materials=None):
         line=dict(color='#FF6B6B', width=6)
     ))
 
+    # ===== MEMBRANE SURFACE =====
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
@@ -782,6 +813,7 @@ def generate_saddle_span(params, materials=None):
         opacity=0.7, showscale=False, name='Membrane'
     ))
 
+    # ===== APEX AND SUPPORTS =====
     fig.add_trace(go.Scatter3d(
         x=[0], y=[y1[num_points//2]], z=[rise],
         mode='markers', name='Apex 1',
@@ -800,32 +832,84 @@ def generate_saddle_span(params, materials=None):
         marker=dict(color='#4ECDC4', size=8, symbol='square')
     ))
 
+    # ===== BRACING (RED LINES) AND TIE-DOWNS (YELLOW) =====
     if materials:
         num_bays = materials.get("num_bays", 2)
+        vertical_angle = materials.get("tie_down_vertical_angle", 45)
+        horizontal_spread = materials.get("tie_down_horizontal_spread", 30)
+        
+        # Generate bracing positions
         bracing_x = generate_bracing_positions(span, num_bays)
+        
+        # Store bracing attachment points for tie-downs
+        bracing_points = []
+        
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
             y1_pos = y1[idx]
             y2_pos = y2[idx]
             z_pos = z_beam[idx]
+            
+            # Store attachment points
+            bracing_points.append({
+                "x": bx,
+                "y1": y1_pos,
+                "y2": y2_pos,
+                "z": z_pos,
+                "idx": idx
+            })
+            
+            # === DRAW BRACING (RED DASHED LINES) ===
+            # Cross bracing between beams at this point
             fig.add_trace(go.Scatter3d(
                 x=[bx, bx], y=[y1_pos, y2_pos], z=[z_pos, z_pos],
                 mode='lines', name='Bracing',
-                line=dict(color='#FF6B6B', width=2, dash='dash'),
+                line=dict(color='#FF6B6B', width=3, dash='dash'),
                 showlegend=False
             ))
-
-        angle = materials.get("tie_down_angle", 45)
-        anchors = generate_tie_down_anchors(span, laa, rise, bracing_x, angle)
-        for a in anchors:
-            idx = np.argmin(np.abs(x - a["beam_x"]))
+        
+        # === CALCULATE TIE-DOWN POSITIONS ===
+        # Use the bracing x-positions for tie-downs
+        tie_down_anchors = calculate_tie_down_positions(
+            span, laa, rise, bracing_x, vertical_angle, horizontal_spread
+        )
+        
+        # === DRAW TIE-DOWN CABLES (YELLOW) ===
+        for anchor in tie_down_anchors:
+            # Find the closest point on the beam for this bracing x position
+            bx = anchor["beam_x"]
+            idx = np.argmin(np.abs(x - bx))
             beam_z = z_beam[idx]
+            beam_y = anchor["beam_y"]
+            
+            # Draw tie-down from beam attachment point to ground anchor
             fig.add_trace(go.Scatter3d(
-                x=[a["beam_x"], a["anchor_x"]],
-                y=[a["beam_y"], a["anchor_y"]],
-                z=[beam_z, a["anchor_z"]],
-                mode='lines', name='Tie-Down',
-                line=dict(color='#FFD93D', width=2),
+                x=[bx, anchor["anchor_x"]],
+                y=[beam_y, anchor["anchor_y"]],
+                z=[beam_z, anchor["anchor_z"]],
+                mode='lines', name='Tie-Down Cable',
+                line=dict(color='#FFD93D', width=3),
+                showlegend=False
+            ))
+            
+            # Draw ground anchor marker (RED X)
+            fig.add_trace(go.Scatter3d(
+                x=[anchor["anchor_x"]],
+                y=[anchor["anchor_y"]],
+                z=[anchor["anchor_z"]],
+                mode='markers', name='Ground Anchor',
+                marker=dict(color='#FF4444', size=8, symbol='x'),
+                showlegend=False
+            ))
+            
+            # Add ground anchor label (small text showing position)
+            fig.add_trace(go.Scatter3d(
+                x=[anchor["anchor_x"]],
+                y=[anchor["anchor_y"] + 0.3],
+                z=[anchor["anchor_z"]],
+                mode='text', name='Anchor Label',
+                text=[f'📍'],
+                textfont=dict(color='#FF4444', size=12),
                 showlegend=False
             ))
 
@@ -1034,7 +1118,7 @@ GENERATORS = {
 }
 
 # ============================================================
-# STRUCTURAL HEALTH REPORT FUNCTION (FIXED)
+# STRUCTURAL HEALTH REPORT FUNCTIONS
 # ============================================================
 def generate_structural_health_report(params, materials):
     """Generate comprehensive structural health report using selected standard"""
@@ -1243,6 +1327,9 @@ def render_structural_health_report(report):
     df = pd.DataFrame(summary_data)
     st.dataframe(df, use_container_width=True, hide_index=True)
 
+# ============================================================
+# UI FUNCTIONS
+# ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio - International Standards")
     st.caption("Design with EU, China, British, Malaysian, and US Standards")
@@ -1324,7 +1411,7 @@ def render_workspace():
     st.markdown("## 🧠 Design Workspace")
     st.caption(f"🇪🇺🇨🇳🇬🇧🇲🇾🇺🇸 {get_standard_label(standard)} Compliant")
     
-    # Health Report Button - VISIBLE at top
+    # Health Report Button
     col_report1, col_report2 = st.columns([4, 1])
     with col_report2:
         if st.button("📊 Generate Health Report", use_container_width=True, type="primary"):
@@ -1482,11 +1569,27 @@ def render_workspace():
         )
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Bracing & Tie-Downs
+        # Bracing & Tie-Downs - UPDATED with new parameters
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">🔗 Bracing & Tie-Downs</div>', unsafe_allow_html=True)
         materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=1, key="num_bays")
-        materials["tie_down_angle"] = st.slider("Tie-Down Angle (°)", 20, 70, 45, 5, key="tie_down_angle")
+        
+        # Tie-down angles - NEW
+        materials["tie_down_vertical_angle"] = st.slider(
+            "Tie-Down Vertical Angle (°)", 
+            min_value=20, max_value=70, step=5, 
+            value=int(materials.get("tie_down_vertical_angle", 45)),
+            key="tie_down_vertical",
+            help="Angle from horizontal - higher = steeper cable"
+        )
+        
+        materials["tie_down_horizontal_spread"] = st.slider(
+            "Tie-Down Horizontal Spread (°)", 
+            min_value=10, max_value=60, step=5, 
+            value=int(materials.get("tie_down_horizontal_spread", 30)),
+            key="tie_down_spread",
+            help="Outward spread angle from the beam - larger = wider footprint"
+        )
         
         cable_options = list(CABLE_SPECS.keys())
         current_cable = materials.get("wire_rope_type", cable_options[0] if cable_options else "6x19 Galvanized (EU)")
@@ -1518,6 +1621,9 @@ def render_workspace():
             value=float(materials.get("safety_factor", 1.5)),
             key="safety_factor"
         )
+        
+        # Show tie-down info
+        st.info(f"💡 Tie-downs will radiate outward at {materials['tie_down_vertical_angle']}° vertical and {materials['tie_down_horizontal_spread']}° horizontal spread")
         st.markdown('</div>', unsafe_allow_html=True)
         
         # Comments
@@ -1529,6 +1635,7 @@ def render_workspace():
     
     with col_right:
         st.subheader("🔬 3D Model")
+        st.caption("🟥 Red = Beams | 🟨 Yellow = Tie-Downs | 🔴 Red X = Ground Anchors")
         
         if typ_key == "custom":
             fig = generate_custom(params)
@@ -1710,6 +1817,6 @@ render_workspace()
 
 # Footer
 st.divider()
-st.caption("SDS Design Studio | EU / China / British / Malaysia / USA Standards | v7.1")
+st.caption("SDS Design Studio | EU / China / British / Malaysia / USA Standards | v8.0 - Fixed Tie-Downs")
 
 save_cache()
