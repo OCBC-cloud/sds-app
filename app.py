@@ -12,18 +12,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from PIL import Image
 import io
+import time
 
 # ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio v6.0 - AI-Powered",
+    page_title="SDS Design Studio v6.1 - Smart Feedback",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # ============================================================
-# DARK MODE CSS
+# ENHANCED DARK MODE CSS WITH BUTTON FEEDBACK
 # ============================================================
 dark_mode_css = """
     <style>
@@ -32,14 +33,125 @@ dark_mode_css = """
     .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
     h1, h2, h3, h4, h5, h6 { color: #ffffff !important; font-weight: 600 !important; }
     label { color: #ffffff !important; font-weight: 400 !important; }
+    
+    /* ===== BUTTON FEEDBACK SYSTEM ===== */
     .stButton > button {
-        background-color: #1e2a3a !important; color: #ffffff !important;
-        border: 1px solid #2a3a4f !important; border-radius: 8px !important;
-        padding: 0.5rem 1rem !important; font-weight: 500 !important;
-        width: 100% !important; transition: all 0.2s !important;
+        background-color: #1e2a3a !important;
+        color: #ffffff !important;
+        border: 1px solid #2a3a4f !important;
+        border-radius: 8px !important;
+        padding: 0.5rem 1rem !important;
+        font-weight: 500 !important;
+        width: 100% !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        position: relative !important;
+        overflow: hidden !important;
     }
-    .stButton > button:hover { background-color: #2a3a4f !important; border-color: #4a7a9c !important; }
-    .stButton > button[kind="primary"] { background-color: #f39c12 !important; color: #0a0e17 !important; border: none !important; font-weight: 600 !important; }
+    
+    /* Hover state - subtle lift */
+    .stButton > button:hover {
+        background-color: #2a3a4f !important;
+        border-color: #4a7a9c !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 12px rgba(74, 122, 156, 0.2) !important;
+    }
+    
+    /* Active/Pressed state - immediate gold flash */
+    .stButton > button:active {
+        background-color: #f39c12 !important;
+        color: #0a0e17 !important;
+        transform: scale(0.96) !important;
+        border-color: #f39c12 !important;
+        transition: all 0.05s !important;
+    }
+    
+    /* Primary button states */
+    .stButton > button[kind="primary"] {
+        background-color: #f39c12 !important;
+        color: #0a0e17 !important;
+        border: none !important;
+        font-weight: 600 !important;
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        background-color: #f1c40f !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 16px rgba(243, 156, 18, 0.3) !important;
+    }
+    
+    .stButton > button[kind="primary"]:active {
+        background-color: #e67e22 !important;
+        transform: scale(0.96) !important;
+        transition: all 0.05s !important;
+    }
+    
+    /* Success state (after click) */
+    .stButton > button.success-clicked {
+        background-color: #2ecc71 !important;
+        color: #0a0e17 !important;
+        border-color: #2ecc71 !important;
+        transform: scale(1.02) !important;
+    }
+    
+    /* Error state */
+    .stButton > button.error-clicked {
+        background-color: #e74c3c !important;
+        color: #ffffff !important;
+        border-color: #e74c3c !important;
+    }
+    
+    /* Warning state */
+    .stButton > button.warning-clicked {
+        background-color: #f39c12 !important;
+        color: #0a0e17 !important;
+        border-color: #f39c12 !important;
+    }
+    
+    /* Ripple effect */
+    .stButton > button::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(255,255,255,0.2) 0%, transparent 60%);
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+    }
+    
+    .stButton > button:active::after {
+        opacity: 1;
+    }
+    
+    /* ===== TOAST NOTIFICATION ===== */
+    .sds-toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background-color: #141e2b;
+        border: 1px solid #2a3a4f;
+        border-radius: 12px;
+        padding: 0.75rem 1.5rem;
+        color: #ffffff;
+        font-weight: 500;
+        z-index: 9999;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+        animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1), fadeOut 0.4s cubic-bezier(0.4, 0, 0.2, 1) 2.6s forwards;
+    }
+    .sds-toast-success { border-left: 4px solid #2ecc71; }
+    .sds-toast-warning { border-left: 4px solid #f39c12; }
+    .sds-toast-error { border-left: 4px solid #e74c3c; }
+    .sds-toast-info { border-left: 4px solid #4a7a9c; }
+    
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes fadeOut {
+        0%, 80% { opacity: 1; transform: translateX(0); }
+        100% { opacity: 0; transform: translateX(50px); }
+    }
+    
+    /* ===== OTHER ELEMENTS ===== */
     .stNumberInput > div > div > input, .stSelectbox > div > div > div, .stTextArea textarea {
         background-color: #141e2b !important; color: #ffffff !important;
         border: 1px solid #2a3a4f !important; border-radius: 8px !important;
@@ -50,6 +162,7 @@ dark_mode_css = """
     .stError { background-color: #3a1a1a !important; border-left: 4px solid #e74c3c !important; color: #f0f4fa !important; }
     .stWarning { background-color: #4a3a1a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; }
     #MainMenu, footer, header, .stDeployButton { display: none !important; }
+    
     .dashboard-card { background-color: #141e2b; border-radius: 12px; padding: 1.5rem 1rem; border: 1px solid #1e2a3a; text-align: center; }
     .dashboard-card .icon { font-size: 2.5rem; }
     .dashboard-card .value { color: #ffffff; font-size: 1.5rem; font-weight: 700; }
@@ -77,6 +190,25 @@ dark_mode_css = """
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
+
+# ============================================================
+# TOAST NOTIFICATION SYSTEM
+# ============================================================
+def show_toast(message, type="success", duration=3):
+    """Display a toast notification"""
+    emoji_map = {
+        "success": "✅",
+        "warning": "⚠️",
+        "error": "❌",
+        "info": "ℹ️"
+    }
+    emoji = emoji_map.get(type, "ℹ️")
+    st.markdown(f"""
+    <div class="sds-toast sds-toast-{type}">
+        {emoji} {message}
+    </div>
+    """, unsafe_allow_html=True)
+    time.sleep(0.1)
 
 # ============================================================
 # SECTION PROPERTIES DATABASE
@@ -214,6 +346,8 @@ if "show_image_popout" not in st.session_state:
     st.session_state.show_image_popout = None
 if "new_sections_created" not in st.session_state:
     st.session_state.new_sections_created = []
+if "toast_message" not in st.session_state:
+    st.session_state.toast_message = None
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -653,7 +787,7 @@ def render_recommendations(recommendations, params, materials):
     
     st.markdown("### 💡 Design Recommendations")
     
-    for rec in recommendations:
+    for idx, rec in enumerate(recommendations):
         with st.container():
             st.markdown(f"""
             <div class="recommendation-box">
@@ -666,19 +800,19 @@ def render_recommendations(recommendations, params, materials):
             col1, col2 = st.columns([2, 1])
             with col2:
                 if rec['action_type'] == "switch_to_truss":
-                    if st.button(f"🔄 Apply: {rec['action']}", key=f"rec_truss_{len(recommendations)}"):
+                    if st.button(f"🔄 Apply: {rec['action']}", key=f"rec_truss_{idx}"):
                         materials["member_type"] = "planar_truss"
-                        st.success("✅ Switched to Planar Truss. Re-run analysis to see results.")
+                        show_toast("✅ Switched to Planar Truss", "success")
                         st.rerun()
                 elif rec['action_type'] == "switch_to_space_truss":
-                    if st.button(f"🔄 Apply: {rec['action']}", key=f"rec_space_{len(recommendations)}"):
+                    if st.button(f"🔄 Apply: {rec['action']}", key=f"rec_space_{idx}"):
                         materials["member_type"] = "space_truss"
-                        st.success("✅ Switched to Space Truss. Re-run analysis to see results.")
+                        show_toast("✅ Switched to Space Truss", "success")
                         st.rerun()
                 elif rec['action_type'] == "add_anchors":
-                    if st.button(f"➕ Apply: {rec['action']}", key=f"rec_anchor_{len(recommendations)}"):
+                    if st.button(f"➕ Apply: {rec['action']}", key=f"rec_anchor_{idx}"):
                         materials["num_bays"] = min(3, materials.get("num_bays", 2) + 1)
-                        st.success(f"✅ Added anchors. New bays: {materials['num_bays']}")
+                        show_toast(f"✅ Added anchors. New bays: {materials['num_bays']}", "success")
                         st.rerun()
 
 def auto_design_structure(params, materials):
@@ -936,14 +1070,8 @@ def generate_saddle_span(params, materials=None):
             y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
             
             # NATURAL SADDLE SHAPE - smooth transition, no upward fold
-            # At edges (v_val=0 or 1), the membrane flows naturally away from the beam
-            # with a tiny natural sag (2% of height)
             edge_transition = 1 - (0.02 * (1 - (2 * v_val - 1)**2))
-            
-            # Saddle factor - controls the sag/dip in the middle
             saddle_factor = 1 - (0.3 / prestress_factor) * (1 - (2 * v_val - 1)**2)
-            
-            # Final height - natural, graceful curve
             z_pos = z_at_x * edge_transition * saddle_factor * prestress_factor
             
             X_surf[i, j] = x_pos
@@ -1213,8 +1341,8 @@ def render_image_gallery():
 # UI FUNCTIONS
 # ============================================================
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio v6.0")
-    st.caption("⚡ AI-Powered Structural Intelligence | Smart Design. Precision Engineering.")
+    st.title("🏗️ SDS Design Studio v6.1")
+    st.caption("⚡ AI-Powered Structural Intelligence | Smart Feedback System")
     
     projects = st.session_state.saved_projects
     cols = st.columns(4)
@@ -1354,19 +1482,21 @@ def render_workspace():
                     break
             if existing_idx is not None:
                 st.session_state.saved_projects[existing_idx] = proj
-                st.success(f"✅ Project updated: {info.get('name')}")
+                show_toast(f"✅ Project updated: {info.get('name')}", "success")
             else:
                 st.session_state.saved_projects.append(proj)
-                st.success(f"✅ Project saved: {info.get('name')}")
+                show_toast(f"✅ Project saved: {info.get('name')}", "success")
             st.rerun()
     with col3:
         if st.button("🔒 Lock", use_container_width=True):
             st.session_state.locked = True
+            show_toast("🔒 Design locked", "warning")
             st.rerun()
     with col4:
         if st.session_state.locked:
             if st.button("🔓 Unlock", use_container_width=True):
                 st.session_state.locked = False
+                show_toast("🔓 Design unlocked", "info")
                 st.rerun()
     
     st.divider()
@@ -1537,7 +1667,7 @@ def render_workspace():
         st.markdown(f"**Force per Cable:** {design_results['cables']['force_per_cable']:.1f} kN")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # ===== SMART CHECKLIST - ONLY PASS, NO CHECK =====
+        # ===== SMART CHECKLIST =====
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📋 Smart Design Checklist</div>', unsafe_allow_html=True)
         
@@ -1614,4 +1744,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("SDS Design Studio v6.0 | AI-Powered Structural Intelligence | MS EN Wind: 33.5m/s")
+st.caption("SDS Design Studio v6.1 | Smart Feedback System | MS EN Wind: 33.5m/s")
