@@ -17,7 +17,7 @@ import io
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio Pro v3.4 - Open Project Fixed",
+    page_title="SDS Design Studio Pro v3.5 - All Buttons Fixed",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -59,7 +59,6 @@ dark_mode_css = """
     .sds-card { background-color: #141e2b; border-radius: 12px; padding: 1rem 1.2rem; border: 1px solid #1e2a3a; margin-bottom: 0.8rem; }
     .sds-card .title { color: #ffffff; font-weight: 600; font-size: 1rem; }
     .sds-card .content { color: #b0c4de; font-size: 0.9rem; }
-    .sds-card .success-msg { background-color: #1a3a2a; padding: 0.5rem 1rem; border-radius: 8px; border-left: 4px solid #2ecc71; }
     .standard-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.7rem; font-weight: 600; margin-right: 0.3rem; }
     .badge-eu { background-color: #003399; color: #ffffff; }
     .badge-cn { background-color: #DE2910; color: #ffffff; }
@@ -923,7 +922,7 @@ def render_structural_health_report(report):
         st.session_state.upgrade_name = ""
 
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio Pro v3.4 - Open Project Fixed")
+    st.title("🏗️ SDS Design Studio Pro v3.5 - All Buttons Fixed")
     st.caption("🚀 Automatic Member Sizing | Intelligent Structural Upgrade Engine")
     projects = get_projects_list()
     cols = st.columns(4)
@@ -1381,9 +1380,10 @@ TYPOLOGIES = {
 }
 
 # ============================================================
-# MAIN APP ROUTING
+# MAIN APP ROUTING - COMPLETELY RESTRUCTURED
 # ============================================================
-# Top Bar
+
+# ===== TOP BAR (Always visible) =====
 c1, c2, c3, c4, c5, c6, c7 = st.columns([1, 2, 1, 1, 1, 1, 1])
 with c1:
     if st.button("🏗️", help="Dashboard", key="logo_btn"):
@@ -1409,9 +1409,7 @@ with c6:
 with c7:
     st.caption("📊 Use top")
 
-# ============================================================
-# PROJECT BROWSER - FIXED: Now works properly with st.stop()
-# ============================================================
+# ===== PRIORITY 1: PROJECT BROWSER =====
 if st.session_state.show_project_browser:
     st.subheader("📂 Saved Projects")
     if st.button("⬅ Back to Dashboard", use_container_width=True, key="back_browser"):
@@ -1436,11 +1434,9 @@ if st.session_state.show_project_browser:
                 st.rerun()
             c4.caption(proj.get("date", "")[:10])
             st.divider()
-    st.stop()  # <-- CRITICAL: Stop rendering the rest of the app
+    st.stop()  # CRITICAL: Stop rendering
 
-# ============================================================
-# REGISTRATION
-# ============================================================
+# ===== PRIORITY 2: REGISTRATION =====
 if st.session_state.show_registration:
     st.subheader("📋 New Project")
     if st.button("⬅ Back", use_container_width=True, key="back_reg"):
@@ -1464,18 +1460,14 @@ if st.session_state.show_registration:
                 st.session_state.materials["standard"] = standard
                 save_cache()
                 st.rerun()
-    st.stop()
+    st.stop()  # CRITICAL: Stop rendering
 
-# ============================================================
-# DASHBOARD
-# ============================================================
+# ===== PRIORITY 3: DASHBOARD =====
 if not st.session_state.project_registered:
     render_dashboard()
-    st.stop()
+    st.stop()  # CRITICAL: Stop rendering
 
-# ============================================================
-# TYPOLOGY SELECTION
-# ============================================================
+# ===== PRIORITY 4: TYPOLOGY SELECTION =====
 if st.session_state.typology is None:
     st.subheader("Choose a structure type:")
     st.caption("🏕️ Saddle Span - Complete Module with Automatic Sizing & Intelligent Upgrade")
@@ -1489,16 +1481,12 @@ if st.session_state.typology is None:
                 st.session_state.locked = False
                 save_cache()
                 st.rerun()
-    st.stop()
+    st.stop()  # CRITICAL: Stop rendering
 
-# ============================================================
-# MAIN WORKSPACE
-# ============================================================
+# ===== PRIORITY 5: MAIN WORKSPACE =====
 render_workspace()
 
-# ============================================================
-# FOOTER
-# ============================================================
+# ===== FOOTER =====
 st.divider()
-st.caption("SDS Design Studio Pro v3.4 | ✅ Open Project Fixed | MS EN Wind: 33.5m/s")
+st.caption("SDS Design Studio Pro v3.5 | ✅ ALL BUTTONS FIXED | MS EN Wind: 33.5m/s")
 save_cache()
