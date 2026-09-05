@@ -17,7 +17,7 @@ import io
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio v5.4 - Enhanced 3D",
+    page_title="SDS Design Studio v5.5 - Membrane Fixed",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -204,7 +204,8 @@ if "materials" not in st.session_state:
         "member_type": "single_beam",
         "truss_type": "warren",
         "anchoring_pattern": "standard",
-        "num_bays": 2
+        "num_bays": 2,
+        "prestress_level": "medium"
     }
 if "show_image_popout" not in st.session_state:
     st.session_state.show_image_popout = None
@@ -729,7 +730,7 @@ def auto_design_structure(params, materials):
     return results
 
 # ============================================================
-# ENHANCED 3D GENERATOR
+# ENHANCED 3D GENERATOR - FIXED MEMBRANE ATTACHMENT
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span, rise, laa = params.get("B", 10.0), params.get("A", 6.0), params.get("LAA", 15.0)
@@ -744,7 +745,7 @@ def generate_saddle_span(params, materials=None):
     anchoring_pattern = materials.get("anchoring_pattern", "standard") if materials else "standard"
     prestress_level = materials.get("prestress_level", "medium") if materials else "medium"
     
-    # Prestress values - HIGHER for tighter membrane
+    # Prestress values
     prestress_values = {"none": 0.5, "low": 1.0, "medium": 1.5, "high": 2.0}
     if prestress_level == "custom":
         prestress = materials.get("custom_prestress", 1.5) if materials else 1.5
@@ -821,12 +822,11 @@ def generate_saddle_span(params, materials=None):
                 mode='lines', line=dict(color='#FF9B6B', width=2, dash='dot'), showlegend=False
             ))
 
-    # ===== MEMBRANE (TIGHTER FORMING) =====
+    # ===== MEMBRANE SURFACE - FIXED TO ATTACH TO BEAMS =====
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
 
-    # TIGHTER membrane - prestress factor makes it more taught
     prestress_factor = 1 + prestress / 5.0
 
     for i, x_pos in enumerate(x):
@@ -835,9 +835,18 @@ def generate_saddle_span(params, materials=None):
         z_at_x = z_beam[i]
         
         for j, v_val in enumerate(np.linspace(0, 1, num_points)):
+            # Linear interpolation between beams
             y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
-            saddle_factor = 1 - (0.3 / prestress_factor) * (1 - (2 * v_val - 1)**2)
-            z_pos = z_at_x * saddle_factor * prestress_factor
+            
+            # Saddle factor - only affects interior
+            # FORCE edges to exactly match beam height
+            if v_val == 0 or v_val == 1 or abs(v_val - 0) < 0.01 or abs(v_val - 1) < 0.01:
+                # Edge - exactly on beam
+                z_pos = z_at_x
+            else:
+                # Interior - saddle shape
+                saddle_factor = 1 - (0.3 / prestress_factor) * (1 - (2 * v_val - 1)**2)
+                z_pos = z_at_x * saddle_factor * prestress_factor
             
             X_surf[i, j] = x_pos
             Y_surf[i, j] = y_pos
@@ -877,7 +886,6 @@ def generate_saddle_span(params, materials=None):
         horizontal_spread = materials.get("tie_down_horizontal_spread", 30)
         
         bracing_x = generate_bracing_positions(span, num_bays)
-        bracing_points = []
         
         # Draw bracing
         for bx in bracing_x:
@@ -885,10 +893,6 @@ def generate_saddle_span(params, materials=None):
             y1_pos = y1[idx]
             y2_pos = y2[idx]
             z_pos = z_beam[idx]
-            
-            bracing_points.append({
-                "x": bx, "y1": y1_pos, "y2": y2_pos, "z": z_pos, "idx": idx
-            })
             
             fig.add_trace(go.Scatter3d(
                 x=[bx, bx], y=[y1_pos, y2_pos], z=[z_pos, z_pos],
@@ -927,7 +931,7 @@ def generate_saddle_span(params, materials=None):
                 y=[beam_y, anchor["anchor_y"]],
                 z=[beam_z, anchor["anchor_z"]],
                 mode='lines', name='Tie-Down',
-                line=dict(color='#FFD93D', width=2),
+                line=dict(color='#FFD93D', width=3),
                 showlegend=False
             ))
             
@@ -969,7 +973,7 @@ def generate_saddle_span(params, materials=None):
     return fig
 
 # ============================================================
-# OTHER GENERATORS (Placeholders - same as before)
+# OTHER GENERATORS
 # ============================================================
 def generate_tent(params):
     span, ridge, bays, bay_dist = params.get("span_width", 10.0), params.get("ridge_height", 5.0), params.get("num_bays", 4), params.get("bay_distance", 5.0)
@@ -1114,8 +1118,8 @@ def render_image_gallery():
 # UI FUNCTIONS
 # ============================================================
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio v5.4 - Enhanced 3D")
-    st.caption("🚀 Enhanced 3D Viewer | Section Locking | Auto-Generation")
+    st.title("🏗️ SDS Design Studio v5.5 - Membrane Fixed")
+    st.caption("🚀 Enhanced 3D | Membrane Attached to Beams | Section Locking")
     
     projects = st.session_state.saved_projects
     cols = st.columns(4)
@@ -1360,7 +1364,7 @@ def render_workspace():
     
     with col_right:
         st.subheader("🔬 Enhanced 3D Model")
-        st.caption("📐 Legend below | 🎯 Tighter membrane | 🔗 Tie-downs at bracing points")
+        st.caption("✅ Membrane attached to beams | ✅ Legend below | ✅ Smaller markers")
         
         fig = generator(params, materials)
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
@@ -1509,4 +1513,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("SDS Design Studio v5.4 | Enhanced 3D Viewer | Section Locking | Auto-Generation | MS EN Wind: 33.5m/s")
+st.caption("SDS Design Studio v5.5 | Membrane Attached to Beams | Enhanced 3D | MS EN Wind: 33.5m/s")
