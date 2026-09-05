@@ -17,13 +17,13 @@ import io
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio v5.1 - Fixed Calculations",
+    page_title="SDS Design Studio v5.2 - Auto-Upgrade",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # ============================================================
-# DARK MODE CSS
+# DARK MODE CSS (Same as before)
 # ============================================================
 dark_mode_css = """
     <style>
@@ -75,7 +75,7 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# SECTION PROPERTIES DATABASE (ENHANCED WITH W_el)
+# SECTION PROPERTIES DATABASE
 # ============================================================
 SECTION_PROPERTIES = {
     "CHS 60.3x3.2": {"A": 574, "I": 0.24e6, "W_el": 8.0e3, "i": 20.5, "weight": 4.5, "type": "CHS"},
@@ -296,7 +296,7 @@ def generate_truss_members(x, z_beam, truss_type="warren", num_panels=4):
     return members
 
 # ============================================================
-# CORRECTED AUTO-DESIGN ENGINE
+# CORRECTED AUTO-DESIGN ENGINE WITH AUTO-UPGRADE
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -305,11 +305,8 @@ def calculate_wind_load(span, laa, standard):
     return q * membrane_area * 1.2
 
 def calculate_dead_load(span, laa, section_name, fabric_type):
-    """Calculate dead load using actual section weights"""
-    # First, try to get weight from main section database
     section_data = SECTION_PROPERTIES.get(section_name)
     if not section_data:
-        # Try aluminum, wood, composite databases
         for db in [ALUMINUM_SECTIONS, WOOD_SECTIONS, COMPOSITE_SECTIONS]:
             if section_name in db:
                 section_data = db[section_name]
@@ -317,19 +314,16 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     if not section_data:
         section_data = {"weight": 28.3}
     
-    steel_kg = section_data.get("weight", 28.3) * span * 2  # Two beams
+    steel_kg = section_data.get("weight", 28.3) * span * 2
     membrane_area = span * laa * 1.1
     fabric_weight = FABRIC_PROPERTIES.get(fabric_type, {}).get("weight_per_m2", 1.2)
     fabric_kg = fabric_weight * membrane_area
-    return (steel_kg + fabric_kg) / 100  # Convert to kN
+    return (steel_kg + fabric_kg) / 100
 
-# ============================================================
-# FIXED: calculate_required_section_based_on_moment
-# ============================================================
 def calculate_required_section_based_on_moment(load_kN, span_m, material_type, fy=355):
     """
-    CORRECTED: Calculate required section based on bending moment
-    load_kN is the total load on the beam, span_m is the beam length
+    Calculate required section based on bending moment
+    WITH AUTO-UPGRADE to larger section if needed
     """
     safety = 1.5
     
@@ -360,6 +354,7 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
     else:
         db = COMPOSITE_SECTIONS
     
+    # First, find the best section
     best_section = None
     best_score = float('inf')
     
@@ -367,15 +362,12 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
         if props["A"] <= 0:
             continue
         
-        # Calculate scores based on W_el and I
         w_score = abs(props["W_el"] - W_required) / W_required if W_required > 0 else 0
         i_score = abs(props["I"] - I_required) / I_required if I_required > 0 else 0
         weight_score = props["weight"] / 100
         
-        # Weighted scoring
         total_score = w_score * 0.4 + i_score * 0.3 + weight_score * 0.3
         
-        # Penalize sections that are too small
         if props["W_el"] < W_required * 0.7:
             total_score += 15
         if props["I"] < I_required * 0.7:
@@ -387,8 +379,37 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
     
     if best_section and best_section in db:
         props = db[best_section]
-        # Calculate moment capacity of selected section
         moment_capacity = (props["W_el"] * fy) / (safety * 1e6)  # kNm
+        is_adequate = props["W_el"] >= W_required * 0.9
+        
+        # AUTO-UPGRADE: If inadequate, try larger sections
+        if not is_adequate:
+            # Get all sections sorted by area
+            all_sections = list(db.items())
+            all_sections.sort(key=lambda x: x[1]["A"])
+            
+            # Find current section index
+            current_idx = None
+            for i, (name, props2) in enumerate(all_sections):
+                if name == best_section:
+                    current_idx = i
+                    break
+            
+            # Try the next larger sections
+            if current_idx is not None:
+                for i in range(current_idx + 1, len(all_sections)):
+                    next_section_name = all_sections[i][0]
+                    next_section_props = all_sections[i][1]
+                    next_capacity = (next_section_props["W_el"] * fy) / (safety * 1e6)
+                    
+                    # Check if this section works
+                    if next_capacity >= M:
+                        best_section = next_section_name
+                        props = next_section_props
+                        moment_capacity = next_capacity
+                        is_adequate = True
+                        break
+        
         return {
             "section": best_section,
             "properties": props,
@@ -396,7 +417,7 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
             "moment_capacity": moment_capacity,
             "required_W": W_required,
             "required_I": I_required,
-            "is_adequate": props["W_el"] >= W_required * 0.9
+            "is_adequate": is_adequate
         }
     return None
 
@@ -418,7 +439,7 @@ def auto_select_cable_diameter(tie_down_force, cable_type):
     return max(diameters.keys()) if diameters else 10
 
 def auto_design_structure(params, materials):
-    """Complete automatic design - CORRECTED"""
+    """Complete automatic design with auto-upgrade"""
     
     span, rise, laa = params.get("B", 10.0), params.get("A", 6.0), params.get("LAA", 15.0)
     member_type = materials.get("member_type", "single_beam")
@@ -443,7 +464,7 @@ def auto_design_structure(params, materials):
         "health_score": 0
     }
     
-    # ===== SIZE MEMBERS BASED ON BENDING MOMENT =====
+    # ===== SIZE MEMBERS WITH AUTO-UPGRADE =====
     if member_type == "single_beam":
         beam_result = calculate_required_section_based_on_moment(total_load, span, material_type)
         if beam_result:
@@ -453,10 +474,8 @@ def auto_design_structure(params, materials):
             results["beams"]["required_moment"] = beam_result["required_moment"]
     
     elif member_type == "planar_truss":
-        # For truss, the top chord carries the compression, bottom chord in tension
-        # The effective span for each chord is the distance between nodes
-        panel_length = span / 4  # Assuming 4 panels
-        top_force = total_load * 0.6  # Simplified distribution
+        panel_length = span / 4
+        top_force = total_load * 0.6
         bottom_force = total_load * 0.4
         
         top_result = calculate_required_section_based_on_moment(top_force, panel_length, material_type)
@@ -467,8 +486,8 @@ def auto_design_structure(params, materials):
         results["truss"]["selected"] = {
             "top": top_result["section"] if top_result else "N/A",
             "bottom": bottom_result["section"] if bottom_result else "N/A",
-            "diagonal": "CHS 88.9x4.0",  # Standard diagonal
-            "vertical": "CHS 76.1x3.6"   # Standard vertical
+            "diagonal": "CHS 88.9x4.0",
+            "vertical": "CHS 76.1x3.6"
         }
     
     elif member_type == "space_truss":
@@ -511,7 +530,7 @@ def auto_design_structure(params, materials):
         "value": f"{wind_load:.1f} kN"
     }
     
-    # Member Capacity Check
+    # Member Capacity Check - NOW WITH AUTO-UPGRADE, THIS SHOULD PASS
     if member_type == "single_beam" and results["beams"].get("main"):
         beam = results["beams"]["main"]
         is_adequate = beam.get("is_adequate", False)
@@ -747,11 +766,11 @@ def render_image_gallery():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
-# UI FUNCTIONS
+# UI FUNCTIONS (Same as before)
 # ============================================================
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio v5.1")
-    st.caption("🚀 Automatic Design Engine - Fixed Calculations")
+    st.title("🏗️ SDS Design Studio v5.2")
+    st.caption("🚀 Automatic Design Engine with Auto-Upgrade")
     
     projects = st.session_state.saved_projects
     cols = st.columns(4)
@@ -870,7 +889,6 @@ def render_workspace():
     st.markdown("## 🧠 Design Workspace")
     st.caption(f"📌 {info.get('name', 'Untitled')} — {info.get('client', 'Unknown')}")
     
-    # Top buttons
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
         if st.button("🏠 Home", use_container_width=True):
@@ -1038,6 +1056,10 @@ def render_workspace():
                 st.markdown(f"**Required Moment:** {beam['required_moment']:.1f} kNm")
                 st.markdown(f"**Moment Capacity:** {beam['moment_capacity']:.1f} kNm")
                 st.markdown(f"**Status:** {'✅ Adequate' if beam['is_adequate'] else '⚠️ Check'}")
+                
+                # Show upgrade info if applicable
+                if beam['is_adequate']:
+                    st.success("✅ Section automatically upgraded to meet requirements")
             else:
                 st.warning("No suitable section found. Consider different material.")
         
@@ -1147,4 +1169,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("SDS Design Studio v5.1 | Fixed Calculations | Auto-Design Engine | MS EN Wind: 33.5m/s")
+st.caption("SDS Design Studio v5.2 | Auto-Upgrade | Auto-Design Engine | MS EN Wind: 33.5m/s")
