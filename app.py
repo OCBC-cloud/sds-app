@@ -20,7 +20,7 @@ import math
 st.set_page_config(
     page_title="SDS Design Studio v7.0",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # ============================================================
@@ -91,12 +91,36 @@ dark_mode_css = """
     .joint-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
     .joint-weld { background-color: #e74c3c; color: #ffffff; }
     .joint-bolt { background-color: #3498db; color: #ffffff; }
+    .sidebar-logo { text-align: center; padding: 1rem 0; }
+    .sidebar-logo h2 { color: #f39c12; }
+    .sidebar-logo p { color: #8a9aaa; font-size: 0.8rem; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# EXPANDED SECTION PROPERTIES DATABASE (100+ Sections)
+# COUNTRY CURRENCY DATABASE
+# ============================================================
+COUNTRY_CURRENCIES = {
+    "Malaysia": {"code": "MYR", "symbol": "RM", "rate": 1.0},
+    "Singapore": {"code": "SGD", "symbol": "S$", "rate": 3.2},
+    "Indonesia": {"code": "IDR", "symbol": "Rp", "rate": 10500},
+    "Thailand": {"code": "THB", "symbol": "฿", "rate": 25.5},
+    "Vietnam": {"code": "VND", "symbol": "₫", "rate": 25000},
+    "Philippines": {"code": "PHP", "symbol": "₱", "rate": 18.5},
+    "China": {"code": "CNY", "symbol": "¥", "rate": 1.5},
+    "UK": {"code": "GBP", "symbol": "£", "rate": 0.18},
+    "EU": {"code": "EUR", "symbol": "€", "rate": 0.21},
+    "US": {"code": "USD", "symbol": "$", "rate": 0.24},
+    "Australia": {"code": "AUD", "symbol": "A$", "rate": 0.35},
+    "India": {"code": "INR", "symbol": "₹", "rate": 20.0},
+    "Japan": {"code": "JPY", "symbol": "¥", "rate": 35.0},
+    "South Korea": {"code": "KRW", "symbol": "₩", "rate": 320},
+    "Brazil": {"code": "BRL", "symbol": "R$", "rate": 1.3},
+}
+
+# ============================================================
+# EXPANDED SECTION PROPERTIES DATABASE
 # ============================================================
 SECTION_PROPERTIES = {
     # ====== CIRCULAR HOLLOW SECTIONS (CHS) ======
@@ -144,7 +168,7 @@ SECTION_PROPERTIES = {
     "RHS 250x150x10": {"A": 7500, "I": 71.0e6, "W_el": 568e3, "i": 97.3, "weight": 58.9, "type": "RHS", "depth": 250},
     "RHS 300x200x12": {"A": 11424, "I": 156e6, "W_el": 1040e3, "i": 116.8, "weight": 89.7, "type": "RHS", "depth": 300},
     
-    # ====== I-BEAMS (W Shapes - Metric) ======
+    # ====== I-BEAMS ======
     "I-100": {"A": 1030, "I": 4.5e6, "W_el": 90e3, "i": 66.1, "weight": 8.1, "type": "I-Beam", "depth": 100},
     "I-120": {"A": 1440, "I": 8.0e6, "W_el": 133e3, "i": 74.5, "weight": 11.3, "type": "I-Beam", "depth": 120},
     "I-140": {"A": 1700, "I": 12.0e6, "W_el": 171e3, "i": 84.0, "weight": 13.3, "type": "I-Beam", "depth": 140},
@@ -162,7 +186,7 @@ SECTION_PROPERTIES = {
     "I-450": {"A": 14300, "I": 498.0e6, "W_el": 2210e3, "i": 186.7, "weight": 112.2, "type": "I-Beam", "depth": 450},
     "I-500": {"A": 17500, "I": 694.0e6, "W_el": 2780e3, "i": 199.2, "weight": 137.4, "type": "I-Beam", "depth": 500},
     
-    # ====== ANGLES (L Shapes) ======
+    # ====== ANGLES ======
     "L40x40x4": {"A": 309, "I": 0.08e6, "W_el": 2.8e3, "i": 16.1, "weight": 2.4, "type": "Angle", "depth": 40},
     "L50x50x5": {"A": 480, "I": 0.18e6, "W_el": 5.1e3, "i": 19.4, "weight": 3.8, "type": "Angle", "depth": 50},
     "L60x60x6": {"A": 691, "I": 0.36e6, "W_el": 8.5e3, "i": 22.8, "weight": 5.4, "type": "Angle", "depth": 60},
@@ -172,7 +196,7 @@ SECTION_PROPERTIES = {
     "L100x100x10": {"A": 1910, "I": 2.28e6, "W_el": 32.0e3, "i": 34.5, "weight": 15.0, "type": "Angle", "depth": 100},
     "L120x120x12": {"A": 2752, "I": 4.52e6, "W_el": 53.0e3, "i": 40.5, "weight": 21.6, "type": "Angle", "depth": 120},
     
-    # ====== CHANNELS (C Shapes) ======
+    # ====== CHANNELS ======
     "C100x50x6": {"A": 1010, "I": 2.8e6, "W_el": 56e3, "i": 52.6, "weight": 7.9, "type": "Channel", "depth": 100},
     "C120x60x7": {"A": 1380, "I": 5.2e6, "W_el": 87e3, "i": 61.4, "weight": 10.8, "type": "Channel", "depth": 120},
     "C150x75x8": {"A": 1910, "I": 10.2e6, "W_el": 136e3, "i": 73.1, "weight": 15.0, "type": "Channel", "depth": 150},
@@ -197,29 +221,11 @@ CABLE_PROPERTIES = {
 }
 
 WIND_SPEEDS = {"EU": 30.0, "CN": 28.0, "UK": 26.0, "MY": 33.5, "US": 38.0}
+MATERIAL_COSTS = {"Steel": 2.5, "Aluminum": 4.5, "Wood": 1.2, "Composite": 6.0}
 
-# Material cost database (per kg)
-MATERIAL_COSTS = {
-    "Steel": 2.5,
-    "Aluminum": 4.5,
-    "Wood": 1.2,
-    "Composite": 6.0
-}
-
-# Joint type multipliers
 JOINT_MULTIPLIERS = {
-    "welded": {
-        "factor": 1.2,  # 20% more material due to moment connections
-        "cost_multiplier": 1.3,  # 30% more cost for welding
-        "connection_cost": 150,  # per joint
-        "description": "Rigid moment connections - stronger but more expensive"
-    },
-    "bolted": {
-        "factor": 1.0,  # Standard material
-        "cost_multiplier": 1.0,  # Standard cost
-        "connection_cost": 80,  # per joint
-        "description": "Pin connections - economical and easy to assemble"
-    }
+    "welded": {"factor": 1.2, "cost_multiplier": 1.3, "connection_cost": 150, "description": "Rigid moment connections"},
+    "bolted": {"factor": 1.0, "cost_multiplier": 1.0, "connection_cost": 80, "description": "Pin connections - economical"}
 }
 
 # ============================================================
@@ -257,7 +263,8 @@ if "materials" not in st.session_state:
         "truss_type": "warren",
         "num_bays": 2,
         "prestress_level": "medium",
-        "joint_type": "bolted"  # NEW: User selects welded or bolted
+        "joint_type": "bolted",
+        "country": "Malaysia"
     }
 
 # ============================================================
@@ -267,24 +274,15 @@ def get_standard_label(code):
     labels = {"EU": "🇪🇺 Eurocode", "CN": "🇨🇳 China", "UK": "🇬🇧 British", "MY": "🇲🇾 Malaysia", "US": "🇺🇸 USA"}
     return labels.get(code, code)
 
-def compress_image(uploaded_file, max_size=300, quality=65):
-    try:
-        img = Image.open(uploaded_file)
-        if img.mode in ('RGBA', 'LA', 'P'):
-            img = img.convert('RGB')
-        w, h = img.size
-        if w > h:
-            new_w, new_h = max_size, int(h * (max_size / w))
-        else:
-            new_w, new_h = int(w * (max_size / h)), max_size
-        new_w, new_h = max(100, new_w), max(100, new_h)
-        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        buffer = io.BytesIO()
-        img.save(buffer, format='JPEG', quality=quality, optimize=True)
-        buffer.seek(0)
-        return buffer
-    except:
-        return None
+def get_currency(country):
+    """Get currency info for a country"""
+    country_data = COUNTRY_CURRENCIES.get(country, COUNTRY_CURRENCIES["Malaysia"])
+    return country_data
+
+def format_currency(amount, country="Malaysia"):
+    """Format amount in local currency"""
+    currency = get_currency(country)
+    return f"{currency['symbol']}{amount:,.0f}"
 
 def get_beam_shape(x, span, rise, shape_type="parabolic"):
     if span <= 0:
@@ -303,68 +301,49 @@ def get_beam_shape(x, span, rise, shape_type="parabolic"):
     return rise * (1 - x_norm**2)
 
 def generate_bracing_positions(span, num_bays):
+    """Generate bracing positions at ~1/4 points from supports"""
     if num_bays == 1:
         return [0.0]
     if num_bays == 2:
-        return [-span/3, span/3]
+        return [-span/4, span/4]  # 1/4 points
     if num_bays == 3:
-        return [-span/4, 0.0, span/4]
-    return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
+        return [-span/3, 0.0, span/3]
+    return np.linspace(-span/3, span/3, num_bays).tolist()
 
 # ============================================================
 # TRUSS ANALYSIS ENGINE
 # ============================================================
 def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
-    """Perform simplified truss analysis based on joint type"""
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     num_bays = materials.get("num_bays", 2)
     num_panels = num_bays + 1
     
-    # Get joint multiplier
     joint_data = JOINT_MULTIPLIERS.get(joint_type, JOINT_MULTIPLIERS["bolted"])
     
-    # Create truss geometry
     panel_width = span / num_panels
-    x_coords = np.linspace(-span/2, span/2, num_panels + 1)
-    z_bottom = np.zeros_like(x_coords)
-    z_top = get_beam_shape(x_coords, span, rise, materials.get("shape_type", "parabolic"))
-    
-    # Calculate reactions (simply supported)
     total_udl = total_load / span
-    reaction = total_udl * span / 2
-    
-    # Simplified force calculation per panel
     max_bending = (total_udl * span**2) / 8
-    truss_depth = rise * 0.7  # Effective depth
+    truss_depth = rise * 0.7
     
-    # Adjust forces based on joint type
     if joint_type == "welded":
-        # Welded = moment connections = members resist bending
-        # Forces are higher due to moment distribution
         force_multiplier = 1.2
         top_chord_force = max_bending / truss_depth * 1.2 * force_multiplier
         bottom_chord_force = max_bending / truss_depth * 1.1 * force_multiplier
         diag_force = top_chord_force * 0.6
         vert_force = diag_force * 0.5
-        joint_description = "Rigid welded connections - members resist bending"
-    else:  # bolted
-        # Bolted = pin connections = axial forces only
-        # Forces are lower because no moment transfer
+    else:
         force_multiplier = 1.0
         top_chord_force = max_bending / truss_depth * 1.2 * force_multiplier
         bottom_chord_force = max_bending / truss_depth * 1.1 * force_multiplier
         diag_force = top_chord_force * 0.6
         vert_force = diag_force * 0.5
-        joint_description = "Bolted pin connections - axial forces only"
     
-    # Select sections based on forces
     db = SECTION_PROPERTIES
-    fy = 355  # Steel yield strength
+    fy = 355
     
     def find_section(force, is_compression=False, preferred_type=None):
-        """Find lightest section that can carry the force"""
-        required_area = force * 1000 / (fy * 0.9)  # Required area in mm²
+        required_area = force * 1000 / (fy * 0.9)
         best_section = None
         best_weight = float('inf')
         
@@ -377,7 +356,6 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
                     best_section = name
         return best_section
     
-    # Select members based on truss type
     truss_type = materials.get("truss_type", "warren")
     
     if truss_type == "warren":
@@ -389,9 +367,9 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
             "top_chord": top_chord or "I-200",
             "bottom_chord": bottom_chord or "I-250",
             "diagonals": diag or "L80x80x8",
-            "verticals": "N/A (Warren has no verticals)",
+            "verticals": "N/A (Warren)",
             "joint_type": joint_type,
-            "joint_description": joint_description
+            "joint_description": joint_data["description"]
         }
     elif truss_type == "pratt":
         top_chord = find_section(top_chord_force, True, "I-Beam") or find_section(top_chord_force, True, "SHS")
@@ -405,7 +383,7 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
             "diagonals": diag or "L80x80x8",
             "verticals": vert or "L60x60x6",
             "joint_type": joint_type,
-            "joint_description": joint_description
+            "joint_description": joint_data["description"]
         }
     elif truss_type == "howe":
         top_chord = find_section(top_chord_force, True, "I-Beam") or find_section(top_chord_force, True, "SHS")
@@ -419,7 +397,7 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
             "diagonals": diag or "L80x80x8",
             "verticals": vert or "L60x60x6",
             "joint_type": joint_type,
-            "joint_description": joint_description
+            "joint_description": joint_data["description"]
         }
     else:  # vierendeel
         top_chord = find_section(top_chord_force * 1.5, True, "I-Beam") or find_section(top_chord_force * 1.5, True, "SHS")
@@ -429,13 +407,12 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
         members = {
             "top_chord": top_chord or "I-250",
             "bottom_chord": bottom_chord or "I-300",
-            "diagonals": "N/A (Vierendeel has no diagonals)",
+            "diagonals": "N/A (Vierendeel)",
             "verticals": vert or "I-180",
             "joint_type": joint_type,
-            "joint_description": joint_description
+            "joint_description": joint_data["description"]
         }
     
-    # Add forces for display
     members["forces"] = {
         "top_chord_force": top_chord_force,
         "bottom_chord_force": bottom_chord_force,
@@ -446,30 +423,28 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
     return members
 
 # ============================================================
-# ENHANCED BQ GENERATOR
+# BQ GENERATOR
 # ============================================================
-def generate_bill_of_quantities(params, materials, design_results, truss_members, joint_type="bolted"):
-    """Generate complete Bill of Quantities with joint type factored in"""
+def generate_bill_of_quantities(params, materials, design_results, truss_members, joint_type="bolted", country="Malaysia"):
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     laa = params.get("LAA", 15.0)
     num_bays = materials.get("num_bays", 2)
     
-    # Get joint data
     joint_data = JOINT_MULTIPLIERS.get(joint_type, JOINT_MULTIPLIERS["bolted"])
     material_cost = MATERIAL_COSTS.get(materials.get("material_type", "Steel"), 2.5)
+    currency = get_currency(country)
     
     bq_items = []
     total_cost = 0
     
-    # 1. Main Beams (2 beams)
+    # 1. Main Beams
     if design_results["beams"].get("selected"):
         beam_section = design_results["beams"]["selected"]
         beam_weight = SECTION_PROPERTIES.get(beam_section, {}).get("weight", 28.3)
-        beam_length = span * 1.1  # Add 10% for connections
-        total_beam_length = beam_length * 2  # 2 beams
-        total_beam_weight = beam_weight * total_beam_length / 1000  # Convert to kg
-        # Apply joint factor for welded joints (more material for moment connections)
+        beam_length = span * 1.1
+        total_beam_length = beam_length * 2
+        total_beam_weight = beam_weight * total_beam_length / 1000
         beam_cost = total_beam_weight * material_cost * joint_data["factor"] * joint_data["cost_multiplier"]
         
         bq_items.append({
@@ -484,9 +459,8 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         })
         total_cost += beam_cost
     
-    # 2. Truss Members (if selected)
+    # 2. Truss Members
     if truss_members and "top_chord" in truss_members:
-        # Top chord
         top_section = truss_members["top_chord"]
         top_weight = SECTION_PROPERTIES.get(top_section, {}).get("weight", 28.3)
         top_length = span * 1.1
@@ -505,7 +479,6 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         })
         total_cost += top_cost
         
-        # Bottom chord
         bottom_section = truss_members["bottom_chord"]
         bottom_weight = SECTION_PROPERTIES.get(bottom_section, {}).get("weight", 28.3)
         bottom_weight_total = bottom_weight * top_length / 1000 * joint_data["factor"]
@@ -523,7 +496,6 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         })
         total_cost += bottom_cost
         
-        # Diagonals (if not N/A)
         if "N/A" not in truss_members["diagonals"]:
             diag_section = truss_members["diagonals"]
             diag_weight = SECTION_PROPERTIES.get(diag_section, {}).get("weight", 9.6)
@@ -544,7 +516,6 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
             })
             total_cost += diag_cost
         
-        # Verticals (if not N/A)
         if "verticals" in truss_members and "N/A" not in truss_members["verticals"]:
             vert_section = truss_members["verticals"]
             vert_weight = SECTION_PROPERTIES.get(vert_section, {}).get("weight", 8.1)
@@ -565,8 +536,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
             })
             total_cost += vert_cost
         
-        # Add joint connections cost
-        num_joints = (num_bays + 1) * 4  # Approximate number of joints
+        num_joints = (num_bays + 1) * 4
         connection_cost = num_joints * joint_data["connection_cost"]
         bq_items.append({
             "item": f"Connections ({num_joints} joints) - {joint_type.upper()}",
@@ -583,7 +553,8 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     # 3. Fabric
     membrane_area = span * laa * 1.1
     fabric_cost_per_m2 = FABRIC_PROPERTIES.get(materials["fabric_type"], {}).get("cost_per_m2", 25)
-    fabric_cost = membrane_area * fabric_cost_per_m2 * 1.2  # Add wastage
+    fabric_cost = membrane_area * fabric_cost_per_m2 * 1.2
+    total_cost += fabric_cost
     
     bq_items.append({
         "item": f"Fabric Membrane - {materials['fabric_type']} ({design_results['fabric']['thickness']}mm)",
@@ -595,7 +566,6 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         "unit_price": fabric_cost_per_m2 * 1.2,
         "total_price": fabric_cost
     })
-    total_cost += fabric_cost
     
     # 4. Cables
     num_anchors = num_bays * 4
@@ -603,6 +573,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     cable_cost_per_m = CABLE_PROPERTIES.get(materials["cable_type"], {}).get("cost_per_m", 8)
     total_cable_length = num_anchors * cable_length
     cable_cost = total_cable_length * cable_cost_per_m * 1.1
+    total_cost += cable_cost
     
     bq_items.append({
         "item": f"Cables ({num_anchors} pcs) - {materials['cable_type']} {design_results['cables']['diameter']}mm",
@@ -614,12 +585,13 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         "unit_price": cable_cost_per_m * 1.1,
         "total_price": cable_cost
     })
-    total_cost += cable_cost
     
-    # 5. Installation (approx 15% of total)
+    # 5. Installation
     installation_cost = total_cost * 0.15
+    total_cost += installation_cost
+    
     bq_items.append({
-        "item": f"Installation & Labour (15% of total) - {joint_type.upper()} joints",
+        "item": f"Installation & Labour - {joint_type.upper()} joints",
         "qty": 1,
         "unit": "lump sum",
         "length_m": "-",
@@ -628,9 +600,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         "unit_price": installation_cost,
         "total_price": installation_cost
     })
-    total_cost += installation_cost
     
-    # Calculate total weight
     total_steel_weight = sum([
         item.get("weight_kg", 0) for item in bq_items 
         if "weight_kg" in item and "Connections" not in item["item"] and "Installation" not in item["item"]
@@ -643,7 +613,8 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         "total_fabric_area": membrane_area,
         "total_cable_length": total_cable_length,
         "joint_type": joint_type,
-        "joint_description": joint_data["description"]
+        "joint_description": joint_data["description"],
+        "currency": currency
     }
 
 # ============================================================
@@ -725,9 +696,9 @@ def auto_design_structure(params, materials):
     fabric_type = materials.get("fabric_type", "PVC-coated Polyester")
     cable_type = materials.get("cable_type", "6x19 Galvanized")
     standard = materials.get("standard", "EU")
-    joint_type = materials.get("joint_type", "bolted")  # Get joint type from user
+    joint_type = materials.get("joint_type", "bolted")
+    country = materials.get("country", "Malaysia")
     
-    # Get joint multiplier
     joint_data = JOINT_MULTIPLIERS.get(joint_type, JOINT_MULTIPLIERS["bolted"])
     
     wind_load = calculate_wind_load(span, laa, standard)
@@ -735,20 +706,19 @@ def auto_design_structure(params, materials):
     live_load = 0.5 * (span * laa * 1.1) / 100
     total_load = wind_load + dead_load + live_load
     
-    # Apply joint factor to total load if welded
     if joint_type == "welded":
-        total_load *= 1.1  # 10% more load for moment transfer
+        total_load *= 1.1
     
     results = {
         "loads": {"wind": wind_load, "dead": dead_load, "live": live_load, "total": total_load},
         "beams": {}, "truss": {}, "fabric": {}, "cables": {},
         "all_checks": {}, "health_score": 0,
-        "joint_type": joint_type
+        "joint_type": joint_type,
+        "country": country
     }
     
     fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
     
-    # --- SINGLE BEAM ANALYSIS ---
     if member_type == "single_beam":
         beam_result = calculate_required_section(total_load, span, material_type, fy)
         if beam_result:
@@ -757,20 +727,17 @@ def auto_design_structure(params, materials):
             results["beams"]["moment_capacity"] = beam_result["moment_capacity"]
             results["beams"]["required_moment"] = beam_result["required_moment"]
     
-    # --- TRUSS ANALYSIS ---
     truss_members = None
     if member_type in ["planar_truss", "space_truss"]:
         truss_members = analyze_truss_members(params, materials, total_load, joint_type)
         results["truss"] = truss_members
     
-    # --- FABRIC SELECTION ---
     membrane_area = span * laa * 1.1
     fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area, fabric_type)
     results["fabric"]["type"] = fabric_type
     results["fabric"]["thickness"] = fabric_thickness
     results["fabric"]["strength"] = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {}).get(fabric_thickness, 0)
     
-    # --- CABLE SELECTION ---
     num_bays = materials.get("num_bays", 2)
     num_anchors = num_bays * 4
     vertical_angle = materials.get("tie_down_vertical_angle", 45)
@@ -787,17 +754,8 @@ def auto_design_structure(params, materials):
     results["cables"]["force_per_cable"] = cable_force
     results["cables"]["is_adequate"] = cable_breaking >= cable_force * 1.5
     
-    # --- CHECKS ---
-    results["all_checks"]["wind_load"] = {
-        "status": "✅ PASS",
-        "value": f"{wind_load:.1f} kN"
-    }
-    
-    # Joint type info
-    results["all_checks"]["joint_type"] = {
-        "status": f"🔧 {joint_type.upper()}",
-        "value": joint_data["description"][:30] + "..."
-    }
+    results["all_checks"]["wind_load"] = {"status": "✅ PASS", "value": f"{wind_load:.1f} kN"}
+    results["all_checks"]["joint_type"] = {"status": f"🔧 {joint_type.upper()}", "value": joint_data["description"][:30] + "..."}
     
     if member_type == "single_beam" and results["beams"].get("main"):
         beam = results["beams"]["main"]
@@ -836,21 +794,19 @@ def auto_design_structure(params, materials):
         "value": f"{fabric_strength:.0f} kN/m"
     }
     
-    # --- HEALTH SCORE ---
     score = 100
     for check in results["all_checks"].values():
         if "⚠️" in check["status"] or "🔄" in check["status"]:
             score -= 10
     results["health_score"] = max(0, min(100, score))
     
-    # --- GENERATE BQ ---
-    bq = generate_bill_of_quantities(params, materials, results, truss_members, joint_type)
+    bq = generate_bill_of_quantities(params, materials, results, truss_members, joint_type, country)
     results["bq"] = bq
     
     return results
 
 # ============================================================
-# IMPROVED 3D GENERATOR FOR SADDLE SPAN
+# 3D GENERATOR - FIXED TIE-DOWNS
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span = params.get("B", 10.0)
@@ -868,7 +824,7 @@ def generate_saddle_span(params, materials=None):
 
     fig = go.Figure()
 
-    # Draw main beams
+    # Main beams
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode='lines', name='Beam 1 (Left)',
@@ -923,10 +879,16 @@ def generate_saddle_span(params, materials=None):
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
         horizontal_spread = materials.get("tie_down_horizontal_spread", 30)
         
+        # Get bracing positions at ~1/4 points from supports
         bracing_x = generate_bracing_positions(span, num_bays)
         bracing_x_sorted = sorted(bracing_x)
 
-        # Tie-downs radiating outward on both beams
+        # Calculate outward offset based on roof size
+        # Anchors should land outside the roof shadow
+        roof_radius = max(span/2, laa/2)
+        anchor_offset = roof_radius * 1.3  # 30% beyond roof edge
+        
+        # Tie-downs at bracing positions - radiating outward from center
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
             x1 = x[idx]
@@ -934,15 +896,40 @@ def generate_saddle_span(params, materials=None):
             y2_pt = y2[idx]
             z_pt = z_beam[idx]
 
+            # Calculate horizontal offset based on vertical angle
             horizontal_offset = rise * np.tan(np.radians(vertical_angle))
             lateral_offset = horizontal_offset * np.tan(np.radians(horizontal_spread))
             
-            # Outward direction only
-            anchor1_y = -lateral_offset - laa/3  # Always left
-            anchor2_y = lateral_offset + laa/3   # Always right
-            anchor_x = bx + horizontal_offset * 0.3
+            # CRITICAL FIX: Anchors radiate outward from center
+            # Left beam (negative y): anchor goes further negative (outward left)
+            # Right beam (positive y): anchor goes further positive (outward right)
+            # All anchors go outward from center, not inward
+            
+            # For x-direction: anchors go outward from center too
+            # If bx is negative (left side), anchor goes more negative
+            # If bx is positive (right side), anchor goes more positive
+            if bx < 0:
+                anchor_x = bx - horizontal_offset * 0.5  # Further left
+            elif bx > 0:
+                anchor_x = bx + horizontal_offset * 0.5  # Further right
+            else:
+                anchor_x = bx + horizontal_offset * 0.3  # Slightly right for center
+            
+            # Ensure anchors are outside roof shadow
+            # Left side anchors: x should be <= -span/4
+            # Right side anchors: x should be >= span/4
+            if bx < 0 and anchor_x > -span/4:
+                anchor_x = -span/3
+            elif bx > 0 and anchor_x < span/4:
+                anchor_x = span/3
+            
+            # Y-direction: always outward from center
+            # Left beam: more negative (outward left)
+            anchor1_y = -anchor_offset - lateral_offset * 0.5
+            # Right beam: more positive (outward right)
+            anchor2_y = anchor_offset + lateral_offset * 0.5
 
-            # Beam 1 tie-down (left)
+            # Beam 1 tie-down (left beam) - goes outward left
             fig.add_trace(go.Scatter3d(
                 x=[x1, anchor_x],
                 y=[y1_pt, anchor1_y],
@@ -960,7 +947,7 @@ def generate_saddle_span(params, materials=None):
                 showlegend=False
             ))
 
-            # Beam 2 tie-down (right)
+            # Beam 2 tie-down (right beam) - goes outward right
             fig.add_trace(go.Scatter3d(
                 x=[x1, anchor_x],
                 y=[y2_pt, anchor2_y],
@@ -1083,9 +1070,9 @@ def generate_tensile(params):
 def generate_portal(params):
     eave, span, pitch, bays, bay_spacing = params.get("eave_height", 6.0), params.get("span_width", 20.0), params.get("roof_pitch", 5.0), params.get("num_bays", 5), params.get("bay_spacing", 6.0)
     total_len = bays * bay_spacing
-    roof_rise, ridge = span/2 * np.tan(np.radians(pitch)), eave + span/2 * np.tan(np.radians(pitch))
     fig = go.Figure()
     x, z = [-span/2, -span/2, 0, span/2, span/2], [0, eave, ridge, eave, 0]
+    ridge = eave + span/2 * np.tan(np.radians(pitch))
     fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Portal Frame', line=dict(width=8, color='#4a7a9c')))
     for i in range(bays):
         y = i * bay_spacing
@@ -1115,12 +1102,89 @@ GENERATORS = {
 }
 
 # ============================================================
-# UI FUNCTIONS
+# SIDEBAR NAVIGATION
+# ============================================================
+def render_sidebar():
+    with st.sidebar:
+        # Logo
+        st.markdown("""
+        <div class="sidebar-logo">
+            <h2>🏗️ SDS</h2>
+            <p>Design Studio v7.0</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Navigation
+        st.markdown("### 📐 Navigation")
+        
+        page = st.radio(
+            "Select Page",
+            ["🏠 Dashboard", "📋 New Project", "🏗️ Workspace", "📄 BQ & Costing"],
+            index=0,
+            key="sidebar_nav"
+        )
+        
+        # Map radio selection to page
+        page_map = {
+            "🏠 Dashboard": "dashboard",
+            "📋 New Project": "registration",
+            "🏗️ Workspace": "workspace",
+            "📄 BQ & Costing": "bq"
+        }
+        st.session_state.page = page_map.get(page, "dashboard")
+        
+        st.divider()
+        
+        # Project Info
+        if st.session_state.project_info:
+            st.markdown("### 📌 Current Project")
+            st.caption(f"**Name:** {st.session_state.project_info.get('name', 'Untitled')}")
+            st.caption(f"**Client:** {st.session_state.project_info.get('client', 'Unknown')}")
+            st.caption(f"**Ref:** {st.session_state.project_info.get('reference', 'N/A')}")
+        else:
+            st.info("No active project")
+        
+        st.divider()
+        
+        # Quick Settings
+        with st.expander("⚙️ Quick Settings"):
+            countries = list(COUNTRY_CURRENCIES.keys())
+            country_idx = countries.index(st.session_state.materials.get("country", "Malaysia")) if st.session_state.materials.get("country", "Malaysia") in countries else 0
+            st.session_state.materials["country"] = st.selectbox("Country", countries, index=country_idx)
+            
+            std_options = ["EU", "MY", "US", "CN", "UK"]
+            std_idx = std_options.index(st.session_state.materials.get("standard", "EU")) if st.session_state.materials.get("standard", "EU") in std_options else 0
+            st.session_state.materials["standard"] = st.selectbox("Standard", std_options, index=std_idx)
+            
+            joint_options = ["bolted", "welded"]
+            joint_labels = ["🔩 Bolted", "⚡ Welded"]
+            joint_idx = joint_options.index(st.session_state.materials.get("joint_type", "bolted")) if st.session_state.materials.get("joint_type", "bolted") in joint_options else 0
+            selected_joint = st.selectbox("Joint Type", joint_labels, index=joint_idx)
+            st.session_state.materials["joint_type"] = joint_options[joint_labels.index(selected_joint)]
+        
+        st.divider()
+        
+        # Stats
+        st.markdown("### 📊 Stats")
+        projects = len(st.session_state.saved_projects)
+        col1, col2 = st.columns(2)
+        col1.metric("📂 Projects", projects)
+        col2.metric("🧠 Typology", st.session_state.typology or "None")
+        
+        st.divider()
+        st.caption("© 2026 SDS Design Studio")
+        st.caption("Built with ❤️ for tensile structures")
+
+# ============================================================
+# DASHBOARD PAGE
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio v7.0")
     st.caption("Parametric design for tensile structures")
     
+    # Stats cards
     projects = st.session_state.saved_projects
     cols = st.columns(4)
     with cols[0]:
@@ -1134,6 +1198,7 @@ def render_dashboard():
     
     st.divider()
     
+    # Quick actions
     col1, col2 = st.columns(2)
     with col1:
         if st.button("➕ New Design", use_container_width=True, type="primary"):
@@ -1143,12 +1208,30 @@ def render_dashboard():
         if st.button("📂 Open Project", use_container_width=True):
             st.session_state.page = "browser"
             st.rerun()
+    
+    # Recent projects
+    if projects:
+        st.divider()
+        st.subheader("📂 Recent Projects")
+        for i, proj in enumerate(projects[-5:]):
+            col1, col2 = st.columns([3, 1])
+            col1.write(f"**{proj.get('project_info', {}).get('name', 'Untitled')}** — {proj.get('project_info', {}).get('client', 'Unknown')}")
+            std = proj.get("materials", {}).get("standard", "EU")
+            badge = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(std, "badge-eu")
+            col1.markdown(f'<span class="standard-badge {badge}">{std}</span> {proj.get("typology", "Unknown")}', unsafe_allow_html=True)
+            if col2.button("📂 Load", key=f"quick_load_{i}"):
+                st.session_state.project_info = proj.get("project_info", {})
+                st.session_state.materials = proj.get("materials", st.session_state.materials)
+                st.session_state.params = proj.get("params", {})
+                st.session_state.typology = proj.get("typology", "saddle_span")
+                st.session_state.page = "workspace"
+                st.rerun()
 
+# ============================================================
+# REGISTRATION PAGE
+# ============================================================
 def render_registration():
     st.subheader("📋 New Project")
-    if st.button("⬅ Back", use_container_width=True):
-        st.session_state.page = "dashboard"
-        st.rerun()
     
     with st.form("register_form"):
         name = st.text_input("Project Name *", placeholder="e.g., Marina Bay Canopy")
@@ -1162,24 +1245,33 @@ def render_registration():
             if not name or not client:
                 st.error("⚠️ Project Name and Client Name are required.")
             else:
-                st.session_state.project_info = {"name": name, "client": client, "location": location, "reference": f"SDS-{ref}", "date": datetime.now().isoformat()}
+                st.session_state.project_info = {
+                    "name": name,
+                    "client": client,
+                    "location": location,
+                    "reference": f"SDS-{ref}",
+                    "date": datetime.now().isoformat()
+                }
                 st.session_state.materials["standard"] = standard
                 st.session_state.page = "catalog"
                 st.rerun()
 
+# ============================================================
+# PROJECT BROWSER
+# ============================================================
 def render_project_browser():
     st.subheader("📂 Saved Projects")
-    if st.button("⬅ Back to Dashboard", use_container_width=True):
-        st.session_state.page = "dashboard"
-        st.rerun()
     
     projects = st.session_state.saved_projects
     if not projects:
-        st.info("No saved projects found.")
+        st.info("No saved projects found. Start a new design!")
+        if st.button("➕ New Design", use_container_width=True, type="primary"):
+            st.session_state.page = "registration"
+            st.rerun()
     else:
-        for i, proj in enumerate(projects):
+        for i, proj in enumerate(reversed(projects)):
             col1, col2, col3 = st.columns([3, 1, 1])
-            col1.write(f"**{proj.get('name', 'Untitled')}** — {proj.get('client', 'Unknown')}")
+            col1.write(f"**{proj.get('project_info', {}).get('name', 'Untitled')}** — {proj.get('project_info', {}).get('client', 'Unknown')}")
             std = proj.get("materials", {}).get("standard", "EU")
             badge = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(std, "badge-eu")
             col1.markdown(f'<span class="standard-badge {badge}">{std}</span> {proj.get("typology", "Unknown")}', unsafe_allow_html=True)
@@ -1191,10 +1283,13 @@ def render_project_browser():
                 st.session_state.page = "workspace"
                 st.rerun()
             if col3.button("🗑️ Delete", key=f"del_{i}"):
-                st.session_state.saved_projects.pop(i)
+                st.session_state.saved_projects.pop(len(projects) - 1 - i)
                 st.rerun()
             st.divider()
 
+# ============================================================
+# CATALOG PAGE
+# ============================================================
 def render_catalog():
     st.subheader("Choose a structure type:")
     cols = st.columns(2)
@@ -1225,6 +1320,110 @@ def render_catalog():
             st.session_state.page = "workspace"
             st.rerun()
 
+# ============================================================
+# BQ & COSTING PAGE
+# ============================================================
+def render_bq_page():
+    st.title("📄 Bill of Quantities & Costing")
+    st.caption("Detailed material takeoff and cost breakdown")
+    
+    if not st.session_state.project_info:
+        st.warning("⚠️ No active project. Please start a design first.")
+        if st.button("🏠 Go to Dashboard", use_container_width=True, type="primary"):
+            st.session_state.page = "dashboard"
+            st.rerun()
+        return
+    
+    st.markdown(f"**Project:** {st.session_state.project_info.get('name', 'Untitled')}")
+    st.markdown(f"**Client:** {st.session_state.project_info.get('client', 'Unknown')}")
+    st.markdown(f"**Reference:** {st.session_state.project_info.get('reference', 'N/A')}")
+    st.divider()
+    
+    # Check if design exists
+    if "bq" not in st.session_state:
+        st.info("💡 Please run the design first to generate the Bill of Quantities.")
+        if st.button("🏗️ Go to Workspace", use_container_width=True, type="primary"):
+            st.session_state.page = "workspace"
+            st.rerun()
+        return
+    
+    bq = st.session_state.get("bq", {})
+    if not bq or "items" not in bq:
+        st.info("💡 Please run the design first to generate the Bill of Quantities.")
+        if st.button("🏗️ Go to Workspace", use_container_width=True, type="primary"):
+            st.session_state.page = "workspace"
+            st.rerun()
+        return
+    
+    # Currency
+    currency = bq.get("currency", get_currency("Malaysia"))
+    st.markdown(f"**Currency:** {currency['code']} ({currency['symbol']})")
+    
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("💰 Total Cost", f"{currency['symbol']}{bq['total_cost']:,.0f}")
+    col2.metric("🔩 Steel Weight", f"{bq['total_steel_weight']:.0f} kg")
+    col3.metric("📐 Fabric Area", f"{bq['total_fabric_area']:.0f} m²")
+    col4.metric("🔗 Joint Type", bq.get('joint_type', 'bolted').upper())
+    
+    st.divider()
+    
+    # Detailed BQ
+    st.subheader("📋 Detailed Bill of Quantities")
+    
+    bq_data = []
+    for item in bq["items"]:
+        bq_data.append({
+            "Item": item["item"],
+            "Qty": item["qty"],
+            "Unit": item["unit"],
+            "Length (m)": item["length_m"],
+            "Total Length (m)": item["total_length_m"],
+            "Weight (kg)": f"{item['weight_kg']:.0f}" if isinstance(item['weight_kg'], (int, float)) else item['weight_kg'],
+            "Unit Price": f"{currency['symbol']}{item['unit_price']:.2f}" if isinstance(item['unit_price'], (int, float)) else item['unit_price'],
+            "Total": f"{currency['symbol']}{item['total_price']:,.0f}" if isinstance(item['total_price'], (int, float)) else item['total_price']
+        })
+    
+    if bq_data:
+        df = pd.DataFrame(bq_data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Grand total
+        st.markdown(f"""
+        <div style='text-align:right;padding:0.5rem;background:#1e2a3a;border-radius:8px;margin-top:0.5rem;'>
+            <span style='font-size:1.2rem;font-weight:700;color:#f39c12;'>
+                GRAND TOTAL: {currency['symbol']}{bq['total_cost']:,.0f}
+            </span>
+            <br>
+            <span style='font-size:0.8rem;color:#b0c4de;'>
+                {bq.get('joint_description', '')}
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Export options
+    st.divider()
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("📋 Copy to Clipboard", use_container_width=True):
+            st.success("✅ BQ copied to clipboard!")
+    with col2:
+        if st.button("📥 Download CSV", use_container_width=True):
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"BQ_{st.session_state.project_info.get('reference', 'project')}.csv",
+                mime="text/csv"
+            )
+    with col3:
+        if st.button("🏠 Back to Workspace", use_container_width=True, type="primary"):
+            st.session_state.page = "workspace"
+            st.rerun()
+
+# ============================================================
+# WORKSPACE PAGE
+# ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
     info, typology = st.session_state.project_info, st.session_state.typology
@@ -1236,7 +1435,8 @@ def render_workspace():
     st.markdown("## 🧠 Design Workspace")
     st.caption(f"📌 {info.get('name', 'Untitled')} — {info.get('client', 'Unknown')}")
     
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+    # Control buttons
+    col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
     with col1:
         if st.button("🏠 Home", use_container_width=True):
             st.session_state.page = "dashboard"
@@ -1271,6 +1471,14 @@ def render_workspace():
             if st.button("🔓 Unlock", use_container_width=True):
                 st.session_state.locked = False
                 st.rerun()
+    with col5:
+        if st.button("📄 View BQ", use_container_width=True):
+            # Run design first if not done
+            if "bq" not in st.session_state:
+                design_results = auto_design_structure(params, materials)
+                st.session_state.bq = design_results.get("bq", {})
+            st.session_state.page = "bq"
+            st.rerun()
     
     st.divider()
     
@@ -1335,7 +1543,6 @@ def render_workspace():
         selected_joint_label = st.selectbox("Connection Type", joint_labels, index=joint_idx, disabled=st.session_state.locked)
         materials["joint_type"] = joint_options[joint_labels.index(selected_joint_label)]
         
-        # Show joint description
         joint_desc = JOINT_MULTIPLIERS[materials["joint_type"]]["description"]
         st.markdown(f"<span style='color:#b0c4de;font-size:0.85rem;'>ℹ️ {joint_desc}</span>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1362,7 +1569,12 @@ def render_workspace():
         materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", 10, 60, materials.get("tie_down_horizontal_spread", 30), 5, disabled=st.session_state.locked)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="sds-card"><div class="title">🌍 Design Standard</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sds-card"><div class="title">🌍 Location</div>', unsafe_allow_html=True)
+        countries = list(COUNTRY_CURRENCIES.keys())
+        country_idx = countries.index(materials.get("country", "Malaysia")) if materials.get("country", "Malaysia") in countries else 0
+        materials["country"] = st.selectbox("Country", countries, index=country_idx, disabled=st.session_state.locked)
+        currency = get_currency(materials["country"])
+        st.markdown(f"**Currency:** {currency['symbol']} ({currency['code']})")
         std_options = ["EU", "CN", "UK", "MY", "US"]
         materials["standard"] = st.selectbox("Design Standard", std_options, index=std_options.index(materials.get("standard", "EU")), disabled=st.session_state.locked)
         badge_class = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(materials["standard"], "badge-eu")
@@ -1372,6 +1584,14 @@ def render_workspace():
         st.markdown('<div class="sds-card"><div class="title">💬 Notes</div>', unsafe_allow_html=True)
         st.session_state.comments = st.text_area("", st.session_state.comments, height=80, disabled=st.session_state.locked, key="comments_area")
         st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Run Design button
+        if st.button("⚡ Run Design Analysis", use_container_width=True, type="primary"):
+            design_results = auto_design_structure(params, materials)
+            st.session_state.design_results = design_results
+            st.session_state.bq = design_results.get("bq", {})
+            st.success("✅ Design analysis completed!")
+            st.rerun()
     
     with col_right:
         st.subheader("🔬 3D Model")
@@ -1382,11 +1602,16 @@ def render_workspace():
         st.divider()
         
         # Design Results
-        design_results = auto_design_structure(params, materials)
+        if "design_results" in st.session_state:
+            design_results = st.session_state.design_results
+        else:
+            design_results = auto_design_structure(params, materials)
+            st.session_state.design_results = design_results
+            st.session_state.bq = design_results.get("bq", {})
         
         st.markdown("## ⚡ Design Results")
         
-        # Show joint type badge
+        # Joint type badge
         joint_type = design_results.get("joint_type", "bolted")
         badge_color = "joint-weld" if joint_type == "welded" else "joint-bolt"
         st.markdown(f"<span class='joint-badge {badge_color}'>{joint_type.upper()} Connections</span>", unsafe_allow_html=True)
@@ -1482,53 +1707,18 @@ def render_workspace():
         </div>
         """, unsafe_allow_html=True)
         
-        # Bill of Quantities
-        st.divider()
-        st.markdown("## 📋 Bill of Quantities")
-        
+        # BQ Quick Summary
         bq = design_results.get("bq", {})
-        if bq and "items" in bq:
-            # Summary metrics
-            col_bq1, col_bq2, col_bq3, col_bq4 = st.columns(4)
-            col_bq1.metric("💰 Total Cost", f"${bq['total_cost']:,.0f}")
-            col_bq2.metric("🔩 Steel Weight", f"{bq['total_steel_weight']:.0f} kg")
-            col_bq3.metric("📐 Fabric Area", f"{bq['total_fabric_area']:.0f} m²")
-            col_bq4.metric("🔗 Joint Type", bq.get('joint_type', 'bolted').upper())
-            
-            st.markdown("---")
-            
-            # Detailed BQ table
-            bq_data = []
-            for item in bq["items"]:
-                bq_data.append({
-                    "Item": item["item"],
-                    "Qty": item["qty"],
-                    "Unit": item["unit"],
-                    "Length (m)": item["length_m"],
-                    "Total Length (m)": item["total_length_m"],
-                    "Weight (kg)": f"{item['weight_kg']:.0f}" if isinstance(item['weight_kg'], (int, float)) else item['weight_kg'],
-                    "Unit Price ($)": f"{item['unit_price']:.2f}" if isinstance(item['unit_price'], (int, float)) else item['unit_price'],
-                    "Total ($)": f"{item['total_price']:,.0f}" if isinstance(item['total_price'], (int, float)) else item['total_price']
-                })
-            
-            if bq_data:
-                df = pd.DataFrame(bq_data)
-                st.dataframe(df, use_container_width=True, hide_index=True)
-                
-                # Grand total
-                st.markdown(f"""
-                <div style='text-align:right;padding:0.5rem;background:#1e2a3a;border-radius:8px;margin-top:0.5rem;'>
-                    <span style='font-size:1.2rem;font-weight:700;color:#f39c12;'>
-                        GRAND TOTAL: ${bq['total_cost']:,.0f}
-                    </span>
-                    <br>
-                    <span style='font-size:0.8rem;color:#b0c4de;'>
-                        {bq.get('joint_description', '')}
-                    </span>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("Run design to generate Bill of Quantities")
+        if bq and "total_cost" in bq:
+            currency = get_currency(materials.get("country", "Malaysia"))
+            st.divider()
+            st.markdown("## 💰 Cost Summary")
+            col1, col2 = st.columns(2)
+            col1.metric("Total Cost", f"{currency['symbol']}{bq['total_cost']:,.0f}")
+            col2.metric("Steel Weight", f"{bq['total_steel_weight']:.0f} kg")
+            if st.button("📄 View Full BQ", use_container_width=True, type="primary"):
+                st.session_state.page = "bq"
+                st.rerun()
     
     st.divider()
     
@@ -1553,6 +1743,10 @@ def render_workspace():
 # ============================================================
 # MAIN ROUTING
 # ============================================================
+# Always render sidebar
+render_sidebar()
+
+# Page routing
 page = st.session_state.get("page", "dashboard")
 
 if page == "dashboard":
@@ -1565,8 +1759,10 @@ elif page == "catalog":
     render_catalog()
 elif page == "workspace":
     render_workspace()
+elif page == "bq":
+    render_bq_page()
 else:
     render_dashboard()
 
 st.divider()
-st.caption("SDS Design Studio v7.0 | MS EN Wind: 33.5m/s | 100+ Sections | 🔩/⚡ Joints")
+st.caption("SDS Design Studio v7.0 | MS EN Wind: 33.5m/s | 100+ Sections | 🔩/⚡ Joints | 🌍 Local Currency")
