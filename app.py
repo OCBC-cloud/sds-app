@@ -17,7 +17,7 @@ import io
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio v5.3 - Section Lock",
+    page_title="SDS Design Studio v5.4 - Enhanced 3D",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -203,7 +203,8 @@ if "materials" not in st.session_state:
         "shape_type": "parabolic",
         "member_type": "single_beam",
         "truss_type": "warren",
-        "anchoring_pattern": "standard"
+        "anchoring_pattern": "standard",
+        "num_bays": 2
     }
 if "show_image_popout" not in st.session_state:
     st.session_state.show_image_popout = None
@@ -299,14 +300,11 @@ def generate_truss_members(x, z_beam, truss_type="warren", num_panels=4):
     return members
 
 # ============================================================
-# 🆕 SECTION CREATION FUNCTION
+# SECTION CREATION FUNCTION
 # ============================================================
 def create_new_section(W_required, I_required, section_type, material_type, fy, safety):
-    """
-    Create a new section if none exists in the database
-    """
+    """Create a new section if none exists in the database"""
     if section_type == "CHS":
-        # Calculate required diameter
         D = (32 * W_required / (np.pi * 0.8)) ** (1/3)
         D = round(D / 10) * 10
         if D < 50:
@@ -321,12 +319,8 @@ def create_new_section(W_required, I_required, section_type, material_type, fy, 
         
         name = f"CHS {D}.0x{t:.1f}"
         props = {
-            "A": A,
-            "I": I,
-            "W_el": W_el_calc,
-            "i": np.sqrt(I / A),
-            "weight": weight,
-            "type": "CHS"
+            "A": A, "I": I, "W_el": W_el_calc,
+            "i": np.sqrt(I / A), "weight": weight, "type": "CHS"
         }
         moment_capacity = (W_el_calc * fy) / (safety * 1e6)
         return name, props, moment_capacity
@@ -346,12 +340,8 @@ def create_new_section(W_required, I_required, section_type, material_type, fy, 
         
         name = f"RHS {b}x{b}x{int(t)}"
         props = {
-            "A": A,
-            "I": I,
-            "W_el": W_el_calc,
-            "i": np.sqrt(I / A),
-            "weight": weight,
-            "type": "RHS"
+            "A": A, "I": I, "W_el": W_el_calc,
+            "i": np.sqrt(I / A), "weight": weight, "type": "RHS"
         }
         moment_capacity = (W_el_calc * fy) / (safety * 1e6)
         return name, props, moment_capacity
@@ -372,12 +362,8 @@ def create_new_section(W_required, I_required, section_type, material_type, fy, 
         
         name = f"I-{int(d)}"
         props = {
-            "A": A,
-            "I": I,
-            "W_el": W_el_calc,
-            "i": np.sqrt(I / A),
-            "weight": weight,
-            "type": "I-Beam"
+            "A": A, "I": I, "W_el": W_el_calc,
+            "i": np.sqrt(I / A), "weight": weight, "type": "I-Beam"
         }
         moment_capacity = (W_el_calc * fy) / (safety * 1e6)
         return name, props, moment_capacity
@@ -397,12 +383,8 @@ def create_new_section(W_required, I_required, section_type, material_type, fy, 
         
         name = f"Box {b}x{b}x{int(t)}"
         props = {
-            "A": A,
-            "I": I,
-            "W_el": W_el_calc,
-            "i": np.sqrt(I / A),
-            "weight": weight,
-            "type": "Box"
+            "A": A, "I": I, "W_el": W_el_calc,
+            "i": np.sqrt(I / A), "weight": weight, "type": "Box"
         }
         moment_capacity = (W_el_calc * fy) / (safety * 1e6)
         return name, props, moment_capacity
@@ -423,12 +405,8 @@ def create_new_section(W_required, I_required, section_type, material_type, fy, 
         
         name = f"CHS {D}.0x{t:.1f}"
         props = {
-            "A": A,
-            "I": I,
-            "W_el": W_el_calc,
-            "i": np.sqrt(I / A),
-            "weight": weight,
-            "type": "CHS"
+            "A": A, "I": I, "W_el": W_el_calc,
+            "i": np.sqrt(I / A), "weight": weight, "type": "CHS"
         }
         moment_capacity = (W_el_calc * fy) / (safety * 1e6)
         return name, props, moment_capacity
@@ -459,30 +437,18 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     return (steel_kg + fabric_kg) / 100
 
 def calculate_required_section_based_on_moment(load_kN, span_m, material_type, fy=355, section_type="CHS"):
-    """
-    Calculate required section based on bending moment
-    WITH section type locking and auto-generation
-    """
+    """Calculate required section with section type locking and auto-generation"""
     safety = 1.5
     
-    # Calculate distributed load
-    w = load_kN / span_m  # kN/m
+    w = load_kN / span_m
+    M = (w * span_m**2) / 8
+    M_Nmm = M * 1e6
+    W_required = M_Nmm / (fy / safety)
     
-    # Calculate bending moment (simply supported beam)
-    M = (w * span_m**2) / 8  # kNm
+    E = 210000
+    deflection_limit = span_m / 250
+    I_required = (5 * w * span_m**4) / (384 * E * deflection_limit) * 1e12
     
-    # Convert to Nmm for section property comparison
-    M_Nmm = M * 1e6  # Nmm
-    
-    # Required section modulus
-    W_required = M_Nmm / (fy / safety)  # mm³
-    
-    # Required second moment (deflection check - L/250)
-    E = 210000  # MPa for steel
-    deflection_limit = span_m / 250  # meters
-    I_required = (5 * w * span_m**4) / (384 * E * deflection_limit) * 1e12  # mm⁴
-    
-    # Select database based on material type
     if material_type == "Steel":
         db = SECTION_PROPERTIES
     elif material_type == "Aluminum":
@@ -492,14 +458,11 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
     else:
         db = COMPOSITE_SECTIONS
     
-    # 🔒 FILTER by section type (ONLY use the user's selected type)
+    # Filter by section type
     filtered_db = {k: v for k, v in db.items() if v.get("type") == section_type or section_type in k}
-    
-    # If no sections of this type, try to find any
     if not filtered_db:
         filtered_db = db
     
-    # Find the best section from filtered database
     best_section = None
     best_score = float('inf')
     is_newly_created = False
@@ -523,13 +486,11 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
             best_score = total_score
             best_section = section
     
-    # If section found, check if adequate
     if best_section and best_section in filtered_db:
         props = filtered_db[best_section]
-        moment_capacity = (props["W_el"] * fy) / (safety * 1e6)  # kNm
+        moment_capacity = (props["W_el"] * fy) / (safety * 1e6)
         is_adequate = props["W_el"] >= W_required * 0.9
         
-        # If inadequate, try larger sections of SAME TYPE
         if not is_adequate:
             all_sections = list(filtered_db.items())
             all_sections.sort(key=lambda x: x[1]["A"])
@@ -553,7 +514,6 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
                         is_adequate = True
                         break
                 
-                # 🆕 CREATE NEW SECTION if none found
                 if not is_adequate:
                     best_section, props, moment_capacity = create_new_section(
                         W_required, I_required, section_type, material_type, fy, safety
@@ -561,7 +521,6 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
                     if props:
                         is_adequate = True
                         is_newly_created = True
-                        # Save to database
                         db[best_section] = props
                         if material_type == "Steel":
                             SECTION_PROPERTIES[best_section] = props
@@ -584,7 +543,7 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
             "is_newly_created": is_newly_created
         }
     
-    # 🆕 If no section found at all, create one
+    # No section found, create one
     best_section, props, moment_capacity = create_new_section(
         W_required, I_required, section_type, material_type, fy, safety
     )
@@ -631,8 +590,6 @@ def auto_select_cable_diameter(tie_down_force, cable_type):
     return max(diameters.keys()) if diameters else 10
 
 def auto_design_structure(params, materials):
-    """Complete automatic design with section type locking"""
-    
     span, rise, laa = params.get("B", 10.0), params.get("A", 6.0), params.get("LAA", 15.0)
     member_type = materials.get("member_type", "single_beam")
     material_type = materials.get("material_type", "Steel")
@@ -641,7 +598,6 @@ def auto_design_structure(params, materials):
     cable_type = materials.get("cable_type", "6x19 Galvanized")
     standard = materials.get("standard", "EU")
     
-    # Calculate loads
     wind_load = calculate_wind_load(span, laa, standard)
     dead_load = calculate_dead_load(span, laa, "CHS 168.3x7.1", fabric_type)
     live_load = 0.5 * (span * laa * 1.1) / 100
@@ -649,16 +605,10 @@ def auto_design_structure(params, materials):
     
     results = {
         "loads": {"wind": wind_load, "dead": dead_load, "live": live_load, "total": total_load},
-        "beams": {},
-        "truss": {},
-        "fabric": {},
-        "cables": {},
-        "all_checks": {},
-        "health_score": 0,
-        "new_sections": []
+        "beams": {}, "truss": {}, "fabric": {}, "cables": {},
+        "all_checks": {}, "health_score": 0, "new_sections": []
     }
     
-    # Get material yield strength
     if material_type == "Steel":
         fy = 355
     elif material_type == "Aluminum":
@@ -668,7 +618,6 @@ def auto_design_structure(params, materials):
     else:
         fy = 300
     
-    # ===== SIZE MEMBERS WITH SECTION TYPE LOCKING =====
     if member_type == "single_beam":
         beam_result = calculate_required_section_based_on_moment(total_load, span, material_type, fy, section_type)
         if beam_result:
@@ -711,15 +660,13 @@ def auto_design_structure(params, materials):
         if top_result and top_result.get("is_newly_created", False):
             results["new_sections"].append(top_result["section"])
     
-    # ===== AUTO-SELECT FABRIC =====
     membrane_area = span * laa * 1.1
     fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area, fabric_type)
     results["fabric"]["type"] = fabric_type
     results["fabric"]["thickness"] = fabric_thickness
     results["fabric"]["strength"] = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {}).get(fabric_thickness, 0)
     
-    # ===== AUTO-SELECT CABLE =====
-    num_bays = 2
+    num_bays = materials.get("num_bays", 2)
     num_anchors = num_bays * 4
     vertical_angle = materials.get("tie_down_vertical_angle", 45)
     uplift_per_anchor = (wind_load * 0.5) / num_anchors if num_anchors > 0 else 0
@@ -735,14 +682,11 @@ def auto_design_structure(params, materials):
     results["cables"]["force_per_cable"] = cable_force
     results["cables"]["is_adequate"] = cable_breaking >= cable_force * 1.5
     
-    # ===== CHECK ALL RESULTS =====
-    # Wind Load Check
     results["all_checks"]["wind_load"] = {
         "status": "✅ PASS" if wind_load < 150 else "⚠️ CHECK",
         "value": f"{wind_load:.1f} kN"
     }
     
-    # Member Capacity Check
     if member_type == "single_beam" and results["beams"].get("main"):
         beam = results["beams"]["main"]
         is_adequate = beam.get("is_adequate", False)
@@ -760,16 +704,12 @@ def auto_design_structure(params, materials):
     else:
         results["all_checks"]["member_capacity"] = {"status": "✅ PASS", "value": "N/A"}
     
-    # Cable Check
     results["all_checks"]["cable_adequacy"] = {
         "status": "✅ PASS" if results["cables"]["is_adequate"] else "❌ FAIL",
         "value": f"{cable_breaking:.1f} kN"
     }
-    
-    # Slenderness Check
     results["all_checks"]["slenderness"] = {"status": "✅ PASS", "value": "OK"}
     
-    # Membrane Strength Check
     fabric_strength = results["fabric"]["strength"]
     required_strength = wind_load / (membrane_area * 0.5) if membrane_area > 0 else 0
     is_adequate = fabric_strength >= required_strength * 1.5
@@ -778,7 +718,6 @@ def auto_design_structure(params, materials):
         "value": f"{fabric_strength:.0f} kN/m"
     }
     
-    # Calculate Health Score
     score = 100
     for check in results["all_checks"].values():
         if "FAIL" in check["status"]:
@@ -790,54 +729,248 @@ def auto_design_structure(params, materials):
     return results
 
 # ============================================================
-# 3D GENERATOR
+# ENHANCED 3D GENERATOR
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span, rise, laa = params.get("B", 10.0), params.get("A", 6.0), params.get("LAA", 15.0)
+    num_points = 50
+
     if span <= 0 or rise <= 0 or laa <= 0:
         return go.Figure()
-    
+
     shape_type = materials.get("shape_type", "parabolic") if materials else "parabolic"
-    num_points = 50
+    member_type = materials.get("member_type", "single_beam") if materials else "single_beam"
+    truss_type = materials.get("truss_type", "warren") if materials else "warren"
+    anchoring_pattern = materials.get("anchoring_pattern", "standard") if materials else "standard"
+    prestress_level = materials.get("prestress_level", "medium") if materials else "medium"
+    
+    # Prestress values - HIGHER for tighter membrane
+    prestress_values = {"none": 0.5, "low": 1.0, "medium": 1.5, "high": 2.0}
+    if prestress_level == "custom":
+        prestress = materials.get("custom_prestress", 1.5) if materials else 1.5
+    else:
+        prestress = prestress_values.get(prestress_level, 1.5)
+
     x = np.linspace(-span/2, span/2, num_points)
     z_beam = get_beam_shape(x, span, rise, shape_type)
-    y1, y2 = -laa/2 * (1 - (2*x/span)**2), laa/2 * (1 - (2*x/span)**2)
-    
+    y1 = -laa/2 * (1 - (2 * x / span)**2)
+    y2 = laa/2 * (1 - (2 * x / span)**2)
+
     fig = go.Figure()
-    
-    fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode='lines', name='Beam 1', line=dict(color='#FF6B6B', width=8)))
-    fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode='lines', name='Beam 2', line=dict(color='#FF6B6B', width=8)))
-    
-    X_surf, Y_surf, Z_surf = np.zeros((num_points, num_points)), np.zeros((num_points, num_points)), np.zeros((num_points, num_points))
+
+    # ===== BEAMS =====
+    if member_type == "single_beam":
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y1, z=z_beam,
+            mode='lines', name='Beam 1',
+            line=dict(color='#FF6B6B', width=8)
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y2, z=z_beam,
+            mode='lines', name='Beam 2',
+            line=dict(color='#FF6B6B', width=8)
+        ))
+        
+    elif member_type == "planar_truss":
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y1, z=z_beam,
+            mode='lines', name='Beam 1 (Truss)',
+            line=dict(color='#FF6B6B', width=5)
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y2, z=z_beam,
+            mode='lines', name='Beam 2 (Truss)',
+            line=dict(color='#FF6B6B', width=5)
+        ))
+        z_bottom = z_beam * 0.7
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y1, z=z_bottom,
+            mode='lines', name='Bottom Chord 1',
+            line=dict(color='#FF9B6B', width=4, dash='dot')
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y2, z=z_bottom,
+            mode='lines', name='Bottom Chord 2',
+            line=dict(color='#FF9B6B', width=4, dash='dot')
+        ))
+        for i in range(0, num_points - 5, 5):
+            j = min(i + 5, num_points - 1)
+            fig.add_trace(go.Scatter3d(
+                x=[x[i], x[j]], y=[y1[i], y1[j]], z=[z_beam[i], z_bottom[j]],
+                mode='lines', line=dict(color='#FFB6A0', width=2), showlegend=False
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[x[i], x[j]], y=[y2[i], y2[j]], z=[z_beam[i], z_bottom[j]],
+                mode='lines', line=dict(color='#FFB6A0', width=2), showlegend=False
+            ))
+
+    elif member_type == "space_truss":
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y1, z=z_beam,
+            mode='lines', name='Top Layer 1',
+            line=dict(color='#FF6B6B', width=4)
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y2, z=z_beam,
+            mode='lines', name='Top Layer 2',
+            line=dict(color='#FF6B6B', width=4)
+        ))
+        for i in range(0, num_points, 5):
+            fig.add_trace(go.Scatter3d(
+                x=[x[i]]*2, y=[y1[i], y2[i]], z=[z_beam[i], z_beam[i]],
+                mode='lines', line=dict(color='#FF9B6B', width=2, dash='dot'), showlegend=False
+            ))
+
+    # ===== MEMBRANE (TIGHTER FORMING) =====
+    X_surf = np.zeros((num_points, num_points))
+    Y_surf = np.zeros((num_points, num_points))
+    Z_surf = np.zeros((num_points, num_points))
+
+    # TIGHTER membrane - prestress factor makes it more taught
+    prestress_factor = 1 + prestress / 5.0
+
     for i, x_pos in enumerate(x):
-        y_beam1, y_beam2, z_at_x = y1[i], y2[i], z_beam[i]
+        y_beam1 = y1[i]
+        y_beam2 = y2[i]
+        z_at_x = z_beam[i]
+        
         for j, v_val in enumerate(np.linspace(0, 1, num_points)):
             y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
-            Z_surf[i, j] = z_at_x * (1 - 0.3 * (1 - (2*v_val - 1)**2))
-            X_surf[i, j], Y_surf[i, j] = x_pos, y_pos
-    fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']], opacity=0.6, showscale=False, name='Membrane'))
-    
-    fig.add_trace(go.Scatter3d(x=[0], y=[y1[num_points//2]], z=[z_beam[num_points//2]], mode='markers', name='Apex', marker=dict(color='#FFD93D', size=10, symbol='diamond')))
-    fig.add_trace(go.Scatter3d(x=[-span/2, span/2], y=[0, 0], z=[0, 0], mode='markers', name='Supports', marker=dict(color='#4ECDC4', size=8, symbol='square')))
-    
+            saddle_factor = 1 - (0.3 / prestress_factor) * (1 - (2 * v_val - 1)**2)
+            z_pos = z_at_x * saddle_factor * prestress_factor
+            
+            X_surf[i, j] = x_pos
+            Y_surf[i, j] = y_pos
+            Z_surf[i, j] = z_pos
+
+    opacity = max(0.4, min(0.7, 0.5 + prestress / 10.0))
+
+    fig.add_trace(go.Surface(
+        x=X_surf, y=Y_surf, z=Z_surf,
+        colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
+        opacity=opacity, showscale=False, name='Membrane'
+    ))
+
+    # ===== APEX AND SUPPORTS (SMALLER MARKERS) =====
+    fig.add_trace(go.Scatter3d(
+        x=[0], y=[y1[num_points//2]], z=[z_beam[num_points//2]],
+        mode='markers', name='Apex',
+        marker=dict(color='#FFD93D', size=5, symbol='diamond')
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[0], y=[y2[num_points//2]], z=[z_beam[num_points//2]],
+        mode='markers', name='Apex 2',
+        marker=dict(color='#FFD93D', size=5, symbol='diamond')
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[-span/2, span/2],
+        y=[0, 0],
+        z=[0, 0],
+        mode='markers', name='Supports',
+        marker=dict(color='#4ECDC4', size=4, symbol='square')
+    ))
+
+    # ===== BRACING AND TIE-DOWNS =====
     if materials:
         num_bays = materials.get("num_bays", 2)
+        vertical_angle = materials.get("tie_down_vertical_angle", 45)
+        horizontal_spread = materials.get("tie_down_horizontal_spread", 30)
+        
         bracing_x = generate_bracing_positions(span, num_bays)
+        bracing_points = []
+        
+        # Draw bracing
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
-            fig.add_trace(go.Scatter3d(x=[bx, bx], y=[y1[idx], y2[idx]], z=[z_beam[idx], z_beam[idx]], mode='lines', name='Bracing', line=dict(color='#FF6B6B', width=2, dash='dash'), showlegend=False))
+            y1_pos = y1[idx]
+            y2_pos = y2[idx]
+            z_pos = z_beam[idx]
+            
+            bracing_points.append({
+                "x": bx, "y1": y1_pos, "y2": y2_pos, "z": z_pos, "idx": idx
+            })
+            
+            fig.add_trace(go.Scatter3d(
+                x=[bx, bx], y=[y1_pos, y2_pos], z=[z_pos, z_pos],
+                mode='lines', name='Bracing',
+                line=dict(color='#FF6B6B', width=2, dash='dash'),
+                showlegend=False
+            ))
         
-        anchors = calculate_tie_down_positions(span, laa, rise, bracing_x, 
-            materials.get("tie_down_vertical_angle", 45),
-            materials.get("tie_down_horizontal_spread", 30))
-        for a in anchors:
-            idx = np.argmin(np.abs(x - a["beam_x"]))
-            fig.add_trace(go.Scatter3d(x=[a["beam_x"], a["anchor_x"]], y=[a["beam_y"], a["anchor_y"]], z=[z_beam[idx], 0], mode='lines', name='Tie-Down', line=dict(color='#FFD93D', width=2), showlegend=False))
-            fig.add_trace(go.Scatter3d(x=[a["anchor_x"]], y=[a["anchor_y"]], z=[0], mode='markers', name='Anchor', marker=dict(color='#FF4444', size=6, symbol='x'), showlegend=False))
-    
-    fig.update_layout(scene=dict(xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))), paper_bgcolor='#0a0e17', margin=dict(l=0, r=0, b=0, t=0))
+        # Calculate tie-down positions
+        if anchoring_pattern == "standard":
+            anchor_x_positions = bracing_x
+        elif anchoring_pattern == "continuous":
+            anchor_x_positions = np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays * 4).tolist()
+        elif anchoring_pattern == "hybrid":
+            extra_points = []
+            for i in range(len(bracing_x) - 1):
+                mid = (bracing_x[i] + bracing_x[i+1]) / 2
+                extra_points.append(mid)
+            anchor_x_positions = sorted(bracing_x + extra_points)
+        else:
+            anchor_x_positions = bracing_x
+        
+        tie_down_anchors = calculate_tie_down_positions(
+            span, laa, rise, anchor_x_positions, vertical_angle, horizontal_spread
+        )
+        
+        # Draw tie-downs attached to bracing points
+        for anchor in tie_down_anchors:
+            bx = anchor["beam_x"]
+            idx = np.argmin(np.abs(x - bx))
+            beam_z = z_beam[idx]
+            beam_y = anchor["beam_y"]
+            
+            fig.add_trace(go.Scatter3d(
+                x=[bx, anchor["anchor_x"]],
+                y=[beam_y, anchor["anchor_y"]],
+                z=[beam_z, anchor["anchor_z"]],
+                mode='lines', name='Tie-Down',
+                line=dict(color='#FFD93D', width=2),
+                showlegend=False
+            ))
+            
+            fig.add_trace(go.Scatter3d(
+                x=[anchor["anchor_x"]],
+                y=[anchor["anchor_y"]],
+                z=[anchor["anchor_z"]],
+                mode='markers', name='Anchor',
+                marker=dict(color='#FF4444', size=4, symbol='x'),
+                showlegend=False
+            ))
+
+    # ===== LEGEND BELOW VIEWPORT =====
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Span (m)',
+            yaxis_title='Width (m)',
+            zaxis_title='Height (m)',
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))
+        ),
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0, r=0, b=0, t=0),
+        legend=dict(
+            font=dict(color='#ffffff', size=8),
+            orientation="h",
+            yanchor="bottom",
+            y=-0.12,
+            xanchor="center",
+            x=0.5,
+            bgcolor='rgba(10,14,23,0.7)',
+            bordercolor='#2a3a4f',
+            borderwidth=1
+        )
+    )
     return fig
 
+# ============================================================
+# OTHER GENERATORS (Placeholders - same as before)
+# ============================================================
 def generate_tent(params):
     span, ridge, bays, bay_dist = params.get("span_width", 10.0), params.get("ridge_height", 5.0), params.get("num_bays", 4), params.get("bay_distance", 5.0)
     total_len = bays * bay_dist
@@ -981,8 +1114,8 @@ def render_image_gallery():
 # UI FUNCTIONS
 # ============================================================
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio v5.3")
-    st.caption("🚀 Section Locking + Auto-Generation")
+    st.title("🏗️ SDS Design Studio v5.4 - Enhanced 3D")
+    st.caption("🚀 Enhanced 3D Viewer | Section Locking | Auto-Generation")
     
     projects = st.session_state.saved_projects
     cols = st.columns(4)
@@ -1101,7 +1234,6 @@ def render_workspace():
     st.markdown("## 🧠 Design Workspace")
     st.caption(f"📌 {info.get('name', 'Untitled')} — {info.get('client', 'Unknown')}")
     
-    # Top buttons
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
         if st.button("🏠 Home", use_container_width=True):
@@ -1167,14 +1299,12 @@ def render_workspace():
             params["num_bays"] = st.number_input("Number of Bays", 2, 30, params.get("num_bays", 5), 1, disabled=st.session_state.locked)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Shape (only for saddle span)
         if typology == "saddle_span":
             st.markdown('<div class="sds-card"><div class="title">🔄 Shape</div>', unsafe_allow_html=True)
             shape_options = ["parabolic", "elliptical", "circular", "catenary"]
             materials["shape_type"] = st.selectbox("Shape Type", shape_options, index=shape_options.index(materials.get("shape_type", "parabolic")), disabled=st.session_state.locked)
             st.markdown('</div>', unsafe_allow_html=True)
         
-        # Member Type
         st.markdown('<div class="sds-card"><div class="title">🔧 Structural System</div>', unsafe_allow_html=True)
         member_options = ["single_beam", "planar_truss", "space_truss"]
         member_labels = ["Single Beam", "Planar Truss", "Space Truss"]
@@ -1194,14 +1324,11 @@ def render_workspace():
             materials["truss_type"] = truss_options[truss_labels.index(selected_truss_label)]
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Material Preferences
         st.markdown('<div class="sds-card"><div class="title">🧱 Materials</div>', unsafe_allow_html=True)
-        
         material_types = ["Steel", "Aluminum", "Wood", "Composite"]
         current_material = materials.get("material_type", "Steel")
         materials["material_type"] = st.selectbox("Member Material", material_types, index=material_types.index(current_material), disabled=st.session_state.locked)
         
-        # Section Type - User selects, system LOCKS to this type
         section_types = ["CHS", "RHS", "I-Beam", "Box"]
         current_section_type = materials.get("section_type", "CHS")
         materials["section_type"] = st.selectbox("Section Shape (Locked)", section_types, index=section_types.index(current_section_type), disabled=st.session_state.locked)
@@ -1212,15 +1339,14 @@ def render_workspace():
         
         cable_options = ["6x19 Galvanized", "6x19 Stainless", "Polyester Rope"]
         materials["cable_type"] = st.selectbox("Cable Type", cable_options, index=cable_options.index(materials.get("cable_type", "6x19 Galvanized")), disabled=st.session_state.locked)
+        materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(materials.get("num_bays", 2)), disabled=st.session_state.locked)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Tie-Down Angles
         st.markdown('<div class="sds-card"><div class="title">🔗 Tie-Down Settings</div>', unsafe_allow_html=True)
         materials["tie_down_vertical_angle"] = st.slider("Vertical Angle (°)", 20, 70, materials.get("tie_down_vertical_angle", 45), 5, disabled=st.session_state.locked)
         materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", 10, 60, materials.get("tie_down_horizontal_spread", 30), 5, disabled=st.session_state.locked)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Standard
         st.markdown('<div class="sds-card"><div class="title">🌍 Design Standard</div>', unsafe_allow_html=True)
         std_options = ["EU", "CN", "UK", "MY", "US"]
         materials["standard"] = st.selectbox("Design Standard", std_options, index=std_options.index(materials.get("standard", "EU")), disabled=st.session_state.locked)
@@ -1228,13 +1354,14 @@ def render_workspace():
         st.markdown(f'<span class="standard-badge {badge_class}">{materials["standard"]}</span> {get_standard_label(materials["standard"])}', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Comments
         st.markdown('<div class="sds-card"><div class="title">💬 Notes</div>', unsafe_allow_html=True)
         st.session_state.comments = st.text_area("", st.session_state.comments, height=80, disabled=st.session_state.locked, key="comments_area")
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col_right:
-        st.subheader("🔬 3D Model")
+        st.subheader("🔬 Enhanced 3D Model")
+        st.caption("📐 Legend below | 🎯 Tighter membrane | 🔗 Tie-downs at bracing points")
+        
         fig = generator(params, materials)
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
         
@@ -1245,11 +1372,9 @@ def render_workspace():
         
         design_results = auto_design_structure(params, materials)
         
-        # Show newly created sections
         if design_results.get("new_sections"):
             st.info(f"🆕 **New Sections Created:** {', '.join(design_results['new_sections'])}")
         
-        # Loads Summary
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📊 Loads</div>', unsafe_allow_html=True)
         loads = design_results["loads"]
@@ -1259,7 +1384,6 @@ def render_workspace():
         c3.metric("Total Load", f"{loads['total']:.1f} kN")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Member Selection
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">🔧 Member Selection</div>', unsafe_allow_html=True)
         
@@ -1298,7 +1422,6 @@ def render_workspace():
                 st.markdown(f"- **Verticals:** {truss['selected']['vertical']}")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Fabric & Cable
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">🧵 Fabric & Cables</div>', unsafe_allow_html=True)
         st.markdown(f"**Fabric:** {design_results['fabric']['type']}")
@@ -1312,7 +1435,6 @@ def render_workspace():
         st.markdown(f"**Status:** {'✅ Adequate' if design_results['cables']['is_adequate'] else '⚠️ Check'}")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Checklist
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📋 Design Checklist</div>', unsafe_allow_html=True)
         
@@ -1327,7 +1449,6 @@ def render_workspace():
             st.markdown(f"<span style='color:{color}; font-weight:700;'>{status}</span> {check_name.replace('_', ' ').title()}: {check_data['value']}", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Health Score
         score = design_results["health_score"]
         if score >= 80:
             status = "GOOD"
@@ -1347,13 +1468,11 @@ def render_workspace():
         </div>
         """, unsafe_allow_html=True)
         
-        # Image Gallery
         st.divider()
         render_image_gallery()
     
     st.divider()
     
-    # Q&A
     st.markdown('<div class="sds-card"><div class="title">❓ Design Confirmation</div>', unsafe_allow_html=True)
     qa_list = {
         "saddle_span": ["Are there two primary curved beams?", "Are both beams supported at lower ends?", "Is membrane attached continuously?", "Is A the vertical rise?", "Is B the horizontal span?", "Is LAA the apex-to-apex distance?"],
@@ -1390,4 +1509,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("SDS Design Studio v5.3 | Section Locking + Auto-Generation | MS EN Wind: 33.5m/s")
+st.caption("SDS Design Studio v5.4 | Enhanced 3D Viewer | Section Locking | Auto-Generation | MS EN Wind: 33.5m/s")
