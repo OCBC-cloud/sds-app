@@ -17,13 +17,13 @@ import io
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio Pro v3.2 - Intelligent Upgrade",
+    page_title="SDS Design Studio Pro v3.3 - Fixed",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # ============================================================
-# OPTIMIZED DARK MODE CSS
+# DARK MODE CSS
 # ============================================================
 dark_mode_css = """
     <style>
@@ -41,6 +41,7 @@ dark_mode_css = """
     .stButton > button:hover { background-color: #2a3a4f !important; border-color: #4a7a9c !important; }
     .stButton > button[kind="primary"] { background-color: #f39c12 !important; color: #0a0e17 !important; border: none !important; font-weight: 600 !important; }
     .stButton > button[kind="primary"]:hover { background-color: #f1c40f !important; }
+    .stButton > button:disabled { opacity: 0.5; cursor: not-allowed; }
     .stNumberInput > div > div > input, .stSelectbox > div > div > div, .stTextArea textarea {
         background-color: #141e2b !important; color: #ffffff !important;
         border: 1px solid #2a3a4f !important; border-radius: 8px !important;
@@ -58,6 +59,7 @@ dark_mode_css = """
     .sds-card { background-color: #141e2b; border-radius: 12px; padding: 1rem 1.2rem; border: 1px solid #1e2a3a; margin-bottom: 0.8rem; }
     .sds-card .title { color: #ffffff; font-weight: 600; font-size: 1rem; }
     .sds-card .content { color: #b0c4de; font-size: 0.9rem; }
+    .sds-card .success-msg { background-color: #1a3a2a; padding: 0.5rem 1rem; border-radius: 8px; border-left: 4px solid #2ecc71; }
     .standard-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.7rem; font-weight: 600; margin-right: 0.3rem; }
     .badge-eu { background-color: #003399; color: #ffffff; }
     .badge-cn { background-color: #DE2910; color: #ffffff; }
@@ -69,6 +71,7 @@ dark_mode_css = """
     .health-score-poor { color: #e74c3c; font-weight: 700; font-size: 1.5rem; }
     .image-popout { background-color: #0a0e17; border-radius: 12px; padding: 1rem; border: 2px solid #4a7a9c; text-align: center; }
     .image-popout img { max-width: 100%; border-radius: 8px; }
+    .upgrade-applied { background-color: #1a3a2a; border: 2px solid #2ecc71; border-radius: 8px; padding: 0.5rem 1rem; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -512,13 +515,27 @@ def analyze_and_upgrade_structure(params, materials, sizing_results):
     return upgrades
 
 def render_upgrade_options(upgrades, params, materials):
-    """Display upgrade options with comparison and apply button"""
+    """Display upgrade options with visual feedback and confirmation"""
     
     if not upgrades:
         return
     
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     st.markdown('<div class="title">🔄 Intelligent Structural Upgrade</div>', unsafe_allow_html=True)
+    
+    # Check if upgrade was already applied
+    upgrade_applied = st.session_state.get("upgrade_applied", False)
+    upgrade_name = st.session_state.get("upgrade_name", "")
+    
+    if upgrade_applied:
+        st.markdown(f"""
+        <div class="upgrade-applied">
+            ✅ <strong>Applied: {upgrade_name}</strong> — Re-run Health Report to see the results
+        </div>
+        """, unsafe_allow_html=True)
+        st.info("🔄 The upgrade has been applied. Click the 'Health Report' button above to see updated results.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
     
     st.warning("⚠️ Current design cannot handle wind load efficiently. The system has analyzed alternatives:")
     
@@ -583,6 +600,8 @@ def render_upgrade_options(upgrades, params, materials):
                 materials["section_size"] = selected["members"]["beam"]
         
         st.session_state.auto_sizing_applied = True
+        st.session_state.upgrade_applied = True
+        st.session_state.upgrade_name = selected['name']
         
         st.success(f"""
         ✅ **Upgrade Applied Successfully!**
@@ -591,8 +610,9 @@ def render_upgrade_options(upgrades, params, materials):
         |--------|-------|
         | {old_member_type.replace('_', ' ').title()} | {selected['name']} |
         | {old_section} | {materials['section_size']} |
+        | Weight: {SECTION_PROPERTIES.get(old_section, {}).get('weight', 'N/A'):.1f} kg/m | Weight: {selected['total_weight']:.1f} kg/m |
         
-        🔄 **Please re-run the Health Report to see updated results.**
+        🔄 **Click the 'Health Report' button above to see updated results.**
         """)
         st.rerun()
     
@@ -746,7 +766,8 @@ SESSION_DEFAULTS = {
     "project_registered": False, "project_info": {}, "typology": None, "params": {},
     "qa_answers": {}, "locked": False, "comments": "", "show_project_browser": False,
     "show_registration": False, "show_structural_report": False, "selected_standard": "EU",
-    "show_image_popout": None, "project_save_path": None, "auto_sizing_applied": False
+    "show_image_popout": None, "project_save_path": None, "auto_sizing_applied": False,
+    "upgrade_applied": False, "upgrade_name": ""
 }
 
 MATERIALS_DEFAULTS = {
@@ -896,9 +917,13 @@ def render_structural_health_report(report):
             st.success(f"✅ Membrane Adequate (Required: {mem.get('required_strength',0):.1f} kN/m, Actual: {mem.get('actual_strength',0):.1f} kN/m)")
         else:
             st.warning(f"⚠️ Membrane Under-sized (Required: {mem.get('required_strength',0):.1f} kN/m, Actual: {mem.get('actual_strength',0):.1f} kN/m)")
+    # Clear upgrade applied state when Health Report is run
+    if st.session_state.upgrade_applied:
+        st.session_state.upgrade_applied = False
+        st.session_state.upgrade_name = ""
 
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio Pro v3.2 - Intelligent Upgrade")
+    st.title("🏗️ SDS Design Studio Pro v3.3 - Fixed")
     st.caption("🚀 Automatic Member Sizing | Intelligent Structural Upgrade Engine")
     projects = get_projects_list()
     cols = st.columns(4)
@@ -911,7 +936,7 @@ def render_dashboard():
             st.session_state.show_registration = True
             st.rerun()
     with c2:
-        if projects and st.button("📂 Open Project", use_container_width=True):
+        if st.button("📂 Open Project", use_container_width=True):
             st.session_state.show_project_browser = True
             st.rerun()
 
@@ -965,7 +990,7 @@ def render_automatic_sizing(params, materials, sizing_results):
             if is_adequate:
                 st.success(f"✅ This section can handle the wind load ({wind_force:.1f} kN)")
             else:
-                st.warning(f"⚠️ Even this section may be inadequate for the wind load ({wind_force:.1f} kN). Consider reducing structure size or using upgrade options below.")
+                st.warning(f"⚠️ Even this section may be inadequate for the wind load ({wind_force:.1f} kN). Consider using upgrade options below.")
             
     elif member_type in ["planar_truss", "space_truss"]:
         truss = sizing_results["truss"]
@@ -1384,10 +1409,10 @@ with c6:
 with c7:
     st.caption("📊 Use top")
 
-# Project Browser
+# Project Browser - FIXED: Now works properly
 if st.session_state.show_project_browser:
     st.subheader("📂 Saved Projects")
-    if st.button("⬅ Back", use_container_width=True, key="back_browser"):
+    if st.button("⬅ Back to Dashboard", use_container_width=True, key="back_browser"):
         st.session_state.show_project_browser = False
         st.rerun()
     projects = get_projects_list()
@@ -1400,11 +1425,11 @@ if st.session_state.show_project_browser:
             badge = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(std, "badge-eu")
             c1.write(f"**{proj.get('name', 'Untitled')}** — {proj.get('client', 'Unknown')}")
             c1.markdown(f'<span class="standard-badge {badge}">{std}</span> {proj.get("typology", "Unknown")} {"🔒" if proj.get("locked") else "📝"}', unsafe_allow_html=True)
-            if c2.button("Load", key=f"load_{proj.get('file')}"):
+            if c2.button("📂 Load", key=f"load_{proj.get('file')}"):
                 if load_project_from_file(proj.get('file')):
                     st.session_state.show_project_browser = False
                     st.rerun()
-            if c3.button("Delete", key=f"del_{proj.get('file')}"):
+            if c3.button("🗑️ Delete", key=f"del_{proj.get('file')}"):
                 delete_project_file(proj.get('file'))
                 st.rerun()
             c4.caption(proj.get("date", "")[:10])
@@ -1463,5 +1488,5 @@ render_workspace()
 
 # Footer
 st.divider()
-st.caption("SDS Design Studio Pro v3.2 | 🧠 Intelligent Upgrade Engine | MS EN Wind: 33.5m/s | 5 Upgrade Options")
+st.caption("SDS Design Studio Pro v3.3 | ✅ Visual Feedback | ✅ Open Project Fixed | MS EN Wind: 33.5m/s")
 save_cache()
