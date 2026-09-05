@@ -323,6 +323,9 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     fabric_kg = fabric_weight * membrane_area
     return (steel_kg + fabric_kg) / 100  # Convert to kN
 
+# ============================================================
+# FIXED: calculate_required_section_based_on_moment
+# ============================================================
 def calculate_required_section_based_on_moment(load_kN, span_m, material_type, fy=355):
     """
     CORRECTED: Calculate required section based on bending moment
@@ -345,7 +348,7 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
     # Required second moment (deflection check - L/250)
     E = 210000  # MPa for steel, adjust for other materials
     deflection_limit = span_m / 250  # meters
-    I_required = (5 * w * span_m**4) / (384 * E * deflection_limit) * 1e12  # mm⁴ (converted from m⁴ to mm⁴)
+    I_required = (5 * w * span_m**4) / (384 * E * deflection_limit) * 1e12  # mm⁴
     
     # Select database based on material type
     if material_type == "Steel":
@@ -379,7 +382,8 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
             total_score += 10
         
         if total_score < best_score:
-            best_score = total_score            best_section = section
+            best_score = total_score
+            best_section = section
     
     if best_section and best_section in db:
         props = db[best_section]
