@@ -169,7 +169,7 @@ TRUSS_DESCRIPTIONS = {
 }
 
 # ============================================================
-# SESSION STATE - SIMPLE AND CLEAN
+# SESSION STATE
 # ============================================================
 if "page" not in st.session_state:
     st.session_state.page = "dashboard"
@@ -679,7 +679,7 @@ def generate_saddle_span(params, materials=None):
     return fig
 
 # ============================================================
-# OTHER GENERATORS (Placeholders for future)
+# OTHER GENERATORS
 # ============================================================
 def generate_tent(params):
     span, ridge, bays, bay_dist = params.get("span_width", 10.0), params.get("ridge_height", 5.0), params.get("num_bays", 4), params.get("bay_distance", 5.0)
@@ -855,7 +855,6 @@ def render_catalog():
             st.rerun()
 
 def render_image_gallery():
-    """Render the image gallery section"""
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     st.markdown('<div class="title">📸 Image Gallery</div>', unsafe_allow_html=True)
     
@@ -932,7 +931,6 @@ def render_image_gallery():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def render_reaction_forces(params, materials):
-    """Display support reactions and ground anchor forces"""
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     st.markdown('<div class="title">🔧 Reaction Forces & Anchors</div>', unsafe_allow_html=True)
     
@@ -981,7 +979,6 @@ def render_workspace():
     if typology not in GENERATORS:
         typology = "saddle_span"
     
-    # Get the generator based on typology
     generator = GENERATORS.get(typology, generate_saddle_span)
     
     st.markdown("## 🧠 Design Workspace")
@@ -1033,7 +1030,7 @@ def render_workspace():
     col_left, col_right = st.columns([1, 1.5])
     
     with col_left:
-        # Parameters (dynamic based on typology)
+        # Parameters
         st.markdown('<div class="sds-card"><div class="title">📐 Parameters</div>', unsafe_allow_html=True)
         if typology == "saddle_span":
             params["A"] = st.number_input("Rise (A) m", 2.0, 20.0, params.get("A", 6.0), 0.5, disabled=st.session_state.locked)
@@ -1064,21 +1061,27 @@ def render_workspace():
             materials["shape_type"] = st.selectbox("Shape Type", shape_options, index=shape_options.index(materials.get("shape_type", "parabolic")), disabled=st.session_state.locked)
             st.markdown('</div>', unsafe_allow_html=True)
         
-        # Member Type (only for saddle span)
+        # Member Type (FIXED - only for saddle span)
         if typology == "saddle_span":
             st.markdown('<div class="sds-card"><div class="title">🔧 Member Type</div>', unsafe_allow_html=True)
             member_options = ["single_beam", "planar_truss", "space_truss"]
             member_labels = ["Single Beam", "Planar Truss", "Space Truss"]
             current_member = materials.get("member_type", "single_beam")
             idx = member_options.index(current_member) if current_member in member_options else 0
-            materials["member_type"] = member_options[st.selectbox("Member Type", member_labels, index=idx, disabled=st.session_state.locked)]
+            
+            # FIXED: Get label first, then map to value
+            selected_label = st.selectbox("Member Type", member_labels, index=idx, disabled=st.session_state.locked)
+            materials["member_type"] = member_options[member_labels.index(selected_label)]
             
             if materials["member_type"] in ["planar_truss", "space_truss"]:
                 truss_options = ["warren", "pratt", "howe", "vierendeel"]
                 truss_labels = ["Warren", "Pratt", "Howe", "Vierendeel"]
                 current_truss = materials.get("truss_type", "warren")
                 truss_idx = truss_options.index(current_truss) if current_truss in truss_options else 0
-                materials["truss_type"] = truss_options[st.selectbox("Truss Type", truss_labels, index=truss_idx, disabled=st.session_state.locked)]
+                
+                # FIXED: Same fix for truss type
+                selected_truss_label = st.selectbox("Truss Type", truss_labels, index=truss_idx, disabled=st.session_state.locked)
+                materials["truss_type"] = truss_options[truss_labels.index(selected_truss_label)]
                 st.caption(f"💡 {TRUSS_DESCRIPTIONS.get(materials['truss_type'], '')}")
             st.markdown('</div>', unsafe_allow_html=True)
         
@@ -1260,6 +1263,5 @@ elif page == "workspace":
 else:
     render_dashboard()
 
-# Footer
 st.divider()
 st.caption("SDS Design Studio Pro | v4.0 Complete | MS EN Wind: 33.5m/s")
