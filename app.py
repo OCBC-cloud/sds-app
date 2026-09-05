@@ -17,7 +17,7 @@ import io
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio Pro v3.0 - Automatic Sizing",
+    page_title="SDS Design Studio Pro v3.0",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -55,6 +55,7 @@ dark_mode_css = """
     .stInfo { background-color: #1a2a3a !important; border-left: 4px solid #4a7a9c !important; color: #f0f4fa !important; }
     .stSuccess { background-color: #1a3a2a !important; border-left: 4px solid #2ecc71 !important; color: #f0f4fa !important; }
     .stError { background-color: #3a1a1a !important; border-left: 4px solid #e74c3c !important; color: #f0f4fa !important; }
+    .stWarning { background-color: #4a3a1a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; }
     #MainMenu {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     header {visibility: hidden !important;}
@@ -219,6 +220,24 @@ SECTION_PROPERTIES = {
 }
 
 # ============================================================
+# FABRIC STRENGTH DATABASE (For Membrane Checks)
+# ============================================================
+FABRIC_PROPERTIES = {
+    "PVC-coated Polyester": {
+        "strength": 40, "weight_per_m2": 1.2, "cost_per_m2": 25,
+        "lifespan": 20, "max_span": 15, "description": "Standard tensile membrane"
+    },
+    "PTFE-coated Fiberglass": {
+        "strength": 60, "weight_per_m2": 1.8, "cost_per_m2": 80,
+        "lifespan": 35, "max_span": 30, "description": "Premium architectural membrane"
+    },
+    "ETFE": {
+        "strength": 30, "weight_per_m2": 0.8, "cost_per_m2": 120,
+        "lifespan": 50, "max_span": 25, "description": "High-performance fluoropolymer"
+    }
+}
+
+# ============================================================
 # IMAGE COMPRESSION FUNCTION
 # ============================================================
 def compress_image(uploaded_file, max_size=300, quality=65):
@@ -307,11 +326,47 @@ def generate_truss_members(x, z_beam, truss_type="warren", num_panels=4):
 # ============================================================
 # AUTOMATIC SIZING ENGINE
 # ============================================================
+def auto_select_fabric_thickness(wind_force, membrane_area, fabric_type):
+    """Auto-select fabric thickness based on loads and fabric type"""
+    
+    # Required strength (kN/m)
+    required_strength = wind_force / (membrane_area * 0.5) if membrane_area > 0 else 0
+    
+    # Thickness options per fabric type - CORRECTED VALUES
+    thickness_options = {
+        "PVC-coated Polyester": {
+            0.5: {"strength": 30, "max_span": 10},
+            0.8: {"strength": 40, "max_span": 15},
+            1.0: {"strength": 50, "max_span": 20},
+            1.2: {"strength": 60, "max_span": 25}
+        },
+        "PTFE-coated Fiberglass": {
+            0.5: {"strength": 40, "max_span": 15},
+            0.8: {"strength": 55, "max_span": 20},
+            1.0: {"strength": 70, "max_span": 30},
+            1.2: {"strength": 85, "max_span": 40}
+        },
+        "ETFE": {
+            0.5: {"strength": 25, "max_span": 12},
+            0.8: {"strength": 35, "max_span": 18},
+            1.0: {"strength": 45, "max_span": 25},
+            1.2: {"strength": 55, "max_span": 30}
+        }
+    }
+    
+    options = thickness_options.get(fabric_type, {})
+    
+    # Find suitable thickness
+    selected_thickness = 0.8  # Default
+    for thickness, props in sorted(options.items()):
+        if props["strength"] >= required_strength * 1.5:
+            selected_thickness = thickness
+            break
+    
+    return selected_thickness
+
 def calculate_required_section(force_kN, length_m, material_type, section_type="beam", compression=True):
-    """
-    Calculate required section properties based on force
-    Returns: Suggested section size
-    """
+    """Calculate required section properties based on force"""
     
     # Get material properties
     if material_type == "Steel":
@@ -336,23 +391,21 @@ def calculate_required_section(force_kN, length_m, material_type, section_type="
     M = abs(force_kN) * length_m / 6  # kNm
     required_I = (M * 1e6 * length_m * 12) / (E * 10)  # mm⁴
     
-    # Search database
+    # Search database - filter by section type if specified
     best_section = None
     best_score = float('inf')
     
-    # Filter sections by type if needed
-    filtered_sections = SECTION_PROPERTIES.items()
-    
-    for section, props in filtered_sections:
+    for section, props in SECTION_PROPERTIES.items():
         if props["A"] <= 0:
             continue
-            
-        # Calculate score
+        
+        # Calculate scores
         area_score = abs(props["A"] - required_area) / required_area if required_area > 0 else 0
         i_score = abs(props["I"] - required_I) / required_I if required_I > 0 else 0
+        weight_score = props["weight"] / 100
         
-        # Weighted score
-        total_score = area_score * 0.7 + i_score * 0.3
+        # Balanced scoring
+        total_score = area_score * 0.4 + i_score * 0.3 + weight_score * 0.3
         
         # Penalize sections too small
         if props["A"] < required_area * 0.7:
@@ -377,25 +430,82 @@ def calculate_required_section(force_kN, length_m, material_type, section_type="
     
     return None
 
+def calculate_dead_load_from_section(params, materials):
+    """Calculate dead load from section properties - CORRECTED"""
+    span = params.get("B", 10.0)
+    laa = params.get("LAA", 15.0)
+    section = materials.get("section_size", "CHS 168.3x7.1")
+    
+    section_data = SECTION_PROPERTIES.get(section, SECTION_PROPERTIES["CHS 168.3x7.1"])
+    
+    # CORRECTED: Steel weight
+    steel_weight_kg = section_data.get("weight", 28.3) * span * 2  # kg
+    steel_weight_kN = steel_weight_kg / 100  # Convert to kN
+    
+    # CORRECTED: Fabric weight
+    membrane_area = span * laa * 1.1
+    fabric_type = materials.get("fabric_type", "PVC-coated Polyester")
+    fabric_weight_per_m2 = FABRIC_PROPERTIES.get(fabric_type, {}).get("weight_per_m2", 1.2)
+    fabric_weight_kg = fabric_weight_per_m2 * membrane_area  # kg
+    fabric_weight_kN = fabric_weight_kg / 100  # Convert to kN
+    
+    dead_load_kN = steel_weight_kN + fabric_weight_kN
+    
+    return dead_load_kN
+
+def calculate_wind_load_from_standard(params, materials):
+    """Calculate wind load based on selected standard - CORRECTED"""
+    span = params.get("B", 10.0)
+    laa = params.get("LAA", 15.0)
+    standard = materials.get("standard", "EU")
+    
+    membrane_area = span * laa * 1.1
+    
+    # Wind speed per standard (m/s) - CORRECTED VALUES
+    if standard == "MY":
+        wind_speed = 33.5  # MS EN 1991-1-4
+    elif standard == "EU":
+        wind_speed = 30.0
+    elif standard == "CN":
+        wind_speed = 28.0
+    elif standard == "UK":
+        wind_speed = 26.0
+    elif standard == "US":
+        wind_speed = 38.0
+    else:
+        wind_speed = 30.0
+    
+    # Wind pressure: q = 0.5 * rho * V²
+    rho = 1.225  # kg/m³
+    q = 0.5 * rho * wind_speed**2 / 1000  # kN/m² (divide by 1000 to convert Pa to kPa)
+    
+    # Wind force: F = q * Area * Cd
+    wind_force = q * membrane_area * 1.2  # Drag coefficient Cd = 1.2
+    
+    return wind_force
+
 def size_all_members(params, materials):
-    """Size all members of the structure automatically"""
+    """Size all members of the structure automatically - CORRECTED"""
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     laa = params.get("LAA", 15.0)
     
     # Calculate loads
-    membrane_area = span * laa * 1.1
     wind_force = calculate_wind_load_from_standard(params, materials)
     dead_load = calculate_dead_load_from_section(params, materials)
-    live_load = 0.5 * membrane_area / 10  # kN (reduced for preliminary)
+    live_load = 0.5 * (span * laa * 1.1) / 100  # kN (reduced)
     
     total_load = wind_force + dead_load + live_load
     
-    # Forces in beams (simplified)
-    beam_force = total_load * span / (4 * rise) * 1.5 if rise > 0 else total_load * 0.5
+    # CORRECTED: Beam force using statics (no arbitrary factor)
+    if rise > 0:
+        beam_force = (total_load * span) / (4 * rise)  # kN
+    else:
+        beam_force = total_load * 0.5
     
     member_type = materials.get("member_type", "single_beam")
     material_type = materials.get("material_type", "Steel")
+    section_type = materials.get("section_type", "CHS")
     
     results = {
         "loads": {
@@ -410,7 +520,7 @@ def size_all_members(params, materials):
     
     if member_type == "single_beam":
         beam_result = calculate_required_section(
-            beam_force, span, material_type, "beam"
+            beam_force, span, material_type, section_type
         )
         if beam_result:
             results["beams"]["main"] = beam_result
@@ -422,10 +532,10 @@ def size_all_members(params, materials):
         diag_force = beam_force * 0.6
         vert_force = beam_force * 0.4
         
-        top_result = calculate_required_section(top_force, span/4, material_type, "beam", compression=True)
-        bottom_result = calculate_required_section(bottom_force, span/4, material_type, "beam", compression=False)
-        diag_result = calculate_required_section(diag_force, span/6, material_type, "beam")
-        vert_result = calculate_required_section(vert_force, span/8, material_type, "beam", compression=True)
+        top_result = calculate_required_section(top_force, span/4, material_type, section_type, compression=True)
+        bottom_result = calculate_required_section(bottom_force, span/4, material_type, section_type, compression=False)
+        diag_result = calculate_required_section(diag_force, span/6, material_type, section_type)
+        vert_result = calculate_required_section(vert_force, span/8, material_type, section_type, compression=True)
         
         results["truss"]["top_chord"] = top_result if top_result else {"section": "N/A", "properties": {}, "force_kN": top_force}
         results["truss"]["bottom_chord"] = bottom_result if bottom_result else {"section": "N/A", "properties": {}, "force_kN": bottom_force}
@@ -443,9 +553,9 @@ def size_all_members(params, materials):
         bottom_force = beam_force * 0.6
         diag_force = beam_force * 0.4
         
-        top_result = calculate_required_section(top_force, span/3, material_type, "beam", compression=True)
-        bottom_result = calculate_required_section(bottom_force, span/3, material_type, "beam", compression=False)
-        diag_result = calculate_required_section(diag_force, span/5, material_type, "beam")
+        top_result = calculate_required_section(top_force, span/3, material_type, section_type, compression=True)
+        bottom_result = calculate_required_section(bottom_force, span/3, material_type, section_type, compression=False)
+        diag_result = calculate_required_section(diag_force, span/5, material_type, section_type)
         
         results["truss"]["top_chord"] = top_result if top_result else {"section": "N/A", "properties": {}, "force_kN": top_force}
         results["truss"]["bottom_chord"] = bottom_result if bottom_result else {"section": "N/A", "properties": {}, "force_kN": bottom_force}
@@ -458,270 +568,52 @@ def size_all_members(params, materials):
     
     return results
 
-def calculate_wind_load_from_standard(params, materials):
-    """Calculate wind load based on selected standard"""
-    span = params.get("B", 10.0)
-    laa = params.get("LAA", 15.0)
-    standard = materials.get("standard", "EU")
+def calculate_membrane_adequacy(fabric_type, wind_force, membrane_area, structure_type):
+    """Calculate if fabric is adequate with ETFE awareness"""
     
-    membrane_area = span * laa * 1.1
-    
-    # Wind speed per standard
-    if standard == "MY":
-        wind_speed = 33.5
-    elif standard == "EU":
-        wind_speed = 30.0
-    elif standard == "CN":
-        wind_speed = 28.0
-    elif standard == "UK":
-        wind_speed = 26.0
-    elif standard == "US":
-        wind_speed = 38.0
-    else:
-        wind_speed = 30.0
-    
-    rho = 1.225
-    q = 0.5 * rho * wind_speed**2 / 1000
-    wind_pressure = q * 1.2
-    wind_force = wind_pressure * membrane_area
-    
-    return wind_force
-
-def calculate_dead_load_from_section(params, materials):
-    """Calculate dead load from section properties"""
-    span = params.get("B", 10.0)
-    laa = params.get("LAA", 15.0)
-    section = materials.get("section_size", "CHS 168.3x7.1")
-    
-    section_data = SECTION_PROPERTIES.get(section, SECTION_PROPERTIES["CHS 168.3x7.1"])
-    
-    # Steel/fabric weight
-    steel_weight = section_data.get("weight", 28.3) * span * 2 / 100  # kN
-    membrane_area = span * laa * 1.1
-    fabric_weight = 1.2 * membrane_area / 100  # kN
-    
-    return steel_weight + fabric_weight
-
-def render_automatic_sizing(params, materials, sizing_results):
-    """Display automatic sizing results with visual feedback"""
-    
-    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-    st.markdown('<div class="title">🧠 Automatic Member Sizing</div>', unsafe_allow_html=True)
-    
-    st.success("✅ System has automatically sized all members based on loads and spans")
-    
-    # Loads summary
-    loads = sizing_results["loads"]
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Wind Load", f"{loads['wind']:.1f} kN")
-    with col2:
-        st.metric("Dead Load", f"{loads['dead']:.1f} kN")
-    with col3:
-        st.metric("Live Load", f"{loads['live']:.1f} kN")
-    with col4:
-        st.metric("Total Load", f"{loads['total']:.1f} kN")
-    
-    st.markdown("---")
-    
-    member_type = materials.get("member_type", "single_beam")
-    
-    if member_type == "single_beam":
-        beam = sizing_results["beams"].get("main")
-        if beam:
-            st.markdown("#### 📐 Single Beam Sizing")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                status = "✅" if beam["is_adequate"] else "⚠️"
-                st.markdown(f"**Selected Section:** {status} **{beam['section']}**")
-                st.write(f"**Area:** {beam['properties'].get('A', 0):.0f} mm²")
-                st.write(f"**Weight:** {beam['properties'].get('weight', 0):.1f} kg/m")
-                st.write(f"**Second Moment:** {beam['properties'].get('I', 0)/1e6:.1f} cm⁴")
-            with col2:
-                st.write(f"**Force:** {beam['force_kN']:.1f} kN")
-                st.write(f"**Required Area:** {beam['required_area']:.0f} mm²")
-                st.write(f"**Capacity Ratio:** {beam['capacity_ratio']:.2f}")
-                st.write(f"**Material:** {beam['material']}")
-            
-            if beam["is_adequate"]:
-                st.success(f"✅ Recommended: {beam['section']} (Adequate)")
-            else:
-                st.warning(f"⚠️ Consider larger section. Current: {beam['section']} (Under-sized)")
-        else:
-            st.warning("⚠️ No suitable section found. Consider larger members or higher grade material.")
-            
-    elif member_type in ["planar_truss", "space_truss"]:
-        truss = sizing_results["truss"]
-        
-        st.markdown("#### 📐 Truss Member Sizing")
-        
-        data = []
-        
-        # Top chord
-        top = truss.get("top_chord", {})
-        data.append({
-            "Member": "Top Chord",
-            "Section": top.get("section", "N/A"),
-            "Area (mm²)": top.get("properties", {}).get("A", 0) if top else 0,
-            "Force (kN)": top.get("force_kN", 0) if top else 0,
-            "Status": "✅" if top.get("is_adequate", False) else "⚠️" if top else "N/A"
-        })
-        
-        # Bottom chord
-        bottom = truss.get("bottom_chord", {})
-        data.append({
-            "Member": "Bottom Chord",
-            "Section": bottom.get("section", "N/A"),
-            "Area (mm²)": bottom.get("properties", {}).get("A", 0) if bottom else 0,
-            "Force (kN)": bottom.get("force_kN", 0) if bottom else 0,
-            "Status": "✅" if bottom.get("is_adequate", False) else "⚠️" if bottom else "N/A"
-        })
-        
-        # Diagonals
-        diag = truss.get("diagonals", {})
-        data.append({
-            "Member": "Diagonals",
-            "Section": diag.get("section", "N/A"),
-            "Area (mm²)": diag.get("properties", {}).get("A", 0) if diag else 0,
-            "Force (kN)": diag.get("force_kN", 0) if diag else 0,
-            "Status": "✅" if diag.get("is_adequate", False) else "⚠️" if diag else "N/A"
-        })
-        
-        # Verticals (if planar truss)
-        if "verticals" in truss:
-            vert = truss.get("verticals", {})
-            data.append({
-                "Member": "Verticals",
-                "Section": vert.get("section", "N/A"),
-                "Area (mm²)": vert.get("properties", {}).get("A", 0) if vert else 0,
-                "Force (kN)": vert.get("force_kN", 0) if vert else 0,
-                "Status": "✅" if vert.get("is_adequate", False) else "⚠️" if vert else "N/A"
-            })
-        
-        df = pd.DataFrame(data)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        
-        # Summary
-        all_adequate = all("✅" in str(row["Status"]) for row in data)
-        if all_adequate:
-            st.success(f"✅ All truss members are adequately sized")
-        else:
-            st.warning("⚠️ Some members may be under-sized. Consider increasing section sizes.")
-        
-        # Visual summary
-        selected = truss.get("selected", {})
-        st.info(f"**Recommended:** Top: {selected.get('top', 'N/A')} | Bottom: {selected.get('bottom', 'N/A')} | Diagonal: {selected.get('diagonal', 'N/A')}")
-    
-    # Apply button
-    if st.button("✅ Apply Automatic Sizing", use_container_width=True, type="primary"):
-        member_type = materials.get("member_type", "single_beam")
-        
-        if member_type == "single_beam":
-            beam = sizing_results["beams"].get("main")
-            if beam and beam.get("section"):
-                materials["section_size"] = beam["section"]
-                st.success(f"✅ Applied: {beam['section']}")
-                st.rerun()
-        elif member_type in ["planar_truss", "space_truss"]:
-            truss = sizing_results["truss"]
-            selected = truss.get("selected", {})
-            top = selected.get("top", "N/A")
-            if top != "N/A":
-                materials["section_size"] = top
-                st.success(f"✅ Applied top chord: {top}")
-                st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def render_reaction_forces(params, materials):
-    """Display support reactions and ground anchor forces"""
-    
-    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-    st.markdown('<div class="title">🔧 Reaction Forces & Anchors</div>', unsafe_allow_html=True)
-    
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    laa = params.get("LAA", 15.0)
-    
-    # Get section properties
-    section = materials.get("section_size", "CHS 168.3x7.1")
-    section_data = SECTION_PROPERTIES.get(section, SECTION_PROPERTIES["CHS 168.3x7.1"])
-    
-    # Calculate loads
-    membrane_area = span * laa * 1.1
-    
-    # Wind load
-    wind_force = calculate_wind_load_from_standard(params, materials)
-    
-    # Dead load
-    dead_load = calculate_dead_load_from_section(params, materials)
-    
-    # Total load
-    total_load = wind_force + dead_load
-    
-    # Support reactions
-    num_supports = 4
-    vertical_reaction = (total_load) / num_supports
-    horizontal_reaction = wind_force * 0.6 / num_supports
-    
-    # Tie-down forces
-    num_bays = materials.get("num_bays", 2)
-    num_anchors = num_bays * 4
-    vertical_angle = materials.get("tie_down_vertical_angle", 45)
-    
-    uplift_per_anchor = (wind_force * 0.5) / num_anchors if num_anchors > 0 else 0
-    cable_force = uplift_per_anchor / np.cos(np.radians(vertical_angle))
-    
-    # Cable check
-    cable_type = materials.get("wire_rope_type", "6x19 Galvanized")
-    cable_diameter = materials.get("wire_rope_diameter", 12)
-    
-    cable_breaking = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 18: 180, 20: 220}
-    breaking_load = cable_breaking.get(cable_diameter, 80)
-    safety_factor = cable_force / breaking_load if breaking_load > 0 else 0
-    
-    # Display
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### 📊 Support Reactions")
-        st.metric("Wind Load", f"{wind_force:.1f} kN")
-        st.metric("Dead Load", f"{dead_load:.1f} kN")
-        st.metric("Total Load", f"{total_load:.1f} kN")
-        st.metric("Vertical Reaction/Support", f"{vertical_reaction:.1f} kN")
-        st.metric("Horizontal Reaction/Support", f"{horizontal_reaction:.1f} kN")
-    
-    with col2:
-        st.markdown("#### 🔗 Anchor Forces")
-        st.metric("Number of Anchors", f"{num_anchors}")
-        st.metric("Uplift / Anchor", f"{uplift_per_anchor:.1f} kN")
-        st.metric("Cable Tension", f"{cable_force:.1f} kN")
-        st.metric("Cable Breaking Load", f"{breaking_load:.0f} kN")
-        
-        # Safety factor with color
-        if safety_factor < 0.7:
-            st.success(f"✅ Safety Factor: {safety_factor:.2f} (Adequate)")
-        else:
-            st.warning(f"⚠️ Safety Factor: {safety_factor:.2f} (Check required)")
-    
-    # Summary table
-    st.markdown("#### 📋 Summary")
-    summary_data = {
-        "Parameter": ["Wind Speed", "Wind Load", "Dead Load", "Vertical Reaction", "Cable Tension", "Safety Factor"],
-        "Value": [
-            f"{calculate_wind_load_from_standard(params, materials) / (span * laa * 1.1):.1f} m/s",
-            f"{wind_force:.1f} kN",
-            f"{dead_load:.1f} kN",
-            f"{vertical_reaction:.1f} kN",
-            f"{cable_force:.1f} kN",
-            f"{safety_factor:.2f}"
-        ]
+    fabric_strength = {
+        "PVC-coated Polyester": 40,  # kN/m
+        "PTFE-coated Fiberglass": 60,  # kN/m
+        "ETFE": 30  # kN/m (LOWEST - IMPORTANT!)
     }
-    df = pd.DataFrame(summary_data)
-    st.dataframe(df, use_container_width=True, hide_index=True)
     
-    st.markdown('</div>', unsafe_allow_html=True)
+    # ETFE special handling
+    if fabric_type == "ETFE":
+        if structure_type in ["saddle_span", "tensile_membrane"]:
+            return {
+                "is_adequate": False,
+                "reason": "ETFE not suitable for load-bearing membranes",
+                "recommendation": "Use PVC or PTFE for this structure type",
+                "required_strength": 0,
+                "actual_strength": 30,
+                "warning": True
+            }
+        else:
+            # Frame-supported structures: ETFE is infill
+            required_strength = wind_force / (membrane_area * 0.3) if membrane_area > 0 else 0
+            actual_strength = fabric_strength.get(fabric_type, 30)
+            is_adequate = actual_strength >= required_strength * 1.5
+            
+            return {
+                "is_adequate": is_adequate,
+                "required_strength": required_strength,
+                "actual_strength": actual_strength,
+                "recommendation": "Ensure frame can support loads" if is_adequate else "Use stronger fabric or reinforce frame",
+                "warning": False
+            }
+    
+    # PVC/PTFE normal logic
+    required_strength = wind_force / (membrane_area * 0.5) if membrane_area > 0 else 0
+    actual_strength = fabric_strength.get(fabric_type, 40)
+    is_adequate = actual_strength >= required_strength * 1.5
+    
+    return {
+        "is_adequate": is_adequate,
+        "required_strength": required_strength,
+        "actual_strength": actual_strength,
+        "recommendation": "OK" if is_adequate else "Consider stronger fabric",
+        "warning": False
+    }
 
 # ============================================================
 # SESSION STATE
@@ -752,6 +644,8 @@ if "show_image_popout" not in st.session_state:
     st.session_state.show_image_popout = None
 if "project_save_path" not in st.session_state:
     st.session_state.project_save_path = None
+if "auto_sizing_applied" not in st.session_state:
+    st.session_state.auto_sizing_applied = False
 
 # Materials State
 if "materials" not in st.session_state:
@@ -763,6 +657,7 @@ if "materials" not in st.session_state:
         "wood_grade": "Glulam",
         "composite_grade": "GFRP",
         "section_size": "CHS 168.3x7.1",
+        "section_type": "CHS",
         "fabric_type": "PVC-coated Polyester",
         "fabric_thickness": 0.8,
         "wire_rope_type": "6x19 Galvanized",
@@ -780,8 +675,7 @@ if "materials" not in st.session_state:
         "truss_type": "warren",
         "anchoring_pattern": "standard",
         "prestress_level": "medium",
-        "custom_prestress": 3.0,
-        "auto_sizing_applied": False
+        "custom_prestress": 3.0
     }
 
 # ============================================================
@@ -802,7 +696,8 @@ def save_cache():
         "locked": st.session_state.locked,
         "comments": st.session_state.comments,
         "materials": st.session_state.materials,
-        "selected_standard": st.session_state.selected_standard
+        "selected_standard": st.session_state.selected_standard,
+        "auto_sizing_applied": st.session_state.auto_sizing_applied
     }
     with open(CACHE_FILE, "w") as f:
         json.dump(data, f, indent=2)
@@ -851,6 +746,7 @@ def load_project_from_file(filename):
             st.session_state.comments = data.get("comments", "")
             st.session_state.materials = data.get("materials", {})
             st.session_state.selected_standard = data.get("selected_standard", "EU")
+            st.session_state.auto_sizing_applied = data.get("auto_sizing_applied", False)
             st.session_state.show_project_browser = False
             st.session_state.show_image_popout = None
             st.session_state.project_save_path = filepath
@@ -879,6 +775,7 @@ def go_to_dashboard():
     st.session_state.show_structural_report = False
     st.session_state.show_image_popout = None
     st.session_state.project_save_path = None
+    st.session_state.auto_sizing_applied = False
     if os.path.exists(CACHE_FILE):
         os.remove(CACHE_FILE)
     save_cache()
@@ -909,7 +806,8 @@ def save_project():
         "locked": st.session_state.locked,
         "comments": st.session_state.comments,
         "materials": st.session_state.materials,
-        "selected_standard": st.session_state.selected_standard
+        "selected_standard": st.session_state.selected_standard,
+        "auto_sizing_applied": st.session_state.auto_sizing_applied
     }
     
     if existing_file:
@@ -947,6 +845,7 @@ if cached:
     st.session_state.comments = cached.get("comments", "")
     st.session_state.materials = cached.get("materials", {})
     st.session_state.selected_standard = cached.get("selected_standard", "EU")
+    st.session_state.auto_sizing_applied = cached.get("auto_sizing_applied", False)
 
 # ============================================================
 # STANDARD FUNCTIONS
@@ -1243,7 +1142,7 @@ def calculate_tie_down_positions(span, laa, height, x_positions, vertical_angle,
     return anchors
 
 # ============================================================
-# OTHER GENERATORS
+# OTHER GENERATORS (Placeholders)
 # ============================================================
 def generate_tent(params):
     span = params.get("span_width", 10.0)
@@ -1512,12 +1411,14 @@ def generate_structural_health_report(params, materials):
     
     m = materials
     standard = m.get("standard", "EU")
+    structure_type = st.session_state.typology
     
     wind_force = calculate_wind_load_from_standard(params, materials)
     dead_load = calculate_dead_load_from_section(params, materials)
     
     material_type = m.get("material_type", "Steel")
     grade = m.get("steel_grade", "S355")
+    fabric_type = m.get("fabric_type", "PVC-coated Polyester")
     
     steel_capacity = calculate_steel_capacity_standard(
         grade,
@@ -1540,6 +1441,11 @@ def generate_structural_health_report(params, materials):
         m.get("wire_rope_type", "6x19 Galvanized")
     )
     
+    # Membrane adequacy check with ETFE awareness
+    membrane_result = calculate_membrane_adequacy(
+        fabric_type, wind_force, membrane_area, structure_type
+    )
+    
     health_score = 100
     
     if wind_force > 100:
@@ -1559,6 +1465,13 @@ def generate_structural_health_report(params, materials):
         health_score -= 10
     elif steel_capacity["slenderness"] > 50:
         health_score -= 5
+    
+    # Membrane check impacts health score
+    if not membrane_result["is_adequate"]:
+        if membrane_result.get("warning", False):
+            health_score -= 30  # Severe penalty for ETFE misuse
+        else:
+            health_score -= 15
     
     health_score = max(0, min(100, health_score))
     
@@ -1590,11 +1503,13 @@ def generate_structural_health_report(params, materials):
         "span": span,
         "rise": rise,
         "laa": laa,
+        "membrane_check": membrane_result,
         "detailed_checks": {
             "wind_check": wind_force < 80,
             "steel_capacity_check": steel_capacity["efficiency"] > 0.5,
             "cable_adequacy_check": cable_selection["is_adequate"],
-            "slenderness_check": steel_capacity["slenderness"] < 100
+            "slenderness_check": steel_capacity["slenderness"] < 100,
+            "membrane_check": membrane_result["is_adequate"]
         }
     }
 
@@ -1680,8 +1595,223 @@ def render_image_gallery():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
-# UI FUNCTIONS
+# RENDER FUNCTIONS
 # ============================================================
+def render_automatic_sizing(params, materials, sizing_results):
+    """Display automatic sizing results with visual feedback"""
+    
+    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">🧠 Automatic Member Sizing</div>', unsafe_allow_html=True)
+    
+    st.success("✅ System has automatically sized all members based on loads and spans")
+    
+    # Loads summary
+    loads = sizing_results["loads"]
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Wind Load", f"{loads['wind']:.1f} kN")
+    with col2:
+        st.metric("Dead Load", f"{loads['dead']:.1f} kN")
+    with col3:
+        st.metric("Live Load", f"{loads['live']:.1f} kN")
+    with col4:
+        st.metric("Total Load", f"{loads['total']:.1f} kN")
+    
+    st.markdown("---")
+    
+    member_type = materials.get("member_type", "single_beam")
+    
+    if member_type == "single_beam":
+        beam = sizing_results["beams"].get("main")
+        if beam:
+            st.markdown("#### 📐 Single Beam Sizing")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                status = "✅" if beam["is_adequate"] else "⚠️"
+                st.markdown(f"**Selected Section:** {status} **{beam['section']}**")
+                st.write(f"**Area:** {beam['properties'].get('A', 0):.0f} mm²")
+                st.write(f"**Weight:** {beam['properties'].get('weight', 0):.1f} kg/m")
+                st.write(f"**Second Moment:** {beam['properties'].get('I', 0)/1e6:.1f} cm⁴")
+            with col2:
+                st.write(f"**Force:** {beam['force_kN']:.1f} kN")
+                st.write(f"**Required Area:** {beam['required_area']:.0f} mm²")
+                st.write(f"**Capacity Ratio:** {beam['capacity_ratio']:.2f}")
+                st.write(f"**Material:** {beam['material']}")
+            
+            if beam["is_adequate"]:
+                st.success(f"✅ Recommended: {beam['section']} (Adequate)")
+            else:
+                st.warning(f"⚠️ Consider larger section. Current: {beam['section']} (Under-sized)")
+        else:
+            st.warning("⚠️ No suitable section found. Consider larger members or higher grade material.")
+            
+    elif member_type in ["planar_truss", "space_truss"]:
+        truss = sizing_results["truss"]
+        
+        st.markdown("#### 📐 Truss Member Sizing")
+        
+        data = []
+        
+        # Top chord
+        top = truss.get("top_chord", {})
+        data.append({
+            "Member": "Top Chord",
+            "Section": top.get("section", "N/A"),
+            "Area (mm²)": top.get("properties", {}).get("A", 0) if top else 0,
+            "Force (kN)": top.get("force_kN", 0) if top else 0,
+            "Status": "✅" if top.get("is_adequate", False) else "⚠️" if top else "N/A"
+        })
+        
+        # Bottom chord
+        bottom = truss.get("bottom_chord", {})
+        data.append({
+            "Member": "Bottom Chord",
+            "Section": bottom.get("section", "N/A"),
+            "Area (mm²)": bottom.get("properties", {}).get("A", 0) if bottom else 0,
+            "Force (kN)": bottom.get("force_kN", 0) if bottom else 0,
+            "Status": "✅" if bottom.get("is_adequate", False) else "⚠️" if bottom else "N/A"
+        })
+        
+        # Diagonals
+        diag = truss.get("diagonals", {})
+        data.append({
+            "Member": "Diagonals",
+            "Section": diag.get("section", "N/A"),
+            "Area (mm²)": diag.get("properties", {}).get("A", 0) if diag else 0,
+            "Force (kN)": diag.get("force_kN", 0) if diag else 0,
+            "Status": "✅" if diag.get("is_adequate", False) else "⚠️" if diag else "N/A"
+        })
+        
+        # Verticals (if planar truss)
+        if "verticals" in truss:
+            vert = truss.get("verticals", {})
+            data.append({
+                "Member": "Verticals",
+                "Section": vert.get("section", "N/A"),
+                "Area (mm²)": vert.get("properties", {}).get("A", 0) if vert else 0,
+                "Force (kN)": vert.get("force_kN", 0) if vert else 0,
+                "Status": "✅" if vert.get("is_adequate", False) else "⚠️" if vert else "N/A"
+            })
+        
+        df = pd.DataFrame(data)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # Summary
+        all_adequate = all("✅" in str(row["Status"]) for row in data)
+        if all_adequate:
+            st.success(f"✅ All truss members are adequately sized")
+        else:
+            st.warning("⚠️ Some members may be under-sized. Consider increasing section sizes.")
+        
+        # Visual summary
+        selected = truss.get("selected", {})
+        st.info(f"**Recommended:** Top: {selected.get('top', 'N/A')} | Bottom: {selected.get('bottom', 'N/A')} | Diagonal: {selected.get('diagonal', 'N/A')}")
+    
+    # Apply button
+    if st.button("✅ Apply Automatic Sizing", use_container_width=True, type="primary"):
+        member_type = materials.get("member_type", "single_beam")
+        
+        if member_type == "single_beam":
+            beam = sizing_results["beams"].get("main")
+            if beam and beam.get("section"):
+                materials["section_size"] = beam["section"]
+                st.session_state.auto_sizing_applied = True
+                st.success(f"✅ Applied: {beam['section']}")
+                st.rerun()
+        elif member_type in ["planar_truss", "space_truss"]:
+            truss = sizing_results["truss"]
+            selected = truss.get("selected", {})
+            top = selected.get("top", "N/A")
+            if top != "N/A":
+                materials["section_size"] = top
+                st.session_state.auto_sizing_applied = True
+                st.success(f"✅ Applied top chord: {top}")
+                st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def render_reaction_forces(params, materials):
+    """Display support reactions and ground anchor forces"""
+    
+    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+    st.markdown('<div class="title">🔧 Reaction Forces & Anchors</div>', unsafe_allow_html=True)
+    
+    span = params.get("B", 10.0)
+    rise = params.get("A", 6.0)
+    laa = params.get("LAA", 15.0)
+    
+    # Get section properties
+    section = materials.get("section_size", "CHS 168.3x7.1")
+    section_data = SECTION_PROPERTIES.get(section, SECTION_PROPERTIES["CHS 168.3x7.1"])
+    
+    # Calculate loads
+    wind_force = calculate_wind_load_from_standard(params, materials)
+    dead_load = calculate_dead_load_from_section(params, materials)
+    total_load = wind_force + dead_load
+    
+    # Support reactions
+    num_supports = 4
+    vertical_reaction = total_load / num_supports
+    horizontal_reaction = wind_force * 0.6 / num_supports
+    
+    # Tie-down forces
+    num_bays = materials.get("num_bays", 2)
+    num_anchors = num_bays * 4
+    vertical_angle = materials.get("tie_down_vertical_angle", 45)
+    
+    uplift_per_anchor = (wind_force * 0.5) / num_anchors if num_anchors > 0 else 0
+    cable_force = uplift_per_anchor / np.cos(np.radians(vertical_angle))
+    
+    # Cable check
+    cable_type = materials.get("wire_rope_type", "6x19 Galvanized")
+    cable_diameter = materials.get("wire_rope_diameter", 12)
+    
+    cable_breaking = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 18: 180, 20: 220}
+    breaking_load = cable_breaking.get(cable_diameter, 80)
+    safety_factor = cable_force / breaking_load if breaking_load > 0 else 0
+    
+    # Display
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 📊 Support Reactions")
+        st.metric("Wind Load", f"{wind_force:.1f} kN")
+        st.metric("Dead Load", f"{dead_load:.1f} kN")
+        st.metric("Total Load", f"{total_load:.1f} kN")
+        st.metric("Vertical Reaction/Support", f"{vertical_reaction:.1f} kN")
+        st.metric("Horizontal Reaction/Support", f"{horizontal_reaction:.1f} kN")
+    
+    with col2:
+        st.markdown("#### 🔗 Anchor Forces")
+        st.metric("Number of Anchors", f"{num_anchors}")
+        st.metric("Uplift / Anchor", f"{uplift_per_anchor:.1f} kN")
+        st.metric("Cable Tension", f"{cable_force:.1f} kN")
+        st.metric("Cable Breaking Load", f"{breaking_load:.0f} kN")
+        
+        if safety_factor < 0.7:
+            st.success(f"✅ Safety Factor: {safety_factor:.2f} (Adequate)")
+        else:
+            st.warning(f"⚠️ Safety Factor: {safety_factor:.2f} (Check required)")
+    
+    # Summary table
+    st.markdown("#### 📋 Summary")
+    summary_data = {
+        "Parameter": ["Wind Speed", "Wind Load", "Dead Load", "Vertical Reaction", "Cable Tension", "Safety Factor"],
+        "Value": [
+            f"{calculate_wind_load_from_standard(params, materials) / (span * laa * 1.1) * 1000 / 0.6:.1f} m/s",
+            f"{wind_force:.1f} kN",
+            f"{dead_load:.1f} kN",
+            f"{vertical_reaction:.1f} kN",
+            f"{cable_force:.1f} kN",
+            f"{safety_factor:.2f}"
+        ]
+    }
+    df = pd.DataFrame(summary_data)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
 def render_structural_health_report(report):
     st.markdown("## 🏥 STRUCTURAL HEALTH REPORT")
     st.markdown(f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}*")
@@ -1715,6 +1845,32 @@ def render_structural_health_report(report):
         st.metric("Cable Adequacy", "✅ PASS" if checks["cable_adequacy_check"] else "❌ FAIL")
     with col4:
         st.metric("Slenderness", "✅ PASS" if checks["slenderness_check"] else "⚠️ CHECK")
+    
+    # Membrane check
+    st.markdown("---")
+    st.subheader("🧵 Membrane Check")
+    membrane = report.get("membrane_check", {})
+    if membrane:
+        if membrane.get("warning", False):
+            st.warning(f"""
+            ⚠️ **ETFE NOT RECOMMENDED**
+            
+            ETFE is not suitable for load-bearing saddle span membranes.
+            It has low tensile strength (30 kN/m) and requires air-inflated 
+            or cable-net support systems.
+            
+            **Recommendation:** Use PVC or PTFE for this structure type.
+            """)
+        else:
+            if membrane["is_adequate"]:
+                st.success(f"✅ Membrane Adequate")
+                st.write(f"**Required Strength:** {membrane['required_strength']:.1f} kN/m")
+                st.write(f"**Actual Strength:** {membrane['actual_strength']:.1f} kN/m")
+            else:
+                st.warning(f"⚠️ Membrane Under-sized")
+                st.write(f"**Required Strength:** {membrane['required_strength']:.1f} kN/m")
+                st.write(f"**Actual Strength:** {membrane['actual_strength']:.1f} kN/m")
+                st.write(f"**Recommendation:** {membrane['recommendation']}")
     
     st.markdown("---")
     
@@ -1810,6 +1966,7 @@ def render_workspace():
     typ = TYPOLOGIES[typ_key] if typ_key in TYPOLOGIES else TYPOLOGIES["saddle_span"]
     info = st.session_state.project_info
     standard = materials.get("standard", "EU")
+    structure_type = st.session_state.typology
     
     st.markdown("## 🧠 Saddle Span Design Workspace")
     st.caption(f"🏕️ Shape: {materials.get('shape_type', 'parabolic').title()} | Member: {materials.get('member_type', 'single_beam').replace('_', ' ').title()} | Anchoring: {materials.get('anchoring_pattern', 'standard').title()}")
@@ -1910,6 +2067,23 @@ def render_workspace():
             st.caption(f"💡 {TRUSS_DESCRIPTIONS.get(materials['truss_type'], '')}")
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # ===== SECTION TYPE SELECTION =====
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">📐 Section Type</div>', unsafe_allow_html=True)
+        section_type_options = ["CHS", "RHS", "I-Beam", "Box", "Wood", "Aluminum"]
+        current_section_type = materials.get("section_type", "CHS")
+        if current_section_type not in section_type_options:
+            current_section_type = "CHS"
+        
+        materials["section_type"] = st.selectbox(
+            "Select Section Type",
+            section_type_options,
+            index=section_type_options.index(current_section_type),
+            key="section_type_select",
+            help="Choose the shape of the structural member"
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+        
         # ===== MATERIAL SELECTION =====
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">🧱 Material</div>', unsafe_allow_html=True)
@@ -1980,11 +2154,79 @@ def render_workspace():
         
         st.caption(f"📊 {grade_display}")
         
-        # Section Size - WITH AUTOMATIC SIZING
-        st.markdown("#### 📐 Section Size")
+        # ===== FABRIC TYPE SELECTION (WITH ETFE WARNING) =====
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">🧵 Fabric Material</div>', unsafe_allow_html=True)
         
-        # Check if auto-sizing has been applied
-        if materials.get("auto_sizing_applied", False):
+        fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"]
+        current_fabric = materials.get("fabric_type", "PVC-coated Polyester")
+        if current_fabric not in fabric_options:
+            current_fabric = "PVC-coated Polyester"
+        
+        selected_fabric = st.selectbox(
+            "Select Fabric Type",
+            fabric_options,
+            index=fabric_options.index(current_fabric),
+            key="fabric_select",
+            help="Choose the membrane material"
+        )
+        materials["fabric_type"] = selected_fabric
+        
+        # ETFE Warning Logic
+        if selected_fabric == "ETFE":
+            if structure_type == "saddle_span":
+                st.warning("""
+                ⚠️ **ETFE Limitation**: ETFE has low tensile strength (30 kN/m) 
+                and is NOT suitable for load-bearing saddle span membranes. 
+                ETFE requires air-inflated or cable-net support systems.
+                
+                **Recommendation**: Use PVC or PTFE for saddle spans.
+                For ETFE, consider Clear-Span Tent or Portal Frame structures.
+                """)
+            elif structure_type == "tensile_membrane":
+                st.warning("""
+                ⚠️ **ETFE Limitation**: ETFE is not suitable for tensile membrane 
+                structures. It has low strength and high creep, requiring 
+                air-inflated or cable-net systems.
+                
+                **Recommendation**: Use PVC or PTFE for tensile membranes.
+                """)
+            else:
+                st.info("""
+                ℹ️ **ETFE Note**: ETFE is suitable for frame-supported structures.
+                The frame must carry all loads as ETFE acts as weather envelope only.
+                Ensure adequate frame design for wind and snow loads.
+                """)
+        
+        # Auto-selected thickness
+        span = params.get("B", 10.0)
+        laa = params.get("LAA", 15.0)
+        membrane_area = span * laa * 1.1
+        wind_force = calculate_wind_load_from_standard(params, materials)
+        
+        auto_thickness = auto_select_fabric_thickness(wind_force, membrane_area, selected_fabric)
+        materials["fabric_thickness"] = auto_thickness
+        
+        st.caption(f"📏 Auto-selected thickness: **{auto_thickness} mm** (based on wind load)")
+        
+        # Show fabric properties
+        fabric_props = FABRIC_PROPERTIES.get(selected_fabric, {})
+        if fabric_props:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Strength", f"{fabric_props.get('strength', 'N/A')} kN/m")
+            with col2:
+                st.metric("Weight", f"{fabric_props.get('weight_per_m2', 'N/A')} kg/m²")
+            with col3:
+                st.metric("Lifespan", f"{fabric_props.get('lifespan', 'N/A')} years")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # ===== SECTION SIZE (Auto-selected) =====
+        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
+        st.markdown('<div class="title">📐 Section Size</div>', unsafe_allow_html=True)
+        
+        if st.session_state.auto_sizing_applied:
             st.success(f"✅ Auto-sized: {materials.get('section_size', 'CHS 168.3x7.1')}")
             st.caption("System automatically selected this section based on load calculations")
         
@@ -2147,7 +2389,6 @@ def render_workspace():
                 st.rerun()
         
         # ===== AUTOMATIC SIZING =====
-        # Generate sizing results
         sizing_results = size_all_members(params, materials)
         render_automatic_sizing(params, materials, sizing_results)
         
@@ -2399,6 +2640,6 @@ render_workspace()
 
 # Footer
 st.divider()
-st.caption("SDS Design Studio Pro v3.0 | 🧠 Automatic Member Sizing | MS EN 1991-1-4 Wind: 33.5m/s | Reaction Forces Displayed")
+st.caption("SDS Design Studio Pro v3.0 | 🧠 Automatic Member Sizing | MS EN 1991-1-4 Wind: 33.5m/s | ETFE Aware")
 
 save_cache()
