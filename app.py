@@ -12,13 +12,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from PIL import Image
 import io
-import time
 
 # ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio v6.3 - Permanent Fix",
+    page_title="SDS Design Studio",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -33,26 +32,21 @@ dark_mode_css = """
     .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
     h1, h2, h3, h4, h5, h6 { color: #ffffff !important; font-weight: 600 !important; }
     label { color: #ffffff !important; font-weight: 400 !important; }
-    
     .stButton > button {
         background-color: #1e2a3a !important; color: #ffffff !important;
         border: 1px solid #2a3a4f !important; border-radius: 8px !important;
         padding: 0.5rem 1rem !important; font-weight: 500 !important;
-        width: 100% !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        width: 100% !important; transition: all 0.3s ease !important;
     }
     .stButton > button:hover {
         background-color: #2a3a4f !important;
         border-color: #4a7a9c !important;
         transform: translateY(-2px) !important;
-        box-shadow: 0 4px 12px rgba(74, 122, 156, 0.2) !important;
     }
     .stButton > button:active {
         background-color: #f39c12 !important;
         color: #0a0e17 !important;
         transform: scale(0.96) !important;
-        border-color: #f39c12 !important;
-        transition: all 0.05s !important;
     }
     .stButton > button[kind="primary"] {
         background-color: #f39c12 !important;
@@ -63,7 +57,6 @@ dark_mode_css = """
     .stButton > button[kind="primary"]:hover {
         background-color: #f1c40f !important;
         transform: translateY(-2px) !important;
-        box-shadow: 0 4px 16px rgba(243, 156, 18, 0.3) !important;
     }
     .stNumberInput > div > div > input, .stSelectbox > div > div > div, .stTextArea textarea {
         background-color: #141e2b !important; color: #ffffff !important;
@@ -97,9 +90,6 @@ dark_mode_css = """
     .image-popout { background-color: #0a0e17; border-radius: 12px; padding: 1rem; border: 2px solid #4a7a9c; text-align: center; }
     .image-popout img { max-width: 100%; border-radius: 8px; }
     .new-section-badge { background-color: #f39c12; color: #0a0e17; padding: 0.1rem 0.5rem; border-radius: 12px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
-    .recommendation-box { background-color: #1a2a3a; border-left: 4px solid #f39c12; padding: 0.5rem 1rem; border-radius: 8px; margin: 0.5rem 0; }
-    .recommendation-box .title { color: #f39c12; font-weight: 600; }
-    .recommendation-box .action { color: #4a7a9c; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -136,62 +126,16 @@ SECTION_PROPERTIES = {
     "Box 300x200x12": {"A": 11424, "I": 156e6, "W_el": 1040e3, "i": 116.8, "weight": 89.7, "type": "Box"},
 }
 
-ALUMINUM_SECTIONS = {
-    "Aluminum 100x100x4": {"A": 1536, "I": 2.3e6, "W_el": 46e3, "i": 38.7, "weight": 4.15, "type": "Aluminum"},
-    "Aluminum 150x150x5": {"A": 2900, "I": 8.1e6, "W_el": 108e3, "i": 52.8, "weight": 7.83, "type": "Aluminum"},
-    "Aluminum 200x200x6": {"A": 4656, "I": 24.3e6, "W_el": 243e3, "i": 72.3, "weight": 12.57, "type": "Aluminum"},
-    "Aluminum 250x250x8": {"A": 7696, "I": 63.2e6, "W_el": 506e3, "i": 90.6, "weight": 20.78, "type": "Aluminum"},
-    "Aluminum 300x300x10": {"A": 11600, "I": 164e6, "W_el": 1093e3, "i": 118.9, "weight": 31.32, "type": "Aluminum"},
-}
-
-WOOD_SECTIONS = {
-    "Glulam 90x200": {"A": 18000, "I": 60.0e6, "W_el": 600e3, "i": 57.7, "weight": 9.9, "type": "Wood"},
-    "Glulam 150x300": {"A": 45000, "I": 337.5e6, "W_el": 2250e3, "i": 86.6, "weight": 24.75, "type": "Wood"},
-    "Glulam 200x400": {"A": 80000, "I": 1066.7e6, "W_el": 5333e3, "i": 115.5, "weight": 44.0, "type": "Wood"},
-    "Glulam 250x500": {"A": 125000, "I": 2604e6, "W_el": 10417e3, "i": 144.3, "weight": 68.75, "type": "Wood"},
-}
-
-COMPOSITE_SECTIONS = {
-    "GFRP 100x100x5": {"A": 1900, "I": 2.8e6, "W_el": 56e3, "i": 38.4, "weight": 3.8, "type": "Composite"},
-    "GFRP 150x150x6": {"A": 3456, "I": 10.8e6, "W_el": 144e3, "i": 55.9, "weight": 6.9, "type": "Composite"},
-    "CFRP 100x100x4": {"A": 1536, "I": 2.3e6, "W_el": 46e3, "i": 38.7, "weight": 2.46, "type": "Composite"},
-    "CFRP 150x150x5": {"A": 2900, "I": 8.1e6, "W_el": 108e3, "i": 52.8, "weight": 4.64, "type": "Composite"},
-}
-
 FABRIC_PROPERTIES = {
-    "PVC-coated Polyester": {
-        "thickness": {"0.5": 30, "0.8": 40, "1.0": 50, "1.2": 60},
-        "weight_per_m2": 1.2,
-        "description": "Standard tensile membrane"
-    },
-    "PTFE-coated Fiberglass": {
-        "thickness": {"0.5": 40, "0.8": 55, "1.0": 70, "1.2": 85},
-        "weight_per_m2": 1.8,
-        "description": "Premium architectural membrane"
-    },
-    "ETFE": {
-        "thickness": {"0.5": 25, "0.8": 35, "1.0": 45, "1.2": 55},
-        "weight_per_m2": 0.8,
-        "description": "High-performance fluoropolymer"
-    }
+    "PVC-coated Polyester": {"thickness": {"0.5": 30, "0.8": 40, "1.0": 50, "1.2": 60}, "weight_per_m2": 1.2},
+    "PTFE-coated Fiberglass": {"thickness": {"0.5": 40, "0.8": 55, "1.0": 70, "1.2": 85}, "weight_per_m2": 1.8},
+    "ETFE": {"thickness": {"0.5": 25, "0.8": 35, "1.0": 45, "1.2": 55}, "weight_per_m2": 0.8}
 }
 
 CABLE_PROPERTIES = {
-    "6x19 Galvanized": {
-        "diameters": {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 18: 180, 20: 220, 22: 260, 24: 310, 26: 360, 28: 420, 30: 480, 32: 540, 36: 680, 40: 840},
-        "weight_kg_m": {6: 0.14, 8: 0.25, 10: 0.40, 12: 0.58, 14: 0.78, 16: 1.02, 18: 1.30, 20: 1.60, 22: 1.94, 24: 2.30, 26: 2.70, 28: 3.20, 30: 3.70, 32: 4.20, 36: 5.30, 40: 6.60},
-        "description": "Galvanized steel wire rope"
-    },
-    "6x19 Stainless": {
-        "diameters": {6: 25, 8: 42, 10: 65, 12: 95, 14: 125, 16: 160, 18: 200, 20: 245},
-        "weight_kg_m": {6: 0.15, 8: 0.27, 10: 0.42, 12: 0.60, 14: 0.82, 16: 1.08, 18: 1.36, 20: 1.68},
-        "description": "Stainless steel wire rope"
-    },
-    "Polyester Rope": {
-        "diameters": {8: 30, 10: 45, 12: 65, 14: 85, 16: 110, 18: 140, 20: 170, 24: 230},
-        "weight_kg_m": {8: 0.10, 10: 0.15, 12: 0.22, 14: 0.30, 16: 0.40, 18: 0.50, 20: 0.62, 24: 0.90},
-        "description": "Synthetic polyester rope"
-    }
+    "6x19 Galvanized": {"diameters": {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 18: 180, 20: 220, 22: 260, 24: 310, 26: 360, 28: 420, 30: 480, 32: 540, 36: 680, 40: 840}},
+    "6x19 Stainless": {"diameters": {6: 25, 8: 42, 10: 65, 12: 95, 14: 125, 16: 160, 18: 200, 20: 245}},
+    "Polyester Rope": {"diameters": {8: 30, 10: 45, 12: 65, 14: 85, 16: 110, 18: 140, 20: 170, 24: 230}}
 }
 
 WIND_SPEEDS = {"EU": 30.0, "CN": 28.0, "UK": 26.0, "MY": 33.5, "US": 38.0}
@@ -215,15 +159,12 @@ if "locked" not in st.session_state:
     st.session_state.locked = False
 if "comments" not in st.session_state:
     st.session_state.comments = ""
-if "show_structural_report" not in st.session_state:
-    st.session_state.show_structural_report = False
 if "saved_projects" not in st.session_state:
     st.session_state.saved_projects = []
 if "materials" not in st.session_state:
     st.session_state.materials = {
         "standard": "EU",
         "material_type": "Steel",
-        "steel_grade": "S355",
         "section_type": "CHS",
         "fabric_type": "PVC-coated Polyester",
         "cable_type": "6x19 Galvanized",
@@ -232,14 +173,9 @@ if "materials" not in st.session_state:
         "shape_type": "parabolic",
         "member_type": "single_beam",
         "truss_type": "warren",
-        "anchoring_pattern": "standard",
         "num_bays": 2,
         "prestress_level": "medium"
     }
-if "show_image_popout" not in st.session_state:
-    st.session_state.show_image_popout = None
-if "new_sections_created" not in st.session_state:
-    st.session_state.new_sections_created = []
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -315,118 +251,6 @@ def generate_truss_members(x, z_beam, truss_type="warren", num_panels=4):
     return members
 
 # ============================================================
-# SECTION CREATION FUNCTION
-# ============================================================
-def create_new_section(W_required, I_required, section_type, material_type, fy, safety):
-    """Create a new section if none exists in the database"""
-    if section_type == "CHS":
-        D = (32 * W_required / (np.pi * 0.8)) ** (1/3)
-        D = round(D / 10) * 10
-        if D < 50:
-            D = 50
-        t = D * 0.08
-        t = round(t * 10) / 10
-        
-        A = np.pi * ((D/2)**2 - (D/2 - t)**2)
-        I = np.pi * ((D/2)**4 - (D/2 - t)**4) / 4
-        W_el_calc = I / (D/2)
-        weight = A * 7850 / 1e6
-        
-        name = f"CHS {D}.0x{t:.1f}"
-        props = {
-            "A": A, "I": I, "W_el": W_el_calc,
-            "i": np.sqrt(I / A), "weight": weight, "type": "CHS"
-        }
-        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
-        return name, props, moment_capacity
-    
-    elif section_type == "RHS":
-        b = (W_required * 32 / 6) ** (1/3)
-        b = round(b / 10) * 10
-        if b < 50:
-            b = 50
-        t = b * 0.08
-        t = round(t * 10) / 10
-        
-        A = b**2 - (b - 2*t)**2
-        I = (b**4 - (b - 2*t)**4) / 12
-        W_el_calc = I / (b/2)
-        weight = A * 7850 / 1e6
-        
-        name = f"RHS {b}x{b}x{int(t)}"
-        props = {
-            "A": A, "I": I, "W_el": W_el_calc,
-            "i": np.sqrt(I / A), "weight": weight, "type": "RHS"
-        }
-        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
-        return name, props, moment_capacity
-    
-    elif section_type == "I-Beam":
-        d = (W_required * 12 / 0.9) ** (1/3)
-        d = round(d / 10) * 10
-        if d < 100:
-            d = 100
-        
-        bf = d * 0.5
-        tf = d * 0.08
-        tw = d * 0.04
-        A = 2 * bf * tf + (d - 2*tf) * tw
-        I = (bf * d**3 - (bf - tw) * (d - 2*tf)**3) / 12
-        W_el_calc = I / (d/2)
-        weight = A * 7850 / 1e6
-        
-        name = f"I-{int(d)}"
-        props = {
-            "A": A, "I": I, "W_el": W_el_calc,
-            "i": np.sqrt(I / A), "weight": weight, "type": "I-Beam"
-        }
-        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
-        return name, props, moment_capacity
-    
-    elif section_type == "Box":
-        b = (W_required * 32 / 6) ** (1/3)
-        b = round(b / 10) * 10
-        if b < 50:
-            b = 50
-        t = b * 0.08
-        t = round(t * 10) / 10
-        
-        A = b**2 - (b - 2*t)**2
-        I = (b**4 - (b - 2*t)**4) / 12
-        W_el_calc = I / (b/2)
-        weight = A * 7850 / 1e6
-        
-        name = f"Box {b}x{b}x{int(t)}"
-        props = {
-            "A": A, "I": I, "W_el": W_el_calc,
-            "i": np.sqrt(I / A), "weight": weight, "type": "Box"
-        }
-        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
-        return name, props, moment_capacity
-    
-    else:
-        # Default: create CHS
-        D = (32 * W_required / (np.pi * 0.8)) ** (1/3)
-        D = round(D / 10) * 10
-        if D < 50:
-            D = 50
-        t = D * 0.08
-        t = round(t * 10) / 10
-        
-        A = np.pi * ((D/2)**2 - (D/2 - t)**2)
-        I = np.pi * ((D/2)**4 - (D/2 - t)**4) / 4
-        W_el_calc = I / (D/2)
-        weight = A * 7850 / 1e6
-        
-        name = f"CHS {D}.0x{t:.1f}"
-        props = {
-            "A": A, "I": I, "W_el": W_el_calc,
-            "i": np.sqrt(I / A), "weight": weight, "type": "CHS"
-        }
-        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
-        return name, props, moment_capacity
-
-# ============================================================
 # ENGINEERING FUNCTIONS
 # ============================================================
 def calculate_wind_load(span, laa, standard):
@@ -436,155 +260,49 @@ def calculate_wind_load(span, laa, standard):
     return q * membrane_area * 1.2
 
 def calculate_dead_load(span, laa, section_name, fabric_type):
-    section_data = SECTION_PROPERTIES.get(section_name)
-    if not section_data:
-        for db in [ALUMINUM_SECTIONS, WOOD_SECTIONS, COMPOSITE_SECTIONS]:
-            if section_name in db:
-                section_data = db[section_name]
-                break
-    if not section_data:
-        section_data = {"weight": 28.3}
-    
+    section_data = SECTION_PROPERTIES.get(section_name, {"weight": 28.3})
     steel_kg = section_data.get("weight", 28.3) * span * 2
     membrane_area = span * laa * 1.1
     fabric_weight = FABRIC_PROPERTIES.get(fabric_type, {}).get("weight_per_m2", 1.2)
     fabric_kg = fabric_weight * membrane_area
     return (steel_kg + fabric_kg) / 100
 
-def calculate_required_section_based_on_moment(load_kN, span_m, material_type, fy=355, section_type="CHS"):
-    """Calculate required section with section type locking and auto-generation"""
+def calculate_required_section(load_kN, span_m, material_type, fy=355):
     safety = 1.5
-    
     w = load_kN / span_m
     M = (w * span_m**2) / 8
     M_Nmm = M * 1e6
     W_required = M_Nmm / (fy / safety)
-    
     E = 210000
     deflection_limit = span_m / 250
     I_required = (5 * w * span_m**4) / (384 * E * deflection_limit) * 1e12
     
-    if material_type == "Steel":
-        db = SECTION_PROPERTIES
-    elif material_type == "Aluminum":
-        db = ALUMINUM_SECTIONS
-    elif material_type == "Wood":
-        db = WOOD_SECTIONS
-    else:
-        db = COMPOSITE_SECTIONS
-    
-    # Filter by section type
-    filtered_db = {k: v for k, v in db.items() if v.get("type") == section_type or section_type in k}
-    if not filtered_db:
-        filtered_db = db
-    
+    db = SECTION_PROPERTIES
     best_section = None
     best_score = float('inf')
-    is_newly_created = False
     
-    for section, props in filtered_db.items():
+    for section, props in db.items():
         if props["A"] <= 0:
             continue
-        
         w_score = abs(props["W_el"] - W_required) / W_required if W_required > 0 else 0
         i_score = abs(props["I"] - I_required) / I_required if I_required > 0 else 0
-        weight_score = props["weight"] / 100
-        
-        total_score = w_score * 0.4 + i_score * 0.3 + weight_score * 0.3
-        
+        total_score = w_score * 0.6 + i_score * 0.4
         if props["W_el"] < W_required * 0.7:
-            total_score += 15
-        if props["I"] < I_required * 0.7:
             total_score += 10
-        
         if total_score < best_score:
             best_score = total_score
             best_section = section
     
-    if best_section and best_section in filtered_db:
-        props = filtered_db[best_section]
+    if best_section:
+        props = SECTION_PROPERTIES[best_section]
         moment_capacity = (props["W_el"] * fy) / (safety * 1e6)
-        is_adequate = props["W_el"] >= W_required * 0.9
-        
-        if not is_adequate:
-            all_sections = list(filtered_db.items())
-            all_sections.sort(key=lambda x: x[1]["A"])
-            
-            current_idx = None
-            for i, (name, props2) in enumerate(all_sections):
-                if name == best_section:
-                    current_idx = i
-                    break
-            
-            if current_idx is not None:
-                for i in range(current_idx + 1, len(all_sections)):
-                    next_section_name = all_sections[i][0]
-                    next_section_props = all_sections[i][1]
-                    next_capacity = (next_section_props["W_el"] * fy) / (safety * 1e6)
-                    
-                    if next_capacity >= M:
-                        best_section = next_section_name
-                        props = next_section_props
-                        moment_capacity = next_capacity
-                        is_adequate = True
-                        break
-                
-                if not is_adequate:
-                    best_section, props, moment_capacity = create_new_section(
-                        W_required, I_required, section_type, material_type, fy, safety
-                    )
-                    if props:
-                        is_adequate = True
-                        is_newly_created = True
-                        db[best_section] = props
-                        if material_type == "Steel":
-                            SECTION_PROPERTIES[best_section] = props
-                        elif material_type == "Aluminum":
-                            ALUMINUM_SECTIONS[best_section] = props
-                        elif material_type == "Wood":
-                            WOOD_SECTIONS[best_section] = props
-                        else:
-                            COMPOSITE_SECTIONS[best_section] = props
-                        st.session_state.new_sections_created.append(best_section)
-        
         return {
             "section": best_section,
             "properties": props,
             "required_moment": M,
             "moment_capacity": moment_capacity,
-            "required_W": W_required,
-            "required_I": I_required,
-            "is_adequate": is_adequate,
-            "is_newly_created": is_newly_created
+            "is_adequate": props["W_el"] >= W_required * 0.9
         }
-    
-    # No section found, create one
-    best_section, props, moment_capacity = create_new_section(
-        W_required, I_required, section_type, material_type, fy, safety
-    )
-    if props:
-        db[best_section] = props
-        if material_type == "Steel":
-            SECTION_PROPERTIES[best_section] = props
-        elif material_type == "Aluminum":
-            ALUMINUM_SECTIONS[best_section] = props
-        elif material_type == "Wood":
-            WOOD_SECTIONS[best_section] = props
-        else:
-            COMPOSITE_SECTIONS[best_section] = props
-        st.session_state.new_sections_created.append(best_section)
-        
-        return {
-            "section": best_section,
-            "properties": props,
-            "required_moment": M,
-            "moment_capacity": moment_capacity,
-            "required_W": W_required,
-            "required_I": I_required,
-            "is_adequate": True,
-            "is_newly_created": True
-        }
-    
     return None
 
 def auto_select_fabric_thickness(wind_force, membrane_area, fabric_type):
@@ -604,91 +322,10 @@ def auto_select_cable_diameter(tie_down_force, cable_type):
             return diam
     return max(diameters.keys()) if diameters else 10
 
-# ============================================================
-# DESIGN RECOMMENDATION ENGINE
-# ============================================================
-def check_design_recommendations(params, materials, design_results):
-    recommendations = []
-    
-    span = params.get("B", 10.0)
-    member_type = materials.get("member_type", "single_beam")
-    section_weight = 0
-    
-    if design_results.get("beams", {}).get("main", {}).get("properties", {}).get("weight"):
-        section_weight = design_results["beams"]["main"]["properties"]["weight"]
-    
-    if span > 12 and member_type == "single_beam":
-        recommendations.append({
-            "type": "recommendation",
-            "icon": "📐",
-            "title": "Large Span Detected",
-            "message": f"Span is {span:.1f}m. Single beams become inefficient beyond 12m.",
-            "action": "Switch to Planar Truss",
-            "action_type": "switch_to_truss",
-            "severity": "high"
-        })
-    
-    if section_weight > 100:
-        recommendations.append({
-            "type": "recommendation",
-            "icon": "⚡",
-            "title": "Heavy Section Detected",
-            "message": f"Section weighs {section_weight:.1f} kg/m.",
-            "action": "Switch to Space Truss for efficiency",
-            "action_type": "switch_to_space_truss",
-            "severity": "medium"
-        })
-    
-    cable_diameter = design_results.get("cables", {}).get("diameter", 0)
-    if cable_diameter > 20:
-        recommendations.append({
-            "type": "recommendation",
-            "icon": "🔗",
-            "title": "Large Cable Detected",
-            "message": f"Cable diameter is {cable_diameter}mm.",
-            "action": "Add more anchor points",
-            "action_type": "add_anchors",
-            "severity": "low"
-        })
-    
-    return recommendations
-
-def render_recommendations(recommendations, params, materials):
-    if not recommendations:
-        return
-    
-    st.markdown("### 💡 Design Recommendations")
-    
-    for idx, rec in enumerate(recommendations):
-        with st.container():
-            st.markdown(f"""
-            <div class="recommendation-box">
-                <div class="title">{rec['icon']} {rec['title']}</div>
-                <div>{rec['message']}</div>
-                <div class="action">💡 {rec['action']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            col1, col2 = st.columns([2, 1])
-            with col2:
-                if rec['action_type'] == "switch_to_truss":
-                    if st.button(f"🔄 Apply: {rec['action']}", key=f"rec_truss_{idx}"):
-                        materials["member_type"] = "planar_truss"
-                        st.rerun()
-                elif rec['action_type'] == "switch_to_space_truss":
-                    if st.button(f"🔄 Apply: {rec['action']}", key=f"rec_space_{idx}"):
-                        materials["member_type"] = "space_truss"
-                        st.rerun()
-                elif rec['action_type'] == "add_anchors":
-                    if st.button(f"➕ Apply: {rec['action']}", key=f"rec_anchor_{idx}"):
-                        materials["num_bays"] = min(3, materials.get("num_bays", 2) + 1)
-                        st.rerun()
-
 def auto_design_structure(params, materials):
     span, rise, laa = params.get("B", 10.0), params.get("A", 6.0), params.get("LAA", 15.0)
     member_type = materials.get("member_type", "single_beam")
     material_type = materials.get("material_type", "Steel")
-    section_type = materials.get("section_type", "CHS")
     fabric_type = materials.get("fabric_type", "PVC-coated Polyester")
     cable_type = materials.get("cable_type", "6x19 Galvanized")
     standard = materials.get("standard", "EU")
@@ -701,59 +338,18 @@ def auto_design_structure(params, materials):
     results = {
         "loads": {"wind": wind_load, "dead": dead_load, "live": live_load, "total": total_load},
         "beams": {}, "truss": {}, "fabric": {}, "cables": {},
-        "all_checks": {}, "health_score": 0, "new_sections": []
+        "all_checks": {}, "health_score": 0
     }
     
-    if material_type == "Steel":
-        fy = 355
-    elif material_type == "Aluminum":
-        fy = 276
-    elif material_type == "Wood":
-        fy = 40
-    else:
-        fy = 300
+    fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
     
     if member_type == "single_beam":
-        beam_result = calculate_required_section_based_on_moment(total_load, span, material_type, fy, section_type)
+        beam_result = calculate_required_section(total_load, span, material_type, fy)
         if beam_result:
             results["beams"]["main"] = beam_result
             results["beams"]["selected"] = beam_result["section"]
             results["beams"]["moment_capacity"] = beam_result["moment_capacity"]
             results["beams"]["required_moment"] = beam_result["required_moment"]
-            if beam_result.get("is_newly_created", False):
-                results["new_sections"].append(beam_result["section"])
-    
-    elif member_type == "planar_truss":
-        panel_length = span / 4
-        top_force = total_load * 0.6
-        bottom_force = total_load * 0.4
-        
-        top_result = calculate_required_section_based_on_moment(top_force, panel_length, material_type, fy, section_type)
-        bottom_result = calculate_required_section_based_on_moment(bottom_force, panel_length, material_type, fy, section_type)
-        
-        results["truss"]["top_chord"] = top_result
-        results["truss"]["bottom_chord"] = bottom_result
-        results["truss"]["selected"] = {
-            "top": top_result["section"] if top_result else "N/A",
-            "bottom": bottom_result["section"] if bottom_result else "N/A",
-            "diagonal": "CHS 88.9x4.0",
-            "vertical": "CHS 76.1x3.6"
-        }
-        if top_result and top_result.get("is_newly_created", False):
-            results["new_sections"].append(top_result["section"])
-        if bottom_result and bottom_result.get("is_newly_created", False):
-            results["new_sections"].append(bottom_result["section"])
-    
-    elif member_type == "space_truss":
-        top_result = calculate_required_section_based_on_moment(total_load * 0.5, span/3, material_type, fy, section_type)
-        results["truss"]["top_chord"] = top_result
-        results["truss"]["selected"] = {
-            "top": top_result["section"] if top_result else "N/A",
-            "bottom": top_result["section"] if top_result else "N/A",
-            "diagonal": "CHS 88.9x4.0"
-        }
-        if top_result and top_result.get("is_newly_created", False):
-            results["new_sections"].append(top_result["section"])
     
     membrane_area = span * laa * 1.1
     fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area, fabric_type)
@@ -779,71 +375,44 @@ def auto_design_structure(params, materials):
     
     results["all_checks"]["wind_load"] = {
         "status": "✅ PASS",
-        "value": f"{wind_load:.1f} kN",
-        "detail": f"Handled by {results['beams'].get('selected', 'selected section')}"
+        "value": f"{wind_load:.1f} kN"
     }
     
     if member_type == "single_beam" and results["beams"].get("main"):
         beam = results["beams"]["main"]
         is_adequate = beam.get("is_adequate", False)
         results["all_checks"]["member_capacity"] = {
-            "status": "✅ PASS" if is_adequate else "🔄 Upgrade Available",
-            "value": f"{beam['moment_capacity']:.1f} kNm",
-            "detail": f"Section: {beam['section']}"
-        }
-    elif member_type in ["planar_truss", "space_truss"] and results["truss"].get("top_chord"):
-        top = results["truss"]["top_chord"]
-        is_adequate = top.get("is_adequate", False) if top else False
-        results["all_checks"]["member_capacity"] = {
-            "status": "✅ PASS" if is_adequate else "🔄 Upgrade Available",
-            "value": f"{top['moment_capacity']:.1f} kNm" if top else "N/A",
-            "detail": f"Top Chord: {top['section'] if top else 'N/A'}"
+            "status": "✅ PASS" if is_adequate else "🔄 Upgrade",
+            "value": f"{beam['moment_capacity']:.1f} kNm"
         }
     else:
-        results["all_checks"]["member_capacity"] = {"status": "✅ PASS", "value": "N/A", "detail": "Ok"}
+        results["all_checks"]["member_capacity"] = {"status": "✅ PASS", "value": "N/A"}
     
     results["all_checks"]["cable_adequacy"] = {
-        "status": "✅ PASS" if results["cables"]["is_adequate"] else "🔄 Upgrade Available",
-        "value": f"{cable_breaking:.1f} kN",
-        "detail": f"Diameter: {cable_diameter}mm"
+        "status": "✅ PASS" if results["cables"]["is_adequate"] else "⚠️ Check",
+        "value": f"{cable_breaking:.1f} kN"
     }
-    results["all_checks"]["slenderness"] = {"status": "✅ PASS", "value": "OK", "detail": "Ok"}
     
     fabric_strength = results["fabric"]["strength"]
     required_strength = wind_load / (membrane_area * 0.5) if membrane_area > 0 else 0
     is_adequate = fabric_strength >= required_strength * 1.5
     results["all_checks"]["membrane_strength"] = {
-        "status": "✅ PASS" if is_adequate else "🔄 Upgrade Available",
-        "value": f"{fabric_strength:.0f} kN/m",
-        "detail": f"Type: {fabric_type}, {fabric_thickness}mm"
+        "status": "✅ PASS" if is_adequate else "⚠️ Check",
+        "value": f"{fabric_strength:.0f} kN/m"
     }
     
     score = 100
     for check in results["all_checks"].values():
-        if "🔄" in check["status"]:
+        if "⚠️" in check["status"] or "🔄" in check["status"]:
             score -= 10
-        elif "❌" in check["status"]:
-            score -= 20
     results["health_score"] = max(0, min(100, score))
     
     return results
 
 # ============================================================
-# PERMANENT FIX: SINGLE SOURCE OF TRUTH GEOMETRY ENGINE
+# WORKING 3D GENERATOR - SIMPLE AND CORRECT
 # ============================================================
 def generate_saddle_span(params, materials=None):
-    """
-    PERMANENT FIX: Single Source of Truth Geometry Engine
-    ============================================================
-    ALL geometry comes from ONE surface calculation:
-    - Beams are the EDGES of the surface
-    - Membrane IS the surface
-    - Apex is the HIGHEST point of the surface
-    - Supports are the LOWEST points of the surface
-    - Tie-downs attach to SURFACE points
-    
-    There is NO alignment issue because EVERYTHING comes from the SAME data.
-    """
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     laa = params.get("LAA", 15.0)
@@ -852,125 +421,98 @@ def generate_saddle_span(params, materials=None):
     if span <= 0 or rise <= 0 or laa <= 0:
         return go.Figure()
 
-    # ============================================================
-    # STEP 1: Generate the BASE GRID
-    # ============================================================
+    # ===== GENERATE BEAM COORDINATES =====
     x = np.linspace(-span/2, span/2, num_points)
-    y = np.linspace(-laa/2, laa/2, num_points)
-    
-    # ============================================================
-    # STEP 2: Generate the SADDLE SURFACE (Single Source of Truth)
-    # ============================================================
-    # Physical saddle equation: 
-    # z(x,y) = rise * (1 - (2x/span)^2) * (1 - (2y/laa)^2)
-    # This creates a TRUE anticlastic saddle surface
-    X, Y = np.meshgrid(x, y)
-    x_norm = 2 * X / span
-    y_norm = 2 * Y / laa
-    
-    # The SURFACE is the truth - everything else derives from it
-    Z_surf = rise * (1 - x_norm**2) * (1 - y_norm**2)
-    
-    # ============================================================
-    # STEP 3: Derive BEAMS from the surface edges
-    # ============================================================
-    # Beam 1 is the LEFT edge of the surface (y = -laa/2)
-    # Beam 2 is the RIGHT edge of the surface (y = laa/2)
-    z_beam1 = Z_surf[0, :]  # First row of surface
-    z_beam2 = Z_surf[-1, :]  # Last row of surface
-    
-    # Beam y-positions (constant along the edge)
-    y1 = -laa/2 * np.ones_like(x)
-    y2 = laa/2 * np.ones_like(x)
-    
-    # ============================================================
-    # STEP 4: Build the FIGURE (Everything from ONE source)
-    # ============================================================
+    z_beam = rise * (1 - (2 * x / span)**2)
+    y1 = -laa/2 * (1 - (2 * x / span)**2)
+    y2 = laa/2 * (1 - (2 * x / span)**2)
+
     fig = go.Figure()
 
-    # ---- BEAMS (from surface edges) ----
+    # ===== DRAW BEAMS =====
     fig.add_trace(go.Scatter3d(
-        x=x, y=y1, z=z_beam1,
+        x=x, y=y1, z=z_beam,
         mode='lines', name='Beam 1',
-        line=dict(color='#FF6B6B', width=10)
+        line=dict(color='#FF6B6B', width=8)
     ))
     fig.add_trace(go.Scatter3d(
-        x=x, y=y2, z=z_beam2,
+        x=x, y=y2, z=z_beam,
         mode='lines', name='Beam 2',
-        line=dict(color='#FF6B6B', width=10)
+        line=dict(color='#FF6B6B', width=8)
     ))
 
-    # ---- MEMBRANE (the surface itself) ----
+    # ===== MEMBRANE SURFACE =====
+    X_surf = np.zeros((num_points, num_points))
+    Y_surf = np.zeros((num_points, num_points))
+    Z_surf = np.zeros((num_points, num_points))
+
+    for i, x_pos in enumerate(x):
+        y_beam1 = y1[i]
+        y_beam2 = y2[i]
+        z_at_x = z_beam[i]
+
+        for j, v_val in enumerate(np.linspace(0, 1, num_points)):
+            y_pos = y_beam1 * (1 - v_val) + y_beam2 * v_val
+            z_pos = z_at_x * (1 - 0.3 * (1 - (2 * v_val - 1)**2))
+            X_surf[i, j] = x_pos
+            Y_surf[i, j] = y_pos
+            Z_surf[i, j] = z_pos
+
     fig.add_trace(go.Surface(
-        x=X, y=Y, z=Z_surf,
+        x=X_surf, y=Y_surf, z=Z_surf,
         colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
-        opacity=0.7, showscale=False, name='Membrane'
+        opacity=0.6, showscale=False, name='Membrane'
     ))
 
-    # ---- APEX (highest point of the surface) ----
-    max_z = np.max(Z_surf)
-    max_idx = np.unravel_index(np.argmax(Z_surf), Z_surf.shape)
+    # ===== APEX AND SUPPORTS =====
     fig.add_trace(go.Scatter3d(
-        x=[X[max_idx]], y=[Y[max_idx]], z=[max_z],
+        x=[0], y=[y1[num_points//2]], z=[z_beam[num_points//2]],
         mode='markers', name='Apex',
         marker=dict(color='#FFD93D', size=8, symbol='diamond')
     ))
-
-    # ---- SUPPORTS (lowest corners of the surface) ----
-    support_indices = [(0, 0), (0, -1), (-1, 0), (-1, -1)]
-    support_x = [X[i, j] for i, j in support_indices]
-    support_y = [Y[i, j] for i, j in support_indices]
-    support_z = [Z_surf[i, j] for i, j in support_indices]
     fig.add_trace(go.Scatter3d(
-        x=support_x, y=support_y, z=support_z,
+        x=[-span/2, span/2],
+        y=[0, 0],
+        z=[0, 0],
         mode='markers', name='Supports',
         marker=dict(color='#4ECDC4', size=6, symbol='square')
     ))
 
-    # ---- TIE-DOWNS (from surface to ground) ----
+    # ===== TIE-DOWNS =====
     if materials:
         num_bays = materials.get("num_bays", 2)
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
         horizontal_spread = materials.get("tie_down_horizontal_spread", 30)
         
         bracing_x = generate_bracing_positions(span, num_bays)
-        center_idx = num_points // 2
-        
+
         for bx in bracing_x:
-            # Find the closest x index on the surface
             idx = np.argmin(np.abs(x - bx))
-            
-            # Get the surface height at this x position (center line)
-            surface_z = Z_surf[center_idx, idx]
-            
-            # Get the y position (center line)
-            beam_y = y1[idx]
-            
-            # Calculate anchor position
+            y_pos = y1[idx]
+            z_pos = z_beam[idx]
+
             dist = rise * np.tan(np.radians(vertical_angle))
             anchor_x = bx + dist * np.cos(np.radians(horizontal_spread))
-            
-            # Tie-down from SURFACE to ground
+            anchor_y = y_pos + dist * np.sin(np.radians(horizontal_spread))
+
             fig.add_trace(go.Scatter3d(
                 x=[bx, anchor_x],
-                y=[beam_y, beam_y],
-                z=[surface_z, 0],
+                y=[y_pos, anchor_y],
+                z=[z_pos, 0],
                 mode='lines',
                 line=dict(color='#FFD93D', width=3),
                 showlegend=False
             ))
-            
-            # Ground anchor
+
             fig.add_trace(go.Scatter3d(
                 x=[anchor_x],
-                y=[beam_y],
+                y=[anchor_y],
                 z=[0],
                 mode='markers',
                 marker=dict(color='#FF4444', size=5, symbol='x'),
                 showlegend=False
             ))
 
-    # ---- LEGEND BELOW VIEWPORT ----
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
@@ -1062,101 +604,22 @@ GENERATORS = {
 }
 
 # ============================================================
-# IMAGE GALLERY
-# ============================================================
-def render_image_gallery():
-    st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-    st.markdown('<div class="title">📸 Image Gallery</div>', unsafe_allow_html=True)
-    
-    ref = st.session_state.project_info.get("reference", "")
-    if not ref:
-        st.info("💡 Save the project first to upload and store images.")
-        return
-    
-    project_folder = os.path.join(".sds_cache", "projects", ref, "images")
-    os.makedirs(project_folder, exist_ok=True)
-    
-    uploaded_file = st.file_uploader(
-        "Choose image to upload (auto-compressed)",
-        type=["png", "jpg", "jpeg"],
-        key=f"image_uploader_{ref}",
-        help="Images are automatically compressed to save space"
-    )
-    
-    if uploaded_file is not None:
-        compressed = compress_image(uploaded_file, max_size=300, quality=65)
-        if compressed is not None:
-            filename = os.path.splitext(uploaded_file.name)[0] + ".jpg"
-            file_path = os.path.join(project_folder, filename)
-            if os.path.exists(file_path):
-                st.warning(f"⚠️ Image '{filename}' already exists.")
-            else:
-                with open(file_path, "wb") as f:
-                    f.write(compressed.getvalue())
-                size_kb = len(compressed.getvalue()) / 1024
-                st.success(f"✅ Image uploaded! Size: {size_kb:.0f} KB")
-                st.rerun()
-    
-    st.markdown("---")
-    
-    if os.path.exists(project_folder):
-        images = [f for f in os.listdir(project_folder) if f.lower().endswith(('.jpg', '.jpeg'))]
-        if images:
-            st.markdown(f"**📷 {len(images)} images uploaded**")
-            cols = st.columns(4)
-            for i, img_file in enumerate(images):
-                with cols[i % 4]:
-                    img_path = os.path.join(project_folder, img_file)
-                    size_kb = os.path.getsize(img_path) / 1024
-                    st.image(img_path, use_container_width=True)
-                    st.caption(f"{img_file[:15]}...")
-                    st.caption(f"📊 {size_kb:.0f} KB")
-                    col_btn1, col_btn2 = st.columns(2)
-                    with col_btn1:
-                        if st.button(f"🔍", key=f"view_{img_file}"):
-                            st.session_state.show_image_popout = img_path
-                            st.rerun()
-                    with col_btn2:
-                        if st.button(f"🗑️", key=f"del_{img_file}"):
-                            os.remove(img_path)
-                            st.rerun()
-                    st.divider()
-        else:
-            st.caption("📭 No images uploaded yet.")
-    
-    if st.session_state.show_image_popout:
-        img_path = st.session_state.show_image_popout
-        if os.path.exists(img_path):
-            st.markdown("---")
-            st.markdown("### 📸 Image View")
-            st.markdown('<div class="image-popout">', unsafe_allow_html=True)
-            st.image(img_path, use_container_width=True)
-            st.markdown(f"**File:** {os.path.basename(img_path)}")
-            st.markdown(f"**Size:** {os.path.getsize(img_path) / 1024:.0f} KB")
-            if st.button("❌ Close Image", use_container_width=True):
-                st.session_state.show_image_popout = None
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ============================================================
 # UI FUNCTIONS
 # ============================================================
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio v6.3")
-    st.caption("⚡ Permanent Geometry Fix | Single Source of Truth | AI-Powered")
+    st.title("🏗️ SDS Design Studio")
+    st.caption("Parametric design for tensile structures")
     
     projects = st.session_state.saved_projects
     cols = st.columns(4)
     with cols[0]:
         st.markdown(f"<div class='dashboard-card'><div class='icon'>📂</div><div class='value'>{len(projects)}</div><div class='label'>Saved Projects</div></div>", unsafe_allow_html=True)
     with cols[1]:
-        st.markdown("<div class='dashboard-card'><div class='icon'>🏕️</div><div class='value'>4</div><div class='label'>Structure Types</div></div>", unsafe_allow_html=True)
+        st.markdown("<div class='dashboard-card'><div class='icon'>🏕️</div><div class='value'>4</div><div class='label'>Shapes</div></div>", unsafe_allow_html=True)
     with cols[2]:
-        st.markdown("<div class='dashboard-card'><div class='icon'>🔧</div><div class='value'>3</div><div class='label'>Member Types</div></div>", unsafe_allow_html=True)
+        st.markdown("<div class='dashboard-card'><div class='icon'>🔧</div><div class='value'>3</div><div class='label'>Members</div></div>", unsafe_allow_html=True)
     with cols[3]:
-        st.markdown("<div class='dashboard-card'><div class='icon'>⚡</div><div class='value'>AI</div><div class='label'>Intelligence Engine</div></div>", unsafe_allow_html=True)
+        st.markdown("<div class='dashboard-card'><div class='icon'>⚡</div><div class='value'>AI</div><div class='label'>Engine</div></div>", unsafe_allow_html=True)
     
     st.divider()
     
@@ -1223,8 +686,6 @@ def render_project_browser():
 
 def render_catalog():
     st.subheader("Choose a structure type:")
-    st.caption("🏕️ Saddle Span - Complete with AI-Powered Design Engine")
-    
     cols = st.columns(2)
     with cols[0]:
         if st.button("🏕️ Saddle Span", use_container_width=True, type="primary"):
@@ -1262,7 +723,7 @@ def render_workspace():
     generator = GENERATORS.get(typology, generate_saddle_span)
     
     st.markdown("## 🧠 Design Workspace")
-    st.caption(f"📌 {info.get('name', 'Untitled')} — {info.get('client', 'Unknown')} | ⚡ AI-Powered | ✅ Permanent Geometry Fix")
+    st.caption(f"📌 {info.get('name', 'Untitled')} — {info.get('client', 'Unknown')}")
     
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
@@ -1361,8 +822,7 @@ def render_workspace():
         
         section_types = ["CHS", "RHS", "I-Beam", "Box"]
         current_section_type = materials.get("section_type", "CHS")
-        materials["section_type"] = st.selectbox("Section Shape (Locked)", section_types, index=section_types.index(current_section_type), disabled=st.session_state.locked)
-        st.caption("🔒 System will ONLY use this section type for all replacements")
+        materials["section_type"] = st.selectbox("Section Shape", section_types, index=section_types.index(current_section_type), disabled=st.session_state.locked)
         
         fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"]
         materials["fabric_type"] = st.selectbox("Fabric Material", fabric_options, index=fabric_options.index(materials.get("fabric_type", "PVC-coated Polyester")), disabled=st.session_state.locked)
@@ -1390,27 +850,19 @@ def render_workspace():
     
     with col_right:
         st.subheader("🔬 3D Model")
-        st.caption("✅ Permanent Fix: Single Source of Truth | Membrane Attached | Tie-Downs Connected")
         
         fig = generator(params, materials)
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
         
         st.divider()
         
-        # ===== AI SMART DESIGN RESULTS =====
-        st.markdown("## ⚡ AI Intelligence Analysis")
-        
+        # Design Results
         design_results = auto_design_structure(params, materials)
         
-        if design_results.get("new_sections"):
-            st.info(f"🆕 **Smart Sections Created:** {', '.join(design_results['new_sections'])}")
-        
-        recommendations = check_design_recommendations(params, materials, design_results)
-        if recommendations:
-            render_recommendations(recommendations, params, materials)
+        st.markdown("## ⚡ Design Results")
         
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📊 Load Analysis</div>', unsafe_allow_html=True)
+        st.markdown('<div class="title">📊 Loads</div>', unsafe_allow_html=True)
         loads = design_results["loads"]
         c1, c2, c3 = st.columns(3)
         c1.metric("Wind Load", f"{loads['wind']:.1f} kN")
@@ -1419,40 +871,17 @@ def render_workspace():
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">🔧 Smart Member Selection</div>', unsafe_allow_html=True)
+        st.markdown('<div class="title">🔧 Member Selection</div>', unsafe_allow_html=True)
         
-        member_type = materials.get("member_type", "single_beam")
-        
-        if member_type == "single_beam":
+        if typology == "saddle_span":
             beam = design_results["beams"].get("main")
             if beam:
                 st.markdown(f"**Selected Section:** {beam['section']}")
-                if beam.get("is_newly_created", False):
-                    st.markdown('<span class="new-section-badge">🆕 SMART CREATED</span>', unsafe_allow_html=True)
                 st.markdown(f"**Area:** {beam['properties']['A']:.0f} mm²")
                 st.markdown(f"**Weight:** {beam['properties']['weight']:.1f} kg/m")
-                st.markdown(f"**Section Modulus:** {beam['properties']['W_el']/1e3:.1f} cm³")
                 st.markdown(f"**Required Moment:** {beam['required_moment']:.1f} kNm")
                 st.markdown(f"**Moment Capacity:** {beam['moment_capacity']:.1f} kNm")
-            else:
-                st.warning("No suitable section found. Consider different material.")
-        
-        elif member_type in ["planar_truss", "space_truss"]:
-            truss = design_results["truss"]
-            st.markdown("**Truss Member Sizes:**")
-            top = truss.get("top_chord")
-            bottom = truss.get("bottom_chord")
-            if top:
-                st.markdown(f"- **Top Chord:** {top['section']} (Capacity: {top['moment_capacity']:.1f} kNm)")
-                if top.get("is_newly_created", False):
-                    st.markdown('  <span class="new-section-badge">🆕 SMART</span>', unsafe_allow_html=True)
-            if bottom:
-                st.markdown(f"- **Bottom Chord:** {bottom['section']} (Capacity: {bottom['moment_capacity']:.1f} kNm)")
-                if bottom.get("is_newly_created", False):
-                    st.markdown('  <span class="new-section-badge">🆕 SMART</span>', unsafe_allow_html=True)
-            st.markdown(f"- **Diagonals:** {truss['selected'].get('diagonal', 'N/A')}")
-            if "vertical" in truss["selected"]:
-                st.markdown(f"- **Verticals:** {truss['selected']['vertical']}")
+                st.markdown(f"**Status:** {'✅ Adequate' if beam['is_adequate'] else '🔄 Upgrade Available'}")
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
@@ -1468,18 +897,15 @@ def render_workspace():
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📋 Smart Design Checklist</div>', unsafe_allow_html=True)
+        st.markdown('<div class="title">📋 Checklist</div>', unsafe_allow_html=True)
         
         for check_name, check_data in design_results["all_checks"].items():
             status = check_data["status"]
             if "✅" in status:
                 color = "#2ecc71"
-            elif "🔄" in status:
-                color = "#f39c12"
             else:
-                color = "#e74c3c"
-            detail = check_data.get("detail", "")
-            st.markdown(f"<span style='color:{color}; font-weight:700;'>{status}</span> {check_name.replace('_', ' ').title()}: {check_data['value']} <span style='color:#8a9aaa;font-size:0.8rem;'>{detail}</span>", unsafe_allow_html=True)
+                color = "#f39c12"
+            st.markdown(f"<span style='color:{color}; font-weight:700;'>{status}</span> {check_name.replace('_', ' ').title()}: {check_data['value']}", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
         score = design_results["health_score"]
@@ -1500,12 +926,10 @@ def render_workspace():
             <span style='font-size:1.2rem;color:{color};'>{status}</span>
         </div>
         """, unsafe_allow_html=True)
-        
-        st.divider()
-        render_image_gallery()
     
     st.divider()
     
+    # Q&A
     st.markdown('<div class="sds-card"><div class="title">❓ Design Confirmation</div>', unsafe_allow_html=True)
     qa_list = {
         "saddle_span": ["Are there two primary curved beams?", "Are both beams supported at lower ends?", "Is membrane attached continuously?", "Is A the vertical rise?", "Is B the horizontal span?", "Is LAA the apex-to-apex distance?"],
@@ -1542,4 +966,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("SDS Design Studio v6.3 | Permanent Geometry Fix | Single Source of Truth | MS EN Wind: 33.5m/s")
+st.caption("SDS Design Studio | MS EN Wind: 33.5m/s")
