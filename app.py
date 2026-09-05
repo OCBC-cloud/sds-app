@@ -93,6 +93,13 @@ dark_mode_css = """
     .joint-bolt { background-color: #3498db; color: #ffffff; }
     .top-nav { display: flex; gap: 0.5rem; padding: 0.5rem 0; flex-wrap: wrap; }
     .top-nav .stButton { flex: 1; min-width: 100px; }
+    .section-tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; margin-left: 0.3rem; }
+    .tag-chs { background-color: #e74c3c; color: #ffffff; }
+    .tag-shs { background-color: #3498db; color: #ffffff; }
+    .tag-rhs { background-color: #2ecc71; color: #ffffff; }
+    .tag-ibeam { background-color: #f39c12; color: #ffffff; }
+    .tag-angle { background-color: #9b59b6; color: #ffffff; }
+    .tag-channel { background-color: #1abc9c; color: #ffffff; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -283,6 +290,18 @@ def format_currency(amount, country="Malaysia"):
     currency = get_currency(country)
     return f"{currency['symbol']}{amount:,.0f}"
 
+def get_section_tag(section_type):
+    """Get HTML tag for section type"""
+    tags = {
+        "CHS": '<span class="section-tag tag-chs">CHS</span>',
+        "SHS": '<span class="section-tag tag-shs">SHS</span>',
+        "RHS": '<span class="section-tag tag-rhs">RHS</span>',
+        "I-Beam": '<span class="section-tag tag-ibeam">I</span>',
+        "Angle": '<span class="section-tag tag-angle">L</span>',
+        "Channel": '<span class="section-tag tag-channel">C</span>'
+    }
+    return tags.get(section_type, "")
+
 def get_beam_shape(x, span, rise, shape_type="parabolic"):
     if span <= 0:
         return np.zeros_like(x)
@@ -304,7 +323,7 @@ def generate_bracing_positions(span, num_bays):
     if num_bays == 1:
         return [0.0]
     if num_bays == 2:
-        return [-span/4, span/4]  # 1/4 points
+        return [-span/4, span/4]
     if num_bays == 3:
         return [-span/3, 0.0, span/3]
     return np.linspace(-span/3, span/3, num_bays).tolist()
@@ -320,7 +339,6 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
     
     joint_data = JOINT_MULTIPLIERS.get(joint_type, JOINT_MULTIPLIERS["bolted"])
     
-    panel_width = span / num_panels
     total_udl = total_load / span
     max_bending = (total_udl * span**2) / 8
     truss_depth = rise * 0.7
@@ -341,11 +359,24 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
     db = SECTION_PROPERTIES
     fy = 355
     
+    # Get user's preferred section type
+    user_section_type = materials.get("section_type", "CHS")
+    type_map = {
+        "CHS": "CHS",
+        "SHS": "SHS",
+        "RHS": "RHS",
+        "I-Beam": "I-Beam",
+        "Angle": "Angle",
+        "Channel": "Channel"
+    }
+    preferred_type = type_map.get(user_section_type, "CHS")
+    
     def find_section(force, is_compression=False, preferred_type=None):
         required_area = force * 1000 / (fy * 0.9)
         best_section = None
         best_weight = float('inf')
         
+        # First try preferred type
         for name, props in db.items():
             if preferred_type and props['type'] != preferred_type:
                 continue
@@ -353,14 +384,23 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
                 if props['weight'] < best_weight:
                     best_weight = props['weight']
                     best_section = name
+        
+        # If no section found and we have a preferred type, try any type
+        if not best_section and preferred_type:
+            for name, props in db.items():
+                if props['A'] >= required_area:
+                    if props['weight'] < best_weight:
+                        best_weight = props['weight']
+                        best_section = name
+        
         return best_section
     
     truss_type = materials.get("truss_type", "warren")
     
     if truss_type == "warren":
-        top_chord = find_section(top_chord_force, True, "I-Beam") or find_section(top_chord_force, True, "SHS")
-        bottom_chord = find_section(bottom_chord_force, False, "I-Beam") or find_section(bottom_chord_force, False, "SHS")
-        diag = find_section(diag_force, False, "Angle") or find_section(diag_force, False, "CHS")
+        top_chord = find_section(top_chord_force, True, preferred_type)
+        bottom_chord = find_section(bottom_chord_force, False, preferred_type)
+        diag = find_section(diag_force, False, preferred_type)
         
         members = {
             "top_chord": top_chord or "I-200",
@@ -371,10 +411,10 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
             "joint_description": joint_data["description"]
         }
     elif truss_type == "pratt":
-        top_chord = find_section(top_chord_force, True, "I-Beam") or find_section(top_chord_force, True, "SHS")
-        bottom_chord = find_section(bottom_chord_force, False, "I-Beam") or find_section(bottom_chord_force, False, "SHS")
-        diag = find_section(diag_force, False, "Angle") or find_section(diag_force, False, "CHS")
-        vert = find_section(vert_force, True, "Angle") or find_section(vert_force, True, "CHS")
+        top_chord = find_section(top_chord_force, True, preferred_type)
+        bottom_chord = find_section(bottom_chord_force, False, preferred_type)
+        diag = find_section(diag_force, False, preferred_type)
+        vert = find_section(vert_force, True, preferred_type)
         
         members = {
             "top_chord": top_chord or "I-200",
@@ -385,10 +425,10 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
             "joint_description": joint_data["description"]
         }
     elif truss_type == "howe":
-        top_chord = find_section(top_chord_force, True, "I-Beam") or find_section(top_chord_force, True, "SHS")
-        bottom_chord = find_section(bottom_chord_force, False, "I-Beam") or find_section(bottom_chord_force, False, "SHS")
-        diag = find_section(diag_force, True, "Angle") or find_section(diag_force, True, "CHS")
-        vert = find_section(vert_force, False, "Angle") or find_section(vert_force, False, "CHS")
+        top_chord = find_section(top_chord_force, True, preferred_type)
+        bottom_chord = find_section(bottom_chord_force, False, preferred_type)
+        diag = find_section(diag_force, True, preferred_type)
+        vert = find_section(vert_force, False, preferred_type)
         
         members = {
             "top_chord": top_chord or "I-200",
@@ -399,9 +439,9 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
             "joint_description": joint_data["description"]
         }
     else:  # vierendeel
-        top_chord = find_section(top_chord_force * 1.5, True, "I-Beam") or find_section(top_chord_force * 1.5, True, "SHS")
-        bottom_chord = find_section(bottom_chord_force * 1.5, False, "I-Beam") or find_section(bottom_chord_force * 1.5, False, "SHS")
-        vert = find_section(vert_force * 2, True, "I-Beam") or find_section(vert_force * 2, True, "SHS")
+        top_chord = find_section(top_chord_force * 1.5, True, preferred_type)
+        bottom_chord = find_section(bottom_chord_force * 1.5, False, preferred_type)
+        vert = find_section(vert_force * 2, True, preferred_type)
         
         members = {
             "top_chord": top_chord or "I-250",
@@ -617,7 +657,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     }
 
 # ============================================================
-# ENGINEERING FUNCTIONS
+# ENGINEERING FUNCTIONS - FIXED TO RESPECT SECTION TYPE
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -633,7 +673,10 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     fabric_kg = fabric_weight * membrane_area
     return (steel_kg + fabric_kg) / 100
 
-def calculate_required_section(load_kN, span_m, material_type, fy=355):
+def calculate_required_section(load_kN, span_m, material_type, section_type, fy=355):
+    """
+    Calculate required section - ONLY searches within the user's selected section type
+    """
     safety = 1.5
     w = load_kN / span_m
     M = (w * span_m**2) / 8
@@ -644,9 +687,75 @@ def calculate_required_section(load_kN, span_m, material_type, fy=355):
     I_required = (5 * w * span_m**4) / (384 * E * deflection_limit) * 1e12
     
     db = SECTION_PROPERTIES
+    
+    # Map user section type to database type
+    type_map = {
+        "CHS": "CHS",
+        "SHS": "SHS",
+        "RHS": "RHS",
+        "I-Beam": "I-Beam",
+        "Angle": "Angle",
+        "Channel": "Channel"
+    }
+    preferred_type = type_map.get(section_type, "CHS")
+    
+    # FIRST PASS: Search ONLY within the preferred type
     best_section = None
     best_score = float('inf')
     
+    for section, props in db.items():
+        if props["type"] != preferred_type:
+            continue
+        if props["A"] <= 0:
+            continue
+        
+        w_score = abs(props["W_el"] - W_required) / W_required if W_required > 0 else 0
+        i_score = abs(props["I"] - I_required) / I_required if I_required > 0 else 0
+        total_score = w_score * 0.6 + i_score * 0.4
+        if props["W_el"] < W_required * 0.7:
+            total_score += 10
+        if total_score < best_score:
+            best_score = total_score
+            best_section = section
+    
+    if best_section:
+        props = SECTION_PROPERTIES[best_section]
+        moment_capacity = (props["W_el"] * fy) / (safety * 1e6)
+        is_adequate = props["W_el"] >= W_required * 0.9
+        return {
+            "section": best_section,
+            "properties": props,
+            "required_moment": M,
+            "moment_capacity": moment_capacity,
+            "is_adequate": is_adequate,
+            "section_type": preferred_type,
+            "note": None
+        }
+    
+    # SECOND PASS: If no section found in preferred type, find the largest in that type
+    largest_section = None
+    largest_W = 0
+    for section, props in db.items():
+        if props["type"] != preferred_type:
+            continue
+        if props["W_el"] > largest_W:
+            largest_W = props["W_el"]
+            largest_section = section
+    
+    if largest_section:
+        props = SECTION_PROPERTIES[largest_section]
+        moment_capacity = (props["W_el"] * fy) / (safety * 1e6)
+        return {
+            "section": largest_section,
+            "properties": props,
+            "required_moment": M,
+            "moment_capacity": moment_capacity,
+            "is_adequate": props["W_el"] >= W_required * 0.9,
+            "section_type": preferred_type,
+            "note": f"⚠️ Selected largest {preferred_type} section available ({largest_section})"
+        }
+    
+    # THIRD PASS: If truly no section exists in that type, search all types
     for section, props in db.items():
         if props["A"] <= 0:
             continue
@@ -662,13 +771,17 @@ def calculate_required_section(load_kN, span_m, material_type, fy=355):
     if best_section:
         props = SECTION_PROPERTIES[best_section]
         moment_capacity = (props["W_el"] * fy) / (safety * 1e6)
+        is_adequate = props["W_el"] >= W_required * 0.9
         return {
             "section": best_section,
             "properties": props,
             "required_moment": M,
             "moment_capacity": moment_capacity,
-            "is_adequate": props["W_el"] >= W_required * 0.9
+            "is_adequate": is_adequate,
+            "section_type": props["type"],
+            "note": f"⚠️ No {preferred_type} section available. Recommended {props['type']} instead."
         }
+    
     return None
 
 def auto_select_fabric_thickness(wind_force, membrane_area, fabric_type):
@@ -692,6 +805,7 @@ def auto_design_structure(params, materials):
     span, rise, laa = params.get("B", 10.0), params.get("A", 6.0), params.get("LAA", 15.0)
     member_type = materials.get("member_type", "single_beam")
     material_type = materials.get("material_type", "Steel")
+    section_type = materials.get("section_type", "CHS")
     fabric_type = materials.get("fabric_type", "PVC-coated Polyester")
     cable_type = materials.get("cable_type", "6x19 Galvanized")
     standard = materials.get("standard", "EU")
@@ -718,25 +832,31 @@ def auto_design_structure(params, materials):
     
     fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
     
+    # --- SINGLE BEAM ANALYSIS - Now respects section type ---
     if member_type == "single_beam":
-        beam_result = calculate_required_section(total_load, span, material_type, fy)
+        beam_result = calculate_required_section(total_load, span, material_type, section_type, fy)
         if beam_result:
             results["beams"]["main"] = beam_result
             results["beams"]["selected"] = beam_result["section"]
             results["beams"]["moment_capacity"] = beam_result["moment_capacity"]
             results["beams"]["required_moment"] = beam_result["required_moment"]
+            results["beams"]["section_type"] = beam_result.get("section_type", section_type)
+            results["beams"]["note"] = beam_result.get("note", None)
     
+    # --- TRUSS ANALYSIS ---
     truss_members = None
     if member_type in ["planar_truss", "space_truss"]:
         truss_members = analyze_truss_members(params, materials, total_load, joint_type)
         results["truss"] = truss_members
     
+    # --- FABRIC SELECTION ---
     membrane_area = span * laa * 1.1
     fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area, fabric_type)
     results["fabric"]["type"] = fabric_type
     results["fabric"]["thickness"] = fabric_thickness
     results["fabric"]["strength"] = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {}).get(fabric_thickness, 0)
     
+    # --- CABLE SELECTION ---
     num_bays = materials.get("num_bays", 2)
     num_anchors = num_bays * 4
     vertical_angle = materials.get("tie_down_vertical_angle", 45)
@@ -753,19 +873,32 @@ def auto_design_structure(params, materials):
     results["cables"]["force_per_cable"] = cable_force
     results["cables"]["is_adequate"] = cable_breaking >= cable_force * 1.5
     
+    # --- CHECKS ---
     results["all_checks"]["wind_load"] = {"status": "✅ PASS", "value": f"{wind_load:.1f} kN"}
     results["all_checks"]["joint_type"] = {"status": f"🔧 {joint_type.upper()}", "value": joint_data["description"][:30] + "..."}
     
     if member_type == "single_beam" and results["beams"].get("main"):
         beam = results["beams"]["main"]
         is_adequate = beam.get("is_adequate", False)
+        section_note = beam.get("note", "")
+        section_display = beam['section']
+        
+        if section_note:
+            section_display = f"{beam['section']} {section_note}"
+        
         results["all_checks"]["member_capacity"] = {
             "status": "✅ PASS" if is_adequate else "🔄 Upgrade",
             "value": f"{beam['moment_capacity']:.1f} kNm"
         }
         results["all_checks"]["section_selected"] = {
             "status": "✅ PASS" if is_adequate else "⚠️ Check",
-            "value": beam['section']
+            "value": section_display
+        }
+        # Add section type tag
+        sec_type = beam.get("section_type", section_type)
+        results["all_checks"]["section_type"] = {
+            "status": f"📐 {sec_type}",
+            "value": get_section_tag(sec_type)
         }
     elif member_type in ["planar_truss", "space_truss"] and truss_members:
         results["all_checks"]["member_capacity"] = {
@@ -878,16 +1011,12 @@ def generate_saddle_span(params, materials=None):
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
         horizontal_spread = materials.get("tie_down_horizontal_spread", 30)
         
-        # Get bracing positions at ~1/4 points from supports
         bracing_x = generate_bracing_positions(span, num_bays)
         bracing_x_sorted = sorted(bracing_x)
 
-        # Calculate outward offset based on roof size
-        # Anchors should land outside the roof shadow
         roof_radius = max(span/2, laa/2)
-        anchor_offset = roof_radius * 1.3  # 30% beyond roof edge
+        anchor_offset = roof_radius * 1.3
         
-        # Tie-downs at bracing positions - radiating outward from center
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
             x1 = x[idx]
@@ -895,40 +1024,24 @@ def generate_saddle_span(params, materials=None):
             y2_pt = y2[idx]
             z_pt = z_beam[idx]
 
-            # Calculate horizontal offset based on vertical angle
             horizontal_offset = rise * np.tan(np.radians(vertical_angle))
             lateral_offset = horizontal_offset * np.tan(np.radians(horizontal_spread))
             
-            # CRITICAL FIX: Anchors radiate outward from center
-            # Left beam (negative y): anchor goes further negative (outward left)
-            # Right beam (positive y): anchor goes further positive (outward right)
-            # All anchors go outward from center, not inward
-            
-            # For x-direction: anchors go outward from center too
-            # If bx is negative (left side), anchor goes more negative
-            # If bx is positive (right side), anchor goes more positive
             if bx < 0:
-                anchor_x = bx - horizontal_offset * 0.5  # Further left
+                anchor_x = bx - horizontal_offset * 0.5
             elif bx > 0:
-                anchor_x = bx + horizontal_offset * 0.5  # Further right
+                anchor_x = bx + horizontal_offset * 0.5
             else:
-                anchor_x = bx + horizontal_offset * 0.3  # Slightly right for center
+                anchor_x = bx + horizontal_offset * 0.3
             
-            # Ensure anchors are outside roof shadow
-            # Left side anchors: x should be <= -span/4
-            # Right side anchors: x should be >= span/4
             if bx < 0 and anchor_x > -span/4:
                 anchor_x = -span/3
             elif bx > 0 and anchor_x < span/4:
                 anchor_x = span/3
             
-            # Y-direction: always outward from center
-            # Left beam: more negative (outward left)
             anchor1_y = -anchor_offset - lateral_offset * 0.5
-            # Right beam: more positive (outward right)
             anchor2_y = anchor_offset + lateral_offset * 0.5
 
-            # Beam 1 tie-down (left beam) - goes outward left
             fig.add_trace(go.Scatter3d(
                 x=[x1, anchor_x],
                 y=[y1_pt, anchor1_y],
@@ -946,7 +1059,6 @@ def generate_saddle_span(params, materials=None):
                 showlegend=False
             ))
 
-            # Beam 2 tie-down (right beam) - goes outward right
             fig.add_trace(go.Scatter3d(
                 x=[x1, anchor_x],
                 y=[y2_pt, anchor2_y],
@@ -964,7 +1076,6 @@ def generate_saddle_span(params, materials=None):
                 showlegend=False
             ))
 
-        # Horizontal bracing
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
             x1 = x[idx]
@@ -980,7 +1091,6 @@ def generate_saddle_span(params, materials=None):
                 showlegend=False
             ))
 
-        # Diagonal cross-bracing
         if len(bracing_x_sorted) >= 2:
             for i in range(len(bracing_x_sorted) - 1):
                 bx1 = bracing_x_sorted[i]
@@ -1140,7 +1250,6 @@ def render_dashboard():
     st.title("🏗️ SDS Design Studio v7.0")
     st.caption("Parametric design for tensile structures")
     
-    # Stats cards
     projects = st.session_state.saved_projects
     cols = st.columns(4)
     with cols[0]:
@@ -1154,7 +1263,6 @@ def render_dashboard():
     
     st.divider()
     
-    # Quick actions
     col1, col2 = st.columns(2)
     with col1:
         if st.button("➕ New Design", use_container_width=True, type="primary"):
@@ -1165,7 +1273,6 @@ def render_dashboard():
             st.session_state.page = "browser"
             st.rerun()
     
-    # Recent projects
     if projects:
         st.divider()
         st.subheader("📂 Recent Projects")
@@ -1295,7 +1402,6 @@ def render_bq_page():
     st.markdown(f"**Reference:** {st.session_state.project_info.get('reference', 'N/A')}")
     st.divider()
     
-    # Check if design exists
     if "bq" not in st.session_state:
         st.info("💡 Please run the design first to generate the Bill of Quantities.")
         if st.button("🏗️ Go to Workspace", use_container_width=True, type="primary"):
@@ -1311,11 +1417,9 @@ def render_bq_page():
             st.rerun()
         return
     
-    # Currency
     currency = bq.get("currency", get_currency("Malaysia"))
     st.markdown(f"**Currency:** {currency['code']} ({currency['symbol']})")
     
-    # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("💰 Total Cost", f"{currency['symbol']}{bq['total_cost']:,.0f}")
     col2.metric("🔩 Steel Weight", f"{bq['total_steel_weight']:.0f} kg")
@@ -1324,7 +1428,6 @@ def render_bq_page():
     
     st.divider()
     
-    # Detailed BQ
     st.subheader("📋 Detailed Bill of Quantities")
     
     bq_data = []
@@ -1344,7 +1447,6 @@ def render_bq_page():
         df = pd.DataFrame(bq_data)
         st.dataframe(df, use_container_width=True, hide_index=True)
         
-        # Grand total
         st.markdown(f"""
         <div style='text-align:right;padding:0.5rem;background:#1e2a3a;border-radius:8px;margin-top:0.5rem;'>
             <span style='font-size:1.2rem;font-weight:700;color:#f39c12;'>
@@ -1357,7 +1459,6 @@ def render_bq_page():
         </div>
         """, unsafe_allow_html=True)
     
-    # Export options
     st.divider()
     col1, col2 = st.columns(2)
     with col1:
@@ -1388,7 +1489,6 @@ def render_workspace():
     st.markdown("## 🧠 Design Workspace")
     st.caption(f"📌 {info.get('name', 'Untitled')} — {info.get('client', 'Unknown')}")
     
-    # Control buttons
     col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
     with col1:
         if st.button("🏠 Home", use_container_width=True):
@@ -1426,7 +1526,6 @@ def render_workspace():
                 st.rerun()
     with col5:
         if st.button("📄 View BQ", use_container_width=True):
-            # Run design first if not done
             if "bq" not in st.session_state:
                 design_results = auto_design_structure(params, materials)
                 st.session_state.bq = design_results.get("bq", {})
@@ -1438,7 +1537,6 @@ def render_workspace():
     col_left, col_right = st.columns([1, 1.5])
     
     with col_left:
-        # Parameters
         st.markdown('<div class="sds-card"><div class="title">📐 Dimensions</div>', unsafe_allow_html=True)
         if typology == "saddle_span":
             params["A"] = st.number_input("Rise (A) m", 2.0, 20.0, params.get("A", 6.0), 0.5, disabled=st.session_state.locked)
@@ -1538,7 +1636,6 @@ def render_workspace():
         st.session_state.comments = st.text_area("", st.session_state.comments, height=80, disabled=st.session_state.locked, key="comments_area")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Run Design button
         if st.button("⚡ Run Design Analysis", use_container_width=True, type="primary"):
             design_results = auto_design_structure(params, materials)
             st.session_state.design_results = design_results
@@ -1554,7 +1651,6 @@ def render_workspace():
         
         st.divider()
         
-        # Design Results
         if "design_results" in st.session_state:
             design_results = st.session_state.design_results
         else:
@@ -1564,7 +1660,6 @@ def render_workspace():
         
         st.markdown("## ⚡ Design Results")
         
-        # Joint type badge
         joint_type = design_results.get("joint_type", "bolted")
         badge_color = "joint-weld" if joint_type == "welded" else "joint-bolt"
         st.markdown(f"<span class='joint-badge {badge_color}'>{joint_type.upper()} Connections</span>", unsafe_allow_html=True)
@@ -1584,7 +1679,11 @@ def render_workspace():
         if materials["member_type"] == "single_beam":
             beam = design_results["beams"].get("main")
             if beam:
-                st.markdown(f"**Main Beams (2 pcs):** {beam['section']}")
+                # Show section type badge
+                sec_type = beam.get("section_type", materials.get("section_type", "CHS"))
+                st.markdown(f"**Main Beams (2 pcs):** {beam['section']} {get_section_tag(sec_type)}")
+                if beam.get("note"):
+                    st.warning(beam["note"])
                 st.markdown(f"**Area:** {beam['properties']['A']:.0f} mm²")
                 st.markdown(f"**Weight:** {beam['properties']['weight']:.1f} kg/m")
                 st.markdown(f"**Required Moment:** {beam['required_moment']:.1f} kNm")
@@ -1637,10 +1736,12 @@ def render_workspace():
             else:
                 color = "#f39c12"
             display_name = check_name.replace('_', ' ').title()
-            st.markdown(f"<span style='color:{color}; font-weight:700;'>{status}</span> {display_name}: {check_data['value']}", unsafe_allow_html=True)
+            if check_name == "section_type":
+                st.markdown(f"<span style='color:{color}; font-weight:700;'>{status}</span> {display_name}: {check_data['value']}", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<span style='color:{color}; font-weight:700;'>{status}</span> {display_name}: {check_data['value']}", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Health Score
         score = design_results["health_score"]
         if score >= 80:
             status = "GOOD"
@@ -1660,7 +1761,6 @@ def render_workspace():
         </div>
         """, unsafe_allow_html=True)
         
-        # BQ Quick Summary
         bq = design_results.get("bq", {})
         if bq and "total_cost" in bq:
             currency = get_currency(materials.get("country", "Malaysia"))
@@ -1675,7 +1775,6 @@ def render_workspace():
     
     st.divider()
     
-    # Q&A
     st.markdown('<div class="sds-card"><div class="title">❓ Design Confirmation</div>', unsafe_allow_html=True)
     qa_list = {
         "saddle_span": ["Are there two primary curved beams?", "Are both beams supported at lower ends?", "Is membrane attached continuously?", "Is A the vertical rise?", "Is B the horizontal span?", "Is LAA the apex-to-apex distance?"],
@@ -1696,10 +1795,8 @@ def render_workspace():
 # ============================================================
 # MAIN ROUTING
 # ============================================================
-# Top Navigation
 render_top_nav()
 
-# Page routing
 page = st.session_state.get("page", "dashboard")
 
 if page == "dashboard":
