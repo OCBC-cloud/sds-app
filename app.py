@@ -226,6 +226,7 @@ def generate_bracing_positions(span, num_bays):
         return [-span/3, span/3]
     if num_bays == 3:
         return [-span/4, 0.0, span/4]
+    # For more bays, distribute evenly
     return np.linspace(-span/2 * 0.8, span/2 * 0.8, num_bays).tolist()
 
 def generate_truss_members(x, z_beam, truss_type="warren", num_panels=4):
@@ -358,7 +359,7 @@ def auto_design_structure(params, materials):
     results["fabric"]["strength"] = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {}).get(fabric_thickness, 0)
     
     num_bays = materials.get("num_bays", 2)
-    num_anchors = num_bays * 4
+    num_anchors = num_bays * 4  # both beams * 2 sides
     vertical_angle = materials.get("tie_down_vertical_angle", 45)
     uplift_per_anchor = (wind_load * 0.5) / num_anchors if num_anchors > 0 else 0
     cable_force = uplift_per_anchor / np.cos(np.radians(vertical_angle))
@@ -410,7 +411,7 @@ def auto_design_structure(params, materials):
     return results
 
 # ============================================================
-# WORKING 3D GENERATOR - SIMPLE AND CORRECT
+# IMPROVED 3D GENERATOR FOR SADDLE SPAN
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span = params.get("B", 10.0)
@@ -429,7 +430,7 @@ def generate_saddle_span(params, materials=None):
 
     fig = go.Figure()
 
-    # ===== DRAW BEAMS =====
+    # ===== DRAW MAIN BEAMS =====
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode='lines', name='Beam 1',
@@ -478,41 +479,128 @@ def generate_saddle_span(params, materials=None):
         marker=dict(color='#4ECDC4', size=6, symbol='square')
     ))
 
-    # ===== TIE-DOWNS =====
+    # ===== BRACING POSITIONS =====
     if materials:
         num_bays = materials.get("num_bays", 2)
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
         horizontal_spread = materials.get("tie_down_horizontal_spread", 30)
         
         bracing_x = generate_bracing_positions(span, num_bays)
+        # sort for cross-bracing
+        bracing_x_sorted = sorted(bracing_x)
 
+        # 1) TIE-DOWNS ON BOTH BEAMS
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
-            y_pos = y1[idx]
-            z_pos = z_beam[idx]
+            # Beam 1 point
+            x1 = x[idx]
+            y1_pt = y1[idx]
+            z1_pt = z_beam[idx]
+            # Beam 2 point
+            y2_pt = y2[idx]
+            z2_pt = z_beam[idx]  # same z
 
-            dist = rise * np.tan(np.radians(vertical_angle))
-            anchor_x = bx + dist * np.cos(np.radians(horizontal_spread))
-            anchor_y = y_pos + dist * np.sin(np.radians(horizontal_spread))
+            # Horizontal spread distance (in meters) - use angle and rise to compute offset
+            # We'll use the vertical angle to determine how far out the anchor is
+            # For simplicity, we set a fixed horizontal offset = rise * tan(angle)
+            # But we also want lateral spread: use horizontal_spread angle to rotate outward
+            horizontal_offset = rise * np.tan(np.radians(vertical_angle))
+            lateral_offset = horizontal_offset * np.tan(np.radians(horizontal_spread))
+            
+            # Anchor for beam1: shifted outward in -y direction (since beam1 is at negative y)
+            anchor1_x = bx + horizontal_offset  # move along x (could also be just bx)
+            anchor1_y = y1_pt - lateral_offset  # move outward (more negative)
+            # Anchor for beam2: shifted outward in +y direction
+            anchor2_x = bx + horizontal_offset
+            anchor2_y = y2_pt + lateral_offset
 
+            # Draw tie-down for beam1
             fig.add_trace(go.Scatter3d(
-                x=[bx, anchor_x],
-                y=[y_pos, anchor_y],
-                z=[z_pos, 0],
+                x=[x1, anchor1_x],
+                y=[y1_pt, anchor1_y],
+                z=[z1_pt, 0],
                 mode='lines',
                 line=dict(color='#FFD93D', width=3),
                 showlegend=False
             ))
-
             fig.add_trace(go.Scatter3d(
-                x=[anchor_x],
-                y=[anchor_y],
+                x=[anchor1_x],
+                y=[anchor1_y],
                 z=[0],
                 mode='markers',
                 marker=dict(color='#FF4444', size=5, symbol='x'),
                 showlegend=False
             ))
 
+            # Draw tie-down for beam2
+            fig.add_trace(go.Scatter3d(
+                x=[x1, anchor2_x],
+                y=[y2_pt, anchor2_y],
+                z=[z2_pt, 0],
+                mode='lines',
+                line=dict(color='#FFD93D', width=3),
+                showlegend=False
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[anchor2_x],
+                y=[anchor2_y],
+                z=[0],
+                mode='markers',
+                marker=dict(color='#FF4444', size=5, symbol='x'),
+                showlegend=False
+            ))
+
+        # 2) BRACING CABLES BETWEEN BEAMS
+        # Horizontal bracing at each bay position (connecting beam1 to beam2 at same x)
+        for bx in bracing_x:
+            idx = np.argmin(np.abs(x - bx))
+            x1 = x[idx]
+            y1_pt = y1[idx]
+            y2_pt = y2[idx]
+            z_pt = z_beam[idx]
+            fig.add_trace(go.Scatter3d(
+                x=[x1, x1],
+                y=[y1_pt, y2_pt],
+                z=[z_pt, z_pt],
+                mode='lines',
+                line=dict(color='#00FFFF', width=3, dash='dash'),
+                showlegend=False
+            ))
+
+        # Diagonal cross-bracing between consecutive bay positions
+        if len(bracing_x_sorted) >= 2:
+            for i in range(len(bracing_x_sorted) - 1):
+                bx1 = bracing_x_sorted[i]
+                bx2 = bracing_x_sorted[i+1]
+                idx1 = np.argmin(np.abs(x - bx1))
+                idx2 = np.argmin(np.abs(x - bx2))
+                # Points on beam1
+                x1a = x[idx1]; y1a = y1[idx1]; z1a = z_beam[idx1]
+                x1b = x[idx2]; y1b = y1[idx2]; z1b = z_beam[idx2]
+                # Points on beam2
+                x2a = x[idx1]; y2a = y2[idx1]; z2a = z_beam[idx1]
+                x2b = x[idx2]; y2b = y2[idx2]; z2b = z_beam[idx2]
+
+                # Cross: beam1 at i to beam2 at i+1
+                fig.add_trace(go.Scatter3d(
+                    x=[x1a, x2b],
+                    y=[y1a, y2b],
+                    z=[z1a, z2b],
+                    mode='lines',
+                    line=dict(color='#00FFFF', width=2, dash='dot'),
+                    showlegend=False
+                ))
+                # Cross: beam2 at i to beam1 at i+1
+                fig.add_trace(go.Scatter3d(
+                    x=[x2a, x1b],
+                    y=[y2a, y1b],
+                    z=[z2a, z1b],
+                    mode='lines',
+                    line=dict(color='#00FFFF', width=2, dash='dot'),
+                    showlegend=False
+                ))
+
+    # ===== LAYOUT =====
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
@@ -541,7 +629,7 @@ def generate_saddle_span(params, materials=None):
     return fig
 
 # ============================================================
-# OTHER GENERATORS (Placeholders)
+# OTHER GENERATORS (unchanged)
 # ============================================================
 def generate_tent(params):
     span, ridge, bays, bay_dist = params.get("span_width", 10.0), params.get("ridge_height", 5.0), params.get("num_bays", 4), params.get("bay_distance", 5.0)
@@ -604,7 +692,7 @@ GENERATORS = {
 }
 
 # ============================================================
-# UI FUNCTIONS
+# UI FUNCTIONS (unchanged except minor references)
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio")
