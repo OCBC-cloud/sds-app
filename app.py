@@ -17,7 +17,7 @@ import io
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio Pro v3.3 - Fixed",
+    page_title="SDS Design Studio Pro v3.4 - Open Project Fixed",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -923,7 +923,7 @@ def render_structural_health_report(report):
         st.session_state.upgrade_name = ""
 
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio Pro v3.3 - Fixed")
+    st.title("🏗️ SDS Design Studio Pro v3.4 - Open Project Fixed")
     st.caption("🚀 Automatic Member Sizing | Intelligent Structural Upgrade Engine")
     projects = get_projects_list()
     cols = st.columns(4)
@@ -1409,7 +1409,9 @@ with c6:
 with c7:
     st.caption("📊 Use top")
 
-# Project Browser - FIXED: Now works properly
+# ============================================================
+# PROJECT BROWSER - FIXED: Now works properly with st.stop()
+# ============================================================
 if st.session_state.show_project_browser:
     st.subheader("📂 Saved Projects")
     if st.button("⬅ Back to Dashboard", use_container_width=True, key="back_browser"):
@@ -1434,9 +1436,11 @@ if st.session_state.show_project_browser:
                 st.rerun()
             c4.caption(proj.get("date", "")[:10])
             st.divider()
-    st.stop()
+    st.stop()  # <-- CRITICAL: Stop rendering the rest of the app
 
-# Registration
+# ============================================================
+# REGISTRATION
+# ============================================================
 if st.session_state.show_registration:
     st.subheader("📋 New Project")
     if st.button("⬅ Back", use_container_width=True, key="back_reg"):
@@ -1462,12 +1466,16 @@ if st.session_state.show_registration:
                 st.rerun()
     st.stop()
 
-# Dashboard
+# ============================================================
+# DASHBOARD
+# ============================================================
 if not st.session_state.project_registered:
     render_dashboard()
     st.stop()
 
-# Typology Selection
+# ============================================================
+# TYPOLOGY SELECTION
+# ============================================================
 if st.session_state.typology is None:
     st.subheader("Choose a structure type:")
     st.caption("🏕️ Saddle Span - Complete Module with Automatic Sizing & Intelligent Upgrade")
@@ -1483,10 +1491,14 @@ if st.session_state.typology is None:
                 st.rerun()
     st.stop()
 
-# Main Workspace
+# ============================================================
+# MAIN WORKSPACE
+# ============================================================
 render_workspace()
 
-# Footer
+# ============================================================
+# FOOTER
+# ============================================================
 st.divider()
-st.caption("SDS Design Studio Pro v3.3 | ✅ Visual Feedback | ✅ Open Project Fixed | MS EN Wind: 33.5m/s")
+st.caption("SDS Design Studio Pro v3.4 | ✅ Open Project Fixed | MS EN Wind: 33.5m/s")
 save_cache()
