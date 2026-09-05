@@ -17,13 +17,13 @@ import io
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio v5.2 - Auto-Upgrade",
+    page_title="SDS Design Studio v5.3 - Section Lock",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
 # ============================================================
-# DARK MODE CSS (Same as before)
+# DARK MODE CSS
 # ============================================================
 dark_mode_css = """
     <style>
@@ -70,6 +70,7 @@ dark_mode_css = """
     .check-fail { color: #e74c3c; font-weight: 700; }
     .image-popout { background-color: #0a0e17; border-radius: 12px; padding: 1rem; border: 2px solid #4a7a9c; text-align: center; }
     .image-popout img { max-width: 100%; border-radius: 8px; }
+    .new-section-badge { background-color: #f39c12; color: #0a0e17; padding: 0.1rem 0.5rem; border-radius: 12px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -206,6 +207,8 @@ if "materials" not in st.session_state:
     }
 if "show_image_popout" not in st.session_state:
     st.session_state.show_image_popout = None
+if "new_sections_created" not in st.session_state:
+    st.session_state.new_sections_created = []
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -296,7 +299,142 @@ def generate_truss_members(x, z_beam, truss_type="warren", num_panels=4):
     return members
 
 # ============================================================
-# CORRECTED AUTO-DESIGN ENGINE WITH AUTO-UPGRADE
+# 🆕 SECTION CREATION FUNCTION
+# ============================================================
+def create_new_section(W_required, I_required, section_type, material_type, fy, safety):
+    """
+    Create a new section if none exists in the database
+    """
+    if section_type == "CHS":
+        # Calculate required diameter
+        D = (32 * W_required / (np.pi * 0.8)) ** (1/3)
+        D = round(D / 10) * 10
+        if D < 50:
+            D = 50
+        t = D * 0.08
+        t = round(t * 10) / 10
+        
+        A = np.pi * ((D/2)**2 - (D/2 - t)**2)
+        I = np.pi * ((D/2)**4 - (D/2 - t)**4) / 4
+        W_el_calc = I / (D/2)
+        weight = A * 7850 / 1e6
+        
+        name = f"CHS {D}.0x{t:.1f}"
+        props = {
+            "A": A,
+            "I": I,
+            "W_el": W_el_calc,
+            "i": np.sqrt(I / A),
+            "weight": weight,
+            "type": "CHS"
+        }
+        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
+        return name, props, moment_capacity
+    
+    elif section_type == "RHS":
+        b = (W_required * 32 / 6) ** (1/3)
+        b = round(b / 10) * 10
+        if b < 50:
+            b = 50
+        t = b * 0.08
+        t = round(t * 10) / 10
+        
+        A = b**2 - (b - 2*t)**2
+        I = (b**4 - (b - 2*t)**4) / 12
+        W_el_calc = I / (b/2)
+        weight = A * 7850 / 1e6
+        
+        name = f"RHS {b}x{b}x{int(t)}"
+        props = {
+            "A": A,
+            "I": I,
+            "W_el": W_el_calc,
+            "i": np.sqrt(I / A),
+            "weight": weight,
+            "type": "RHS"
+        }
+        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
+        return name, props, moment_capacity
+    
+    elif section_type == "I-Beam":
+        d = (W_required * 12 / 0.9) ** (1/3)
+        d = round(d / 10) * 10
+        if d < 100:
+            d = 100
+        
+        bf = d * 0.5
+        tf = d * 0.08
+        tw = d * 0.04
+        A = 2 * bf * tf + (d - 2*tf) * tw
+        I = (bf * d**3 - (bf - tw) * (d - 2*tf)**3) / 12
+        W_el_calc = I / (d/2)
+        weight = A * 7850 / 1e6
+        
+        name = f"I-{int(d)}"
+        props = {
+            "A": A,
+            "I": I,
+            "W_el": W_el_calc,
+            "i": np.sqrt(I / A),
+            "weight": weight,
+            "type": "I-Beam"
+        }
+        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
+        return name, props, moment_capacity
+    
+    elif section_type == "Box":
+        b = (W_required * 32 / 6) ** (1/3)
+        b = round(b / 10) * 10
+        if b < 50:
+            b = 50
+        t = b * 0.08
+        t = round(t * 10) / 10
+        
+        A = b**2 - (b - 2*t)**2
+        I = (b**4 - (b - 2*t)**4) / 12
+        W_el_calc = I / (b/2)
+        weight = A * 7850 / 1e6
+        
+        name = f"Box {b}x{b}x{int(t)}"
+        props = {
+            "A": A,
+            "I": I,
+            "W_el": W_el_calc,
+            "i": np.sqrt(I / A),
+            "weight": weight,
+            "type": "Box"
+        }
+        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
+        return name, props, moment_capacity
+    
+    else:
+        # Default: create CHS
+        D = (32 * W_required / (np.pi * 0.8)) ** (1/3)
+        D = round(D / 10) * 10
+        if D < 50:
+            D = 50
+        t = D * 0.08
+        t = round(t * 10) / 10
+        
+        A = np.pi * ((D/2)**2 - (D/2 - t)**2)
+        I = np.pi * ((D/2)**4 - (D/2 - t)**4) / 4
+        W_el_calc = I / (D/2)
+        weight = A * 7850 / 1e6
+        
+        name = f"CHS {D}.0x{t:.1f}"
+        props = {
+            "A": A,
+            "I": I,
+            "W_el": W_el_calc,
+            "i": np.sqrt(I / A),
+            "weight": weight,
+            "type": "CHS"
+        }
+        moment_capacity = (W_el_calc * fy) / (safety * 1e6)
+        return name, props, moment_capacity
+
+# ============================================================
+# ENGINEERING FUNCTIONS
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -320,10 +458,10 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     fabric_kg = fabric_weight * membrane_area
     return (steel_kg + fabric_kg) / 100
 
-def calculate_required_section_based_on_moment(load_kN, span_m, material_type, fy=355):
+def calculate_required_section_based_on_moment(load_kN, span_m, material_type, fy=355, section_type="CHS"):
     """
     Calculate required section based on bending moment
-    WITH AUTO-UPGRADE to larger section if needed
+    WITH section type locking and auto-generation
     """
     safety = 1.5
     
@@ -340,7 +478,7 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
     W_required = M_Nmm / (fy / safety)  # mm³
     
     # Required second moment (deflection check - L/250)
-    E = 210000  # MPa for steel, adjust for other materials
+    E = 210000  # MPa for steel
     deflection_limit = span_m / 250  # meters
     I_required = (5 * w * span_m**4) / (384 * E * deflection_limit) * 1e12  # mm⁴
     
@@ -354,11 +492,19 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
     else:
         db = COMPOSITE_SECTIONS
     
-    # First, find the best section
+    # 🔒 FILTER by section type (ONLY use the user's selected type)
+    filtered_db = {k: v for k, v in db.items() if v.get("type") == section_type or section_type in k}
+    
+    # If no sections of this type, try to find any
+    if not filtered_db:
+        filtered_db = db
+    
+    # Find the best section from filtered database
     best_section = None
     best_score = float('inf')
+    is_newly_created = False
     
-    for section, props in db.items():
+    for section, props in filtered_db.items():
         if props["A"] <= 0:
             continue
         
@@ -377,38 +523,55 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
             best_score = total_score
             best_section = section
     
-    if best_section and best_section in db:
-        props = db[best_section]
+    # If section found, check if adequate
+    if best_section and best_section in filtered_db:
+        props = filtered_db[best_section]
         moment_capacity = (props["W_el"] * fy) / (safety * 1e6)  # kNm
         is_adequate = props["W_el"] >= W_required * 0.9
         
-        # AUTO-UPGRADE: If inadequate, try larger sections
+        # If inadequate, try larger sections of SAME TYPE
         if not is_adequate:
-            # Get all sections sorted by area
-            all_sections = list(db.items())
+            all_sections = list(filtered_db.items())
             all_sections.sort(key=lambda x: x[1]["A"])
             
-            # Find current section index
             current_idx = None
             for i, (name, props2) in enumerate(all_sections):
                 if name == best_section:
                     current_idx = i
                     break
             
-            # Try the next larger sections
             if current_idx is not None:
                 for i in range(current_idx + 1, len(all_sections)):
                     next_section_name = all_sections[i][0]
                     next_section_props = all_sections[i][1]
                     next_capacity = (next_section_props["W_el"] * fy) / (safety * 1e6)
                     
-                    # Check if this section works
                     if next_capacity >= M:
                         best_section = next_section_name
                         props = next_section_props
                         moment_capacity = next_capacity
                         is_adequate = True
                         break
+                
+                # 🆕 CREATE NEW SECTION if none found
+                if not is_adequate:
+                    best_section, props, moment_capacity = create_new_section(
+                        W_required, I_required, section_type, material_type, fy, safety
+                    )
+                    if props:
+                        is_adequate = True
+                        is_newly_created = True
+                        # Save to database
+                        db[best_section] = props
+                        if material_type == "Steel":
+                            SECTION_PROPERTIES[best_section] = props
+                        elif material_type == "Aluminum":
+                            ALUMINUM_SECTIONS[best_section] = props
+                        elif material_type == "Wood":
+                            WOOD_SECTIONS[best_section] = props
+                        else:
+                            COMPOSITE_SECTIONS[best_section] = props
+                        st.session_state.new_sections_created.append(best_section)
         
         return {
             "section": best_section,
@@ -417,8 +580,37 @@ def calculate_required_section_based_on_moment(load_kN, span_m, material_type, f
             "moment_capacity": moment_capacity,
             "required_W": W_required,
             "required_I": I_required,
-            "is_adequate": is_adequate
+            "is_adequate": is_adequate,
+            "is_newly_created": is_newly_created
         }
+    
+    # 🆕 If no section found at all, create one
+    best_section, props, moment_capacity = create_new_section(
+        W_required, I_required, section_type, material_type, fy, safety
+    )
+    if props:
+        db[best_section] = props
+        if material_type == "Steel":
+            SECTION_PROPERTIES[best_section] = props
+        elif material_type == "Aluminum":
+            ALUMINUM_SECTIONS[best_section] = props
+        elif material_type == "Wood":
+            WOOD_SECTIONS[best_section] = props
+        else:
+            COMPOSITE_SECTIONS[best_section] = props
+        st.session_state.new_sections_created.append(best_section)
+        
+        return {
+            "section": best_section,
+            "properties": props,
+            "required_moment": M,
+            "moment_capacity": moment_capacity,
+            "required_W": W_required,
+            "required_I": I_required,
+            "is_adequate": True,
+            "is_newly_created": True
+        }
+    
     return None
 
 def auto_select_fabric_thickness(wind_force, membrane_area, fabric_type):
@@ -439,11 +631,12 @@ def auto_select_cable_diameter(tie_down_force, cable_type):
     return max(diameters.keys()) if diameters else 10
 
 def auto_design_structure(params, materials):
-    """Complete automatic design with auto-upgrade"""
+    """Complete automatic design with section type locking"""
     
     span, rise, laa = params.get("B", 10.0), params.get("A", 6.0), params.get("LAA", 15.0)
     member_type = materials.get("member_type", "single_beam")
     material_type = materials.get("material_type", "Steel")
+    section_type = materials.get("section_type", "CHS")
     fabric_type = materials.get("fabric_type", "PVC-coated Polyester")
     cable_type = materials.get("cable_type", "6x19 Galvanized")
     standard = materials.get("standard", "EU")
@@ -461,25 +654,38 @@ def auto_design_structure(params, materials):
         "fabric": {},
         "cables": {},
         "all_checks": {},
-        "health_score": 0
+        "health_score": 0,
+        "new_sections": []
     }
     
-    # ===== SIZE MEMBERS WITH AUTO-UPGRADE =====
+    # Get material yield strength
+    if material_type == "Steel":
+        fy = 355
+    elif material_type == "Aluminum":
+        fy = 276
+    elif material_type == "Wood":
+        fy = 40
+    else:
+        fy = 300
+    
+    # ===== SIZE MEMBERS WITH SECTION TYPE LOCKING =====
     if member_type == "single_beam":
-        beam_result = calculate_required_section_based_on_moment(total_load, span, material_type)
+        beam_result = calculate_required_section_based_on_moment(total_load, span, material_type, fy, section_type)
         if beam_result:
             results["beams"]["main"] = beam_result
             results["beams"]["selected"] = beam_result["section"]
             results["beams"]["moment_capacity"] = beam_result["moment_capacity"]
             results["beams"]["required_moment"] = beam_result["required_moment"]
+            if beam_result.get("is_newly_created", False):
+                results["new_sections"].append(beam_result["section"])
     
     elif member_type == "planar_truss":
         panel_length = span / 4
         top_force = total_load * 0.6
         bottom_force = total_load * 0.4
         
-        top_result = calculate_required_section_based_on_moment(top_force, panel_length, material_type)
-        bottom_result = calculate_required_section_based_on_moment(bottom_force, panel_length, material_type)
+        top_result = calculate_required_section_based_on_moment(top_force, panel_length, material_type, fy, section_type)
+        bottom_result = calculate_required_section_based_on_moment(bottom_force, panel_length, material_type, fy, section_type)
         
         results["truss"]["top_chord"] = top_result
         results["truss"]["bottom_chord"] = bottom_result
@@ -489,15 +695,21 @@ def auto_design_structure(params, materials):
             "diagonal": "CHS 88.9x4.0",
             "vertical": "CHS 76.1x3.6"
         }
+        if top_result and top_result.get("is_newly_created", False):
+            results["new_sections"].append(top_result["section"])
+        if bottom_result and bottom_result.get("is_newly_created", False):
+            results["new_sections"].append(bottom_result["section"])
     
     elif member_type == "space_truss":
-        top_result = calculate_required_section_based_on_moment(total_load * 0.5, span/3, material_type)
+        top_result = calculate_required_section_based_on_moment(total_load * 0.5, span/3, material_type, fy, section_type)
         results["truss"]["top_chord"] = top_result
         results["truss"]["selected"] = {
             "top": top_result["section"] if top_result else "N/A",
             "bottom": top_result["section"] if top_result else "N/A",
             "diagonal": "CHS 88.9x4.0"
         }
+        if top_result and top_result.get("is_newly_created", False):
+            results["new_sections"].append(top_result["section"])
     
     # ===== AUTO-SELECT FABRIC =====
     membrane_area = span * laa * 1.1
@@ -530,7 +742,7 @@ def auto_design_structure(params, materials):
         "value": f"{wind_load:.1f} kN"
     }
     
-    # Member Capacity Check - NOW WITH AUTO-UPGRADE, THIS SHOULD PASS
+    # Member Capacity Check
     if member_type == "single_beam" and results["beams"].get("main"):
         beam = results["beams"]["main"]
         is_adequate = beam.get("is_adequate", False)
@@ -766,11 +978,11 @@ def render_image_gallery():
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
-# UI FUNCTIONS (Same as before)
+# UI FUNCTIONS
 # ============================================================
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio v5.2")
-    st.caption("🚀 Automatic Design Engine with Auto-Upgrade")
+    st.title("🏗️ SDS Design Studio v5.3")
+    st.caption("🚀 Section Locking + Auto-Generation")
     
     projects = st.session_state.saved_projects
     cols = st.columns(4)
@@ -889,6 +1101,7 @@ def render_workspace():
     st.markdown("## 🧠 Design Workspace")
     st.caption(f"📌 {info.get('name', 'Untitled')} — {info.get('client', 'Unknown')}")
     
+    # Top buttons
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
         if st.button("🏠 Home", use_container_width=True):
@@ -988,9 +1201,11 @@ def render_workspace():
         current_material = materials.get("material_type", "Steel")
         materials["material_type"] = st.selectbox("Member Material", material_types, index=material_types.index(current_material), disabled=st.session_state.locked)
         
+        # Section Type - User selects, system LOCKS to this type
         section_types = ["CHS", "RHS", "I-Beam", "Box"]
         current_section_type = materials.get("section_type", "CHS")
-        materials["section_type"] = st.selectbox("Section Shape", section_types, index=section_types.index(current_section_type), disabled=st.session_state.locked)
+        materials["section_type"] = st.selectbox("Section Shape (Locked)", section_types, index=section_types.index(current_section_type), disabled=st.session_state.locked)
+        st.caption("🔒 System will ONLY use this section type for all replacements")
         
         fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"]
         materials["fabric_type"] = st.selectbox("Fabric Material", fabric_options, index=fabric_options.index(materials.get("fabric_type", "PVC-coated Polyester")), disabled=st.session_state.locked)
@@ -1030,6 +1245,10 @@ def render_workspace():
         
         design_results = auto_design_structure(params, materials)
         
+        # Show newly created sections
+        if design_results.get("new_sections"):
+            st.info(f"🆕 **New Sections Created:** {', '.join(design_results['new_sections'])}")
+        
         # Loads Summary
         st.markdown('<div class="sds-card">', unsafe_allow_html=True)
         st.markdown('<div class="title">📊 Loads</div>', unsafe_allow_html=True)
@@ -1050,16 +1269,14 @@ def render_workspace():
             beam = design_results["beams"].get("main")
             if beam:
                 st.markdown(f"**Selected Section:** {beam['section']}")
+                if beam.get("is_newly_created", False):
+                    st.markdown('<span class="new-section-badge">🆕 NEWLY CREATED</span>', unsafe_allow_html=True)
                 st.markdown(f"**Area:** {beam['properties']['A']:.0f} mm²")
                 st.markdown(f"**Weight:** {beam['properties']['weight']:.1f} kg/m")
                 st.markdown(f"**Section Modulus:** {beam['properties']['W_el']/1e3:.1f} cm³")
                 st.markdown(f"**Required Moment:** {beam['required_moment']:.1f} kNm")
                 st.markdown(f"**Moment Capacity:** {beam['moment_capacity']:.1f} kNm")
                 st.markdown(f"**Status:** {'✅ Adequate' if beam['is_adequate'] else '⚠️ Check'}")
-                
-                # Show upgrade info if applicable
-                if beam['is_adequate']:
-                    st.success("✅ Section automatically upgraded to meet requirements")
             else:
                 st.warning("No suitable section found. Consider different material.")
         
@@ -1070,8 +1287,12 @@ def render_workspace():
             bottom = truss.get("bottom_chord")
             if top:
                 st.markdown(f"- **Top Chord:** {top['section']} (Capacity: {top['moment_capacity']:.1f} kNm)")
+                if top.get("is_newly_created", False):
+                    st.markdown('  <span class="new-section-badge">🆕 NEW</span>', unsafe_allow_html=True)
             if bottom:
                 st.markdown(f"- **Bottom Chord:** {bottom['section']} (Capacity: {bottom['moment_capacity']:.1f} kNm)")
+                if bottom.get("is_newly_created", False):
+                    st.markdown('  <span class="new-section-badge">🆕 NEW</span>', unsafe_allow_html=True)
             st.markdown(f"- **Diagonals:** {truss['selected'].get('diagonal', 'N/A')}")
             if "vertical" in truss["selected"]:
                 st.markdown(f"- **Verticals:** {truss['selected']['vertical']}")
@@ -1169,4 +1390,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("SDS Design Studio v5.2 | Auto-Upgrade | Auto-Design Engine | MS EN Wind: 33.5m/s")
+st.caption("SDS Design Studio v5.3 | Section Locking + Auto-Generation | MS EN Wind: 33.5m/s")
