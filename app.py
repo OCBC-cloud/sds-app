@@ -20,7 +20,7 @@ import math
 st.set_page_config(
     page_title="SDS Design Studio v7.0",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ============================================================
@@ -91,9 +91,8 @@ dark_mode_css = """
     .joint-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
     .joint-weld { background-color: #e74c3c; color: #ffffff; }
     .joint-bolt { background-color: #3498db; color: #ffffff; }
-    .sidebar-logo { text-align: center; padding: 1rem 0; }
-    .sidebar-logo h2 { color: #f39c12; }
-    .sidebar-logo p { color: #8a9aaa; font-size: 0.8rem; }
+    .top-nav { display: flex; gap: 0.5rem; padding: 0.5rem 0; flex-wrap: wrap; }
+    .top-nav .stButton { flex: 1; min-width: 100px; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -1070,9 +1069,9 @@ def generate_tensile(params):
 def generate_portal(params):
     eave, span, pitch, bays, bay_spacing = params.get("eave_height", 6.0), params.get("span_width", 20.0), params.get("roof_pitch", 5.0), params.get("num_bays", 5), params.get("bay_spacing", 6.0)
     total_len = bays * bay_spacing
+    ridge = eave + span/2 * np.tan(np.radians(pitch))
     fig = go.Figure()
     x, z = [-span/2, -span/2, 0, span/2, span/2], [0, eave, ridge, eave, 0]
-    ridge = eave + span/2 * np.tan(np.radians(pitch))
     fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Portal Frame', line=dict(width=8, color='#4a7a9c')))
     for i in range(bays):
         y = i * bay_spacing
@@ -1102,80 +1101,37 @@ GENERATORS = {
 }
 
 # ============================================================
-# SIDEBAR NAVIGATION
+# TOP NAVIGATION
 # ============================================================
-def render_sidebar():
-    with st.sidebar:
-        # Logo
-        st.markdown("""
-        <div class="sidebar-logo">
-            <h2>🏗️ SDS</h2>
-            <p>Design Studio v7.0</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.divider()
-        
-        # Navigation
-        st.markdown("### 📐 Navigation")
-        
-        page = st.radio(
-            "Select Page",
-            ["🏠 Dashboard", "📋 New Project", "🏗️ Workspace", "📄 BQ & Costing"],
-            index=0,
-            key="sidebar_nav"
-        )
-        
-        # Map radio selection to page
-        page_map = {
-            "🏠 Dashboard": "dashboard",
-            "📋 New Project": "registration",
-            "🏗️ Workspace": "workspace",
-            "📄 BQ & Costing": "bq"
-        }
-        st.session_state.page = page_map.get(page, "dashboard")
-        
-        st.divider()
-        
-        # Project Info
-        if st.session_state.project_info:
-            st.markdown("### 📌 Current Project")
-            st.caption(f"**Name:** {st.session_state.project_info.get('name', 'Untitled')}")
-            st.caption(f"**Client:** {st.session_state.project_info.get('client', 'Unknown')}")
-            st.caption(f"**Ref:** {st.session_state.project_info.get('reference', 'N/A')}")
-        else:
-            st.info("No active project")
-        
-        st.divider()
-        
-        # Quick Settings
-        with st.expander("⚙️ Quick Settings"):
-            countries = list(COUNTRY_CURRENCIES.keys())
-            country_idx = countries.index(st.session_state.materials.get("country", "Malaysia")) if st.session_state.materials.get("country", "Malaysia") in countries else 0
-            st.session_state.materials["country"] = st.selectbox("Country", countries, index=country_idx)
-            
-            std_options = ["EU", "MY", "US", "CN", "UK"]
-            std_idx = std_options.index(st.session_state.materials.get("standard", "EU")) if st.session_state.materials.get("standard", "EU") in std_options else 0
-            st.session_state.materials["standard"] = st.selectbox("Standard", std_options, index=std_idx)
-            
-            joint_options = ["bolted", "welded"]
-            joint_labels = ["🔩 Bolted", "⚡ Welded"]
-            joint_idx = joint_options.index(st.session_state.materials.get("joint_type", "bolted")) if st.session_state.materials.get("joint_type", "bolted") in joint_options else 0
-            selected_joint = st.selectbox("Joint Type", joint_labels, index=joint_idx)
-            st.session_state.materials["joint_type"] = joint_options[joint_labels.index(selected_joint)]
-        
-        st.divider()
-        
-        # Stats
-        st.markdown("### 📊 Stats")
-        projects = len(st.session_state.saved_projects)
-        col1, col2 = st.columns(2)
-        col1.metric("📂 Projects", projects)
-        col2.metric("🧠 Typology", st.session_state.typology or "None")
-        
-        st.divider()
-        st.caption("© 2026 SDS Design Studio")
-        st.caption("Built with ❤️ for tensile structures")
+def render_top_nav():
+    col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
+    with col1:
+        if st.button("🏠 Dashboard", use_container_width=True):
+            st.session_state.page = "dashboard"
+            st.rerun()
+    with col2:
+        if st.button("📋 New Project", use_container_width=True):
+            st.session_state.page = "registration"
+            st.rerun()
+    with col3:
+        if st.button("📂 Open Project", use_container_width=True):
+            st.session_state.page = "browser"
+            st.rerun()
+    with col4:
+        if st.button("🏗️ Workspace", use_container_width=True):
+            if st.session_state.project_info:
+                st.session_state.page = "workspace"
+                st.rerun()
+            else:
+                st.warning("Please create or open a project first")
+    with col5:
+        if st.button("📄 BQ & Costing", use_container_width=True):
+            if st.session_state.project_info:
+                st.session_state.page = "bq"
+                st.rerun()
+            else:
+                st.warning("Please create or open a project first")
+    st.divider()
 
 # ============================================================
 # DASHBOARD PAGE
@@ -1403,11 +1359,8 @@ def render_bq_page():
     
     # Export options
     st.divider()
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
-        if st.button("📋 Copy to Clipboard", use_container_width=True):
-            st.success("✅ BQ copied to clipboard!")
-    with col2:
         if st.button("📥 Download CSV", use_container_width=True):
             csv = df.to_csv(index=False)
             st.download_button(
@@ -1416,7 +1369,7 @@ def render_bq_page():
                 file_name=f"BQ_{st.session_state.project_info.get('reference', 'project')}.csv",
                 mime="text/csv"
             )
-    with col3:
+    with col2:
         if st.button("🏠 Back to Workspace", use_container_width=True, type="primary"):
             st.session_state.page = "workspace"
             st.rerun()
@@ -1743,8 +1696,8 @@ def render_workspace():
 # ============================================================
 # MAIN ROUTING
 # ============================================================
-# Always render sidebar
-render_sidebar()
+# Top Navigation
+render_top_nav()
 
 # Page routing
 page = st.session_state.get("page", "dashboard")
