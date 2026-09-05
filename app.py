@@ -486,35 +486,34 @@ def generate_saddle_span(params, materials=None):
         horizontal_spread = materials.get("tie_down_horizontal_spread", 30)
         
         bracing_x = generate_bracing_positions(span, num_bays)
-        # sort for cross-bracing
         bracing_x_sorted = sorted(bracing_x)
 
-        # 1) TIE-DOWNS ON BOTH BEAMS
+        # 1) TIE-DOWNS ON BOTH BEAMS - RADIATING OUTWARD
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
-            # Beam 1 point
+            # Beam 1 point (left beam, negative y)
             x1 = x[idx]
             y1_pt = y1[idx]
             z1_pt = z_beam[idx]
-            # Beam 2 point
+            # Beam 2 point (right beam, positive y)
             y2_pt = y2[idx]
-            z2_pt = z_beam[idx]  # same z
+            z2_pt = z_beam[idx]
 
-            # Horizontal spread distance (in meters) - use angle and rise to compute offset
-            # We'll use the vertical angle to determine how far out the anchor is
-            # For simplicity, we set a fixed horizontal offset = rise * tan(angle)
-            # But we also want lateral spread: use horizontal_spread angle to rotate outward
+            # Calculate horizontal offset based on vertical angle
             horizontal_offset = rise * np.tan(np.radians(vertical_angle))
+            # Lateral spread based on horizontal angle
             lateral_offset = horizontal_offset * np.tan(np.radians(horizontal_spread))
             
-            # Anchor for beam1: shifted outward in -y direction (since beam1 is at negative y)
-            anchor1_x = bx + horizontal_offset  # move along x (could also be just bx)
-            anchor1_y = y1_pt - lateral_offset  # move outward (more negative)
-            # Anchor for beam2: shifted outward in +y direction
-            anchor2_x = bx + horizontal_offset
-            anchor2_y = y2_pt + lateral_offset
+            # ===== ANCHORS RADIATE OUTWARD =====
+            # For beam1 (left side): anchor goes further negative in y direction
+            anchor1_x = bx + horizontal_offset * 0.5  # move along x slightly
+            anchor1_y = y1_pt - lateral_offset  # more negative = outward left
+            
+            # For beam2 (right side): anchor goes further positive in y direction
+            anchor2_x = bx + horizontal_offset * 0.5
+            anchor2_y = y2_pt + lateral_offset  # more positive = outward right
 
-            # Draw tie-down for beam1
+            # Draw tie-down for beam1 (left beam)
             fig.add_trace(go.Scatter3d(
                 x=[x1, anchor1_x],
                 y=[y1_pt, anchor1_y],
@@ -528,11 +527,11 @@ def generate_saddle_span(params, materials=None):
                 y=[anchor1_y],
                 z=[0],
                 mode='markers',
-                marker=dict(color='#FF4444', size=5, symbol='x'),
+                marker=dict(color='#FF6B6B', size=6, symbol='x'),
                 showlegend=False
             ))
 
-            # Draw tie-down for beam2
+            # Draw tie-down for beam2 (right beam)
             fig.add_trace(go.Scatter3d(
                 x=[x1, anchor2_x],
                 y=[y2_pt, anchor2_y],
@@ -546,12 +545,12 @@ def generate_saddle_span(params, materials=None):
                 y=[anchor2_y],
                 z=[0],
                 mode='markers',
-                marker=dict(color='#FF4444', size=5, symbol='x'),
+                marker=dict(color='#FF6B6B', size=6, symbol='x'),
                 showlegend=False
             ))
 
         # 2) BRACING CABLES BETWEEN BEAMS
-        # Horizontal bracing at each bay position (connecting beam1 to beam2 at same x)
+        # Horizontal bracing at each bay position
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
             x1 = x[idx]
@@ -629,7 +628,7 @@ def generate_saddle_span(params, materials=None):
     return fig
 
 # ============================================================
-# OTHER GENERATORS (unchanged)
+# OTHER GENERATORS
 # ============================================================
 def generate_tent(params):
     span, ridge, bays, bay_dist = params.get("span_width", 10.0), params.get("ridge_height", 5.0), params.get("num_bays", 4), params.get("bay_distance", 5.0)
@@ -692,7 +691,7 @@ GENERATORS = {
 }
 
 # ============================================================
-# UI FUNCTIONS (unchanged except minor references)
+# UI FUNCTIONS
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio")
