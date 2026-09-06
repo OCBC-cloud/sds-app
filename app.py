@@ -106,6 +106,7 @@ dark_mode_css = """
     .license-free { background-color: #2ecc71; color: #0a0e17; }
     .license-pro { background-color: #3498db; color: #ffffff; }
     .license-business { background-color: #f39c12; color: #0a0e17; }
+    .custom-section-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 12px; font-size: 0.6rem; font-weight: 700; background-color: #9b59b6; color: #ffffff; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -135,7 +136,8 @@ LICENSE_TIERS = {
             "axial_forces": False,
             "cad_drawings": False,
             "export_excel": False,
-            "unlimited_projects": False
+            "unlimited_projects": False,
+            "custom_sections": False
         }
     },
     "pro": {
@@ -159,7 +161,8 @@ LICENSE_TIERS = {
             "axial_forces": False,
             "cad_drawings": False,
             "export_excel": False,
-            "unlimited_projects": True
+            "unlimited_projects": True,
+            "custom_sections": True
         }
     },
     "business": {
@@ -183,19 +186,48 @@ LICENSE_TIERS = {
             "axial_forces": True,
             "cad_drawings": True,
             "export_excel": True,
-            "unlimited_projects": True
+            "unlimited_projects": True,
+            "custom_sections": True
         }
     }
 }
 
 # ============================================================
-# FEATURE CHECK FUNCTION
+# FEATURE FLAGS (Deployment Safe)
+# ============================================================
+FEATURE_FLAGS = {
+    # PHASE 1 - ACTIVE (Deployed and tested)
+    "dark_mode": True,
+    "3d_viewer": True,
+    "section_database": True,
+    "load_calculations": True,
+    "bq_generation": True,
+    
+    # PHASE 2 - ACTIVE (Deploying now)
+    "auto_invent_sections": True,
+    "auto_upgrade_sections": True,
+    "custom_section_persistence": True,
+    "custom_section_validation": True,
+    
+    # PHASE 3 - RESERVE (Not yet active)
+    "pattern_learning": False,
+    "ai_suggestions": False,
+    "predictive_design": False,
+    "multi_user_learning": False,
+}
+
+# ============================================================
+# FEATURE CHECK FUNCTIONS
 # ============================================================
 def has_feature(feature_name):
     """Check if current license tier has a feature"""
     tier = st.session_state.get("license_tier", "business")
     features = LICENSE_TIERS.get(tier, {}).get("features", {})
     return features.get(feature_name, False)
+
+def is_feature_enabled(feature_name):
+    """Check if a feature flag is enabled"""
+    return FEATURE_FLAGS.get(feature_name, False)
 
 def get_license_info():
     """Get current license info"""
@@ -219,6 +251,54 @@ def get_remaining_projects():
         return "Unlimited"
     current = len(st.session_state.saved_projects)
     return max(0, limit - current)
+
+# ============================================================
+# CUSTOM SECTION MANAGER (Persistent)
+# ============================================================
+CUSTOM_SECTIONS_FILE = "custom_sections.json"
+
+def load_custom_sections():
+    """Load custom sections from file"""
+    try:
+        with open(CUSTOM_SECTIONS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_custom_sections(custom_data):
+    """Save custom sections to file"""
+    try:
+        with open(CUSTOM_SECTIONS_FILE, "w") as f:
+            json.dump(custom_data, f, indent=2)
+        return True
+    except:
+        return False
+
+def save_custom_section(name, props):
+    """Save a single custom section"""
+    custom = load_custom_sections()
+    custom[name] = props
+    return save_custom_sections(custom)
+
+def validate_custom_section(section_data):
+    """Validate a custom section before using it"""
+    try:
+        required = ["A", "I", "W_el", "weight", "type"]
+        for key in required:
+            if key not in section_data:
+                return False, f"Missing {key}"
+        
+        for key in ["A", "I", "W_el", "weight"]:
+            if section_data.get(key, 0) <= 0:
+                return False, f"{key} is zero or negative"
+        
+        valid_types = ["CHS", "SHS", "RHS", "I-Beam", "Angle", "Channel", "Custom CHS", "Custom SHS", "Custom RHS"]
+        if section_data.get("type") not in valid_types:
+            return False, f"Invalid section type: {section_data.get('type')}"
+        
+        return True, "Valid"
+    except Exception as e:
+        return False, f"Validation error: {str(e)}"
 
 # ============================================================
 # COUNTRY CURRENCY DATABASE
@@ -328,6 +408,37 @@ SECTION_PROPERTIES = {
 }
 
 # ============================================================
+# LOAD CUSTOM SECTIONS (Safe Load)
+# ============================================================
+def safe_load_custom_sections():
+    """Load custom sections with validation and rollback"""
+    try:
+        custom = load_custom_sections()
+        if custom:
+            valid_count = 0
+            invalid_count = 0
+            for name, props in list(custom.items()):
+                valid, message = validate_custom_section(props)
+                if not valid:
+                    st.warning(f"⚠️ Invalid custom section '{name}' removed: {message}")
+                    del custom[name]
+                    invalid_count += 1
+                else:
+                    valid_count += 1
+            
+            if valid_count > 0:
+                SECTION_PROPERTIES.update(custom)
+                if invalid_count > 0:
+                    save_custom_sections(custom)
+        return SECTION_PROPERTIES
+    except Exception as e:
+        st.error(f"⚠️ Custom section load failed: {str(e)}. Using default database.")
+        return SECTION_PROPERTIES
+
+# Load custom sections safely
+safe_load_custom_sections()
+
+# ============================================================
 # FABRIC & CABLE PROPERTIES
 # ============================================================
 FABRIC_PROPERTIES = {
@@ -372,7 +483,7 @@ if "comments" not in st.session_state:
 if "saved_projects" not in st.session_state:
     st.session_state.saved_projects = []
 if "license_tier" not in st.session_state:
-    st.session_state.license_tier = "business"  # ← BUSINESS VERSION WITH ALL FEATURES
+    st.session_state.license_tier = "business"
 if "materials" not in st.session_state:
     st.session_state.materials = {
         "standard": "EU",
@@ -413,7 +524,10 @@ def get_section_tag(section_type):
         "RHS": '<span class="section-tag tag-rhs">RHS</span>',
         "I-Beam": '<span class="section-tag tag-ibeam">I</span>',
         "Angle": '<span class="section-tag tag-angle">L</span>',
-        "Channel": '<span class="section-tag tag-channel">C</span>'
+        "Channel": '<span class="section-tag tag-channel">C</span>',
+        "Custom CHS": '<span class="section-tag tag-chs">CHS</span><span class="custom-section-badge">CUSTOM</span>',
+        "Custom SHS": '<span class="section-tag tag-shs">SHS</span><span class="custom-section-badge">CUSTOM</span>',
+        "Custom RHS": '<span class="section-tag tag-rhs">RHS</span><span class="custom-section-badge">CUSTOM</span>'
     }
     return tags.get(section_type, "")
 
@@ -441,6 +555,196 @@ def generate_bracing_positions(span, num_bays):
     if num_bays == 3:
         return [-span/3, 0.0, span/3]
     return np.linspace(-span/3, span/3, num_bays).tolist()
+
+# ============================================================
+# CUSTOM SECTION INVENTOR (Intelligent Feature)
+# ============================================================
+def invent_custom_section(W_required, I_required, section_type, material_type="Steel"):
+    """
+    Invent a custom section when no standard section works.
+    This is the INTELLIGENT feature that creates new sections.
+    """
+    fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
+    safety = 1.5
+    E = 210000
+    
+    # Steel density (kg/m³)
+    rho = 7850
+    
+    if section_type == "CHS":
+        # Start with standard diameters and increase wall thickness
+        # Use a range of standard diameters
+        diameters = list(range(500, 1000, 25))  # 500mm to 1000mm in 25mm steps
+        
+        for D in diameters:
+            # Start with 10mm wall thickness, increase in 2mm steps
+            for t in range(10, 100, 2):
+                D_inner = D - 2*t
+                if D_inner <= 0:
+                    continue
+                
+                # Calculate properties
+                A = math.pi * (D**2 - D_inner**2) / 4
+                I = math.pi * (D**4 - D_inner**4) / 64
+                W_el = math.pi * (D**4 - D_inner**4) / (32 * D)
+                
+                # Check if adequate
+                if W_el >= W_required * 0.9 and I >= I_required * 0.9:
+                    weight = A * rho / 1e6  # kg/m
+                    
+                    # Create section name
+                    name = f"CHS {D:.0f}x{t:.0f} (Custom)"
+                    
+                    section_data = {
+                        "A": A,
+                        "I": I,
+                        "W_el": W_el,
+                        "weight": weight,
+                        "type": "Custom CHS",
+                        "depth": D,
+                        "is_custom": True,
+                        "date_added": datetime.now().isoformat(),
+                        "D": D,
+                        "t": t,
+                        "material": material_type,
+                        "fy": fy
+                    }
+                    
+                    # Validate
+                    valid, message = validate_custom_section(section_data)
+                    if not valid:
+                        continue
+                    
+                    # Save for future use if feature enabled
+                    if is_feature_enabled("custom_section_persistence"):
+                        save_custom_section(name, section_data)
+                    
+                    return {
+                        "section": name,
+                        "properties": section_data,
+                        "required_moment": W_required * fy / safety / 1e6,
+                        "moment_capacity": W_el * fy / (safety * 1e6),
+                        "is_adequate": True,
+                        "section_type": "Custom CHS",
+                        "is_custom": True,
+                        "note": f"💡 Custom section invented: {name} (D={D:.0f}mm, t={t:.0f}mm)"
+                    }
+        
+        return None
+    
+    elif section_type == "SHS":
+        # Square hollow sections
+        sizes = list(range(200, 600, 25))
+        
+        for B in sizes:
+            for t in range(8, 60, 2):
+                B_inner = B - 2*t
+                if B_inner <= 0:
+                    continue
+                
+                A = B**2 - B_inner**2
+                I = (B**4 - B_inner**4) / 12
+                W_el = I / (B/2)
+                
+                if W_el >= W_required * 0.9 and I >= I_required * 0.9:
+                    weight = A * rho / 1e6
+                    name = f"SHS {B}x{B}x{t} (Custom)"
+                    
+                    section_data = {
+                        "A": A,
+                        "I": I,
+                        "W_el": W_el,
+                        "weight": weight,
+                        "type": "Custom SHS",
+                        "depth": B,
+                        "is_custom": True,
+                        "date_added": datetime.now().isoformat(),
+                        "B": B,
+                        "t": t,
+                        "material": material_type,
+                        "fy": fy
+                    }
+                    
+                    valid, message = validate_custom_section(section_data)
+                    if not valid:
+                        continue
+                    
+                    if is_feature_enabled("custom_section_persistence"):
+                        save_custom_section(name, section_data)
+                    
+                    return {
+                        "section": name,
+                        "properties": section_data,
+                        "required_moment": W_required * fy / safety / 1e6,
+                        "moment_capacity": W_el * fy / (safety * 1e6),
+                        "is_adequate": True,
+                        "section_type": "Custom SHS",
+                        "is_custom": True,
+                        "note": f"💡 Custom section invented: {name} (B={B}mm, t={t}mm)"
+                    }
+        
+        return None
+    
+    elif section_type == "RHS":
+        # Rectangular hollow sections
+        widths = list(range(200, 600, 25))
+        heights = list(range(300, 800, 25))
+        
+        for B in widths:
+            for H in heights:
+                if H < B:
+                    continue
+                for t in range(8, 50, 2):
+                    B_inner = B - 2*t
+                    H_inner = H - 2*t
+                    if B_inner <= 0 or H_inner <= 0:
+                        continue
+                    
+                    A = B*H - B_inner*H_inner
+                    I = (B*H**3 - B_inner*H_inner**3) / 12
+                    W_el = I / (H/2)
+                    
+                    if W_el >= W_required * 0.9 and I >= I_required * 0.9:
+                        weight = A * rho / 1e6
+                        name = f"RHS {B}x{H}x{t} (Custom)"
+                        
+                        section_data = {
+                            "A": A,
+                            "I": I,
+                            "W_el": W_el,
+                            "weight": weight,
+                            "type": "Custom RHS",
+                            "depth": H,
+                            "is_custom": True,
+                            "date_added": datetime.now().isoformat(),
+                            "B": B,
+                            "H": H,
+                            "t": t,
+                            "material": material_type,
+                            "fy": fy
+                        }
+                        
+                        valid, message = validate_custom_section(section_data)
+                        if not valid:
+                            continue
+                        
+                        if is_feature_enabled("custom_section_persistence"):
+                            save_custom_section(name, section_data)
+                        
+                        return {
+                            "section": name,
+                            "properties": section_data,
+                            "required_moment": W_required * fy / safety / 1e6,
+                            "moment_capacity": W_el * fy / (safety * 1e6),
+                            "is_adequate": True,
+                            "section_type": "Custom RHS",
+                            "is_custom": True,
+                            "note": f"💡 Custom section invented: {name} (B={B}mm, H={H}mm, t={t}mm)"
+                        }
+        
+        return None
+    
+    return None
 
 # ============================================================
 # TRUSS ANALYSIS ENGINE
@@ -489,6 +793,7 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
         best_section = None
         best_weight = float('inf')
         
+        # First try preferred type
         for name, props in db.items():
             if preferred_type and props['type'] != preferred_type:
                 continue
@@ -497,6 +802,7 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
                     best_weight = props['weight']
                     best_section = name
         
+        # If no section found and we have a preferred type, try any type
         if not best_section and preferred_type:
             for name, props in db.items():
                 if props['A'] >= required_area:
@@ -768,7 +1074,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     }
 
 # ============================================================
-# ENGINEERING FUNCTIONS
+# ENGINEERING FUNCTIONS - WITH AUTO-UPGRADE & CUSTOM INVENTION
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -785,6 +1091,10 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     return (steel_kg + fabric_kg) / 100
 
 def calculate_required_section(load_kN, span_m, material_type, section_type, fy=355):
+    """
+    Calculate required section with AUTO-UPGRADE and CUSTOM INVENTION
+    This is the INTELLIGENT section finder
+    """
     safety = 1.5
     w = load_kN / span_m
     M = (w * span_m**2) / 8
@@ -806,86 +1116,87 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     }
     preferred_type = type_map.get(section_type, "CHS")
     
-    best_section = None
-    best_score = float('inf')
-    
+    # ===== STEP 1: Find ALL sections in preferred type =====
+    sections_in_type = []
     for section, props in db.items():
-        if props["type"] != preferred_type:
-            continue
-        if props["A"] <= 0:
-            continue
-        
-        w_score = abs(props["W_el"] - W_required) / W_required if W_required > 0 else 0
-        i_score = abs(props["I"] - I_required) / I_required if I_required > 0 else 0
-        total_score = w_score * 0.6 + i_score * 0.4
-        if props["W_el"] < W_required * 0.7:
-            total_score += 10
-        if total_score < best_score:
-            best_score = total_score
-            best_section = section
+        if props["type"] == preferred_type or (props["type"] == "Custom CHS" and preferred_type == "CHS") or (props["type"] == "Custom SHS" and preferred_type == "SHS") or (props["type"] == "Custom RHS" and preferred_type == "RHS"):
+            sections_in_type.append((section, props))
     
-    if best_section:
-        props = SECTION_PROPERTIES[best_section]
-        moment_capacity = (props["W_el"] * fy) / (safety * 1e6)
-        is_adequate = props["W_el"] >= W_required * 0.9
+    # Sort by W_el (ascending)
+    sections_in_type.sort(key=lambda x: x[1]["W_el"])
+    
+    # ===== STEP 2: Find the FIRST section that is ADEQUATE =====
+    selected_section = None
+    selected_props = None
+    selected_note = None
+    
+    for section, props in sections_in_type:
+        if props["W_el"] >= W_required * 0.9 and props["I"] >= I_required * 0.9:
+            selected_section = section
+            selected_props = props
+            if props.get("is_custom", False):
+                selected_note = "💡 Using custom section from previous design"
+            break
+    
+    # ===== STEP 3: If found, return it =====
+    if selected_section:
+        moment_capacity = (selected_props["W_el"] * fy) / (safety * 1e6)
         return {
-            "section": best_section,
-            "properties": props,
+            "section": selected_section,
+            "properties": selected_props,
             "required_moment": M,
             "moment_capacity": moment_capacity,
-            "is_adequate": is_adequate,
-            "section_type": preferred_type,
-            "note": None
+            "is_adequate": True,
+            "section_type": selected_props.get("type", preferred_type),
+            "note": selected_note
         }
     
-    largest_section = None
-    largest_W = 0
-    for section, props in db.items():
-        if props["type"] != preferred_type:
-            continue
-        if props["W_el"] > largest_W:
-            largest_W = props["W_el"]
-            largest_section = section
+    # ===== STEP 4: If NO section in preferred type is adequate, INVENT ONE =====
+    if is_feature_enabled("auto_invent_sections"):
+        custom_result = invent_custom_section(W_required, I_required, section_type, material_type)
+        if custom_result:
+            return custom_result
     
-    if largest_section:
-        props = SECTION_PROPERTIES[largest_section]
-        moment_capacity = (props["W_el"] * fy) / (safety * 1e6)
+    # ===== STEP 5: If invention fails, use the LARGEST available =====
+    if sections_in_type:
+        largest_section, largest_props = sections_in_type[-1]
+        moment_capacity = (largest_props["W_el"] * fy) / (safety * 1e6)
+        is_adequate = largest_props["W_el"] >= W_required * 0.9
+        
+        note = f"⚠️ Largest {preferred_type} available ({largest_section})"
+        if not is_adequate:
+            note += " - Consider custom fabrication"
+        
         return {
             "section": largest_section,
-            "properties": props,
-            "required_moment": M,
-            "moment_capacity": moment_capacity,
-            "is_adequate": props["W_el"] >= W_required * 0.9,
-            "section_type": preferred_type,
-            "note": f"⚠️ Selected largest {preferred_type} section available ({largest_section})"
-        }
-    
-    for section, props in db.items():
-        if props["A"] <= 0:
-            continue
-        w_score = abs(props["W_el"] - W_required) / W_required if W_required > 0 else 0
-        i_score = abs(props["I"] - I_required) / I_required if I_required > 0 else 0
-        total_score = w_score * 0.6 + i_score * 0.4
-        if props["W_el"] < W_required * 0.7:
-            total_score += 10
-        if total_score < best_score:
-            best_score = total_score
-            best_section = section
-    
-    if best_section:
-        props = SECTION_PROPERTIES[best_section]
-        moment_capacity = (props["W_el"] * fy) / (safety * 1e6)
-        is_adequate = props["W_el"] >= W_required * 0.9
-        return {
-            "section": best_section,
-            "properties": props,
+            "properties": largest_props,
             "required_moment": M,
             "moment_capacity": moment_capacity,
             "is_adequate": is_adequate,
-            "section_type": props["type"],
-            "note": f"⚠️ No {preferred_type} section available. Recommended {props['type']} instead."
+            "section_type": largest_props.get("type", preferred_type),
+            "note": note
         }
     
+    # ===== STEP 6: If NO section exists, search ALL types =====
+    all_sections = []
+    for section, props in db.items():
+        all_sections.append((section, props))
+    all_sections.sort(key=lambda x: x[1]["W_el"])
+    
+    for section, props in all_sections:
+        if props["W_el"] >= W_required * 0.9 and props["I"] >= I_required * 0.9:
+            moment_capacity = (props["W_el"] * fy) / (safety * 1e6)
+            return {
+                "section": section,
+                "properties": props,
+                "required_moment": M,
+                "moment_capacity": moment_capacity,
+                "is_adequate": True,
+                "section_type": props["type"],
+                "note": f"⚠️ No {preferred_type} section adequate. Recommended {props['type']} instead."
+            }
+    
+    # ===== STEP 7: Truly nothing works =====
     return None
 
 def auto_select_fabric_thickness(wind_force, membrane_area, fabric_type):
@@ -945,6 +1256,7 @@ def auto_design_structure(params, materials):
             results["beams"]["required_moment"] = beam_result["required_moment"]
             results["beams"]["section_type"] = beam_result.get("section_type", section_type)
             results["beams"]["note"] = beam_result.get("note", None)
+            results["beams"]["is_adequate"] = beam_result.get("is_adequate", False)
     
     truss_members = None
     if member_type in ["planar_truss", "space_truss"]:
@@ -985,15 +1297,27 @@ def auto_design_structure(params, materials):
         if section_note:
             section_display = f"{beam['section']} {section_note}"
         
+        # Status: Always show PASS if adequate, otherwise show the note
+        if is_adequate:
+            status = "✅ PASS"
+        else:
+            status = "⚠️ Check"
+            if "Custom" in beam['section'] or "custom" in beam.get("section_type", "").lower():
+                status = "💡 Custom"
+        
         results["all_checks"]["member_capacity"] = {
-            "status": "✅ PASS" if is_adequate else "🔄 Upgrade",
+            "status": status,
             "value": f"{beam['moment_capacity']:.1f} kNm"
         }
         results["all_checks"]["section_selected"] = {
-            "status": "✅ PASS" if is_adequate else "⚠️ Check",
+            "status": status,
             "value": section_display
         }
+        
         sec_type = beam.get("section_type", section_type)
+        is_custom = beam.get("is_custom", False)
+        if is_custom:
+            sec_type = f"Custom {sec_type}"
         results["all_checks"]["section_type"] = {
             "status": f"📐 {sec_type}",
             "value": get_section_tag(sec_type)
@@ -1382,11 +1706,11 @@ def render_dashboard():
     with cols[0]:
         st.markdown(f"<div class='dashboard-card'><div class='icon'>📂</div><div class='value'>{len(projects)}</div><div class='label'>Saved Projects</div></div>", unsafe_allow_html=True)
     with cols[1]:
-        st.markdown("<div class='dashboard-card'><div class='icon'>🏕️</div><div class='value'>5</div><div class='label'>Shapes</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dashboard-card'><div class='icon'>🏗️</div><div class='value'>5</div><div class='label'>Structure Types</div></div>", unsafe_allow_html=True)
     with cols[2]:
-        st.markdown("<div class='dashboard-card'><div class='icon'>🔧</div><div class='value'>100+</div><div class='label'>Sections</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dashboard-card'><div class='icon'>🔧</div><div class='value'>100+</div><div class='label'>Sections Available</div></div>", unsafe_allow_html=True)
     with cols[3]:
-        st.markdown("<div class='dashboard-card'><div class='icon'>⚡</div><div class='value'>AI</div><div class='label'>Engine</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dashboard-card'><div class='icon'>⚡</div><div class='value'>AI</div><div class='label'>Intelligent Engine</div></div>", unsafe_allow_html=True)
     
     st.divider()
     
@@ -1426,7 +1750,6 @@ def render_dashboard():
 def render_registration():
     st.subheader("📋 New Project")
     
-    # Show remaining projects
     remaining = get_remaining_projects()
     if st.session_state.license_tier == "free":
         st.caption(f"📊 Remaining projects: {remaining} / {LICENSE_TIERS['free']['project_limit']}")
@@ -1630,7 +1953,6 @@ def render_reports():
     st.markdown(f"**Reference:** {st.session_state.project_info.get('reference', 'N/A')}")
     st.divider()
     
-    # Check if design exists
     if "design_results" not in st.session_state:
         st.info("💡 Please run the design first to generate reports.")
         if st.button("🏗️ Go to Workspace", key="reports_goto_workspace", use_container_width=True, type="primary"):
@@ -1644,7 +1966,6 @@ def render_reports():
     
     if st.button("📄 Generate PDF Report", key="reports_pdf", use_container_width=True, type="primary"):
         try:
-            # Simple PDF generation using matplotlib
             fig, axes = plt.subplots(2, 2, figsize=(10, 12))
             fig.patch.set_facecolor('#0a0e17')
             
@@ -1666,7 +1987,6 @@ def render_reports():
                 axes[0, 1].text(0.1, y_pos, f"{key.title()}: {value:.1f} kN", fontsize=11, color='#b0c4de')
                 y_pos -= 0.08
             
-            # Fabric & Cables
             fabric = design.get('fabric', {})
             cables = design.get('cables', {})
             axes[0, 1].text(0.1, y_pos - 0.05, f"Fabric: {fabric.get('type', 'N/A')} ({fabric.get('thickness', 'N/A')}mm)", fontsize=11, color='#b0c4de')
@@ -1691,7 +2011,6 @@ def render_reports():
             
             plt.tight_layout()
             
-            # Save to buffer
             buf = BytesIO()
             plt.savefig(buf, format='pdf', facecolor='#0a0e17', edgecolor='none')
             buf.seek(0)
@@ -1939,14 +2258,21 @@ def render_workspace():
             beam = design_results["beams"].get("main")
             if beam:
                 sec_type = beam.get("section_type", materials.get("section_type", "CHS"))
-                st.markdown(f"**Main Beams (2 pcs):** {beam['section']} {get_section_tag(sec_type)}")
+                is_custom = beam.get("is_custom", False)
+                if is_custom:
+                    st.markdown(f"**Main Beams (2 pcs):** {beam['section']} {get_section_tag('Custom ' + sec_type)}")
+                else:
+                    st.markdown(f"**Main Beams (2 pcs):** {beam['section']} {get_section_tag(sec_type)}")
                 if beam.get("note"):
-                    st.warning(beam["note"])
+                    st.info(beam["note"])
                 st.markdown(f"**Area:** {beam['properties']['A']:.0f} mm²")
                 st.markdown(f"**Weight:** {beam['properties']['weight']:.1f} kg/m")
                 st.markdown(f"**Required Moment:** {beam['required_moment']:.1f} kNm")
                 st.markdown(f"**Moment Capacity:** {beam['moment_capacity']:.1f} kNm")
-                st.markdown(f"**Status:** {'✅ Adequate' if beam['is_adequate'] else '🔄 Upgrade Available'}")
+                if beam.get('is_adequate', False):
+                    st.success("✅ Adequate")
+                else:
+                    st.warning("⚠️ Consider custom fabrication")
             else:
                 st.markdown("⚠️ No suitable section found")
         elif materials["member_type"] in ["planar_truss", "space_truss"]:
@@ -1991,6 +2317,8 @@ def render_workspace():
             status = check_data["status"]
             if "✅" in status:
                 color = "#2ecc71"
+            elif "💡" in status:
+                color = "#9b59b6"
             else:
                 color = "#f39c12"
             display_name = check_name.replace('_', ' ').title()
@@ -2019,7 +2347,6 @@ def render_workspace():
         </div>
         """, unsafe_allow_html=True)
         
-        # BQ Quick Summary - Only show if BQ is available
         if has_feature("bq") and st.session_state.bq:
             bq = st.session_state.bq
             currency = get_currency(materials.get("country", "Malaysia"))
@@ -2075,4 +2402,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("SDS Design Studio v7.0 | MS EN Wind: 33.5m/s | 100+ Sections | 🔩/⚡ Joints | 🌍 Local Currency")
+st.caption("SDS Design Studio v7.0 | MS EN Wind: 33.5m/s | 100+ Sections | 🔩/⚡ Joints | 🌍 Local Currency | 🧠 Intelligent Engine")
