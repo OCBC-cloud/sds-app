@@ -894,7 +894,6 @@ def auto_design_structure(params, materials):
             "status": "✅ PASS" if is_adequate else "⚠️ Check",
             "value": section_display
         }
-        # Add section type tag
         sec_type = beam.get("section_type", section_type)
         results["all_checks"]["section_type"] = {
             "status": f"📐 {sec_type}",
@@ -1211,31 +1210,31 @@ GENERATORS = {
 }
 
 # ============================================================
-# TOP NAVIGATION
+# TOP NAVIGATION - WITH UNIQUE KEYS
 # ============================================================
 def render_top_nav():
     col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
     with col1:
-        if st.button("🏠 Dashboard", use_container_width=True):
+        if st.button("🏠 Dashboard", key="nav_dashboard", use_container_width=True):
             st.session_state.page = "dashboard"
             st.rerun()
     with col2:
-        if st.button("📋 New Project", use_container_width=True):
+        if st.button("📋 New Project", key="nav_new_project", use_container_width=True):
             st.session_state.page = "registration"
             st.rerun()
     with col3:
-        if st.button("📂 Open Project", use_container_width=True):
+        if st.button("📂 Open Project", key="nav_open_project", use_container_width=True):
             st.session_state.page = "browser"
             st.rerun()
     with col4:
-        if st.button("🏗️ Workspace", use_container_width=True):
+        if st.button("🏗️ Workspace", key="nav_workspace", use_container_width=True):
             if st.session_state.project_info:
                 st.session_state.page = "workspace"
                 st.rerun()
             else:
                 st.warning("Please create or open a project first")
     with col5:
-        if st.button("📄 BQ & Costing", use_container_width=True):
+        if st.button("📄 BQ & Costing", key="nav_bq", use_container_width=True):
             if st.session_state.project_info:
                 st.session_state.page = "bq"
                 st.rerun()
@@ -1244,7 +1243,7 @@ def render_top_nav():
     st.divider()
 
 # ============================================================
-# DASHBOARD PAGE
+# DASHBOARD PAGE - WITH UNIQUE KEYS
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio v7.0")
@@ -1265,11 +1264,11 @@ def render_dashboard():
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("➕ New Design", use_container_width=True, type="primary"):
+        if st.button("➕ New Design", key="dash_new_design", use_container_width=True, type="primary"):
             st.session_state.page = "registration"
             st.rerun()
     with col2:
-        if st.button("📂 Open Project", use_container_width=True):
+        if st.button("📂 Open Project", key="dash_open_project", use_container_width=True):
             st.session_state.page = "browser"
             st.rerun()
     
@@ -1282,7 +1281,7 @@ def render_dashboard():
             std = proj.get("materials", {}).get("standard", "EU")
             badge = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(std, "badge-eu")
             col1.markdown(f'<span class="standard-badge {badge}">{std}</span> {proj.get("typology", "Unknown")}', unsafe_allow_html=True)
-            if col2.button("📂 Load", key=f"quick_load_{i}"):
+            if col2.button("📂 Load", key=f"dash_load_{i}", use_container_width=True):
                 st.session_state.project_info = proj.get("project_info", {})
                 st.session_state.materials = proj.get("materials", st.session_state.materials)
                 st.session_state.params = proj.get("params", {})
@@ -1304,7 +1303,7 @@ def render_registration():
         ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         st.caption(f"Reference: SDS-{ref}")
         
-        if st.form_submit_button("🚀 Start Design", use_container_width=True, type="primary"):
+        if st.form_submit_button("🚀 Start Design", key="register_start", use_container_width=True, type="primary"):
             if not name or not client:
                 st.error("⚠️ Project Name and Client Name are required.")
             else:
@@ -1320,7 +1319,7 @@ def render_registration():
                 st.rerun()
 
 # ============================================================
-# PROJECT BROWSER
+# PROJECT BROWSER - WITH UNIQUE KEYS
 # ============================================================
 def render_project_browser():
     st.subheader("📂 Saved Projects")
@@ -1328,7 +1327,7 @@ def render_project_browser():
     projects = st.session_state.saved_projects
     if not projects:
         st.info("No saved projects found. Start a new design!")
-        if st.button("➕ New Design", use_container_width=True, type="primary"):
+        if st.button("➕ New Design", key="browser_new_design", use_container_width=True, type="primary"):
             st.session_state.page = "registration"
             st.rerun()
     else:
@@ -1338,32 +1337,32 @@ def render_project_browser():
             std = proj.get("materials", {}).get("standard", "EU")
             badge = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(std, "badge-eu")
             col1.markdown(f'<span class="standard-badge {badge}">{std}</span> {proj.get("typology", "Unknown")}', unsafe_allow_html=True)
-            if col2.button("📂 Load", key=f"load_{i}"):
+            if col2.button("📂 Load", key=f"browser_load_{i}", use_container_width=True):
                 st.session_state.project_info = proj.get("project_info", {})
                 st.session_state.materials = proj.get("materials", st.session_state.materials)
                 st.session_state.params = proj.get("params", {})
                 st.session_state.typology = proj.get("typology", "saddle_span")
                 st.session_state.page = "workspace"
                 st.rerun()
-            if col3.button("🗑️ Delete", key=f"del_{i}"):
+            if col3.button("🗑️ Delete", key=f"browser_del_{i}", use_container_width=True):
                 st.session_state.saved_projects.pop(len(projects) - 1 - i)
                 st.rerun()
             st.divider()
 
 # ============================================================
-# CATALOG PAGE
+# CATALOG PAGE - WITH UNIQUE KEYS
 # ============================================================
 def render_catalog():
     st.subheader("Choose a structure type:")
     cols = st.columns(2)
     with cols[0]:
-        if st.button("🏕️ Saddle Span", use_container_width=True, type="primary"):
+        if st.button("🏕️ Saddle Span", key="catalog_saddle", use_container_width=True, type="primary"):
             st.session_state.typology = "saddle_span"
             st.session_state.params = {"A": 6.0, "B": 10.0, "LAA": 15.0}
             st.session_state.page = "workspace"
             st.rerun()
     with cols[1]:
-        if st.button("🏗️ Clear-Span Tent", use_container_width=True):
+        if st.button("🏗️ Clear-Span Tent", key="catalog_tent", use_container_width=True):
             st.session_state.typology = "clear_span_tent"
             st.session_state.params = {"span_width": 10.0, "ridge_height": 5.0, "bay_distance": 5.0, "num_bays": 4}
             st.session_state.page = "workspace"
@@ -1371,20 +1370,20 @@ def render_catalog():
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("⛺ Tensile Membrane", use_container_width=True):
+        if st.button("⛺ Tensile Membrane", key="catalog_tensile", use_container_width=True):
             st.session_state.typology = "tensile_membrane"
             st.session_state.params = {"mast_height": 8.0, "span_length": 20.0, "span_width": 15.0, "cable_count": 4}
             st.session_state.page = "workspace"
             st.rerun()
     with col2:
-        if st.button("🏛️ Portal Frame", use_container_width=True):
+        if st.button("🏛️ Portal Frame", key="catalog_portal", use_container_width=True):
             st.session_state.typology = "portal_frame"
             st.session_state.params = {"eave_height": 6.0, "span_width": 20.0, "bay_spacing": 6.0, "roof_pitch": 5.0, "num_bays": 5}
             st.session_state.page = "workspace"
             st.rerun()
 
 # ============================================================
-# BQ & COSTING PAGE
+# BQ & COSTING PAGE - WITH UNIQUE KEYS
 # ============================================================
 def render_bq_page():
     st.title("📄 Bill of Quantities & Costing")
@@ -1392,7 +1391,7 @@ def render_bq_page():
     
     if not st.session_state.project_info:
         st.warning("⚠️ No active project. Please start a design first.")
-        if st.button("🏠 Go to Dashboard", use_container_width=True, type="primary"):
+        if st.button("🏠 Go to Dashboard", key="bq_back_dash", use_container_width=True, type="primary"):
             st.session_state.page = "dashboard"
             st.rerun()
         return
@@ -1404,7 +1403,7 @@ def render_bq_page():
     
     if "bq" not in st.session_state:
         st.info("💡 Please run the design first to generate the Bill of Quantities.")
-        if st.button("🏗️ Go to Workspace", use_container_width=True, type="primary"):
+        if st.button("🏗️ Go to Workspace", key="bq_goto_workspace", use_container_width=True, type="primary"):
             st.session_state.page = "workspace"
             st.rerun()
         return
@@ -1412,7 +1411,7 @@ def render_bq_page():
     bq = st.session_state.get("bq", {})
     if not bq or "items" not in bq:
         st.info("💡 Please run the design first to generate the Bill of Quantities.")
-        if st.button("🏗️ Go to Workspace", use_container_width=True, type="primary"):
+        if st.button("🏗️ Go to Workspace", key="bq_goto_workspace2", use_container_width=True, type="primary"):
             st.session_state.page = "workspace"
             st.rerun()
         return
@@ -1462,21 +1461,22 @@ def render_bq_page():
     st.divider()
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("📥 Download CSV", use_container_width=True):
+        if st.button("📥 Download CSV", key="bq_download_csv", use_container_width=True):
             csv = df.to_csv(index=False)
             st.download_button(
                 label="📥 Download CSV",
                 data=csv,
                 file_name=f"BQ_{st.session_state.project_info.get('reference', 'project')}.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key="bq_download_btn"
             )
     with col2:
-        if st.button("🏠 Back to Workspace", use_container_width=True, type="primary"):
+        if st.button("🏠 Back to Workspace", key="bq_back_workspace", use_container_width=True, type="primary"):
             st.session_state.page = "workspace"
             st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE
+# WORKSPACE PAGE - WITH UNIQUE KEYS
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -1491,11 +1491,11 @@ def render_workspace():
     
     col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
     with col1:
-        if st.button("🏠 Home", use_container_width=True):
+        if st.button("🏠 Home", key="workspace_home", use_container_width=True):
             st.session_state.page = "dashboard"
             st.rerun()
     with col2:
-        if st.button("💾 Save", use_container_width=True, type="primary"):
+        if st.button("💾 Save", key="workspace_save", use_container_width=True, type="primary"):
             proj = {
                 "project_info": info.copy(),
                 "typology": typology,
@@ -1516,16 +1516,16 @@ def render_workspace():
                 st.success(f"✅ Project saved: {info.get('name')}")
             st.rerun()
     with col3:
-        if st.button("🔒 Lock", use_container_width=True):
+        if st.button("🔒 Lock", key="workspace_lock", use_container_width=True):
             st.session_state.locked = True
             st.rerun()
     with col4:
         if st.session_state.locked:
-            if st.button("🔓 Unlock", use_container_width=True):
+            if st.button("🔓 Unlock", key="workspace_unlock", use_container_width=True):
                 st.session_state.locked = False
                 st.rerun()
     with col5:
-        if st.button("📄 View BQ", use_container_width=True):
+        if st.button("📄 View BQ", key="workspace_view_bq", use_container_width=True):
             if "bq" not in st.session_state:
                 design_results = auto_design_structure(params, materials)
                 st.session_state.bq = design_results.get("bq", {})
@@ -1539,31 +1539,31 @@ def render_workspace():
     with col_left:
         st.markdown('<div class="sds-card"><div class="title">📐 Dimensions</div>', unsafe_allow_html=True)
         if typology == "saddle_span":
-            params["A"] = st.number_input("Rise (A) m", 2.0, 20.0, params.get("A", 6.0), 0.5, disabled=st.session_state.locked)
-            params["B"] = st.number_input("Span (B) m", 4.0, 40.0, params.get("B", 10.0), 0.5, disabled=st.session_state.locked)
-            params["LAA"] = st.number_input("Apex Dist (LAA) m", 4.0, 50.0, params.get("LAA", 15.0), 0.5, disabled=st.session_state.locked)
+            params["A"] = st.number_input("Rise (A) m", 2.0, 20.0, params.get("A", 6.0), 0.5, disabled=st.session_state.locked, key="dim_A")
+            params["B"] = st.number_input("Span (B) m", 4.0, 40.0, params.get("B", 10.0), 0.5, disabled=st.session_state.locked, key="dim_B")
+            params["LAA"] = st.number_input("Apex Dist (LAA) m", 4.0, 50.0, params.get("LAA", 15.0), 0.5, disabled=st.session_state.locked, key="dim_LAA")
         elif typology == "clear_span_tent":
-            params["span_width"] = st.number_input("Span Width (m)", 3.0, 80.0, params.get("span_width", 10.0), 0.5, disabled=st.session_state.locked)
-            params["ridge_height"] = st.number_input("Ridge Height (m)", 2.5, 12.0, params.get("ridge_height", 5.0), 0.5, disabled=st.session_state.locked)
-            params["bay_distance"] = st.number_input("Bay Distance (m)", 3.0, 10.0, params.get("bay_distance", 5.0), 0.5, disabled=st.session_state.locked)
-            params["num_bays"] = st.number_input("Number of Bays", 1, 20, params.get("num_bays", 4), 1, disabled=st.session_state.locked)
+            params["span_width"] = st.number_input("Span Width (m)", 3.0, 80.0, params.get("span_width", 10.0), 0.5, disabled=st.session_state.locked, key="dim_span_width")
+            params["ridge_height"] = st.number_input("Ridge Height (m)", 2.5, 12.0, params.get("ridge_height", 5.0), 0.5, disabled=st.session_state.locked, key="dim_ridge_height")
+            params["bay_distance"] = st.number_input("Bay Distance (m)", 3.0, 10.0, params.get("bay_distance", 5.0), 0.5, disabled=st.session_state.locked, key="dim_bay_distance")
+            params["num_bays"] = st.number_input("Number of Bays", 1, 20, params.get("num_bays", 4), 1, disabled=st.session_state.locked, key="dim_num_bays")
         elif typology == "tensile_membrane":
-            params["mast_height"] = st.number_input("Mast Height (m)", 3.0, 30.0, params.get("mast_height", 8.0), 0.5, disabled=st.session_state.locked)
-            params["span_length"] = st.number_input("Span Length (m)", 5.0, 100.0, params.get("span_length", 20.0), 0.5, disabled=st.session_state.locked)
-            params["span_width"] = st.number_input("Span Width (m)", 5.0, 80.0, params.get("span_width", 15.0), 0.5, disabled=st.session_state.locked)
-            params["cable_count"] = st.number_input("Cable Count", 2, 12, params.get("cable_count", 4), 1, disabled=st.session_state.locked)
+            params["mast_height"] = st.number_input("Mast Height (m)", 3.0, 30.0, params.get("mast_height", 8.0), 0.5, disabled=st.session_state.locked, key="dim_mast_height")
+            params["span_length"] = st.number_input("Span Length (m)", 5.0, 100.0, params.get("span_length", 20.0), 0.5, disabled=st.session_state.locked, key="dim_span_length")
+            params["span_width"] = st.number_input("Span Width (m)", 5.0, 80.0, params.get("span_width", 15.0), 0.5, disabled=st.session_state.locked, key="dim_tensile_width")
+            params["cable_count"] = st.number_input("Cable Count", 2, 12, params.get("cable_count", 4), 1, disabled=st.session_state.locked, key="dim_cable_count")
         elif typology == "portal_frame":
-            params["eave_height"] = st.number_input("Eave Height (m)", 3.0, 15.0, params.get("eave_height", 6.0), 0.5, disabled=st.session_state.locked)
-            params["span_width"] = st.number_input("Span Width (m)", 10.0, 50.0, params.get("span_width", 20.0), 0.5, disabled=st.session_state.locked)
-            params["bay_spacing"] = st.number_input("Bay Spacing (m)", 4.0, 12.0, params.get("bay_spacing", 6.0), 0.5, disabled=st.session_state.locked)
-            params["roof_pitch"] = st.number_input("Roof Pitch (°)", 1.0, 15.0, params.get("roof_pitch", 5.0), 0.5, disabled=st.session_state.locked)
-            params["num_bays"] = st.number_input("Number of Bays", 2, 30, params.get("num_bays", 5), 1, disabled=st.session_state.locked)
+            params["eave_height"] = st.number_input("Eave Height (m)", 3.0, 15.0, params.get("eave_height", 6.0), 0.5, disabled=st.session_state.locked, key="dim_eave_height")
+            params["span_width"] = st.number_input("Span Width (m)", 10.0, 50.0, params.get("span_width", 20.0), 0.5, disabled=st.session_state.locked, key="dim_portal_width")
+            params["bay_spacing"] = st.number_input("Bay Spacing (m)", 4.0, 12.0, params.get("bay_spacing", 6.0), 0.5, disabled=st.session_state.locked, key="dim_bay_spacing")
+            params["roof_pitch"] = st.number_input("Roof Pitch (°)", 1.0, 15.0, params.get("roof_pitch", 5.0), 0.5, disabled=st.session_state.locked, key="dim_roof_pitch")
+            params["num_bays"] = st.number_input("Number of Bays", 2, 30, params.get("num_bays", 5), 1, disabled=st.session_state.locked, key="dim_portal_bays")
         st.markdown('</div>', unsafe_allow_html=True)
         
         if typology == "saddle_span":
             st.markdown('<div class="sds-card"><div class="title">🔄 Shape</div>', unsafe_allow_html=True)
             shape_options = ["parabolic", "elliptical", "circular", "catenary"]
-            materials["shape_type"] = st.selectbox("Shape Type", shape_options, index=shape_options.index(materials.get("shape_type", "parabolic")), disabled=st.session_state.locked)
+            materials["shape_type"] = st.selectbox("Shape Type", shape_options, index=shape_options.index(materials.get("shape_type", "parabolic")), disabled=st.session_state.locked, key="shape_type")
             st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="sds-card"><div class="title">🔧 Structural System</div>', unsafe_allow_html=True)
@@ -1572,7 +1572,7 @@ def render_workspace():
         current_member = materials.get("member_type", "single_beam")
         idx = member_options.index(current_member) if current_member in member_options else 0
         
-        selected_label = st.selectbox("Member Type", member_labels, index=idx, disabled=st.session_state.locked)
+        selected_label = st.selectbox("Member Type", member_labels, index=idx, disabled=st.session_state.locked, key="member_type")
         materials["member_type"] = member_options[member_labels.index(selected_label)]
         
         if materials["member_type"] in ["planar_truss", "space_truss"]:
@@ -1581,7 +1581,7 @@ def render_workspace():
             current_truss = materials.get("truss_type", "warren")
             truss_idx = truss_options.index(current_truss) if current_truss in truss_options else 0
             
-            selected_truss_label = st.selectbox("Truss Type", truss_labels, index=truss_idx, disabled=st.session_state.locked)
+            selected_truss_label = st.selectbox("Truss Type", truss_labels, index=truss_idx, disabled=st.session_state.locked, key="truss_type")
             materials["truss_type"] = truss_options[truss_labels.index(selected_truss_label)]
         st.markdown('</div>', unsafe_allow_html=True)
         
@@ -1591,7 +1591,7 @@ def render_workspace():
         current_joint = materials.get("joint_type", "bolted")
         joint_idx = joint_options.index(current_joint) if current_joint in joint_options else 0
         
-        selected_joint_label = st.selectbox("Connection Type", joint_labels, index=joint_idx, disabled=st.session_state.locked)
+        selected_joint_label = st.selectbox("Connection Type", joint_labels, index=joint_idx, disabled=st.session_state.locked, key="joint_type")
         materials["joint_type"] = joint_options[joint_labels.index(selected_joint_label)]
         
         joint_desc = JOINT_MULTIPLIERS[materials["joint_type"]]["description"]
@@ -1601,33 +1601,33 @@ def render_workspace():
         st.markdown('<div class="sds-card"><div class="title">🧱 Materials</div>', unsafe_allow_html=True)
         material_types = ["Steel", "Aluminum", "Wood", "Composite"]
         current_material = materials.get("material_type", "Steel")
-        materials["material_type"] = st.selectbox("Member Material", material_types, index=material_types.index(current_material), disabled=st.session_state.locked)
+        materials["material_type"] = st.selectbox("Member Material", material_types, index=material_types.index(current_material), disabled=st.session_state.locked, key="material_type")
         
         section_types = ["CHS", "SHS", "RHS", "I-Beam", "Angle", "Channel"]
         current_section_type = materials.get("section_type", "CHS")
-        materials["section_type"] = st.selectbox("Section Shape", section_types, index=section_types.index(current_section_type), disabled=st.session_state.locked)
+        materials["section_type"] = st.selectbox("Section Shape", section_types, index=section_types.index(current_section_type), disabled=st.session_state.locked, key="section_type")
         
         fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"]
-        materials["fabric_type"] = st.selectbox("Fabric Material", fabric_options, index=fabric_options.index(materials.get("fabric_type", "PVC-coated Polyester")), disabled=st.session_state.locked)
+        materials["fabric_type"] = st.selectbox("Fabric Material", fabric_options, index=fabric_options.index(materials.get("fabric_type", "PVC-coated Polyester")), disabled=st.session_state.locked, key="fabric_type")
         
         cable_options = ["6x19 Galvanized", "6x19 Stainless", "Polyester Rope"]
-        materials["cable_type"] = st.selectbox("Cable Type", cable_options, index=cable_options.index(materials.get("cable_type", "6x19 Galvanized")), disabled=st.session_state.locked)
-        materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(materials.get("num_bays", 2)), disabled=st.session_state.locked)
+        materials["cable_type"] = st.selectbox("Cable Type", cable_options, index=cable_options.index(materials.get("cable_type", "6x19 Galvanized")), disabled=st.session_state.locked, key="cable_type")
+        materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(materials.get("num_bays", 2)), disabled=st.session_state.locked, key="num_bays")
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="sds-card"><div class="title">🔗 Tie-Down Settings</div>', unsafe_allow_html=True)
-        materials["tie_down_vertical_angle"] = st.slider("Vertical Angle (°)", 20, 70, materials.get("tie_down_vertical_angle", 45), 5, disabled=st.session_state.locked)
-        materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", 10, 60, materials.get("tie_down_horizontal_spread", 30), 5, disabled=st.session_state.locked)
+        materials["tie_down_vertical_angle"] = st.slider("Vertical Angle (°)", 20, 70, materials.get("tie_down_vertical_angle", 45), 5, disabled=st.session_state.locked, key="vertical_angle")
+        materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", 10, 60, materials.get("tie_down_horizontal_spread", 30), 5, disabled=st.session_state.locked, key="horizontal_spread")
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="sds-card"><div class="title">🌍 Location</div>', unsafe_allow_html=True)
         countries = list(COUNTRY_CURRENCIES.keys())
         country_idx = countries.index(materials.get("country", "Malaysia")) if materials.get("country", "Malaysia") in countries else 0
-        materials["country"] = st.selectbox("Country", countries, index=country_idx, disabled=st.session_state.locked)
+        materials["country"] = st.selectbox("Country", countries, index=country_idx, disabled=st.session_state.locked, key="country")
         currency = get_currency(materials["country"])
         st.markdown(f"**Currency:** {currency['symbol']} ({currency['code']})")
         std_options = ["EU", "CN", "UK", "MY", "US"]
-        materials["standard"] = st.selectbox("Design Standard", std_options, index=std_options.index(materials.get("standard", "EU")), disabled=st.session_state.locked)
+        materials["standard"] = st.selectbox("Design Standard", std_options, index=std_options.index(materials.get("standard", "EU")), disabled=st.session_state.locked, key="standard")
         badge_class = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(materials["standard"], "badge-eu")
         st.markdown(f'<span class="standard-badge {badge_class}">{materials["standard"]}</span> {get_standard_label(materials["standard"])}', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1636,7 +1636,7 @@ def render_workspace():
         st.session_state.comments = st.text_area("", st.session_state.comments, height=80, disabled=st.session_state.locked, key="comments_area")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        if st.button("⚡ Run Design Analysis", use_container_width=True, type="primary"):
+        if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary"):
             design_results = auto_design_structure(params, materials)
             st.session_state.design_results = design_results
             st.session_state.bq = design_results.get("bq", {})
@@ -1679,7 +1679,6 @@ def render_workspace():
         if materials["member_type"] == "single_beam":
             beam = design_results["beams"].get("main")
             if beam:
-                # Show section type badge
                 sec_type = beam.get("section_type", materials.get("section_type", "CHS"))
                 st.markdown(f"**Main Beams (2 pcs):** {beam['section']} {get_section_tag(sec_type)}")
                 if beam.get("note"):
@@ -1769,7 +1768,7 @@ def render_workspace():
             col1, col2 = st.columns(2)
             col1.metric("Total Cost", f"{currency['symbol']}{bq['total_cost']:,.0f}")
             col2.metric("Steel Weight", f"{bq['total_steel_weight']:.0f} kg")
-            if st.button("📄 View Full BQ", use_container_width=True, type="primary"):
+            if st.button("📄 View Full BQ", key="workspace_view_full_bq", use_container_width=True, type="primary"):
                 st.session_state.page = "bq"
                 st.rerun()
     
@@ -1788,7 +1787,7 @@ def render_workspace():
     for i, q in enumerate(qa):
         key = f"qa_{i}"
         default = st.session_state.qa_answers.get(key, "Yes")
-        ans = st.radio(q, ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"qa_{i}", disabled=st.session_state.locked)
+        ans = st.radio(q, ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"qa_radio_{i}", disabled=st.session_state.locked)
         st.session_state.qa_answers[key] = ans
     st.markdown('</div>', unsafe_allow_html=True)
 
