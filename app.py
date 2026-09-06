@@ -17,6 +17,16 @@ import csv
 from io import BytesIO, StringIO
 
 # ============================================================
+# FORCE RESET - REMOVE AFTER FIRST RUN
+# ============================================================
+# This clears ALL previous session data
+if "force_reset_done" not in st.session_state:
+    st.session_state.clear()
+    st.session_state.license_tier = "business"
+    st.session_state.force_reset_done = True
+    st.rerun()
+
+# ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
@@ -135,8 +145,7 @@ LICENSE_TIERS = {
             "axial_forces": False,
             "cad_drawings": False,
             "export_excel": False,
-            "unlimited_projects": False,
-            "custom_sections": False
+            "unlimited_projects": False
         }
     },
     "pro": {
@@ -160,8 +169,7 @@ LICENSE_TIERS = {
             "axial_forces": False,
             "cad_drawings": False,
             "export_excel": False,
-            "unlimited_projects": True,
-            "custom_sections": False
+            "unlimited_projects": True
         }
     },
     "business": {
@@ -185,29 +193,9 @@ LICENSE_TIERS = {
             "axial_forces": True,
             "cad_drawings": True,
             "export_excel": True,
-            "unlimited_projects": True,
-            "custom_sections": False
+            "unlimited_projects": True
         }
     }
-}
-
-# ============================================================
-# FEATURE FLAGS
-# ============================================================
-FEATURE_FLAGS = {
-    "dark_mode": True,
-    "3d_viewer": True,
-    "section_database": True,
-    "load_calculations": True,
-    "bq_generation": True,
-    "auto_invent_sections": False,  # DISABLED - Rolled back
-    "auto_upgrade_sections": True,
-    "custom_section_persistence": False,  # DISABLED - Rolled back
-    "custom_section_validation": False,
-    "pattern_learning": False,
-    "ai_suggestions": False,
-    "predictive_design": False,
-    "multi_user_learning": False,
 }
 
 # ============================================================
@@ -217,9 +205,6 @@ def has_feature(feature_name):
     tier = st.session_state.get("license_tier", "business")
     features = LICENSE_TIERS.get(tier, {}).get("features", {})
     return features.get(feature_name, False)
-
-def is_feature_enabled(feature_name):
-    return FEATURE_FLAGS.get(feature_name, False)
 
 def get_license_info():
     tier = st.session_state.get("license_tier", "business")
@@ -818,7 +803,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     }
 
 # ============================================================
-# ENGINEERING FUNCTIONS - ROLLED BACK TO STANDARD SECTIONS ONLY
+# ENGINEERING FUNCTIONS
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -837,13 +822,12 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
 def calculate_required_section(load_kN, span_m, material_type, section_type, fy=355, typology="saddle_span", rise_m=6.0):
     safety = 1.5
     
-    # Calculate beam moment
     w = load_kN / span_m
     M_beam = (w * span_m**2) / 8
     
     # Arch action for saddle span
     if typology == "saddle_span":
-        arch_reduction = max(0.3, 1 - (rise_m / span_m) * 0.6)
+        arch_reduction = max(0.35, 1 - (rise_m / span_m) * 0.55)
         M = M_beam * arch_reduction
     else:
         arch_reduction = 1.0
@@ -873,7 +857,6 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
         if props["type"] == preferred_type:
             sections_in_type.append((section, props))
     
-    # Sort by W_el (ascending - smallest to largest)
     sections_in_type.sort(key=lambda x: x[1]["W_el"])
     
     # Find the FIRST section that is ADEQUATE
@@ -899,7 +882,7 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "arch_reduction": arch_reduction
         }
     
-    # If no adequate section found, use the largest available
+    # If no adequate section, use the largest available
     if sections_in_type:
         largest_section, largest_props = sections_in_type[-1]
         moment_capacity = (largest_props["W_el"] * fy) / (safety * 1e6)
@@ -911,7 +894,7 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "moment_capacity": moment_capacity,
             "is_adequate": largest_props["W_el"] >= W_required * 0.9,
             "section_type": largest_props.get("type", preferred_type),
-            "note": f"⚠️ Largest {preferred_type} available ({largest_section})",
+            "note": f"⚠️ Largest {preferred_type} available ({largest_section}) - Consider custom fabrication",
             "arch_reduction": arch_reduction
         }
     
@@ -1060,7 +1043,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
             "value": get_section_tag(sec_type)
         }
         
-        # Show arch reduction for saddle span
         if typology == "saddle_span" and "arch_reduction" in beam:
             reduction_pct = (1 - beam["arch_reduction"]) * 100
             results["all_checks"]["arch_action"] = {
@@ -1977,7 +1959,7 @@ def render_workspace():
                 sec_type = beam.get("section_type", materials.get("section_type", "CHS"))
                 st.markdown(f"**Main Beams (2 pcs):** {beam['section']} {get_section_tag(sec_type)}")
                 if beam.get("note"):
-                    st.info(beam["note"])
+                    st.warning(beam["note"])
                 st.markdown(f"**Area:** {beam['properties']['A']:.0f} mm²")
                 st.markdown(f"**Weight:** {beam['properties']['weight']:.1f} kg/m")
                 st.markdown(f"**Required Moment:** {beam['required_moment']:.1f} kNm")
