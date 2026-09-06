@@ -196,20 +196,15 @@ LICENSE_TIERS = {
 # FEATURE FLAGS (Deployment Safe)
 # ============================================================
 FEATURE_FLAGS = {
-    # PHASE 1 - ACTIVE (Deployed and tested)
     "dark_mode": True,
     "3d_viewer": True,
     "section_database": True,
     "load_calculations": True,
     "bq_generation": True,
-    
-    # PHASE 2 - ACTIVE (Deploying now)
     "auto_invent_sections": True,
     "auto_upgrade_sections": True,
     "custom_section_persistence": True,
     "custom_section_validation": True,
-    
-    # PHASE 3 - RESERVE (Not yet active)
     "pattern_learning": False,
     "ai_suggestions": False,
     "predictive_design": False,
@@ -220,22 +215,18 @@ FEATURE_FLAGS = {
 # FEATURE CHECK FUNCTIONS
 # ============================================================
 def has_feature(feature_name):
-    """Check if current license tier has a feature"""
     tier = st.session_state.get("license_tier", "business")
     features = LICENSE_TIERS.get(tier, {}).get("features", {})
     return features.get(feature_name, False)
 
 def is_feature_enabled(feature_name):
-    """Check if a feature flag is enabled"""
     return FEATURE_FLAGS.get(feature_name, False)
 
 def get_license_info():
-    """Get current license info"""
     tier = st.session_state.get("license_tier", "business")
     return LICENSE_TIERS.get(tier, LICENSE_TIERS["business"])
 
 def check_project_limit():
-    """Check if user can add more projects"""
     tier = st.session_state.get("license_tier", "business")
     limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
     if limit is None:
@@ -244,7 +235,6 @@ def check_project_limit():
     return current_projects < limit
 
 def get_remaining_projects():
-    """Get remaining project slots"""
     tier = st.session_state.get("license_tier", "business")
     limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
     if limit is None:
@@ -253,12 +243,42 @@ def get_remaining_projects():
     return max(0, limit - current)
 
 # ============================================================
-# CUSTOM SECTION MANAGER (Persistent)
+# CLEAR PROJECT DATA FUNCTION
+# ============================================================
+def clear_previous_project_data():
+    """Clear all project-specific session state when starting fresh"""
+    st.session_state.design_results = {}
+    st.session_state.bq = {}
+    st.session_state.params = {}
+    st.session_state.qa_answers = {}
+    st.session_state.comments = ""
+    st.session_state.locked = False
+    st.session_state.typology = None
+    
+    default_materials = {
+        "standard": st.session_state.materials.get("standard", "EU"),
+        "material_type": "Steel",
+        "section_type": "CHS",
+        "fabric_type": "PVC-coated Polyester",
+        "cable_type": "6x19 Galvanized",
+        "tie_down_vertical_angle": 45,
+        "tie_down_horizontal_spread": 30,
+        "shape_type": "parabolic",
+        "member_type": "single_beam",
+        "truss_type": "warren",
+        "num_bays": 2,
+        "prestress_level": "medium",
+        "joint_type": "bolted",
+        "country": st.session_state.materials.get("country", "Malaysia")
+    }
+    st.session_state.materials = default_materials
+
+# ============================================================
+# CUSTOM SECTION MANAGER
 # ============================================================
 CUSTOM_SECTIONS_FILE = "custom_sections.json"
 
 def load_custom_sections():
-    """Load custom sections from file"""
     try:
         with open(CUSTOM_SECTIONS_FILE, "r") as f:
             return json.load(f)
@@ -266,7 +286,6 @@ def load_custom_sections():
         return {}
 
 def save_custom_sections(custom_data):
-    """Save custom sections to file"""
     try:
         with open(CUSTOM_SECTIONS_FILE, "w") as f:
             json.dump(custom_data, f, indent=2)
@@ -275,13 +294,11 @@ def save_custom_sections(custom_data):
         return False
 
 def save_custom_section(name, props):
-    """Save a single custom section"""
     custom = load_custom_sections()
     custom[name] = props
     return save_custom_sections(custom)
 
 def validate_custom_section(section_data):
-    """Validate a custom section before using it"""
     try:
         required = ["A", "I", "W_el", "weight", "type"]
         for key in required:
@@ -322,7 +339,7 @@ COUNTRY_CURRENCIES = {
 }
 
 # ============================================================
-# EXPANDED SECTION PROPERTIES DATABASE
+# SECTION PROPERTIES DATABASE
 # ============================================================
 SECTION_PROPERTIES = {
     # ====== CIRCULAR HOLLOW SECTIONS (CHS) ======
@@ -411,7 +428,6 @@ SECTION_PROPERTIES = {
 # LOAD CUSTOM SECTIONS (Safe Load)
 # ============================================================
 def safe_load_custom_sections():
-    """Load custom sections with validation and rollback"""
     try:
         custom = load_custom_sections()
         if custom:
@@ -420,7 +436,6 @@ def safe_load_custom_sections():
             for name, props in list(custom.items()):
                 valid, message = validate_custom_section(props)
                 if not valid:
-                    st.warning(f"⚠️ Invalid custom section '{name}' removed: {message}")
                     del custom[name]
                     invalid_count += 1
                 else:
@@ -432,10 +447,8 @@ def safe_load_custom_sections():
                     save_custom_sections(custom)
         return SECTION_PROPERTIES
     except Exception as e:
-        st.error(f"⚠️ Custom section load failed: {str(e)}. Using default database.")
         return SECTION_PROPERTIES
 
-# Load custom sections safely
 safe_load_custom_sections()
 
 # ============================================================
@@ -484,6 +497,10 @@ if "saved_projects" not in st.session_state:
     st.session_state.saved_projects = []
 if "license_tier" not in st.session_state:
     st.session_state.license_tier = "business"
+if "design_results" not in st.session_state:
+    st.session_state.design_results = {}
+if "bq" not in st.session_state:
+    st.session_state.bq = {}
 if "materials" not in st.session_state:
     st.session_state.materials = {
         "standard": "EU",
@@ -557,42 +574,28 @@ def generate_bracing_positions(span, num_bays):
     return np.linspace(-span/3, span/3, num_bays).tolist()
 
 # ============================================================
-# CUSTOM SECTION INVENTOR (Intelligent Feature)
+# CUSTOM SECTION INVENTOR
 # ============================================================
 def invent_custom_section(W_required, I_required, section_type, material_type="Steel"):
-    """
-    Invent a custom section when no standard section works.
-    This is the INTELLIGENT feature that creates new sections.
-    """
     fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
     safety = 1.5
-    E = 210000
-    
-    # Steel density (kg/m³)
     rho = 7850
     
     if section_type == "CHS":
-        # Start with standard diameters and increase wall thickness
-        # Use a range of standard diameters
-        diameters = list(range(500, 1000, 25))  # 500mm to 1000mm in 25mm steps
+        diameters = list(range(500, 1000, 25))
         
         for D in diameters:
-            # Start with 10mm wall thickness, increase in 2mm steps
             for t in range(10, 100, 2):
                 D_inner = D - 2*t
                 if D_inner <= 0:
                     continue
                 
-                # Calculate properties
                 A = math.pi * (D**2 - D_inner**2) / 4
                 I = math.pi * (D**4 - D_inner**4) / 64
                 W_el = math.pi * (D**4 - D_inner**4) / (32 * D)
                 
-                # Check if adequate
                 if W_el >= W_required * 0.9 and I >= I_required * 0.9:
-                    weight = A * rho / 1e6  # kg/m
-                    
-                    # Create section name
+                    weight = A * rho / 1e6
                     name = f"CHS {D:.0f}x{t:.0f} (Custom)"
                     
                     section_data = {
@@ -610,12 +613,10 @@ def invent_custom_section(W_required, I_required, section_type, material_type="S
                         "fy": fy
                     }
                     
-                    # Validate
                     valid, message = validate_custom_section(section_data)
                     if not valid:
                         continue
                     
-                    # Save for future use if feature enabled
                     if is_feature_enabled("custom_section_persistence"):
                         save_custom_section(name, section_data)
                     
@@ -633,7 +634,6 @@ def invent_custom_section(W_required, I_required, section_type, material_type="S
         return None
     
     elif section_type == "SHS":
-        # Square hollow sections
         sizes = list(range(200, 600, 25))
         
         for B in sizes:
@@ -686,7 +686,6 @@ def invent_custom_section(W_required, I_required, section_type, material_type="S
         return None
     
     elif section_type == "RHS":
-        # Rectangular hollow sections
         widths = list(range(200, 600, 25))
         heights = list(range(300, 800, 25))
         
@@ -793,7 +792,6 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
         best_section = None
         best_weight = float('inf')
         
-        # First try preferred type
         for name, props in db.items():
             if preferred_type and props['type'] != preferred_type:
                 continue
@@ -802,7 +800,6 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
                     best_weight = props['weight']
                     best_section = name
         
-        # If no section found and we have a preferred type, try any type
         if not best_section and preferred_type:
             for name, props in db.items():
                 if props['A'] >= required_area:
@@ -894,7 +891,6 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     bq_items = []
     total_cost = 0
     
-    # 1. Main Beams
     if design_results["beams"].get("selected"):
         beam_section = design_results["beams"]["selected"]
         beam_weight = SECTION_PROPERTIES.get(beam_section, {}).get("weight", 28.3)
@@ -915,7 +911,6 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         })
         total_cost += beam_cost
     
-    # 2. Truss Members
     if truss_members and "top_chord" in truss_members:
         top_section = truss_members["top_chord"]
         top_weight = SECTION_PROPERTIES.get(top_section, {}).get("weight", 28.3)
@@ -1006,7 +1001,6 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         })
         total_cost += connection_cost
     
-    # 3. Fabric
     membrane_area = span * laa * 1.1
     fabric_cost_per_m2 = FABRIC_PROPERTIES.get(materials["fabric_type"], {}).get("cost_per_m2", 25)
     fabric_cost = membrane_area * fabric_cost_per_m2 * 1.2
@@ -1023,7 +1017,6 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         "total_price": fabric_cost
     })
     
-    # 4. Cables
     num_anchors = num_bays * 4
     cable_length = math.sqrt(rise**2 + (span/3)**2) * 1.2
     cable_cost_per_m = CABLE_PROPERTIES.get(materials["cable_type"], {}).get("cost_per_m", 8)
@@ -1042,7 +1035,6 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
         "total_price": cable_cost
     })
     
-    # 5. Installation
     installation_cost = total_cost * 0.15
     total_cost += installation_cost
     
@@ -1074,7 +1066,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     }
 
 # ============================================================
-# ENGINEERING FUNCTIONS - WITH AUTO-UPGRADE & CUSTOM INVENTION
+# ENGINEERING FUNCTIONS
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -1091,10 +1083,6 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     return (steel_kg + fabric_kg) / 100
 
 def calculate_required_section(load_kN, span_m, material_type, section_type, fy=355):
-    """
-    Calculate required section with AUTO-UPGRADE and CUSTOM INVENTION
-    This is the INTELLIGENT section finder
-    """
     safety = 1.5
     w = load_kN / span_m
     M = (w * span_m**2) / 8
@@ -1116,16 +1104,13 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     }
     preferred_type = type_map.get(section_type, "CHS")
     
-    # ===== STEP 1: Find ALL sections in preferred type =====
     sections_in_type = []
     for section, props in db.items():
         if props["type"] == preferred_type or (props["type"] == "Custom CHS" and preferred_type == "CHS") or (props["type"] == "Custom SHS" and preferred_type == "SHS") or (props["type"] == "Custom RHS" and preferred_type == "RHS"):
             sections_in_type.append((section, props))
     
-    # Sort by W_el (ascending)
     sections_in_type.sort(key=lambda x: x[1]["W_el"])
     
-    # ===== STEP 2: Find the FIRST section that is ADEQUATE =====
     selected_section = None
     selected_props = None
     selected_note = None
@@ -1138,7 +1123,6 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
                 selected_note = "💡 Using custom section from previous design"
             break
     
-    # ===== STEP 3: If found, return it =====
     if selected_section:
         moment_capacity = (selected_props["W_el"] * fy) / (safety * 1e6)
         return {
@@ -1151,13 +1135,11 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "note": selected_note
         }
     
-    # ===== STEP 4: If NO section in preferred type is adequate, INVENT ONE =====
     if is_feature_enabled("auto_invent_sections"):
         custom_result = invent_custom_section(W_required, I_required, section_type, material_type)
         if custom_result:
             return custom_result
     
-    # ===== STEP 5: If invention fails, use the LARGEST available =====
     if sections_in_type:
         largest_section, largest_props = sections_in_type[-1]
         moment_capacity = (largest_props["W_el"] * fy) / (safety * 1e6)
@@ -1177,7 +1159,6 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "note": note
         }
     
-    # ===== STEP 6: If NO section exists, search ALL types =====
     all_sections = []
     for section, props in db.items():
         all_sections.append((section, props))
@@ -1196,7 +1177,6 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
                 "note": f"⚠️ No {preferred_type} section adequate. Recommended {props['type']} instead."
             }
     
-    # ===== STEP 7: Truly nothing works =====
     return None
 
 def auto_select_fabric_thickness(wind_force, membrane_area, fabric_type):
@@ -1297,7 +1277,6 @@ def auto_design_structure(params, materials):
         if section_note:
             section_display = f"{beam['section']} {section_note}"
         
-        # Status: Always show PASS if adequate, otherwise show the note
         if is_adequate:
             status = "✅ PASS"
         else:
@@ -1360,7 +1339,7 @@ def auto_design_structure(params, materials):
     return results
 
 # ============================================================
-# 3D GENERATOR - FIXED TIE-DOWNS
+# 3D GENERATOR
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span = params.get("B", 10.0)
@@ -1378,7 +1357,6 @@ def generate_saddle_span(params, materials=None):
 
     fig = go.Figure()
 
-    # Main beams
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode='lines', name='Beam 1 (Left)',
@@ -1390,7 +1368,6 @@ def generate_saddle_span(params, materials=None):
         line=dict(color='#FF6B6B', width=8)
     ))
 
-    # Membrane surface
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
@@ -1413,7 +1390,6 @@ def generate_saddle_span(params, materials=None):
         opacity=0.5, showscale=False, name='Membrane'
     ))
 
-    # Apex and supports
     fig.add_trace(go.Scatter3d(
         x=[0], y=[y1[num_points//2]], z=[z_beam[num_points//2]],
         mode='markers', name='Apex',
@@ -1427,7 +1403,6 @@ def generate_saddle_span(params, materials=None):
         marker=dict(color='#4ECDC4', size=8, symbol='square')
     ))
 
-    # Bracing and tie-downs
     if materials:
         num_bays = materials.get("num_bays", 2)
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
@@ -1633,7 +1608,7 @@ GENERATORS = {
 }
 
 # ============================================================
-# TOP NAVIGATION - WITH UNIQUE KEYS
+# TOP NAVIGATION
 # ============================================================
 def render_top_nav():
     col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1, 1, 1])
@@ -1669,15 +1644,11 @@ def render_top_nav():
     with col6:
         if st.button("📊 Reports", key="nav_reports", use_container_width=True):
             if st.session_state.project_info:
-                if has_feature("pdf_report"):
-                    st.session_state.page = "reports"
-                    st.rerun()
-                else:
-                    st.info("🔒 Reports are available in all versions")
+                st.session_state.page = "reports"
+                st.rerun()
             else:
                 st.warning("Please create or open a project first")
     
-    # License badge in top nav
     license_info = get_license_info()
     st.markdown(f"""
     <div style='display: flex; justify-content: flex-end; padding: 0.2rem 0;'>
@@ -1697,7 +1668,6 @@ def render_top_nav():
 def render_dashboard():
     st.title("🏗️ SDS Design Studio v7.0")
     
-    # License banner
     license_info = get_license_info()
     st.caption(f"📋 {license_info['badge']} Version - {license_info['name']}")
     
@@ -1718,6 +1688,7 @@ def render_dashboard():
     with col1:
         if st.button("➕ New Design", key="dash_new_design", use_container_width=True, type="primary"):
             if check_project_limit():
+                clear_previous_project_data()
                 st.session_state.page = "registration"
                 st.rerun()
             else:
@@ -1737,6 +1708,7 @@ def render_dashboard():
             badge = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(std, "badge-eu")
             col1.markdown(f'<span class="standard-badge {badge}">{std}</span> {proj.get("typology", "Unknown")}', unsafe_allow_html=True)
             if col2.button("📂 Load", key=f"dash_load_{i}", use_container_width=True):
+                clear_previous_project_data()
                 st.session_state.project_info = proj.get("project_info", {})
                 st.session_state.materials = proj.get("materials", st.session_state.materials)
                 st.session_state.params = proj.get("params", {})
@@ -1755,8 +1727,8 @@ def render_registration():
         st.caption(f"📊 Remaining projects: {remaining} / {LICENSE_TIERS['free']['project_limit']}")
     
     with st.form("register_form"):
-        name = st.text_input("Project Name *", placeholder="e.g., Marina Bay Canopy")
-        client = st.text_input("Client Name *", placeholder="e.g., Marina Bay Sands")
+        name = st.text_input("Project Name *", placeholder="e.g., OCB")
+        client = st.text_input("Client Name *", placeholder="e.g., OCBC")
         location = st.text_input("Location", placeholder="e.g., Kuala Lumpur, Malaysia")
         standard = st.selectbox("Design Standard", ["EU", "CN", "UK", "MY", "US"], index=3)
         ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
@@ -1766,6 +1738,7 @@ def render_registration():
             if not name or not client:
                 st.error("⚠️ Project Name and Client Name are required.")
             else:
+                clear_previous_project_data()
                 st.session_state.project_info = {
                     "name": name,
                     "client": client,
@@ -1797,6 +1770,7 @@ def render_project_browser():
             badge = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(std, "badge-eu")
             col1.markdown(f'<span class="standard-badge {badge}">{std}</span> {proj.get("typology", "Unknown")}', unsafe_allow_html=True)
             if col2.button("📂 Load", key=f"browser_load_{i}", use_container_width=True):
+                clear_previous_project_data()
                 st.session_state.project_info = proj.get("project_info", {})
                 st.session_state.materials = proj.get("materials", st.session_state.materials)
                 st.session_state.params = proj.get("params", {})
@@ -1860,14 +1834,14 @@ def render_bq_page():
     st.markdown(f"**Reference:** {st.session_state.project_info.get('reference', 'N/A')}")
     st.divider()
     
-    if "bq" not in st.session_state:
+    if "bq" not in st.session_state or not st.session_state.bq:
         st.info("💡 Please run the design first to generate the Bill of Quantities.")
         if st.button("🏗️ Go to Workspace", key="bq_goto_workspace", use_container_width=True, type="primary"):
             st.session_state.page = "workspace"
             st.rerun()
         return
     
-    bq = st.session_state.get("bq", {})
+    bq = st.session_state.bq
     if not bq or "items" not in bq:
         st.info("💡 Please run the design first to generate the Bill of Quantities.")
         if st.button("🏗️ Go to Workspace", key="bq_goto_workspace2", use_container_width=True, type="primary"):
@@ -1935,7 +1909,7 @@ def render_bq_page():
             st.rerun()
 
 # ============================================================
-# REPORTS PAGE (PDF Export)
+# REPORTS PAGE
 # ============================================================
 def render_reports():
     st.title("📊 Reports & Export")
@@ -1953,14 +1927,14 @@ def render_reports():
     st.markdown(f"**Reference:** {st.session_state.project_info.get('reference', 'N/A')}")
     st.divider()
     
-    if "design_results" not in st.session_state:
+    if "design_results" not in st.session_state or not st.session_state.design_results:
         st.info("💡 Please run the design first to generate reports.")
         if st.button("🏗️ Go to Workspace", key="reports_goto_workspace", use_container_width=True, type="primary"):
             st.session_state.page = "workspace"
             st.rerun()
         return
     
-    # PDF Export (All versions)
+    # PDF Export
     st.subheader("📄 PDF Report")
     st.markdown("Generate a professional PDF report with design summary, BQ, and 3D visualization")
     
@@ -1969,14 +1943,12 @@ def render_reports():
             fig, axes = plt.subplots(2, 2, figsize=(10, 12))
             fig.patch.set_facecolor('#0a0e17')
             
-            # Title
             axes[0, 0].axis('off')
             axes[0, 0].text(0.5, 0.8, "SDS Design Studio", fontsize=18, color='white', ha='center', weight='bold')
             axes[0, 0].text(0.5, 0.6, f"Project: {st.session_state.project_info.get('name', 'Untitled')}", fontsize=14, color='#b0c4de', ha='center')
             axes[0, 0].text(0.5, 0.4, f"Client: {st.session_state.project_info.get('client', 'Unknown')}", fontsize=12, color='#b0c4de', ha='center')
             axes[0, 0].text(0.5, 0.2, f"Date: {datetime.now().strftime('%B %d, %Y')}", fontsize=12, color='#b0c4de', ha='center')
             
-            # Design Results
             axes[0, 1].axis('off')
             axes[0, 1].text(0.1, 0.9, "Design Summary", fontsize=14, color='white', weight='bold')
             
@@ -1993,14 +1965,12 @@ def render_reports():
             y_pos -= 0.08
             axes[0, 1].text(0.1, y_pos, f"Cable: {cables.get('type', 'N/A')} {cables.get('diameter', 'N/A')}mm", fontsize=11, color='#b0c4de')
             
-            # Health Score
             axes[1, 0].axis('off')
             score = design.get('health_score', 0)
             color = '#2ecc71' if score >= 80 else '#f39c12' if score >= 60 else '#e74c3c'
             axes[1, 0].text(0.5, 0.6, f"Health Score", fontsize=14, color='white', ha='center', weight='bold')
             axes[1, 0].text(0.5, 0.3, f"{score}%", fontsize=36, color=color, ha='center', weight='bold')
             
-            # BQ Summary
             bq = design.get('bq', {})
             axes[1, 1].axis('off')
             axes[1, 1].text(0.1, 0.9, "Cost Summary", fontsize=14, color='white', weight='bold')
@@ -2028,36 +1998,12 @@ def render_reports():
             st.error(f"❌ Error generating PDF: {str(e)}")
             st.info("PDF generation requires matplotlib. Please ensure it's installed.")
     
-    # CAD Drawing (Business version only)
-    if has_feature("cad_drawings"):
-        st.divider()
-        st.subheader("📐 CAD Drawings (Business Version)")
-        st.markdown("Export technical drawings in DXF format")
-        
-        if st.button("📐 Generate CAD Drawing", key="reports_cad", use_container_width=True):
-            st.info("🔄 CAD drawing generation will be available in the next update.")
-    else:
-        st.divider()
-        st.info("🔒 CAD Drawings are available in Business version only")
-    
-    # Excel Export (Business version only)
-    if has_feature("export_excel"):
-        st.divider()
-        st.subheader("📊 Excel Export (Business Version)")
-        st.markdown("Export full BQ and costing to Excel")
-        
-        if st.button("📊 Export to Excel", key="reports_excel", use_container_width=True):
-            st.info("🔄 Excel export will be available in the next update.")
-    else:
-        st.divider()
-        st.info("🔒 Excel Export is available in Business version only")
-    
     if st.button("🏠 Back to Workspace", key="reports_back_workspace", use_container_width=True, type="primary"):
         st.session_state.page = "workspace"
         st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE
+# WORKSPACE PAGE - WITH FIXED RUN DESIGN ANALYSIS BUTTON
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -2214,11 +2160,22 @@ def render_workspace():
         st.session_state.comments = st.text_area("", st.session_state.comments, height=80, disabled=st.session_state.locked, key="comments_area")
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # ============================================================
+        # FIXED: RUN DESIGN ANALYSIS BUTTON - Clears and Recalculates Fresh
+        # ============================================================
         if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary"):
+            # STEP 1: Clear previous results
+            st.session_state.design_results = {}
+            st.session_state.bq = {}
+            
+            # STEP 2: Run fresh calculation with current inputs
             design_results = auto_design_structure(params, materials)
+            
+            # STEP 3: Store new results
             st.session_state.design_results = design_results
             st.session_state.bq = design_results.get("bq", {})
-            st.success("✅ Design analysis completed!")
+            
+            st.success("✅ Design analysis completed successfully!")
             st.rerun()
     
     with col_right:
@@ -2229,9 +2186,10 @@ def render_workspace():
         
         st.divider()
         
-        if "design_results" in st.session_state:
+        if "design_results" in st.session_state and st.session_state.design_results:
             design_results = st.session_state.design_results
         else:
+            # Auto-run design if no results exist
             design_results = auto_design_structure(params, materials)
             st.session_state.design_results = design_results
             st.session_state.bq = design_results.get("bq", {})
