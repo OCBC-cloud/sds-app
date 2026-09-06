@@ -193,18 +193,18 @@ LICENSE_TIERS = {
 # ============================================================
 def has_feature(feature_name):
     """Check if current license tier has a feature"""
-    tier = st.session_state.get("license_tier", "free")
+    tier = st.session_state.get("license_tier", "business")
     features = LICENSE_TIERS.get(tier, {}).get("features", {})
     return features.get(feature_name, False)
 
 def get_license_info():
     """Get current license info"""
-    tier = st.session_state.get("license_tier", "free")
-    return LICENSE_TIERS.get(tier, LICENSE_TIERS["free"])
+    tier = st.session_state.get("license_tier", "business")
+    return LICENSE_TIERS.get(tier, LICENSE_TIERS["business"])
 
 def check_project_limit():
     """Check if user can add more projects"""
-    tier = st.session_state.get("license_tier", "free")
+    tier = st.session_state.get("license_tier", "business")
     limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
     if limit is None:
         return True
@@ -213,7 +213,7 @@ def check_project_limit():
 
 def get_remaining_projects():
     """Get remaining project slots"""
-    tier = st.session_state.get("license_tier", "free")
+    tier = st.session_state.get("license_tier", "business")
     limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
     if limit is None:
         return "Unlimited"
@@ -372,7 +372,7 @@ if "comments" not in st.session_state:
 if "saved_projects" not in st.session_state:
     st.session_state.saved_projects = []
 if "license_tier" not in st.session_state:
-    st.session_state.license_tier = "free"  # Default: free version
+    st.session_state.license_tier = "business"  # ← BUSINESS VERSION WITH ALL FEATURES
 if "materials" not in st.session_state:
     st.session_state.materials = {
         "standard": "EU",
@@ -1403,10 +1403,6 @@ def render_dashboard():
             st.session_state.page = "browser"
             st.rerun()
     
-    # Upgrade banner for free users
-    if st.session_state.license_tier == "free":
-        st.info("🔓 Upgrade to Pro or Business for unlimited projects, BQ, costing sheets, and advanced analysis!")
-    
     if projects:
         st.divider()
         st.subheader("📂 Recent Projects")
@@ -1642,7 +1638,7 @@ def render_reports():
             st.rerun()
         return
     
-    # PDF Export
+    # PDF Export (All versions)
     st.subheader("📄 PDF Report")
     st.markdown("Generate a professional PDF report with design summary, BQ, and 3D visualization")
     
@@ -1721,6 +1717,9 @@ def render_reports():
         
         if st.button("📐 Generate CAD Drawing", key="reports_cad", use_container_width=True):
             st.info("🔄 CAD drawing generation will be available in the next update.")
+    else:
+        st.divider()
+        st.info("🔒 CAD Drawings are available in Business version only")
     
     # Excel Export (Business version only)
     if has_feature("export_excel"):
@@ -1730,11 +1729,9 @@ def render_reports():
         
         if st.button("📊 Export to Excel", key="reports_excel", use_container_width=True):
             st.info("🔄 Excel export will be available in the next update.")
-    
-    # Upgrade banner
-    if st.session_state.license_tier == "free":
+    else:
         st.divider()
-        st.info("🔓 Upgrade to Business for CAD drawings and Excel export!")
+        st.info("🔒 Excel Export is available in Business version only")
     
     if st.button("🏠 Back to Workspace", key="reports_back_workspace", use_container_width=True, type="primary"):
         st.session_state.page = "workspace"
@@ -2031,15 +2028,6 @@ def render_workspace():
             col1.metric("Total Cost", f"{currency['symbol']}{bq.get('total_cost', 0):,.0f}")
             col2.metric("Steel Weight", f"{bq.get('total_steel_weight', 0):.0f} kg")
             if st.button("📄 View Full BQ", key="workspace_view_full_bq", use_container_width=True, type="primary"):
-                st.session_state.page = "bq"
-                st.rerun()
-        
-        # Costing Sheet (Business version only)
-        if has_feature("costing_sheet"):
-            st.divider()
-            st.markdown("## 💰 Full Costing Sheet (Business)")
-            st.info("🔓 Full costing sheet with editable rates is available in this version")
-            if st.button("📄 Open Costing Sheet", key="workspace_costing", use_container_width=True, type="primary"):
                 st.session_state.page = "bq"
                 st.rerun()
     
