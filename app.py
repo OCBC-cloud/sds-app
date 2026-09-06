@@ -115,6 +115,66 @@ dark_mode_css = """
     .license-free { background-color: #2ecc71; color: #0a0e17; }
     .license-pro { background-color: #3498db; color: #ffffff; }
     .license-business { background-color: #f39c12; color: #0a0e17; }
+    
+    /* ===== RADIO BUTTON FIX: GREY WHEN INACTIVE, ORANGE WHEN ACTIVE ===== */
+    .stRadio > div {
+        gap: 0.5rem;
+    }
+    .stRadio > div label {
+        color: #6a7a8a !important;
+        background-color: #0a0e17 !important;
+        padding: 0.3rem 1rem !important;
+        border-radius: 20px !important;
+        border: 1px solid #2a3a4f !important;
+        transition: all 0.3s ease !important;
+        cursor: pointer !important;
+        font-size: 0.85rem !important;
+    }
+    .stRadio > div label:hover {
+        border-color: #4a7a9c !important;
+        color: #ffffff !important;
+    }
+    .stRadio > div label[data-baseweb="radio"] {
+        background-color: transparent !important;
+    }
+    .stRadio > div label[data-checked="true"] {
+        color: #f39c12 !important;
+        border-color: #f39c12 !important;
+        background-color: rgba(243, 156, 18, 0.1) !important;
+        font-weight: 600 !important;
+    }
+    .stRadio > div label[data-checked="true"]:hover {
+        border-color: #f1c40f !important;
+        color: #f1c40f !important;
+    }
+    /* Fix for the actual radio circle */
+    .stRadio > div label div[data-testid="stMarkdownContainer"] {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .stRadio > div label div[data-testid="stMarkdownContainer"] > div:first-child {
+        width: 14px !important;
+        height: 14px !important;
+        border-radius: 50% !important;
+        border: 2px solid #4a5a6a !important;
+        transition: all 0.3s ease !important;
+        flex-shrink: 0 !important;
+    }
+    .stRadio > div label[data-checked="true"] div[data-testid="stMarkdownContainer"] > div:first-child {
+        border-color: #f39c12 !important;
+        background-color: #f39c12 !important;
+        box-shadow: 0 0 8px rgba(243, 156, 18, 0.4) !important;
+    }
+    .stRadio > div label[data-checked="true"] div[data-testid="stMarkdownContainer"] > div:first-child::after {
+        content: "" !important;
+        display: block !important;
+        width: 6px !important;
+        height: 6px !important;
+        border-radius: 50% !important;
+        background-color: #0a0e17 !important;
+        margin: 2px auto !important;
+    }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -802,7 +862,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     }
 
 # ============================================================
-# ENGINEERING FUNCTIONS - WITH ARCH ACTION FOR SADDLE SPAN
+# ENGINEERING FUNCTIONS - FIXED SECTION SELECTION
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -850,16 +910,16 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     }
     preferred_type = type_map.get(section_type, "CHS")
     
-    # Find ALL standard sections in preferred type
+    # ===== FIND ALL SECTIONS IN PREFERRED TYPE =====
     sections_in_type = []
     for section, props in db.items():
-        if props["type"] == preferred_type:
+        if props.get("type") == preferred_type:
             sections_in_type.append((section, props))
     
-    # Sort by W_el (ascending - smallest to largest)
+    # ===== SORT BY W_el (SMALLEST TO LARGEST) =====
     sections_in_type.sort(key=lambda x: x[1]["W_el"])
     
-    # Find the FIRST section that is ADEQUATE
+    # ===== FIND THE FIRST ADEQUATE SECTION =====
     selected_section = None
     selected_props = None
     
@@ -869,6 +929,7 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             selected_props = props
             break
     
+    # ===== IF FOUND, RETURN IT =====
     if selected_section:
         moment_capacity = (selected_props["W_el"] * fy) / (safety * 1e6)
         return {
@@ -882,23 +943,24 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "arch_reduction": arch_reduction
         }
     
-    # If no adequate section, use the largest available
+    # ===== IF NO ADEQUATE SECTION, USE THE LARGEST =====
     if sections_in_type:
         largest_section, largest_props = sections_in_type[-1]
         moment_capacity = (largest_props["W_el"] * fy) / (safety * 1e6)
+        is_adequate = largest_props["W_el"] >= W_required * 0.9
         
         return {
             "section": largest_section,
             "properties": largest_props,
             "required_moment": M,
             "moment_capacity": moment_capacity,
-            "is_adequate": largest_props["W_el"] >= W_required * 0.9,
+            "is_adequate": is_adequate,
             "section_type": largest_props.get("type", preferred_type),
-            "note": f"⚠️ Largest {preferred_type} available ({largest_section}) - Consider custom fabrication",
+            "note": f"⚠️ Largest {preferred_type} available ({largest_section}) - Consider custom fabrication" if not is_adequate else None,
             "arch_reduction": arch_reduction
         }
     
-    # If no section exists in preferred type, search all types
+    # ===== SEARCH ALL TYPES =====
     all_sections = []
     for section, props in db.items():
         all_sections.append((section, props))
