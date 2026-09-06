@@ -17,16 +17,6 @@ import csv
 from io import BytesIO, StringIO
 
 # ============================================================
-# FORCE RESET - COMMENTED OUT FOR PRODUCTION
-# ============================================================
-# FIXED: Commented out to prevent reset on deployment
-# if "force_reset_done" not in st.session_state:
-#     st.session_state.clear()
-#     st.session_state.license_tier = "free"
-#     st.session_state.force_reset_done = True
-#     st.rerun()
-
-# ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
@@ -181,6 +171,108 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
+# LICENSE SWITCHER - DEVELOPMENT MODE ONLY
+# ============================================================
+if "dev_mode" not in st.session_state:
+    st.session_state.dev_mode = False
+
+def render_license_switcher():
+    """Development-only license switcher for testing all tiers"""
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔑 Development Tools")
+    
+    # Toggle dev mode
+    dev_mode = st.sidebar.checkbox(
+        "🛠️ Enable Dev Mode",
+        value=st.session_state.dev_mode,
+        help="Show development tools and license switcher"
+    )
+    st.session_state.dev_mode = dev_mode
+    
+    if dev_mode:
+        # Show current license
+        current_tier = st.session_state.license_tier
+        st.sidebar.info(f"**Current License:** `{current_tier.upper()}`")
+        
+        # License switcher
+        new_tier = st.sidebar.selectbox(
+            "🔄 Switch License Tier",
+            ["free", "pro", "business"],
+            index=["free", "pro", "business"].index(current_tier),
+            help="Switch between license tiers for testing"
+        )
+        
+        if new_tier != current_tier:
+            st.session_state.license_tier = new_tier
+            st.sidebar.success(f"✅ Switched to **{new_tier.upper()}**!")
+            st.rerun()
+        
+        # Show feature status for current tier
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**📋 Feature Status:**")
+        features = LICENSE_TIERS[current_tier]["features"]
+        
+        # Group features for better display
+        feature_groups = {
+            "Core": ["3d_viewer", "health_score", "structure_types", "load_calculations", "member_sizing", "fabric_selection", "pdf_report"],
+            "Advanced": ["bq", "editable_bq", "costing_sheet"],
+            "Professional": ["reaction_forces", "shear_moment", "axial_forces", "cad_drawings", "export_excel"],
+            "Projects": ["unlimited_projects"]
+        }
+        
+        for group, feature_list in feature_groups.items():
+            st.sidebar.markdown(f"**{group}:**")
+            for feature in feature_list:
+                if feature in features:
+                    enabled = features[feature]
+                    icon = "✅" if enabled else "❌"
+                    display_name = feature.replace('_', ' ').title()
+                    st.sidebar.markdown(f"{icon} {display_name}")
+            st.sidebar.markdown("")
+        
+        # Project limit info
+        limit = LICENSE_TIERS[current_tier]["project_limit"]
+        limit_display = "Unlimited" if limit is None else limit
+        st.sidebar.markdown(f"**📊 Project Limit:** {limit_display}")
+        
+        # Quick test buttons
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**⚡ Quick Actions:**")
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            if st.button("🔄 Reset Session", use_container_width=True):
+                for key in list(st.session_state.keys()):
+                    if key not in ["license_tier", "dev_mode", "saved_projects", "page"]:
+                        del st.session_state[key]
+                st.sidebar.success("✅ Session reset!")
+                st.rerun()
+        with col2:
+            if st.button("📊 Clear Projects", use_container_width=True):
+                st.session_state.saved_projects = []
+                st.sidebar.success("✅ Projects cleared!")
+                st.rerun()
+        
+        # Quick license switch buttons
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**🔑 Quick Switch:**")
+        cols = st.sidebar.columns(3)
+        with cols[0]:
+            if st.button("FREE", use_container_width=True):
+                st.session_state.license_tier = "free"
+                st.rerun()
+        with cols[1]:
+            if st.button("PRO", use_container_width=True):
+                st.session_state.license_tier = "pro"
+                st.rerun()
+        with cols[2]:
+            if st.button("BUSINESS", use_container_width=True):
+                st.session_state.license_tier = "business"
+                st.rerun()
+
+# Call the license switcher
+render_license_switcher()
+
+# ============================================================
 # LICENSE TIERS CONFIGURATION
 # ============================================================
 LICENSE_TIERS = {
@@ -262,16 +354,16 @@ LICENSE_TIERS = {
 # FEATURE CHECK FUNCTIONS
 # ============================================================
 def has_feature(feature_name):
-    tier = st.session_state.get("license_tier", "free")  # FIXED: Changed from "business" to "free"
+    tier = st.session_state.get("license_tier", "free")
     features = LICENSE_TIERS.get(tier, {}).get("features", {})
     return features.get(feature_name, False)
 
 def get_license_info():
-    tier = st.session_state.get("license_tier", "free")  # FIXED: Changed from "business" to "free"
-    return LICENSE_TIERS.get(tier, LICENSE_TIERS["free"])  # FIXED: Changed default
+    tier = st.session_state.get("license_tier", "free")
+    return LICENSE_TIERS.get(tier, LICENSE_TIERS["free"])
 
 def check_project_limit():
-    tier = st.session_state.get("license_tier", "free")  # FIXED: Changed from "business" to "free"
+    tier = st.session_state.get("license_tier", "free")
     limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
     if limit is None:
         return True
@@ -279,7 +371,7 @@ def check_project_limit():
     return current_projects < limit
 
 def get_remaining_projects():
-    tier = st.session_state.get("license_tier", "free")  # FIXED: Changed from "business" to "free"
+    tier = st.session_state.get("license_tier", "free")
     limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
     if limit is None:
         return "Unlimited"
@@ -468,8 +560,7 @@ if "comments" not in st.session_state:
 if "saved_projects" not in st.session_state:
     st.session_state.saved_projects = []
 if "license_tier" not in st.session_state:
-    # FIXED: Changed from "business" to "free" for production default
-    st.session_state.license_tier = "free"  
+    st.session_state.license_tier = "free"
 if "design_results" not in st.session_state:
     st.session_state.design_results = {}
 if "bq" not in st.session_state:
