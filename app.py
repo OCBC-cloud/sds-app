@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import io
 import math
+import csv
+from io import BytesIO, StringIO
 
 # ============================================================
 # PAGE CONFIG
@@ -100,9 +102,123 @@ dark_mode_css = """
     .tag-ibeam { background-color: #f39c12; color: #ffffff; }
     .tag-angle { background-color: #9b59b6; color: #ffffff; }
     .tag-channel { background-color: #1abc9c; color: #ffffff; }
+    .license-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 600; }
+    .license-free { background-color: #2ecc71; color: #0a0e17; }
+    .license-pro { background-color: #3498db; color: #ffffff; }
+    .license-business { background-color: #f39c12; color: #0a0e17; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
+
+# ============================================================
+# LICENSE TIERS CONFIGURATION
+# ============================================================
+LICENSE_TIERS = {
+    "free": {
+        "name": "SDS Studio",
+        "badge": "FREE",
+        "badge_class": "license-free",
+        "project_limit": 3,
+        "features": {
+            "3d_viewer": True,
+            "health_score": True,
+            "structure_types": True,
+            "load_calculations": True,
+            "member_sizing": True,
+            "fabric_selection": True,
+            "pdf_report": True,
+            "bq": False,
+            "editable_bq": False,
+            "costing_sheet": False,
+            "reaction_forces": False,
+            "shear_moment": False,
+            "axial_forces": False,
+            "cad_drawings": False,
+            "export_excel": False,
+            "unlimited_projects": False
+        }
+    },
+    "pro": {
+        "name": "SDS Engineer",
+        "badge": "PRO",
+        "badge_class": "license-pro",
+        "project_limit": None,
+        "features": {
+            "3d_viewer": True,
+            "health_score": True,
+            "structure_types": True,
+            "load_calculations": True,
+            "member_sizing": True,
+            "fabric_selection": True,
+            "pdf_report": True,
+            "bq": True,
+            "editable_bq": False,
+            "costing_sheet": False,
+            "reaction_forces": False,
+            "shear_moment": False,
+            "axial_forces": False,
+            "cad_drawings": False,
+            "export_excel": False,
+            "unlimited_projects": True
+        }
+    },
+    "business": {
+        "name": "SDS Constructor",
+        "badge": "BUSINESS",
+        "badge_class": "license-business",
+        "project_limit": None,
+        "features": {
+            "3d_viewer": True,
+            "health_score": True,
+            "structure_types": True,
+            "load_calculations": True,
+            "member_sizing": True,
+            "fabric_selection": True,
+            "pdf_report": True,
+            "bq": True,
+            "editable_bq": True,
+            "costing_sheet": True,
+            "reaction_forces": True,
+            "shear_moment": True,
+            "axial_forces": True,
+            "cad_drawings": True,
+            "export_excel": True,
+            "unlimited_projects": True
+        }
+    }
+}
+
+# ============================================================
+# FEATURE CHECK FUNCTION
+# ============================================================
+def has_feature(feature_name):
+    """Check if current license tier has a feature"""
+    tier = st.session_state.get("license_tier", "free")
+    features = LICENSE_TIERS.get(tier, {}).get("features", {})
+    return features.get(feature_name, False)
+
+def get_license_info():
+    """Get current license info"""
+    tier = st.session_state.get("license_tier", "free")
+    return LICENSE_TIERS.get(tier, LICENSE_TIERS["free"])
+
+def check_project_limit():
+    """Check if user can add more projects"""
+    tier = st.session_state.get("license_tier", "free")
+    limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
+    if limit is None:
+        return True
+    current_projects = len(st.session_state.saved_projects)
+    return current_projects < limit
+
+def get_remaining_projects():
+    """Get remaining project slots"""
+    tier = st.session_state.get("license_tier", "free")
+    limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
+    if limit is None:
+        return "Unlimited"
+    current = len(st.session_state.saved_projects)
+    return max(0, limit - current)
 
 # ============================================================
 # COUNTRY CURRENCY DATABASE
@@ -255,6 +371,8 @@ if "comments" not in st.session_state:
     st.session_state.comments = ""
 if "saved_projects" not in st.session_state:
     st.session_state.saved_projects = []
+if "license_tier" not in st.session_state:
+    st.session_state.license_tier = "free"  # Default: free version
 if "materials" not in st.session_state:
     st.session_state.materials = {
         "standard": "EU",
@@ -281,17 +399,14 @@ def get_standard_label(code):
     return labels.get(code, code)
 
 def get_currency(country):
-    """Get currency info for a country"""
     country_data = COUNTRY_CURRENCIES.get(country, COUNTRY_CURRENCIES["Malaysia"])
     return country_data
 
 def format_currency(amount, country="Malaysia"):
-    """Format amount in local currency"""
     currency = get_currency(country)
     return f"{currency['symbol']}{amount:,.0f}"
 
 def get_section_tag(section_type):
-    """Get HTML tag for section type"""
     tags = {
         "CHS": '<span class="section-tag tag-chs">CHS</span>',
         "SHS": '<span class="section-tag tag-shs">SHS</span>',
@@ -319,7 +434,6 @@ def get_beam_shape(x, span, rise, shape_type="parabolic"):
     return rise * (1 - x_norm**2)
 
 def generate_bracing_positions(span, num_bays):
-    """Generate bracing positions at ~1/4 points from supports"""
     if num_bays == 1:
         return [0.0]
     if num_bays == 2:
@@ -359,7 +473,6 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
     db = SECTION_PROPERTIES
     fy = 355
     
-    # Get user's preferred section type
     user_section_type = materials.get("section_type", "CHS")
     type_map = {
         "CHS": "CHS",
@@ -376,7 +489,6 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
         best_section = None
         best_weight = float('inf')
         
-        # First try preferred type
         for name, props in db.items():
             if preferred_type and props['type'] != preferred_type:
                 continue
@@ -385,7 +497,6 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
                     best_weight = props['weight']
                     best_section = name
         
-        # If no section found and we have a preferred type, try any type
         if not best_section and preferred_type:
             for name, props in db.items():
                 if props['A'] >= required_area:
@@ -657,7 +768,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     }
 
 # ============================================================
-# ENGINEERING FUNCTIONS - FIXED TO RESPECT SECTION TYPE
+# ENGINEERING FUNCTIONS
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -674,9 +785,6 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     return (steel_kg + fabric_kg) / 100
 
 def calculate_required_section(load_kN, span_m, material_type, section_type, fy=355):
-    """
-    Calculate required section - ONLY searches within the user's selected section type
-    """
     safety = 1.5
     w = load_kN / span_m
     M = (w * span_m**2) / 8
@@ -688,7 +796,6 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     
     db = SECTION_PROPERTIES
     
-    # Map user section type to database type
     type_map = {
         "CHS": "CHS",
         "SHS": "SHS",
@@ -699,7 +806,6 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     }
     preferred_type = type_map.get(section_type, "CHS")
     
-    # FIRST PASS: Search ONLY within the preferred type
     best_section = None
     best_score = float('inf')
     
@@ -732,7 +838,6 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "note": None
         }
     
-    # SECOND PASS: If no section found in preferred type, find the largest in that type
     largest_section = None
     largest_W = 0
     for section, props in db.items():
@@ -755,7 +860,6 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "note": f"⚠️ Selected largest {preferred_type} section available ({largest_section})"
         }
     
-    # THIRD PASS: If truly no section exists in that type, search all types
     for section, props in db.items():
         if props["A"] <= 0:
             continue
@@ -832,7 +936,6 @@ def auto_design_structure(params, materials):
     
     fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
     
-    # --- SINGLE BEAM ANALYSIS - Now respects section type ---
     if member_type == "single_beam":
         beam_result = calculate_required_section(total_load, span, material_type, section_type, fy)
         if beam_result:
@@ -843,20 +946,17 @@ def auto_design_structure(params, materials):
             results["beams"]["section_type"] = beam_result.get("section_type", section_type)
             results["beams"]["note"] = beam_result.get("note", None)
     
-    # --- TRUSS ANALYSIS ---
     truss_members = None
     if member_type in ["planar_truss", "space_truss"]:
         truss_members = analyze_truss_members(params, materials, total_load, joint_type)
         results["truss"] = truss_members
     
-    # --- FABRIC SELECTION ---
     membrane_area = span * laa * 1.1
     fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area, fabric_type)
     results["fabric"]["type"] = fabric_type
     results["fabric"]["thickness"] = fabric_thickness
     results["fabric"]["strength"] = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {}).get(fabric_thickness, 0)
     
-    # --- CABLE SELECTION ---
     num_bays = materials.get("num_bays", 2)
     num_anchors = num_bays * 4
     vertical_angle = materials.get("tie_down_vertical_angle", 45)
@@ -873,7 +973,6 @@ def auto_design_structure(params, materials):
     results["cables"]["force_per_cable"] = cable_force
     results["cables"]["is_adequate"] = cable_breaking >= cable_force * 1.5
     
-    # --- CHECKS ---
     results["all_checks"]["wind_load"] = {"status": "✅ PASS", "value": f"{wind_load:.1f} kN"}
     results["all_checks"]["joint_type"] = {"status": f"🔧 {joint_type.upper()}", "value": joint_data["description"][:30] + "..."}
     
@@ -1213,7 +1312,7 @@ GENERATORS = {
 # TOP NAVIGATION - WITH UNIQUE KEYS
 # ============================================================
 def render_top_nav():
-    col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
+    col1, col2, col3, col4, col5, col6 = st.columns([1, 1, 1, 1, 1, 1])
     with col1:
         if st.button("🏠 Dashboard", key="nav_dashboard", use_container_width=True):
             st.session_state.page = "dashboard"
@@ -1236,18 +1335,47 @@ def render_top_nav():
     with col5:
         if st.button("📄 BQ & Costing", key="nav_bq", use_container_width=True):
             if st.session_state.project_info:
-                st.session_state.page = "bq"
-                st.rerun()
+                if has_feature("bq"):
+                    st.session_state.page = "bq"
+                    st.rerun()
+                else:
+                    st.info("🔒 BQ & Costing is available in Pro and Business versions")
             else:
                 st.warning("Please create or open a project first")
+    with col6:
+        if st.button("📊 Reports", key="nav_reports", use_container_width=True):
+            if st.session_state.project_info:
+                if has_feature("pdf_report"):
+                    st.session_state.page = "reports"
+                    st.rerun()
+                else:
+                    st.info("🔒 Reports are available in all versions")
+            else:
+                st.warning("Please create or open a project first")
+    
+    # License badge in top nav
+    license_info = get_license_info()
+    st.markdown(f"""
+    <div style='display: flex; justify-content: flex-end; padding: 0.2rem 0;'>
+        <span class='license-badge {license_info["badge_class"]}'>
+            {license_info["badge"]} - {license_info["name"]}
+        </span>
+        <span style='color: #8a9aaa; font-size: 0.7rem; margin-left: 1rem;'>
+            Projects: {len(st.session_state.saved_projects)} / {get_remaining_projects()}
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
     st.divider()
 
 # ============================================================
-# DASHBOARD PAGE - WITH UNIQUE KEYS
+# DASHBOARD PAGE
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio v7.0")
-    st.caption("Parametric design for tensile structures")
+    
+    # License banner
+    license_info = get_license_info()
+    st.caption(f"📋 {license_info['badge']} Version - {license_info['name']}")
     
     projects = st.session_state.saved_projects
     cols = st.columns(4)
@@ -1265,12 +1393,19 @@ def render_dashboard():
     col1, col2 = st.columns(2)
     with col1:
         if st.button("➕ New Design", key="dash_new_design", use_container_width=True, type="primary"):
-            st.session_state.page = "registration"
-            st.rerun()
+            if check_project_limit():
+                st.session_state.page = "registration"
+                st.rerun()
+            else:
+                st.warning(f"⚠️ Free version limited to {LICENSE_TIERS['free']['project_limit']} projects. Upgrade to Pro for unlimited.")
     with col2:
         if st.button("📂 Open Project", key="dash_open_project", use_container_width=True):
             st.session_state.page = "browser"
             st.rerun()
+    
+    # Upgrade banner for free users
+    if st.session_state.license_tier == "free":
+        st.info("🔓 Upgrade to Pro or Business for unlimited projects, BQ, costing sheets, and advanced analysis!")
     
     if projects:
         st.divider()
@@ -1295,10 +1430,15 @@ def render_dashboard():
 def render_registration():
     st.subheader("📋 New Project")
     
+    # Show remaining projects
+    remaining = get_remaining_projects()
+    if st.session_state.license_tier == "free":
+        st.caption(f"📊 Remaining projects: {remaining} / {LICENSE_TIERS['free']['project_limit']}")
+    
     with st.form("register_form"):
         name = st.text_input("Project Name *", placeholder="e.g., Marina Bay Canopy")
         client = st.text_input("Client Name *", placeholder="e.g., Marina Bay Sands")
-        location = st.text_input("Location", placeholder="e.g., Singapore")
+        location = st.text_input("Location", placeholder="e.g., Kuala Lumpur, Malaysia")
         standard = st.selectbox("Design Standard", ["EU", "CN", "UK", "MY", "US"], index=3)
         ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         st.caption(f"Reference: SDS-{ref}")
@@ -1319,7 +1459,7 @@ def render_registration():
                 st.rerun()
 
 # ============================================================
-# PROJECT BROWSER - WITH UNIQUE KEYS
+# PROJECT BROWSER
 # ============================================================
 def render_project_browser():
     st.subheader("📂 Saved Projects")
@@ -1350,7 +1490,7 @@ def render_project_browser():
             st.divider()
 
 # ============================================================
-# CATALOG PAGE - WITH UNIQUE KEYS
+# CATALOG PAGE
 # ============================================================
 def render_catalog():
     st.subheader("Choose a structure type:")
@@ -1383,7 +1523,7 @@ def render_catalog():
             st.rerun()
 
 # ============================================================
-# BQ & COSTING PAGE - WITH UNIQUE KEYS
+# BQ & COSTING PAGE
 # ============================================================
 def render_bq_page():
     st.title("📄 Bill of Quantities & Costing")
@@ -1476,7 +1616,132 @@ def render_bq_page():
             st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE - WITH UNIQUE KEYS
+# REPORTS PAGE (PDF Export)
+# ============================================================
+def render_reports():
+    st.title("📊 Reports & Export")
+    st.caption("Generate professional reports and drawings")
+    
+    if not st.session_state.project_info:
+        st.warning("⚠️ No active project. Please start a design first.")
+        if st.button("🏠 Go to Dashboard", key="reports_back_dash", use_container_width=True, type="primary"):
+            st.session_state.page = "dashboard"
+            st.rerun()
+        return
+    
+    st.markdown(f"**Project:** {st.session_state.project_info.get('name', 'Untitled')}")
+    st.markdown(f"**Client:** {st.session_state.project_info.get('client', 'Unknown')}")
+    st.markdown(f"**Reference:** {st.session_state.project_info.get('reference', 'N/A')}")
+    st.divider()
+    
+    # Check if design exists
+    if "design_results" not in st.session_state:
+        st.info("💡 Please run the design first to generate reports.")
+        if st.button("🏗️ Go to Workspace", key="reports_goto_workspace", use_container_width=True, type="primary"):
+            st.session_state.page = "workspace"
+            st.rerun()
+        return
+    
+    # PDF Export
+    st.subheader("📄 PDF Report")
+    st.markdown("Generate a professional PDF report with design summary, BQ, and 3D visualization")
+    
+    if st.button("📄 Generate PDF Report", key="reports_pdf", use_container_width=True, type="primary"):
+        try:
+            # Simple PDF generation using matplotlib
+            fig, axes = plt.subplots(2, 2, figsize=(10, 12))
+            fig.patch.set_facecolor('#0a0e17')
+            
+            # Title
+            axes[0, 0].axis('off')
+            axes[0, 0].text(0.5, 0.8, "SDS Design Studio", fontsize=18, color='white', ha='center', weight='bold')
+            axes[0, 0].text(0.5, 0.6, f"Project: {st.session_state.project_info.get('name', 'Untitled')}", fontsize=14, color='#b0c4de', ha='center')
+            axes[0, 0].text(0.5, 0.4, f"Client: {st.session_state.project_info.get('client', 'Unknown')}", fontsize=12, color='#b0c4de', ha='center')
+            axes[0, 0].text(0.5, 0.2, f"Date: {datetime.now().strftime('%B %d, %Y')}", fontsize=12, color='#b0c4de', ha='center')
+            
+            # Design Results
+            axes[0, 1].axis('off')
+            axes[0, 1].text(0.1, 0.9, "Design Summary", fontsize=14, color='white', weight='bold')
+            
+            design = st.session_state.design_results
+            loads = design.get('loads', {})
+            y_pos = 0.8
+            for key, value in loads.items():
+                axes[0, 1].text(0.1, y_pos, f"{key.title()}: {value:.1f} kN", fontsize=11, color='#b0c4de')
+                y_pos -= 0.08
+            
+            # Fabric & Cables
+            fabric = design.get('fabric', {})
+            cables = design.get('cables', {})
+            axes[0, 1].text(0.1, y_pos - 0.05, f"Fabric: {fabric.get('type', 'N/A')} ({fabric.get('thickness', 'N/A')}mm)", fontsize=11, color='#b0c4de')
+            y_pos -= 0.08
+            axes[0, 1].text(0.1, y_pos, f"Cable: {cables.get('type', 'N/A')} {cables.get('diameter', 'N/A')}mm", fontsize=11, color='#b0c4de')
+            
+            # Health Score
+            axes[1, 0].axis('off')
+            score = design.get('health_score', 0)
+            color = '#2ecc71' if score >= 80 else '#f39c12' if score >= 60 else '#e74c3c'
+            axes[1, 0].text(0.5, 0.6, f"Health Score", fontsize=14, color='white', ha='center', weight='bold')
+            axes[1, 0].text(0.5, 0.3, f"{score}%", fontsize=36, color=color, ha='center', weight='bold')
+            
+            # BQ Summary
+            bq = design.get('bq', {})
+            axes[1, 1].axis('off')
+            axes[1, 1].text(0.1, 0.9, "Cost Summary", fontsize=14, color='white', weight='bold')
+            axes[1, 1].text(0.1, 0.75, f"Total Cost: {format_currency(bq.get('total_cost', 0), st.session_state.materials.get('country', 'Malaysia'))}", fontsize=12, color='#b0c4de')
+            axes[1, 1].text(0.1, 0.6, f"Steel Weight: {bq.get('total_steel_weight', 0):.0f} kg", fontsize=12, color='#b0c4de')
+            axes[1, 1].text(0.1, 0.45, f"Fabric Area: {bq.get('total_fabric_area', 0):.0f} m²", fontsize=12, color='#b0c4de')
+            axes[1, 1].text(0.1, 0.3, f"Joint Type: {bq.get('joint_type', 'bolted').upper()}", fontsize=12, color='#b0c4de')
+            
+            plt.tight_layout()
+            
+            # Save to buffer
+            buf = BytesIO()
+            plt.savefig(buf, format='pdf', facecolor='#0a0e17', edgecolor='none')
+            buf.seek(0)
+            plt.close()
+            
+            st.download_button(
+                label="📥 Download PDF Report",
+                data=buf,
+                file_name=f"SDS_Report_{st.session_state.project_info.get('reference', 'project')}.pdf",
+                mime="application/pdf",
+                key="reports_pdf_download"
+            )
+            st.success("✅ PDF generated successfully!")
+        except Exception as e:
+            st.error(f"❌ Error generating PDF: {str(e)}")
+            st.info("PDF generation requires matplotlib. Please ensure it's installed.")
+    
+    # CAD Drawing (Business version only)
+    if has_feature("cad_drawings"):
+        st.divider()
+        st.subheader("📐 CAD Drawings (Business Version)")
+        st.markdown("Export technical drawings in DXF format")
+        
+        if st.button("📐 Generate CAD Drawing", key="reports_cad", use_container_width=True):
+            st.info("🔄 CAD drawing generation will be available in the next update.")
+    
+    # Excel Export (Business version only)
+    if has_feature("export_excel"):
+        st.divider()
+        st.subheader("📊 Excel Export (Business Version)")
+        st.markdown("Export full BQ and costing to Excel")
+        
+        if st.button("📊 Export to Excel", key="reports_excel", use_container_width=True):
+            st.info("🔄 Excel export will be available in the next update.")
+    
+    # Upgrade banner
+    if st.session_state.license_tier == "free":
+        st.divider()
+        st.info("🔓 Upgrade to Business for CAD drawings and Excel export!")
+    
+    if st.button("🏠 Back to Workspace", key="reports_back_workspace", use_container_width=True, type="primary"):
+        st.session_state.page = "workspace"
+        st.rerun()
+
+# ============================================================
+# WORKSPACE PAGE
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -1525,11 +1790,8 @@ def render_workspace():
                 st.session_state.locked = False
                 st.rerun()
     with col5:
-        if st.button("📄 View BQ", key="workspace_view_bq", use_container_width=True):
-            if "bq" not in st.session_state:
-                design_results = auto_design_structure(params, materials)
-                st.session_state.bq = design_results.get("bq", {})
-            st.session_state.page = "bq"
+        if st.button("📊 Reports", key="workspace_reports", use_container_width=True):
+            st.session_state.page = "reports"
             st.rerun()
     
     st.divider()
@@ -1760,15 +2022,24 @@ def render_workspace():
         </div>
         """, unsafe_allow_html=True)
         
-        bq = design_results.get("bq", {})
-        if bq and "total_cost" in bq:
+        # BQ Quick Summary - Only show if BQ is available
+        if has_feature("bq") and st.session_state.bq:
+            bq = st.session_state.bq
             currency = get_currency(materials.get("country", "Malaysia"))
             st.divider()
-            st.markdown("## 💰 Cost Summary")
             col1, col2 = st.columns(2)
-            col1.metric("Total Cost", f"{currency['symbol']}{bq['total_cost']:,.0f}")
-            col2.metric("Steel Weight", f"{bq['total_steel_weight']:.0f} kg")
+            col1.metric("Total Cost", f"{currency['symbol']}{bq.get('total_cost', 0):,.0f}")
+            col2.metric("Steel Weight", f"{bq.get('total_steel_weight', 0):.0f} kg")
             if st.button("📄 View Full BQ", key="workspace_view_full_bq", use_container_width=True, type="primary"):
+                st.session_state.page = "bq"
+                st.rerun()
+        
+        # Costing Sheet (Business version only)
+        if has_feature("costing_sheet"):
+            st.divider()
+            st.markdown("## 💰 Full Costing Sheet (Business)")
+            st.info("🔓 Full costing sheet with editable rates is available in this version")
+            if st.button("📄 Open Costing Sheet", key="workspace_costing", use_container_width=True, type="primary"):
                 st.session_state.page = "bq"
                 st.rerun()
     
@@ -1810,6 +2081,8 @@ elif page == "workspace":
     render_workspace()
 elif page == "bq":
     render_bq_page()
+elif page == "reports":
+    render_reports()
 else:
     render_dashboard()
 
