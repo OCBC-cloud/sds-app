@@ -339,9 +339,9 @@ COUNTRY_CURRENCIES = {
 }
 
 # ============================================================
-# SECTION PROPERTIES DATABASE
+# STANDARD SECTION PROPERTIES DATABASE
 # ============================================================
-SECTION_PROPERTIES = {
+STANDARD_SECTION_PROPERTIES = {
     # ====== CIRCULAR HOLLOW SECTIONS (CHS) ======
     "CHS 21.3x2.3": {"A": 137, "I": 0.006e6, "W_el": 0.6e3, "i": 6.7, "weight": 1.1, "type": "CHS", "depth": 21.3},
     "CHS 26.9x2.6": {"A": 198, "I": 0.015e6, "W_el": 1.1e3, "i": 8.7, "weight": 1.6, "type": "CHS", "depth": 26.9},
@@ -423,6 +423,11 @@ SECTION_PROPERTIES = {
     "C200x90x10": {"A": 2890, "I": 24.0e6, "W_el": 240e3, "i": 91.1, "weight": 22.7, "type": "Channel", "depth": 200},
     "C250x100x12": {"A": 3930, "I": 48.0e6, "W_el": 384e3, "i": 110.5, "weight": 30.8, "type": "Channel", "depth": 250},
 }
+
+# ============================================================
+# SECTION PROPERTIES DATABASE (Will be updated with custom sections)
+# ============================================================
+SECTION_PROPERTIES = dict(STANDARD_SECTION_PROPERTIES)
 
 # ============================================================
 # LOAD CUSTOM SECTIONS (Safe Load)
@@ -1066,7 +1071,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     }
 
 # ============================================================
-# ENGINEERING FUNCTIONS
+# ENGINEERING FUNCTIONS - FIXED CUSTOM SECTION DISPLAY
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -1104,25 +1109,33 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     }
     preferred_type = type_map.get(section_type, "CHS")
     
+    # ===== STEP 1: Find ALL sections in preferred type =====
     sections_in_type = []
     for section, props in db.items():
         if props["type"] == preferred_type or (props["type"] == "Custom CHS" and preferred_type == "CHS") or (props["type"] == "Custom SHS" and preferred_type == "SHS") or (props["type"] == "Custom RHS" and preferred_type == "RHS"):
             sections_in_type.append((section, props))
     
+    # Sort by W_el (ascending - smallest to largest)
     sections_in_type.sort(key=lambda x: x[1]["W_el"])
     
+    # ===== STEP 2: Find the FIRST section that is ADEQUATE =====
     selected_section = None
     selected_props = None
     selected_note = None
+    is_custom = False
     
     for section, props in sections_in_type:
         if props["W_el"] >= W_required * 0.9 and props["I"] >= I_required * 0.9:
             selected_section = section
             selected_props = props
-            if props.get("is_custom", False):
+            is_custom = props.get("is_custom", False)
+            if is_custom:
                 selected_note = "💡 Using custom section from previous design"
+            else:
+                selected_note = None
             break
     
+    # ===== STEP 3: If we found an adequate section, return PASS =====
     if selected_section:
         moment_capacity = (selected_props["W_el"] * fy) / (safety * 1e6)
         return {
@@ -1130,16 +1143,19 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "properties": selected_props,
             "required_moment": M,
             "moment_capacity": moment_capacity,
-            "is_adequate": True,
+            "is_adequate": True,  # ← ALWAYS PASS because we found a working section
             "section_type": selected_props.get("type", preferred_type),
-            "note": selected_note
+            "note": selected_note,
+            "is_custom": is_custom
         }
     
+    # ===== STEP 4: If NO section in preferred type is adequate, INVENT ONE =====
     if is_feature_enabled("auto_invent_sections"):
         custom_result = invent_custom_section(W_required, I_required, section_type, material_type)
         if custom_result:
             return custom_result
     
+    # ===== STEP 5: If invention fails, use the LARGEST available =====
     if sections_in_type:
         largest_section, largest_props = sections_in_type[-1]
         moment_capacity = (largest_props["W_el"] * fy) / (safety * 1e6)
@@ -1156,9 +1172,11 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "moment_capacity": moment_capacity,
             "is_adequate": is_adequate,
             "section_type": largest_props.get("type", preferred_type),
-            "note": note
+            "note": note,
+            "is_custom": largest_props.get("is_custom", False)
         }
     
+    # ===== STEP 6: If NO section exists, search ALL types =====
     all_sections = []
     for section, props in db.items():
         all_sections.append((section, props))
@@ -1174,7 +1192,8 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
                 "moment_capacity": moment_capacity,
                 "is_adequate": True,
                 "section_type": props["type"],
-                "note": f"⚠️ No {preferred_type} section adequate. Recommended {props['type']} instead."
+                "note": f"⚠️ No {preferred_type} section adequate. Recommended {props['type']} instead.",
+                "is_custom": props.get("is_custom", False)
             }
     
     return None
@@ -1237,6 +1256,7 @@ def auto_design_structure(params, materials):
             results["beams"]["section_type"] = beam_result.get("section_type", section_type)
             results["beams"]["note"] = beam_result.get("note", None)
             results["beams"]["is_adequate"] = beam_result.get("is_adequate", False)
+            results["beams"]["is_custom"] = beam_result.get("is_custom", False)
     
     truss_members = None
     if member_type in ["planar_truss", "space_truss"]:
@@ -1273,16 +1293,19 @@ def auto_design_structure(params, materials):
         is_adequate = beam.get("is_adequate", False)
         section_note = beam.get("note", "")
         section_display = beam['section']
+        is_custom = beam.get("is_custom", False)
         
         if section_note:
             section_display = f"{beam['section']} {section_note}"
         
+        # Determine status based on actual adequacy
         if is_adequate:
-            status = "✅ PASS"
+            if is_custom:
+                status = "💡 CUSTOM"  # Purple custom badge
+            else:
+                status = "✅ PASS"
         else:
             status = "⚠️ Check"
-            if "Custom" in beam['section'] or "custom" in beam.get("section_type", "").lower():
-                status = "💡 Custom"
         
         results["all_checks"]["member_capacity"] = {
             "status": status,
@@ -1294,7 +1317,6 @@ def auto_design_structure(params, materials):
         }
         
         sec_type = beam.get("section_type", section_type)
-        is_custom = beam.get("is_custom", False)
         if is_custom:
             sec_type = f"Custom {sec_type}"
         results["all_checks"]["section_type"] = {
@@ -2003,7 +2025,7 @@ def render_reports():
         st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE - WITH FIXED RUN DESIGN ANALYSIS BUTTON
+# WORKSPACE PAGE
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -2161,7 +2183,7 @@ def render_workspace():
         st.markdown('</div>', unsafe_allow_html=True)
         
         # ============================================================
-        # FIXED: RUN DESIGN ANALYSIS BUTTON - Clears and Recalculates Fresh
+        # FIXED: RUN DESIGN ANALYSIS BUTTON
         # ============================================================
         if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary"):
             # STEP 1: Clear previous results
@@ -2189,7 +2211,6 @@ def render_workspace():
         if "design_results" in st.session_state and st.session_state.design_results:
             design_results = st.session_state.design_results
         else:
-            # Auto-run design if no results exist
             design_results = auto_design_structure(params, materials)
             st.session_state.design_results = design_results
             st.session_state.bq = design_results.get("bq", {})
