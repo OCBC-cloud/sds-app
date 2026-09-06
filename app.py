@@ -193,7 +193,7 @@ LICENSE_TIERS = {
 }
 
 # ============================================================
-# FEATURE FLAGS (Deployment Safe)
+# FEATURE FLAGS
 # ============================================================
 FEATURE_FLAGS = {
     "dark_mode": True,
@@ -430,7 +430,7 @@ STANDARD_SECTION_PROPERTIES = {
 SECTION_PROPERTIES = dict(STANDARD_SECTION_PROPERTIES)
 
 # ============================================================
-# LOAD CUSTOM SECTIONS (Safe Load)
+# LOAD CUSTOM SECTIONS
 # ============================================================
 def safe_load_custom_sections():
     try:
@@ -1071,7 +1071,7 @@ def generate_bill_of_quantities(params, materials, design_results, truss_members
     }
 
 # ============================================================
-# ENGINEERING FUNCTIONS - FIXED CUSTOM SECTION DISPLAY
+# ENGINEERING FUNCTIONS - FIXED WITH SADDLE SPAN ARCH ACTION
 # ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
@@ -1087,10 +1087,36 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     fabric_kg = fabric_weight * membrane_area
     return (steel_kg + fabric_kg) / 100
 
-def calculate_required_section(load_kN, span_m, material_type, section_type, fy=355):
+def calculate_required_section(load_kN, span_m, material_type, section_type, fy=355, typology="saddle_span", rise_m=6.0):
+    """
+    Calculate required section with ARCH ACTION for saddle span
+    """
     safety = 1.5
-    w = load_kN / span_m
-    M = (w * span_m**2) / 8
+    
+    # ===== CORRECTED: Arch action for saddle span =====
+    if typology == "saddle_span":
+        # For a parabolic arch, the bending moment is significantly reduced
+        # The arch carries load primarily in compression
+        # M_arch = M_beam * (1 - rise/span)  # Simplified arch reduction
+        
+        # First, calculate beam moment
+        w = load_kN / span_m
+        M_beam = (w * span_m**2) / 8
+        
+        # Arch action reduction factor
+        # Higher rise = more arch action = less bending
+        arch_reduction = max(0.2, 1 - (rise_m / span_m) * 0.7)
+        M = M_beam * arch_reduction
+        
+        # For very shallow arches (rise < span/10), beam action dominates
+        if rise_m < span_m * 0.1:
+            M = M_beam * 0.9
+    else:
+        # For other typologies, use standard beam formula
+        w = load_kN / span_m
+        M = (w * span_m**2) / 8
+    
+    # ===== Calculate required section properties =====
     M_Nmm = M * 1e6
     W_required = M_Nmm / (fy / safety)
     E = 210000
@@ -1109,7 +1135,7 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     }
     preferred_type = type_map.get(section_type, "CHS")
     
-    # ===== STEP 1: Find ALL sections in preferred type =====
+    # ===== Find ALL sections in preferred type =====
     sections_in_type = []
     for section, props in db.items():
         if props["type"] == preferred_type or (props["type"] == "Custom CHS" and preferred_type == "CHS") or (props["type"] == "Custom SHS" and preferred_type == "SHS") or (props["type"] == "Custom RHS" and preferred_type == "RHS"):
@@ -1118,7 +1144,7 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     # Sort by W_el (ascending - smallest to largest)
     sections_in_type.sort(key=lambda x: x[1]["W_el"])
     
-    # ===== STEP 2: Find the FIRST section that is ADEQUATE =====
+    # ===== Find the FIRST section that is ADEQUATE =====
     selected_section = None
     selected_props = None
     selected_note = None
@@ -1135,7 +1161,7 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
                 selected_note = None
             break
     
-    # ===== STEP 3: If we found an adequate section, return PASS =====
+    # ===== If we found an adequate section, return PASS =====
     if selected_section:
         moment_capacity = (selected_props["W_el"] * fy) / (safety * 1e6)
         return {
@@ -1143,27 +1169,29 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "properties": selected_props,
             "required_moment": M,
             "moment_capacity": moment_capacity,
-            "is_adequate": True,  # ← ALWAYS PASS because we found a working section
+            "is_adequate": True,
             "section_type": selected_props.get("type", preferred_type),
             "note": selected_note,
-            "is_custom": is_custom
+            "is_custom": is_custom,
+            "arch_reduction": arch_reduction if typology == "saddle_span" else 1.0
         }
     
-    # ===== STEP 4: If NO section in preferred type is adequate, INVENT ONE =====
+    # ===== If NO section in preferred type is adequate, INVENT ONE =====
     if is_feature_enabled("auto_invent_sections"):
         custom_result = invent_custom_section(W_required, I_required, section_type, material_type)
         if custom_result:
+            custom_result["arch_reduction"] = arch_reduction if typology == "saddle_span" else 1.0
             return custom_result
     
-    # ===== STEP 5: If invention fails, use the LARGEST available =====
+    # ===== If invention fails, use the LARGEST available =====
     if sections_in_type:
         largest_section, largest_props = sections_in_type[-1]
         moment_capacity = (largest_props["W_el"] * fy) / (safety * 1e6)
         is_adequate = largest_props["W_el"] >= W_required * 0.9
         
-        note = f"⚠️ Largest {preferred_type} available ({largest_section})"
+        note = f"Largest {preferred_type} available ({largest_section})"
         if not is_adequate:
-            note += " - Consider custom fabrication"
+            note = f"⚠️ {note} - Consider custom fabrication"
         
         return {
             "section": largest_section,
@@ -1173,10 +1201,11 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "is_adequate": is_adequate,
             "section_type": largest_props.get("type", preferred_type),
             "note": note,
-            "is_custom": largest_props.get("is_custom", False)
+            "is_custom": largest_props.get("is_custom", False),
+            "arch_reduction": arch_reduction if typology == "saddle_span" else 1.0
         }
     
-    # ===== STEP 6: If NO section exists, search ALL types =====
+    # ===== If NO section exists, search ALL types =====
     all_sections = []
     for section, props in db.items():
         all_sections.append((section, props))
@@ -1193,7 +1222,8 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
                 "is_adequate": True,
                 "section_type": props["type"],
                 "note": f"⚠️ No {preferred_type} section adequate. Recommended {props['type']} instead.",
-                "is_custom": props.get("is_custom", False)
+                "is_custom": props.get("is_custom", False),
+                "arch_reduction": arch_reduction if typology == "saddle_span" else 1.0
             }
     
     return None
@@ -1215,7 +1245,7 @@ def auto_select_cable_diameter(tie_down_force, cable_type):
             return diam
     return max(diameters.keys()) if diameters else 10
 
-def auto_design_structure(params, materials):
+def auto_design_structure(params, materials, typology="saddle_span"):
     span, rise, laa = params.get("B", 10.0), params.get("A", 6.0), params.get("LAA", 15.0)
     member_type = materials.get("member_type", "single_beam")
     material_type = materials.get("material_type", "Steel")
@@ -1241,13 +1271,17 @@ def auto_design_structure(params, materials):
         "beams": {}, "truss": {}, "fabric": {}, "cables": {},
         "all_checks": {}, "health_score": 0,
         "joint_type": joint_type,
-        "country": country
+        "country": country,
+        "typology": typology
     }
     
     fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
     
     if member_type == "single_beam":
-        beam_result = calculate_required_section(total_load, span, material_type, section_type, fy)
+        beam_result = calculate_required_section(
+            total_load, span, material_type, section_type, fy, 
+            typology=typology, rise_m=rise
+        )
         if beam_result:
             results["beams"]["main"] = beam_result
             results["beams"]["selected"] = beam_result["section"]
@@ -1257,6 +1291,7 @@ def auto_design_structure(params, materials):
             results["beams"]["note"] = beam_result.get("note", None)
             results["beams"]["is_adequate"] = beam_result.get("is_adequate", False)
             results["beams"]["is_custom"] = beam_result.get("is_custom", False)
+            results["beams"]["arch_reduction"] = beam_result.get("arch_reduction", 1.0)
     
     truss_members = None
     if member_type in ["planar_truss", "space_truss"]:
@@ -1298,10 +1333,9 @@ def auto_design_structure(params, materials):
         if section_note:
             section_display = f"{beam['section']} {section_note}"
         
-        # Determine status based on actual adequacy
         if is_adequate:
             if is_custom:
-                status = "💡 CUSTOM"  # Purple custom badge
+                status = "💡 CUSTOM"
             else:
                 status = "✅ PASS"
         else:
@@ -1323,6 +1357,14 @@ def auto_design_structure(params, materials):
             "status": f"📐 {sec_type}",
             "value": get_section_tag(sec_type)
         }
+        
+        # Show arch reduction for saddle span
+        if typology == "saddle_span" and "arch_reduction" in beam:
+            reduction_pct = (1 - beam["arch_reduction"]) * 100
+            results["all_checks"]["arch_action"] = {
+                "status": f"🏹 {reduction_pct:.0f}% Reduction",
+                "value": "Arch action reduces bending"
+            }
     elif member_type in ["planar_truss", "space_truss"] and truss_members:
         results["all_checks"]["member_capacity"] = {
             "status": f"✅ PASS ({joint_type.upper()})",
@@ -2183,17 +2225,17 @@ def render_workspace():
         st.markdown('</div>', unsafe_allow_html=True)
         
         # ============================================================
-        # FIXED: RUN DESIGN ANALYSIS BUTTON
+        # RUN DESIGN ANALYSIS BUTTON
         # ============================================================
         if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary"):
-            # STEP 1: Clear previous results
+            # Clear previous results
             st.session_state.design_results = {}
             st.session_state.bq = {}
             
-            # STEP 2: Run fresh calculation with current inputs
-            design_results = auto_design_structure(params, materials)
+            # Run fresh calculation with current inputs
+            design_results = auto_design_structure(params, materials, typology)
             
-            # STEP 3: Store new results
+            # Store new results
             st.session_state.design_results = design_results
             st.session_state.bq = design_results.get("bq", {})
             
@@ -2211,7 +2253,7 @@ def render_workspace():
         if "design_results" in st.session_state and st.session_state.design_results:
             design_results = st.session_state.design_results
         else:
-            design_results = auto_design_structure(params, materials)
+            design_results = auto_design_structure(params, materials, typology)
             st.session_state.design_results = design_results
             st.session_state.bq = design_results.get("bq", {})
         
