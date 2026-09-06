@@ -171,108 +171,6 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# LICENSE SWITCHER - DEVELOPMENT MODE ONLY
-# ============================================================
-if "dev_mode" not in st.session_state:
-    st.session_state.dev_mode = False
-
-def render_license_switcher():
-    """Development-only license switcher for testing all tiers"""
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🔑 Development Tools")
-    
-    # Toggle dev mode
-    dev_mode = st.sidebar.checkbox(
-        "🛠️ Enable Dev Mode",
-        value=st.session_state.dev_mode,
-        help="Show development tools and license switcher"
-    )
-    st.session_state.dev_mode = dev_mode
-    
-    if dev_mode:
-        # Show current license
-        current_tier = st.session_state.license_tier
-        st.sidebar.info(f"**Current License:** `{current_tier.upper()}`")
-        
-        # License switcher
-        new_tier = st.sidebar.selectbox(
-            "🔄 Switch License Tier",
-            ["free", "pro", "business"],
-            index=["free", "pro", "business"].index(current_tier),
-            help="Switch between license tiers for testing"
-        )
-        
-        if new_tier != current_tier:
-            st.session_state.license_tier = new_tier
-            st.sidebar.success(f"✅ Switched to **{new_tier.upper()}**!")
-            st.rerun()
-        
-        # Show feature status for current tier
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**📋 Feature Status:**")
-        features = LICENSE_TIERS[current_tier]["features"]
-        
-        # Group features for better display
-        feature_groups = {
-            "Core": ["3d_viewer", "health_score", "structure_types", "load_calculations", "member_sizing", "fabric_selection", "pdf_report"],
-            "Advanced": ["bq", "editable_bq", "costing_sheet"],
-            "Professional": ["reaction_forces", "shear_moment", "axial_forces", "cad_drawings", "export_excel"],
-            "Projects": ["unlimited_projects"]
-        }
-        
-        for group, feature_list in feature_groups.items():
-            st.sidebar.markdown(f"**{group}:**")
-            for feature in feature_list:
-                if feature in features:
-                    enabled = features[feature]
-                    icon = "✅" if enabled else "❌"
-                    display_name = feature.replace('_', ' ').title()
-                    st.sidebar.markdown(f"{icon} {display_name}")
-            st.sidebar.markdown("")
-        
-        # Project limit info
-        limit = LICENSE_TIERS[current_tier]["project_limit"]
-        limit_display = "Unlimited" if limit is None else limit
-        st.sidebar.markdown(f"**📊 Project Limit:** {limit_display}")
-        
-        # Quick test buttons
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**⚡ Quick Actions:**")
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            if st.button("🔄 Reset Session", use_container_width=True):
-                for key in list(st.session_state.keys()):
-                    if key not in ["license_tier", "dev_mode", "saved_projects", "page"]:
-                        del st.session_state[key]
-                st.sidebar.success("✅ Session reset!")
-                st.rerun()
-        with col2:
-            if st.button("📊 Clear Projects", use_container_width=True):
-                st.session_state.saved_projects = []
-                st.sidebar.success("✅ Projects cleared!")
-                st.rerun()
-        
-        # Quick license switch buttons
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**🔑 Quick Switch:**")
-        cols = st.sidebar.columns(3)
-        with cols[0]:
-            if st.button("FREE", use_container_width=True):
-                st.session_state.license_tier = "free"
-                st.rerun()
-        with cols[1]:
-            if st.button("PRO", use_container_width=True):
-                st.session_state.license_tier = "pro"
-                st.rerun()
-        with cols[2]:
-            if st.button("BUSINESS", use_container_width=True):
-                st.session_state.license_tier = "business"
-                st.rerun()
-
-# Call the license switcher
-render_license_switcher()
-
-# ============================================================
 # LICENSE TIERS CONFIGURATION
 # ============================================================
 LICENSE_TIERS = {
@@ -1655,10 +1553,34 @@ def render_top_nav():
     st.divider()
 
 # ============================================================
-# DASHBOARD PAGE
+# DASHBOARD PAGE - WITH LICENSE SWITCHER VISIBLE!
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDS Design Studio v7.0")
+    
+    # ============================================================
+    # LICENSE SWITCHER - VISIBLE ON DASHBOARD
+    # ============================================================
+    st.markdown("### 🔑 Quick License Switch")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("🔓 BUSINESS", use_container_width=True, type="primary"):
+            st.session_state.license_tier = "business"
+            st.rerun()
+    with col2:
+        if st.button("🔓 PRO", use_container_width=True):
+            st.session_state.license_tier = "pro"
+            st.rerun()
+    with col3:
+        if st.button("🔒 FREE", use_container_width=True):
+            st.session_state.license_tier = "free"
+            st.rerun()
+    
+    # Show current license
+    license_info = get_license_info()
+    st.info(f"**Current License:** `{license_info['badge']} - {license_info['name']}`")
+    st.divider()
+    # ============================================================
     
     license_info = get_license_info()
     st.caption(f"📋 {license_info['badge']} Version - {license_info['name']}")
