@@ -6,7 +6,7 @@ import numpy as np
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="FDS - 3D Viewer Prototype v4",
+    page_title="FDS - 3D Viewer Prototype v5",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -151,7 +151,6 @@ if "supports" not in st.session_state:
 # CAMERA PRESETS
 # ============================================================
 def get_camera(view_name):
-    """Get camera position for different views"""
     cameras = {
         "home": dict(eye=dict(x=1.8, y=1.8, z=1.2)),
         "top": dict(eye=dict(x=0, y=0, z=2.5)),
@@ -163,11 +162,11 @@ def get_camera(view_name):
     return cameras.get(view_name, cameras["home"])
 
 # ============================================================
-# 3D GENERATOR
+# 3D GENERATOR - FIXED CABLE POSITIONS
 # ============================================================
 def generate_3d_view(pretension, shape_type, support_system, supports, span, rise, laa, 
                      cables_per_bay, cable_vertical_angle, cable_spread_angle, camera_view):
-    """Generate 3D visualization with all parameters"""
+    """Generate 3D visualization with properly positioned cables"""
     
     num_points = 40
     
@@ -187,7 +186,7 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
         
         fig = go.Figure()
         
-        # Beams - start at ground level (z=0)
+        # Beams
         fig.add_trace(go.Scatter3d(
             x=x, y=y1, z=z_beam,
             mode='lines', name='Beam 1 (Left)',
@@ -223,7 +222,7 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Membrane'
         ))
         
-        # Support points - SMALLER markers (size 3)
+        # Support points
         fig.add_trace(go.Scatter3d(
             x=[-span/2, span/2],
             y=[0, 0],
@@ -245,39 +244,44 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Apex'
         ))
         
-        # ===== TIE-DOWN CABLES WITH BOTH ANGLES =====
-        # Generate bay positions
-        if cables_per_bay > 2:
-            bay_positions = np.linspace(-span/3, span/3, cables_per_bay // 2 + 1)
-            if len(bay_positions) > 1:
-                bay_positions = bay_positions[1:-1]
-            else:
-                bay_positions = [0]
+        # ===== FIXED: PROPER CABLE POSITIONS ALONG THE BEAM =====
+        # Generate cable positions along the beam (quarter points)
+        # For 2 cables: positions at L/4 and 3L/4
+        # For 4 cables: positions at L/5, 2L/5, 3L/5, 4L/5
+        # For 6 cables: positions at L/7, 2L/7, 3L/7, 4L/7, 5L/7, 6L/7
+        
+        # Calculate cable positions along the beam length
+        num_cables = cables_per_bay
+        if num_cables == 2:
+            cable_positions = [-span/4, span/4]
+        elif num_cables == 4:
+            cable_positions = [-span*3/10, -span/10, span/10, span*3/10]
+        elif num_cables == 6:
+            cable_positions = [-span*5/14, -span*3/14, -span/14, span/14, span*3/14, span*5/14]
         else:
-            bay_positions = [0]
+            cable_positions = [-span/4, span/4]
         
-        cables_per_side = cables_per_bay // 2
+        cables_per_side = num_cables // 2
         
-        # Calculate cable geometry based on both angles
+        # Calculate cable geometry based on angles
         vertical_rad = np.radians(cable_vertical_angle)
         spread_rad = np.radians(cable_spread_angle)
         
-        # Vertical offset (how far down the cable goes)
         vertical_offset = rise * 1.5
-        
-        # Horizontal offset based on vertical angle
         horizontal_offset = vertical_offset / np.tan(vertical_rad) if vertical_rad > 0 else vertical_offset
         spread_offset = horizontal_offset * np.tan(spread_rad) * 0.3
         
         anchor_width = laa / 2
         
-        for bx in bay_positions:
+        for bx in cable_positions:
+            # Find the closest point on the beam
             idx = np.argmin(np.abs(x - bx))
             x1 = x[idx]
             y1_pt = y1[idx]
             y2_pt = y2[idx]
             z_pt = z_beam[idx]
             
+            # For each pair of cables (left and right)
             for i in range(cables_per_side):
                 # Position along the width
                 y_pos = (i + 1) / (cables_per_side + 1) * anchor_width * 0.8
@@ -325,20 +329,16 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
         C = supports["C"]
         D = supports["D"]
         
-        # Calculate span and width
         span_x = B["x"] - A["x"]
         width_y = C["y"] - A["y"]
         
-        # Create mesh grid for membrane
         x_vals = np.linspace(A["x"], B["x"], num_points)
         y_vals = np.linspace(C["y"], A["y"], num_points)
         X, Y = np.meshgrid(x_vals, y_vals)
         
-        # Normalize coordinates
         x_norm = (X - A["x"]) / span_x * 2 - 1
         y_norm = (Y - C["y"]) / width_y * 2 - 1
         
-        # Hypar surface with rise
         Z = rise * (1 - x_norm**2) * (1 - y_norm**2)
         
         fig = go.Figure()
@@ -352,8 +352,7 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Membrane'
         ))
         
-        # Draw BEAMS along edges
-        # Top beam: A → B
+        # Beams along edges
         x_top = np.linspace(A["x"], B["x"], num_points)
         y_top = np.linspace(A["y"], B["y"], num_points)
         z_top = rise * (1 - ((2 * (x_top - A["x"]) / span_x) - 1)**2) * (1 - ((2 * (y_top - A["y"]) / width_y) - 1)**2)
@@ -364,7 +363,6 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Top Beam'
         ))
         
-        # Bottom beam: C → D
         x_bot = np.linspace(C["x"], D["x"], num_points)
         y_bot = np.linspace(C["y"], D["y"], num_points)
         z_bot = rise * (1 - ((2 * (x_bot - A["x"]) / span_x) - 1)**2) * (1 - ((2 * (y_bot - A["y"]) / width_y) - 1)**2)
@@ -375,7 +373,6 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Bottom Beam'
         ))
         
-        # Left beam: A → C
         x_left = np.linspace(A["x"], C["x"], num_points)
         y_left = np.linspace(A["y"], C["y"], num_points)
         z_left = rise * (1 - ((2 * (x_left - A["x"]) / span_x) - 1)**2) * (1 - ((2 * (y_left - A["y"]) / width_y) - 1)**2)
@@ -386,7 +383,6 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Left Beam'
         ))
         
-        # Right beam: B → D
         x_right = np.linspace(B["x"], D["x"], num_points)
         y_right = np.linspace(B["y"], D["y"], num_points)
         z_right = rise * (1 - ((2 * (x_right - A["x"]) / span_x) - 1)**2) * (1 - ((2 * (y_right - A["y"]) / width_y) - 1)**2)
@@ -397,7 +393,7 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Right Beam'
         ))
         
-        # Support points - SMALLER markers (size 3)
+        # Support points
         support_points = [
             {"x": A["x"], "y": A["y"], "label": "A"},
             {"x": B["x"], "y": B["y"], "label": "B"},
@@ -515,11 +511,10 @@ def get_anchor_force(pretension):
 # ============================================================
 # MAIN UI
 # ============================================================
-st.title("🧬 FDS - 3D Viewer Prototype v4")
+st.title("🧬 FDS - 3D Viewer Prototype v5")
 st.caption("Test pretension, support systems, shapes, LAA, and cable angles in real-time")
 st.markdown("---")
 
-# Main layout
 col_viewport, col_controls = st.columns([2, 1])
 
 with col_viewport:
@@ -775,5 +770,5 @@ with col_controls:
 # FOOTER
 # ============================================================
 st.markdown("---")
-st.caption("🧬 FDS - 3D Viewer Prototype v4 | Rigid in Principle. Fluid in Application.")
-st.caption("🔬 Now with Vertical Angle + Spread Angle controls for tie-down cables!")
+st.caption("🧬 FDS - 3D Viewer Prototype v5 | Rigid in Principle. Fluid in Application.")
+st.caption("🔬 Fixed: Cables now attach at proper positions along the beam!")
