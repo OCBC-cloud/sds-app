@@ -6,7 +6,7 @@ import numpy as np
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="FDS - 3D Viewer Prototype v5",
+    page_title="FDS - 3D Viewer Prototype v6",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -162,11 +162,11 @@ def get_camera(view_name):
     return cameras.get(view_name, cameras["home"])
 
 # ============================================================
-# 3D GENERATOR - FIXED CABLE POSITIONS
+# 3D GENERATOR - FIXED: ALL CABLES RADIATE OUTWARD
 # ============================================================
 def generate_3d_view(pretension, shape_type, support_system, supports, span, rise, laa, 
                      cables_per_bay, cable_vertical_angle, cable_spread_angle, camera_view):
-    """Generate 3D visualization with properly positioned cables"""
+    """Generate 3D visualization with all cables radiating OUTWARD from the roof"""
     
     num_points = 40
     
@@ -244,36 +244,26 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Apex'
         ))
         
-        # ===== FIXED: PROPER CABLE POSITIONS ALONG THE BEAM =====
-        # Generate cable positions along the beam (quarter points)
-        # For 2 cables: positions at L/4 and 3L/4
-        # For 4 cables: positions at L/5, 2L/5, 3L/5, 4L/5
-        # For 6 cables: positions at L/7, 2L/7, 3L/7, 4L/7, 5L/7, 6L/7
+        # ===== FIXED: CABLES RADIATE OUTWARD =====
+        # Cable positions along the beam (quarter points)
+        if cables_per_bay == 2:
+            beam_positions = [-span/4, span/4]
+        elif cables_per_bay == 4:
+            beam_positions = [-span*3/10, -span/10, span/10, span*3/10]
+        else:  # 6
+            beam_positions = [-span*5/14, -span*3/14, -span/14, span/14, span*3/14, span*5/14]
         
-        # Calculate cable positions along the beam length
-        num_cables = cables_per_bay
-        if num_cables == 2:
-            cable_positions = [-span/4, span/4]
-        elif num_cables == 4:
-            cable_positions = [-span*3/10, -span/10, span/10, span*3/10]
-        elif num_cables == 6:
-            cable_positions = [-span*5/14, -span*3/14, -span/14, span/14, span*3/14, span*5/14]
-        else:
-            cable_positions = [-span/4, span/4]
-        
-        cables_per_side = num_cables // 2
+        cables_per_side = cables_per_bay // 2
         
         # Calculate cable geometry based on angles
         vertical_rad = np.radians(cable_vertical_angle)
         spread_rad = np.radians(cable_spread_angle)
         
-        vertical_offset = rise * 1.5
-        horizontal_offset = vertical_offset / np.tan(vertical_rad) if vertical_rad > 0 else vertical_offset
-        spread_offset = horizontal_offset * np.tan(spread_rad) * 0.3
+        # Anchor offset - cables go OUTWARD from the roof
+        anchor_offset = laa * 0.8  # Anchors are OUTSIDE the roof footprint
         
-        anchor_width = laa / 2
-        
-        for bx in cable_positions:
+        # For each cable position along the beam
+        for bx in beam_positions:
             # Find the closest point on the beam
             idx = np.argmin(np.abs(x - bx))
             x1 = x[idx]
@@ -281,42 +271,54 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             y2_pt = y2[idx]
             z_pt = z_beam[idx]
             
-            # For each pair of cables (left and right)
+            # LEFT BEAM CABLES: ALL PULL LEFT AND OUTWARD
+            # The ground anchors go LEFT and OUTWARD from the beam
+            # The spread angle controls how much they spread in the Y direction
+            
+            # For each pair of cables on this beam position
             for i in range(cables_per_side):
-                # Position along the width
-                y_pos = (i + 1) / (cables_per_side + 1) * anchor_width * 0.8
+                # Position along the width - spread outward
+                y_offset = (i + 1) / (cables_per_side + 1) * anchor_offset * 0.6
                 
-                # Left side cable with spread
-                spread_x = spread_offset * (y_pos / anchor_width) * 0.5
+                # LEFT BEAM: cables go LEFT and DOWN
+                # The X offset goes further LEFT than the beam
+                # The Y offset spreads outward
+                x_anchor = x1 - anchor_offset * 0.5  # LEFT
+                y_anchor_left = -y1_pt - y_offset  # OUTWARD (away from center)
+                
                 fig.add_trace(go.Scatter3d(
-                    x=[x1, x1 - horizontal_offset * 0.5 - spread_x],
-                    y=[y1_pt, -y_pos - spread_offset * 0.5],
+                    x=[x1, x_anchor],
+                    y=[y1_pt, y_anchor_left],
                     z=[z_pt, 0],
                     mode='lines',
                     line=dict(color='#FFD93D', width=2, dash='dash'),
                     showlegend=False
                 ))
                 fig.add_trace(go.Scatter3d(
-                    x=[x1 - horizontal_offset * 0.5 - spread_x],
-                    y=[-y_pos - spread_offset * 0.5],
+                    x=[x_anchor],
+                    y=[y_anchor_left],
                     z=[0],
                     mode='markers',
                     marker=dict(color='#FF6B6B', size=2, symbol='x'),
                     showlegend=False
                 ))
                 
-                # Right side cable with spread
+                # RIGHT BEAM: cables go RIGHT and DOWN
+                # The X offset goes further RIGHT than the beam
+                x_anchor = x1 + anchor_offset * 0.5  # RIGHT
+                y_anchor_right = y2_pt + y_offset  # OUTWARD (away from center)
+                
                 fig.add_trace(go.Scatter3d(
-                    x=[x1, x1 + horizontal_offset * 0.5 + spread_x],
-                    y=[y2_pt, y_pos + spread_offset * 0.5],
+                    x=[x1, x_anchor],
+                    y=[y2_pt, y_anchor_right],
                     z=[z_pt, 0],
                     mode='lines',
                     line=dict(color='#FFD93D', width=2, dash='dash'),
                     showlegend=False
                 ))
                 fig.add_trace(go.Scatter3d(
-                    x=[x1 + horizontal_offset * 0.5 + spread_x],
-                    y=[y_pos + spread_offset * 0.5],
+                    x=[x_anchor],
+                    y=[y_anchor_right],
                     z=[0],
                     mode='markers',
                     marker=dict(color='#FF6B6B', size=2, symbol='x'),
@@ -423,7 +425,7 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Apex'
         ))
         
-        # Edge cables
+        # Edge cables (outward)
         edge_pairs = [(A, B), (B, D), (D, C), (C, A)]
         for p1, p2 in edge_pairs:
             fig.add_trace(go.Scatter3d(
@@ -511,7 +513,7 @@ def get_anchor_force(pretension):
 # ============================================================
 # MAIN UI
 # ============================================================
-st.title("🧬 FDS - 3D Viewer Prototype v5")
+st.title("🧬 FDS - 3D Viewer Prototype v6")
 st.caption("Test pretension, support systems, shapes, LAA, and cable angles in real-time")
 st.markdown("---")
 
@@ -770,5 +772,5 @@ with col_controls:
 # FOOTER
 # ============================================================
 st.markdown("---")
-st.caption("🧬 FDS - 3D Viewer Prototype v5 | Rigid in Principle. Fluid in Application.")
-st.caption("🔬 Fixed: Cables now attach at proper positions along the beam!")
+st.caption("🧬 FDS - 3D Viewer Prototype v6 | Rigid in Principle. Fluid in Application.")
+st.caption("🔬 FIXED: ALL cables now radiate OUTWARD from the roof footprint!")
