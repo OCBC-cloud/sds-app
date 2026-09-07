@@ -1,58 +1,3 @@
-1. Identify the problem clearly
-2. Calculate the solution automatically
-3. Recommend the exact value to change
-4. Show all member health scores including cables
-
----
-
-📊 THE COMPLETE HEALTH SCORING SYSTEM
-
-Every Component Gets a Score:
-
-```
-STRUCTURE HEALTH REPORT
-├── Main Beams: 92% (Adequate)
-├── Arch Action: 100% (Efficient)  
-├── Cables: 88% (⚠️ Upgrade to 16mm)
-├── Fabric: 95% (Adequate)
-├── Connections: 100% (Bolted)
-├── Deflection: 85% (⚠️ Increase section to CHS 139.7x6.3)
-└── Combined Check: 72% (⚠️ Increase rise to 7.5m OR upgrade section)
-```
-
-When Score < 100%, System Provides:
-
-```python
-{
-    "component": "Combined Check",
-    "current_score": 72,
-    "problem": "Combined ratio (M/Mcr + N/Ncr) = 1.21 exceeds 1.0",
-    "solutions": [
-        {
-            "action": "Increase Rise",
-            "current_value": "6.0m",
-            "recommended_value": "7.5m",
-            "new_combined_ratio": 0.95,
-            "new_score": 100
-        },
-        {
-            "action": "Upgrade Section",
-            "current_section": "CHS 114.3x5.0",
-            "recommended_section": "CHS 139.7x6.3",
-            "new_combined_ratio": 0.88,
-            "new_score": 100
-        }
-    ]
-}
-```
-
----
-
-🔧 THE COMPLETE FIXED CODE
-
-Chief, here's the complete code with the new health scoring system. Copy button is at the bottom 👇
-
-```python
 import streamlit as st
 import json
 import os
@@ -573,7 +518,6 @@ def calculate_wind_load_enshrined(span, apex, rise, standard="MY"):
     }
 
 def find_next_section(current_section, section_type="CHS"):
-    """Find the next larger section in the database"""
     db = SECTION_PROPERTIES
     sections = []
     for name, props in db.items():
@@ -594,9 +538,6 @@ def find_next_section(current_section, section_type="CHS"):
     return None, None
 
 def calculate_health_score_with_recommendations(beam_result, wind_data, cables, fabric):
-    """
-    Calculate component health scores and provide recommendations
-    """
     health_report = {
         "components": {},
         "overall_score": 100,
@@ -609,17 +550,15 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
         beam_score = 100
         beam_issues = []
         
-        # Check combined ratio
         combined_ratio = beam_result.get("combined_ratio", 0)
         if combined_ratio > 1.0:
-            beam_score = 80  # Major deduction
+            beam_score = 80
             beam_issues.append({
                 "component": "Combined Check",
                 "issue": f"Combined ratio (M/Mcr + N/Ncr) = {combined_ratio:.2f} exceeds 1.0",
                 "severity": "high"
             })
             
-            # Generate recommendation
             current_rise = beam_result.get("rise_span_ratio", 0) * beam_result.get("span", 10)
             if current_rise > 0:
                 recommended_rise = current_rise * 1.25
@@ -631,7 +570,6 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
                     "action": "Increase rise height"
                 })
             
-            # Also recommend section upgrade
             current_section = beam_result.get("section", "")
             if current_section:
                 next_section, _ = find_next_section(current_section, beam_result.get("section_type", "CHS"))
@@ -644,7 +582,6 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
                         "action": "Upgrade section"
                     })
         
-        # Check section modulus ratio
         w_actual = beam_result.get("W_actual", 0)
         w_required = beam_result.get("W_required", 0)
         if w_required > 0 and w_actual / w_required < 0.9:
@@ -671,7 +608,6 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
         cable_diameter = cables.get("diameter", 0)
         cable_type = cables.get("type", "")
         
-        # Calculate cable utilization
         if cable_breaking > 0:
             cable_utilization = cable_force / cable_breaking
             cable_score = max(0, 100 - (cable_utilization * 50))
@@ -683,7 +619,6 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
                     "severity": "high"
                 })
                 
-                # Find next cable diameter
                 cable_data = CABLE_PROPERTIES.get(cable_type, {})
                 diameters = cable_data.get("diameters", {})
                 next_diam = None
@@ -732,7 +667,6 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
     # ===== 4. ARCH ACTION (Positive indicator) =====
     if beam_result and "arch_reduction" in beam_result:
         arch_reduction = beam_result.get("arch_reduction", 0)
-        # This is GOOD - don't penalize
         health_report["components"]["Arch Action"] = {
             "score": 100,
             "issues": [],
@@ -750,7 +684,6 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
     else:
         health_report["overall_score"] = 100
     
-    # Check if any component failed
     health_report["passed_all"] = all(v["score"] >= 90 for v in health_report["components"].values())
     
     return health_report
@@ -2078,12 +2011,9 @@ def export_to_pdf(results, project_info, materials, filename="report.pdf"):
         return None
 
 # ============================================================
-# MAIN DESIGN ENGINE - WITH HEALTH SCORING
+# MAIN DESIGN ENGINE
 # ============================================================
 def auto_design_structure(params, materials, typology="saddle_span"):
-    """Main design engine with component health scoring"""
-    
-    # Special handling for geodesic dome
     if typology == "geodesic_dome":
         dome_params = {
             "radius": materials.get("dome_radius", 20),
@@ -2121,7 +2051,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
         
         return results
     
-    # ===== SADDLE SPAN - USE ENSHRINED CALCULATIONS =====
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     laa = params.get("LAA", 15.0)
@@ -2136,15 +2065,12 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     
     joint_data = JOINT_MULTIPLIERS.get(joint_type, JOINT_MULTIPLIERS["bolted"])
     
-    # ===== ENSHRINED: Use governing area for wind load =====
     if typology == "saddle_span":
         wind_data = calculate_wind_load_enshrined(span, laa, rise, standard)
         wind_load = wind_data["wind_per_beam"] * 2
-        
         dead_load = calculate_dead_load(span, laa, "CHS 114.3x5.0", fabric_type)
         live_load = 0.3 * (span * laa * 1.1) / 100
         total_load = wind_load + dead_load + live_load
-        
     else:
         wind_load = calculate_wind_load(span, laa, standard)
         dead_load = calculate_dead_load(span, laa, "CHS 168.3x7.1", fabric_type)
@@ -2225,7 +2151,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     results["cables"]["force_per_cable"] = cable_force
     results["cables"]["is_adequate"] = cable_breaking >= cable_force * 1.5
     
-    # ===== COMPONENT HEALTH SCORING =====
     health_report = calculate_health_score_with_recommendations(
         results["beams"].get("main"),
         wind_data,
@@ -2238,7 +2163,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     results["recommendations"] = health_report.get("recommendations", [])
     results["passed_all"] = health_report.get("passed_all", True)
     
-    # ===== ALL CHECKS =====
     results["all_checks"]["wind_load"] = {"status": "✅ PASS", "value": f"{wind_load:.1f} kN"}
     results["all_checks"]["joint_type"] = {"status": f"🔧 {joint_type.upper()}", "value": joint_data["description"][:30] + "..."}
     
@@ -2331,6 +2255,98 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     return results
 
 # ============================================================
+# HEALTH REPORT DISPLAY
+# ============================================================
+def display_health_report(health_report):
+    if not health_report:
+        return
+    
+    st.markdown("## 🏥 Component Health Report")
+    
+    for component, data in health_report.get("components", {}).items():
+        score = data.get("score", 0)
+        status = data.get("status", "⚠️ CHECK")
+        
+        if score >= 90:
+            color = "#2ecc71"
+            emoji = "✅"
+        elif score >= 70:
+            color = "#f39c12"
+            emoji = "⚠️"
+        else:
+            color = "#e74c3c"
+            emoji = "❌"
+        
+        details = data.get("details", {})
+        detail_text = ""
+        if details:
+            detail_items = [f"{k}: {v}" for k, v in details.items()]
+            detail_text = " | ".join(detail_items)
+        
+        st.markdown(f"""
+        <div style="display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid #1a2a3a;">
+            <span style="color: #b0c4de;">{component}</span>
+            <span style="color: {color}; font-weight: 600;">{emoji} {score}%</span>
+            <span style="color: #6a7a8a; font-size: 0.8rem;">{status}</span>
+            <span style="color: #6a7a8a; font-size: 0.75rem;">{detail_text}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    overall = health_report.get("overall_score", 0)
+    if overall >= 90:
+        color = "#2ecc71"
+        status = "✅ ALL COMPONENTS HEALTHY"
+    elif overall >= 70:
+        color = "#f39c12"
+        status = "⚠️ SOME COMPONENTS NEED ATTENTION"
+    else:
+        color = "#e74c3c"
+        status = "❌ CRITICAL ISSUES FOUND"
+    
+    st.markdown(f"""
+    <div style="text-align:center;padding:1rem;background:#141e2b;border-radius:12px;border:2px solid {color};">
+        <span style="font-size:2.5rem;font-weight:700;color:{color};">{overall}%</span>
+        <br>
+        <span style="font-size:1.2rem;color:{color};">{status}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    recommendations = health_report.get("recommendations", [])
+    if recommendations:
+        st.markdown("### 🔧 Recommendations")
+        st.caption("The following changes will help achieve 100% health score:")
+        
+        for i, rec in enumerate(recommendations):
+            st.markdown(f"""
+            <div class="recommendation-box">
+                <div class="title">📌 Recommendation {i+1}</div>
+                <div style="margin: 0.3rem 0;">
+                    <span style="color: #b0c4de;">Parameter:</span>
+                    <span class="value">{rec.get('parameter', 'N/A')}</span>
+                </div>
+                <div style="margin: 0.3rem 0;">
+                    <span style="color: #b0c4de;">Change:</span>
+                    <span class="old-value">{rec.get('current', 'N/A')}</span>
+                    <span style="color: #ffffff; margin: 0 0.5rem;">→</span>
+                    <span class="new-value">{rec.get('recommended', 'N/A')}</span>
+                </div>
+                <div style="margin: 0.3rem 0;">
+                    <span style="color: #b0c4de;">Reason:</span>
+                    <span style="color: #b0c4de; font-size: 0.9rem;">{rec.get('reason', '')}</span>
+                </div>
+                <div style="margin: 0.3rem 0; color: #f39c12; font-size: 0.85rem; font-weight: 500;">
+                    Action: {rec.get('action', '')}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.info("💡 Update the parameters above and re-run the design to achieve 100% health score.")
+    else:
+        st.success("🎉 All components are healthy! Your design is 100% optimized.")
+
+# ============================================================
 # STRUCTURE INPUT FORMS
 # ============================================================
 def get_structure_input_form(typology, params, materials, locked):
@@ -2410,104 +2426,6 @@ def get_structure_input_form(typology, params, materials, locked):
     st.markdown('</div>', unsafe_allow_html=True)
     
     return params, materials
-
-# ============================================================
-# HEALTH REPORT DISPLAY
-# ============================================================
-def display_health_report(health_report):
-    """Display health report with recommendations"""
-    
-    if not health_report:
-        return
-    
-    st.markdown("## 🏥 Component Health Report")
-    
-    # Component scores
-    for component, data in health_report.get("components", {}).items():
-        score = data.get("score", 0)
-        status = data.get("status", "⚠️ CHECK")
-        
-        if score >= 90:
-            color = "#2ecc71"
-            emoji = "✅"
-        elif score >= 70:
-            color = "#f39c12"
-            emoji = "⚠️"
-        else:
-            color = "#e74c3c"
-            emoji = "❌"
-        
-        # Get details if available
-        details = data.get("details", {})
-        detail_text = ""
-        if details:
-            detail_items = [f"{k}: {v}" for k, v in details.items()]
-            detail_text = " | ".join(detail_items)
-        
-        st.markdown(f"""
-        <div style="display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid #1a2a3a;">
-            <span style="color: #b0c4de;">{component}</span>
-            <span style="color: {color}; font-weight: 600;">{emoji} {score}%</span>
-            <span style="color: #6a7a8a; font-size: 0.8rem;">{status}</span>
-            <span style="color: #6a7a8a; font-size: 0.75rem;">{detail_text}</span>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Overall score
-    overall = health_report.get("overall_score", 0)
-    if overall >= 90:
-        color = "#2ecc71"
-        status = "✅ ALL COMPONENTS HEALTHY"
-    elif overall >= 70:
-        color = "#f39c12"
-        status = "⚠️ SOME COMPONENTS NEED ATTENTION"
-    else:
-        color = "#e74c3c"
-        status = "❌ CRITICAL ISSUES FOUND"
-    
-    st.markdown(f"""
-    <div style="text-align:center;padding:1rem;background:#141e2b;border-radius:12px;border:2px solid {color};">
-        <span style="font-size:2.5rem;font-weight:700;color:{color};">{overall}%</span>
-        <br>
-        <span style="font-size:1.2rem;color:{color};">{status}</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # ===== RECOMMENDATIONS =====
-    recommendations = health_report.get("recommendations", [])
-    if recommendations:
-        st.markdown("### 🔧 Recommendations")
-        st.caption("The following changes will help achieve 100% health score:")
-        
-        for i, rec in enumerate(recommendations):
-            st.markdown(f"""
-            <div class="recommendation-box">
-                <div class="title">📌 Recommendation {i+1}</div>
-                <div style="margin: 0.3rem 0;">
-                    <span style="color: #b0c4de;">Parameter:</span>
-                    <span class="value">{rec.get('parameter', 'N/A')}</span>
-                </div>
-                <div style="margin: 0.3rem 0;">
-                    <span style="color: #b0c4de;">Change:</span>
-                    <span class="old-value">{rec.get('current', 'N/A')}</span>
-                    <span style="color: #ffffff; margin: 0 0.5rem;">→</span>
-                    <span class="new-value">{rec.get('recommended', 'N/A')}</span>
-                </div>
-                <div style="margin: 0.3rem 0;">
-                    <span style="color: #b0c4de;">Reason:</span>
-                    <span style="color: #b0c4de; font-size: 0.9rem;">{rec.get('reason', '')}</span>
-                </div>
-                <div style="margin: 0.3rem 0; color: #f39c12; font-size: 0.85rem; font-weight: 500;">
-                    Action: {rec.get('action', '')}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.info("💡 Update the parameters above and re-run the design to achieve 100% health score.")
-    else:
-        st.success("🎉 All components are healthy! Your design is 100% optimized.")
 
 # ============================================================
 # TOP NAVIGATION
@@ -3468,7 +3386,6 @@ def render_workspace():
             
             st.markdown("## ⚡ Design Results")
             
-            # Safety badge
             if design_results.get("enshrined_safety", False):
                 st.markdown("""
                 <div style='display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; 
@@ -3477,12 +3394,10 @@ def render_workspace():
                 </div>
                 """, unsafe_allow_html=True)
             
-            # ===== DISPLAY HEALTH REPORT =====
             health_report = design_results.get("health_report", {})
             if health_report:
                 display_health_report(health_report)
             else:
-                # Fallback: show simple score
                 score = design_results.get("health_score", 0)
                 if score >= 80:
                     status = "GOOD"
@@ -3502,12 +3417,10 @@ def render_workspace():
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Joint type badge
             joint_type = design_results.get("joint_type", "bolted")
             badge_color = "joint-weld" if joint_type == "welded" else "joint-bolt"
             st.markdown(f"<span class='joint-badge {badge_color}'>{joint_type.upper()} Connections</span>", unsafe_allow_html=True)
             
-            # Loads
             st.markdown('<div class="sds-card">', unsafe_allow_html=True)
             st.markdown('<div class="title">📊 Loads</div>', unsafe_allow_html=True)
             loads = design_results["loads"]
@@ -3517,7 +3430,6 @@ def render_workspace():
             c3.metric("Total", f"{loads['total']:.1f} kN")
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Beam details
             beam = design_results.get("beams", {}).get("main")
             if beam:
                 st.markdown('<div class="sds-card">', unsafe_allow_html=True)
@@ -3545,7 +3457,6 @@ def render_workspace():
                     st.warning("⚠️ Check")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Fabric & Cables
             fabric = design_results.get("fabric", {})
             cables = design_results.get("cables", {})
             if fabric or cables:
@@ -3559,7 +3470,6 @@ def render_workspace():
                     st.markdown(f"**Breaking Load:** {cables.get('breaking_load', 0):.1f} kN")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Dome data
             dome_data = design_results.get("dome_data", {})
             if dome_data:
                 st.markdown('<div class="sds-card">', unsafe_allow_html=True)
@@ -3569,7 +3479,6 @@ def render_workspace():
                 st.markdown(f"**Total Length:** {dome_data.get('total_length', 0):.1f} m")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # BQ
             if st.session_state.bq:
                 bq = st.session_state.bq
                 currency = get_currency(materials.get("country", "Malaysia"))
@@ -3581,7 +3490,6 @@ def render_workspace():
                     st.session_state.page = "bq"
                     st.rerun()
             
-            # Quick Export
             st.divider()
             st.markdown("### 📤 Quick Export")
             export_cols = st.columns(3)
@@ -3687,10 +3595,3 @@ matplotlib>=3.7.0
 Pillow>=9.5.0
 openpyxl>=3.1.0
 """
-```
-
----
-
-📋 COPY CODE BELOW
-
-Click the copy button below to copy the complete code:
