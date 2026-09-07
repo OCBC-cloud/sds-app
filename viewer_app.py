@@ -111,21 +111,24 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# SHAPE FUNCTIONS
+# SHAPE FUNCTIONS - FIXED FOR NUMPY ARRAYS
 # ============================================================
 def get_beam_shape(x, span, rise, shape_type="parabolic"):
     """Calculate beam shape based on type"""
     if span <= 0:
         return np.zeros_like(x)
     x_norm = 2 * x / span
+    
     if shape_type == "parabolic":
         return rise * (1 - x_norm**2)
     elif shape_type == "elliptical":
-        return rise * np.sqrt(max(0, 1 - x_norm**2))
+        # FIXED: Use np.maximum instead of max
+        return rise * np.sqrt(np.maximum(0, 1 - x_norm**2))
     elif shape_type == "circular":
         R = (span**2 + 4*rise**2) / (8*rise) if rise > 0 else span/2
         if R > 0:
-            return rise - (R - np.sqrt(max(0, R**2 - x**2)))
+            # FIXED: Use np.maximum instead of max
+            return rise - (R - np.sqrt(np.maximum(0, R**2 - x**2)))
         return rise * (1 - x_norm**2)
     elif shape_type == "catenary":
         if rise <= 0 or span <= 0:
