@@ -380,12 +380,12 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             mode='markers+text',
             marker=dict(color='#FFD93D', size=14, symbol='diamond'),
             text=['▲ APEX'],
-            textposition='top center       ',
+            textposition='top center',
             name='Apex'
         ))
- return        
+        
         # Edge cables
- "        edge_pairs = [(A, B), (B, D), (D, C), (C, A)]
+        edge_pairs = [(A, B), (B, D), (D, C), (C, A)]
         for p1, p2 in edge_pairs:
             fig.add_trace(go.Scatter3d(
                 x=[p1["x"], p2["x"]],
@@ -448,7 +448,7 @@ def get_beam_size(pretension):
     if pretension < 10:
         return "CHS 168.3x7.1"
     elif pretension < 20:
-CHS 114.3x5.0"
+        return "CHS 114.3x5.0"
     elif pretension < 35:
         return "CHS 76.1x3.6"
     elif pretension < 50:
