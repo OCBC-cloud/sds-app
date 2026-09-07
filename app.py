@@ -20,7 +20,7 @@ from io import BytesIO, StringIO
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="SDS Design Studio v7.0",
+    page_title="SDSe - Intelligent Fluid Design Workplace",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -102,10 +102,6 @@ dark_mode_css = """
     .tag-ibeam { background-color: #f39c12; color: #ffffff; }
     .tag-angle { background-color: #9b59b6; color: #ffffff; }
     .tag-channel { background-color: #1abc9c; color: #ffffff; }
-    .license-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 600; }
-    .license-free { background-color: #2ecc71; color: #0a0e17; }
-    .license-pro { background-color: #3498db; color: #ffffff; }
-    .license-business { background-color: #f39c12; color: #0a0e17; }
     
     /* ===== RADIO BUTTON FIX ===== */
     .stRadio > div {
@@ -165,118 +161,55 @@ dark_mode_css = """
         background-color: #0a0e17 !important;
         margin: 2px auto !important;
     }
+    
+    /* ===== DESIGN PATH CARDS ===== */
+    .design-path-card {
+        background-color: #141e2b;
+        border-radius: 12px;
+        padding: 1.5rem;
+        border: 1px solid #2a3a4f;
+        text-align: center;
+        height: 100%;
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    .design-path-card:hover {
+        border-color: #f39c12;
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(243, 156, 18, 0.1);
+    }
+    .design-path-card .icon { font-size: 3rem; }
+    .design-path-card .title { color: #ffffff; font-size: 1.2rem; font-weight: 600; margin-top: 0.5rem; }
+    .design-path-card .desc { color: #8a9aaa; font-size: 0.9rem; margin-top: 0.5rem; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# LICENSE TIERS CONFIGURATION
-# ============================================================
-LICENSE_TIERS = {
-    "free": {
-        "name": "SDS Studio",
-        "badge": "FREE",
-        "badge_class": "license-free",
-        "project_limit": 3,
-        "features": {
-            "3d_viewer": True,
-            "health_score": True,
-            "structure_types": True,
-            "load_calculations": True,
-            "member_sizing": True,
-            "fabric_selection": True,
-            "pdf_report": True,
-            "bq": False,
-            "editable_bq": False,
-            "costing_sheet": False,
-            "reaction_forces": False,
-            "shear_moment": False,
-            "axial_forces": False,
-            "cad_drawings": False,
-            "export_excel": False,
-            "unlimited_projects": False
-        }
-    },
-    "pro": {
-        "name": "SDS Engineer",
-        "badge": "PRO",
-        "badge_class": "license-pro",
-        "project_limit": None,
-        "features": {
-            "3d_viewer": True,
-            "health_score": True,
-            "structure_types": True,
-            "load_calculations": True,
-            "member_sizing": True,
-            "fabric_selection": True,
-            "pdf_report": True,
-            "bq": True,
-            "editable_bq": False,
-            "costing_sheet": False,
-            "reaction_forces": False,
-            "shear_moment": False,
-            "axial_forces": False,
-            "cad_drawings": False,
-            "export_excel": False,
-            "unlimited_projects": True
-        }
-    },
-    "business": {
-        "name": "SDS Constructor",
-        "badge": "BUSINESS",
-        "badge_class": "license-business",
-        "project_limit": None,
-        "features": {
-            "3d_viewer": True,
-            "health_score": True,
-            "structure_types": True,
-            "load_calculations": True,
-            "member_sizing": True,
-            "fabric_selection": True,
-            "pdf_report": True,
-            "bq": True,
-            "editable_bq": True,
-            "costing_sheet": True,
-            "reaction_forces": True,
-            "shear_moment": True,
-            "axial_forces": True,
-            "cad_drawings": True,
-            "export_excel": True,
-            "unlimited_projects": True
-        }
-    }
-}
-
-# ============================================================
-# FEATURE CHECK FUNCTIONS
+# ALL FEATURES ARE FREE - NO LICENSE TIERS
 # ============================================================
 def has_feature(feature_name):
-    tier = st.session_state.get("license_tier", "free")
-    features = LICENSE_TIERS.get(tier, {}).get("features", {})
-    return features.get(feature_name, False)
+    """All features are available for free"""
+    return True
 
 def get_license_info():
-    tier = st.session_state.get("license_tier", "free")
-    return LICENSE_TIERS.get(tier, LICENSE_TIERS["free"])
+    """Returns free license info"""
+    return {
+        "name": "SDSe",
+        "badge": "FREE",
+        "badge_class": "license-free"
+    }
 
 def check_project_limit():
-    tier = st.session_state.get("license_tier", "free")
-    limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
-    if limit is None:
-        return True
-    current_projects = len(st.session_state.saved_projects)
-    return current_projects < limit
+    """No project limit - unlimited projects"""
+    return True
 
 def get_remaining_projects():
-    tier = st.session_state.get("license_tier", "free")
-    limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
-    if limit is None:
-        return "Unlimited"
-    current = len(st.session_state.saved_projects)
-    return max(0, limit - current)
+    """Always unlimited"""
+    return "Unlimited"
 
 # ============================================================
-# SESSION STATE INITIALIZATION - FIXED
+# SESSION STATE INITIALIZATION
 # ============================================================
 def init_session_state():
     """Initialize all session state variables"""
@@ -286,11 +219,9 @@ def init_session_state():
         "project_info": {},
         "typology": None,
         "params": {},
-        "qa_answers": {},
         "locked": False,
         "comments": "",
         "saved_projects": [],
-        "license_tier": "free",
         "design_results": {},
         "bq": {},
         "materials": {
@@ -325,7 +256,6 @@ def clear_previous_project_data():
     st.session_state.design_results = {}
     st.session_state.bq = {}
     st.session_state.params = {}
-    st.session_state.qa_answers = {}
     st.session_state.comments = ""
     st.session_state.locked = False
     st.session_state.typology = None
@@ -479,6 +409,37 @@ JOINT_MULTIPLIERS = {
 }
 
 # ============================================================
+# STRUCTURE TYPES - EXPANDED
+# ============================================================
+STRUCTURE_TYPES = {
+    "saddle_span": {"name": "Saddle Span", "icon": "🏕️", "description": "Curved saddle-shaped tensile structure"},
+    "clear_span_tent": {"name": "Clear-Span Tent", "icon": "🏗️", "description": "Column-free tensile tent structure"},
+    "tensile_membrane": {"name": "Tensile Membrane", "icon": "⛺", "description": "Tensioned fabric membrane structure"},
+    "portal_frame": {"name": "Portal Frame", "icon": "🏛️", "description": "Rigid steel frame structure"},
+    "arch_structure": {"name": "Arch Structure", "icon": "🌉", "description": "Curved arch supporting structure"},
+    "cable_net": {"name": "Cable Net", "icon": "🕸️", "description": "Interconnected cable grid structure"},
+    "tensegrity": {"name": "Tensegrity", "icon": "🔮", "description": "Tension-integrity structure"},
+    "geodesic_dome": {"name": "Geodesic Dome", "icon": "🌍", "description": "Spherical lattice shell structure"},
+    "folded_plate": {"name": "Folded Plate", "icon": "📐", "description": "Folded structural surface"},
+    "hybrid_system": {"name": "Hybrid System", "icon": "⚡", "description": "Combined structural systems"},
+    "space_frame": {"name": "Space Frame", "icon": "✧", "description": "3D truss network structure"},
+    "suspension_bridge": {"name": "Suspension Bridge", "icon": "🌉", "description": "Cable-suspended bridge structure"},
+    "retractable_roof": {"name": "Retractable Roof", "icon": "🔄", "description": "Opening and closing roof system"},
+    "grid_shell": {"name": "Grid Shell", "icon": "🔷", "description": "Grid-based shell structure"},
+    "inflatable_structure": {"name": "Inflatable Structure", "icon": "🎈", "description": "Air-supported membrane structure"},
+    "stress_ribbon": {"name": "Stress Ribbon", "icon": "🎀", "description": "Tensioned ribbon structure"},
+    "mast_supported": {"name": "Mast Supported", "icon": "🚩", "description": "Central mast with tensioned membrane"},
+    "fabricated_beam": {"name": "Fabricated Beam", "icon": "📏", "description": "Custom fabricated beam structure"},
+    "truss_system": {"name": "Truss System", "icon": "📐", "description": "Triangulated truss structure"},
+    "frame_system": {"name": "Frame System", "icon": "🏗️", "description": "Traditional frame structure"},
+    "cable_stayed": {"name": "Cable-Stayed", "icon": "🗼", "description": "Cable-supported structure"},
+    "shell_structure": {"name": "Shell Structure", "icon": "🐚", "description": "Thin shell structural surface"},
+    "bridge_viaduct": {"name": "Bridge/Viaduct", "icon": "🌉", "description": "Structural bridge system"},
+    "roof_system": {"name": "Roof System", "icon": "🏠", "description": "Comprehensive roof structure"},
+    "shade_structure": {"name": "Shade Structure", "icon": "🌴", "description": "Architectural shading system"}
+}
+
+# ============================================================
 # UTILITY FUNCTIONS
 # ============================================================
 def get_standard_label(code):
@@ -536,7 +497,6 @@ def analyze_truss_members(params, materials, total_load, joint_type="bolted"):
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     num_bays = materials.get("num_bays", 2)
-    num_panels = num_bays + 1
     
     joint_data = JOINT_MULTIPLIERS.get(joint_type, JOINT_MULTIPLIERS["bolted"])
     
@@ -1194,7 +1154,7 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     return results
 
 # ============================================================
-# 3D GENERATOR - FIXED SYNTAX ERROR
+# 3D GENERATORS
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span = params.get("B", 10.0)
@@ -1399,9 +1359,6 @@ def generate_saddle_span(params, materials=None):
     )
     return fig
 
-# ============================================================
-# OTHER GENERATORS
-# ============================================================
 def generate_tent(params):
     span, ridge, bays, bay_dist = params.get("span_width", 10.0), params.get("ridge_height", 5.0), params.get("num_bays", 4), params.get("bay_distance", 5.0)
     total_len = bays * bay_dist
@@ -1444,32 +1401,47 @@ def generate_portal(params):
     fig.update_layout(scene=dict(xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
     return fig
 
-def generate_custom(params):
-    width, length, height = params.get("width", 10.0), params.get("length", 15.0), params.get("height", 8.0)
+def generate_arch(params):
+    span, rise = params.get("span", 20.0), params.get("rise", 8.0)
+    num_points = 50
+    x = np.linspace(-span/2, span/2, num_points)
+    z = rise * (1 - (2*x/span)**2)
+    
     fig = go.Figure()
-    corners = [[-width/2, -length/2, 0], [width/2, -length/2, 0], [width/2, length/2, 0], [-width/2, length/2, 0], [-width/2, -length/2, height], [width/2, -length/2, height], [width/2, length/2, height], [-width/2, length/2, height]]
-    edges = [(0,1), (1,2), (2,3), (3,0), (4,5), (5,6), (6,7), (7,4), (0,4), (1,5), (2,6), (3,7)]
-    for i, j in edges:
-        fig.add_trace(go.Scatter3d(x=[corners[i][0], corners[j][0]], y=[corners[i][1], corners[j][1]], z=[corners[i][2], corners[j][2]], mode='lines', line=dict(color='#4a7a9c', width=3), showlegend=False))
-    fig.update_layout(
-        scene=dict(
-            xaxis_title='Width (m)',
-            yaxis_title='Length (m)',
-            zaxis_title='Height (m)',
-            bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
-        ),
-        paper_bgcolor='#0a0e17',
-        margin=dict(l=0, r=0, b=0, t=0)
-    )
+    fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Arch', line=dict(width=6, color='#FF6B6B')))
+    fig.add_trace(go.Scatter3d(x=[-span/2, span/2], y=[0,0], z=[0,0], mode='markers', name='Supports', marker=dict(color='#4ECDC4', size=10, symbol='square')))
+    fig.update_layout(scene=dict(xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
     return fig
+
+def generate_cable_net(params):
+    span, sag, cables = params.get("span", 20.0), params.get("sag", 4.0), params.get("num_cables", 6)
+    num_points = 30
+    x = np.linspace(-span/2, span/2, num_points)
+    z = sag * (1 - (2*x/span)**2)
+    
+    fig = go.Figure()
+    # Main cables
+    for i in range(cables):
+        y = i * span/(cables-1) - span/2
+        fig.add_trace(go.Scatter3d(x=x, y=[y]*len(x), z=z, mode='lines', line=dict(color='#4a7a9c', width=2), showlegend=False))
+    
+    # Cross cables
+    for i in range(cables):
+        y = i * span/(cables-1) - span/2
+        fig.add_trace(go.Scatter3d(x=[x[i], x[-i-1]], y=[y, y], z=[z[i], z[-i-1]], mode='lines', line=dict(color='#f39c12', width=1.5), showlegend=False))
+    
+    fig.update_layout(scene=dict(xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
+    return fig
+
+# Add more generator functions for other structure types...
 
 GENERATORS = {
     "saddle_span": generate_saddle_span,
     "clear_span_tent": generate_tent,
     "tensile_membrane": generate_tensile,
     "portal_frame": generate_portal,
-    "custom": generate_custom
+    "arch_structure": generate_arch,
+    "cable_net": generate_cable_net,
 }
 
 # ============================================================
@@ -1499,11 +1471,8 @@ def render_top_nav():
     with col5:
         if st.button("📄 BQ & Costing", key="nav_bq", use_container_width=True):
             if st.session_state.project_info:
-                if has_feature("bq"):
-                    st.session_state.page = "bq"
-                    st.rerun()
-                else:
-                    st.info("🔒 BQ & Costing is available in Pro and Business versions")
+                st.session_state.page = "bq"
+                st.rerun()
             else:
                 st.warning("Please create or open a project first")
     with col6:
@@ -1514,14 +1483,13 @@ def render_top_nav():
             else:
                 st.warning("Please create or open a project first")
     
-    license_info = get_license_info()
     st.markdown(f"""
     <div style='display: flex; justify-content: flex-end; padding: 0.2rem 0;'>
-        <span class='license-badge {license_info["badge_class"]}'>
-            {license_info["badge"]} - {license_info["name"]}
+        <span class='license-badge license-free'>
+            SDSe - Free & Open
         </span>
         <span style='color: #8a9aaa; font-size: 0.7rem; margin-left: 1rem;'>
-            Projects: {len(st.session_state.saved_projects)} / {get_remaining_projects()}
+            Projects: {len(st.session_state.saved_projects)} / Unlimited
         </span>
     </div>
     """, unsafe_allow_html=True)
@@ -1531,37 +1499,54 @@ def render_top_nav():
 # DASHBOARD PAGE
 # ============================================================
 def render_dashboard():
-    st.title("🏗️ SDS Design Studio v7.0")
+    st.title("🏗️ SDSe - Intelligent Fluid Design Workplace")
+    st.caption("*Design. Analyze. Build. All Free.*")
     
-    license_info = get_license_info()
-    st.caption(f"📋 {license_info['badge']} Version - {license_info['name']}")
+    st.markdown("## 🚀 Start Your Design")
+    st.markdown("Choose how you'd like to begin:")
     
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        <div class="design-path-card">
+            <div class="icon">🧠</div>
+            <div class="title">Intelligent Fluid Design</div>
+            <div class="desc">"I need help deciding"<br>
+            Answer a few questions and we'll recommend<br>
+            the best structure for your needs</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🧠 Start Intelligent Design", key="start_guided", use_container_width=True, type="primary"):
+            st.session_state.page = "intelligent_design"
+            st.rerun()
+    
+    with col2:
+        st.markdown("""
+        <div class="design-path-card">
+            <div class="icon">⚡</div>
+            <div class="title">Direct Design</div>
+            <div class="desc">"I know what I want"<br>
+            Choose from 25 structure types and<br>
+            go straight to design</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("⚡ Start Direct Design", key="start_direct", use_container_width=True, type="primary"):
+            st.session_state.page = "catalog"
+            st.rerun()
+    
+    st.divider()
+    
+    # Dashboard stats
     projects = st.session_state.saved_projects
     cols = st.columns(4)
     with cols[0]:
         st.markdown(f"<div class='dashboard-card'><div class='icon'>📂</div><div class='value'>{len(projects)}</div><div class='label'>Saved Projects</div></div>", unsafe_allow_html=True)
     with cols[1]:
-        st.markdown(f"<div class='dashboard-card'><div class='icon'>🏗️</div><div class='value'>5</div><div class='label'>Structure Types</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dashboard-card'><div class='icon'>🏗️</div><div class='value'>{len(STRUCTURE_TYPES)}</div><div class='label'>Structure Types</div></div>", unsafe_allow_html=True)
     with cols[2]:
         st.markdown(f"<div class='dashboard-card'><div class='icon'>🔧</div><div class='value'>100+</div><div class='label'>Sections Available</div></div>", unsafe_allow_html=True)
     with cols[3]:
         st.markdown(f"<div class='dashboard-card'><div class='icon'>⚡</div><div class='value'>AI</div><div class='label'>Intelligent Engine</div></div>", unsafe_allow_html=True)
-    
-    st.divider()
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("➕ New Design", key="dash_new_design", use_container_width=True, type="primary"):
-            if check_project_limit():
-                clear_previous_project_data()
-                st.session_state.page = "registration"
-                st.rerun()
-            else:
-                st.warning(f"⚠️ Free version limited to {LICENSE_TIERS['free']['project_limit']} projects. Upgrade to Pro for unlimited.")
-    with col2:
-        if st.button("📂 Open Project", key="dash_open_project", use_container_width=True):
-            st.session_state.page = "browser"
-            st.rerun()
     
     if projects:
         st.divider()
@@ -1582,22 +1567,84 @@ def render_dashboard():
                 st.rerun()
 
 # ============================================================
+# INTELLIGENT DESIGN PAGE
+# ============================================================
+def render_intelligent_design():
+    st.title("🧠 Intelligent Fluid Design")
+    st.caption("Answer a few questions and we'll recommend the best structure for you")
+    
+    # Brief questions for recommendation
+    st.markdown("### 📝 Tell us about your project")
+    
+    with st.form("intelligent_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            function = st.selectbox(
+                "Primary Function",
+                ["Weather Protection", "Architectural Feature", "Sports Facility", 
+                 "Event Space", "Industrial Building", "Shade Structure"]
+            )
+            span_range = st.selectbox(
+                "Approximate Span",
+                ["< 20m", "20-40m", "40-60m", "> 60m"]
+            )
+            budget = st.selectbox(
+                "Budget Range",
+                ["Low (Basic)", "Medium (Standard)", "High (Premium)", "Very High (Iconic)"]
+            )
+        with col2:
+            soil = st.selectbox(
+                "Soil Condition",
+                ["Sand", "Clay", "Rock", "Unknown"]
+            )
+            permanence = st.selectbox(
+                "Structure Type",
+                ["Permanent", "Semi-Permanent", "Temporary"]
+            )
+            aesthetics = st.selectbox(
+                "Aesthetic Preference",
+                ["Modern/Contemporary", "Classic/Traditional", "Dramatic/Ironic", "Minimalist"]
+            )
+        
+        if st.form_submit_button("🔍 Recommend Structure", use_container_width=True, type="primary"):
+            # Simple recommendation logic
+            if span_range == "> 60m" or budget == "High":
+                recommended = "cable_stayed"
+            elif span_range == "< 20m" or budget == "Low":
+                recommended = "portal_frame"
+            elif function in ["Architectural Feature", "Event Space"]:
+                recommended = "tensile_membrane"
+            else:
+                recommended = "saddle_span"
+            
+            st.session_state.recommended_structure = recommended
+            st.success(f"✅ Based on your inputs, we recommend: {recommended.replace('_', ' ').title()}")
+            
+            if st.button("🚀 Go to Design", use_container_width=True, type="primary"):
+                st.session_state.typology = "saddle_span"  # Default
+                st.session_state.params = {"B": 10.0, "A": 6.0, "LAA": 15.0}
+                st.session_state.project_info = {
+                    "name": "Intelligent Design Project",
+                    "client": "SDSe User",
+                    "reference": f"SDSe-{datetime.now().strftime('%Y%m%d')}",
+                    "date": datetime.now().isoformat()
+                }
+                st.session_state.page = "workspace"
+                st.rerun()
+
+# ============================================================
 # REGISTRATION PAGE
 # ============================================================
 def render_registration():
     st.subheader("📋 New Project")
     
-    remaining = get_remaining_projects()
-    if st.session_state.license_tier == "free":
-        st.caption(f"📊 Remaining projects: {remaining} / {LICENSE_TIERS['free']['project_limit']}")
-    
     with st.form("register_form"):
-        name = st.text_input("Project Name *", placeholder="e.g., OCB")
+        name = st.text_input("Project Name *", placeholder="e.g., OCB Canopy")
         client = st.text_input("Client Name *", placeholder="e.g., OCBC")
         location = st.text_input("Location", placeholder="e.g., Kuala Lumpur, Malaysia")
         standard = st.selectbox("Design Standard", ["EU", "CN", "UK", "MY", "US"], index=3)
         ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-        st.caption(f"Reference: SDS-{ref}")
+        st.caption(f"Reference: SDSe-{ref}")
         
         if st.form_submit_button("🚀 Start Design", key="register_start", use_container_width=True, type="primary"):
             if not name or not client:
@@ -1608,7 +1655,7 @@ def render_registration():
                     "name": name,
                     "client": client,
                     "location": location,
-                    "reference": f"SDS-{ref}",
+                    "reference": f"SDSe-{ref}",
                     "date": datetime.now().isoformat()
                 }
                 st.session_state.materials["standard"] = standard
@@ -1648,37 +1695,44 @@ def render_project_browser():
             st.divider()
 
 # ============================================================
-# CATALOG PAGE
+# CATALOG PAGE - WITH MULTIPLE STRUCTURE TYPES
 # ============================================================
 def render_catalog():
-    st.subheader("Choose a structure type:")
-    cols = st.columns(2)
-    with cols[0]:
-        if st.button("🏕️ Saddle Span", key="catalog_saddle", use_container_width=True, type="primary"):
-            st.session_state.typology = "saddle_span"
-            st.session_state.params = {"A": 6.0, "B": 10.0, "LAA": 15.0}
-            st.session_state.page = "workspace"
-            st.rerun()
-    with cols[1]:
-        if st.button("🏗️ Clear-Span Tent", key="catalog_tent", use_container_width=True):
-            st.session_state.typology = "clear_span_tent"
-            st.session_state.params = {"span_width": 10.0, "ridge_height": 5.0, "bay_distance": 5.0, "num_bays": 4}
-            st.session_state.page = "workspace"
-            st.rerun()
+    st.subheader("🏗️ Choose a Structure Type")
+    st.caption(f"Select from {len(STRUCTURE_TYPES)} different structure types")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⛺ Tensile Membrane", key="catalog_tensile", use_container_width=True):
-            st.session_state.typology = "tensile_membrane"
-            st.session_state.params = {"mast_height": 8.0, "span_length": 20.0, "span_width": 15.0, "cable_count": 4}
-            st.session_state.page = "workspace"
-            st.rerun()
-    with col2:
-        if st.button("🏛️ Portal Frame", key="catalog_portal", use_container_width=True):
-            st.session_state.typology = "portal_frame"
-            st.session_state.params = {"eave_height": 6.0, "span_width": 20.0, "bay_spacing": 6.0, "roof_pitch": 5.0, "num_bays": 5}
-            st.session_state.page = "workspace"
-            st.rerun()
+    # Display in grid (3 columns)
+    items = list(STRUCTURE_TYPES.items())
+    for i in range(0, len(items), 3):
+        cols = st.columns(3)
+        for j in range(3):
+            if i + j < len(items):
+                key, data = items[i + j]
+                with cols[j]:
+                    st.markdown(f"""
+                    <div class="design-path-card">
+                        <div class="icon">{data['icon']}</div>
+                        <div class="title">{data['name']}</div>
+                        <div class="desc">{data['description']}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button(f"Select {data['name']}", key=f"catalog_{key}", use_container_width=True, type="primary"):
+                        st.session_state.typology = key
+                        # Set default params based on structure type
+                        if key in ["saddle_span", "tensile_membrane"]:
+                            st.session_state.params = {"B": 10.0, "A": 6.0, "LAA": 15.0}
+                        elif key == "clear_span_tent":
+                            st.session_state.params = {"span_width": 10.0, "ridge_height": 5.0, "bay_distance": 5.0, "num_bays": 4}
+                        elif key == "portal_frame":
+                            st.session_state.params = {"eave_height": 6.0, "span_width": 20.0, "bay_spacing": 6.0, "roof_pitch": 5.0, "num_bays": 5}
+                        elif key == "arch_structure":
+                            st.session_state.params = {"span": 20.0, "rise": 8.0}
+                        elif key == "cable_net":
+                            st.session_state.params = {"span": 20.0, "sag": 4.0, "num_cables": 6}
+                        else:
+                            st.session_state.params = {"B": 10.0, "A": 6.0, "LAA": 15.0}
+                        st.session_state.page = "workspace"
+                        st.rerun()
 
 # ============================================================
 # BQ & COSTING PAGE
@@ -1808,7 +1862,7 @@ def render_reports():
             fig.patch.set_facecolor('#0a0e17')
             
             axes[0, 0].axis('off')
-            axes[0, 0].text(0.5, 0.8, "SDS Design Studio", fontsize=18, color='white', ha='center', weight='bold')
+            axes[0, 0].text(0.5, 0.8, "SDSe - Intelligent Fluid Design Workplace", fontsize=18, color='white', ha='center', weight='bold')
             axes[0, 0].text(0.5, 0.6, f"Project: {st.session_state.project_info.get('name', 'Untitled')}", fontsize=14, color='#b0c4de', ha='center')
             axes[0, 0].text(0.5, 0.4, f"Client: {st.session_state.project_info.get('client', 'Unknown')}", fontsize=12, color='#b0c4de', ha='center')
             axes[0, 0].text(0.5, 0.2, f"Date: {datetime.now().strftime('%B %d, %Y')}", fontsize=12, color='#b0c4de', ha='center')
@@ -1853,7 +1907,7 @@ def render_reports():
             st.download_button(
                 label="📥 Download PDF Report",
                 data=buf,
-                file_name=f"SDS_Report_{st.session_state.project_info.get('reference', 'project')}.pdf",
+                file_name=f"SDSe_Report_{st.session_state.project_info.get('reference', 'project')}.pdf",
                 mime="application/pdf",
                 key="reports_pdf_download"
             )
@@ -1867,7 +1921,7 @@ def render_reports():
         st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE - CONSOLIDATED
+# WORKSPACE PAGE - REMOVED DESIGN CONFIRMATION DIALOGUE
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -1946,6 +2000,16 @@ def render_workspace():
             params["bay_spacing"] = st.number_input("Bay Spacing (m)", 4.0, 12.0, params.get("bay_spacing", 6.0), 0.5, disabled=st.session_state.locked, key="dim_bay_spacing")
             params["roof_pitch"] = st.number_input("Roof Pitch (°)", 1.0, 15.0, params.get("roof_pitch", 5.0), 0.5, disabled=st.session_state.locked, key="dim_roof_pitch")
             params["num_bays"] = st.number_input("Number of Bays", 2, 30, params.get("num_bays", 5), 1, disabled=st.session_state.locked, key="dim_portal_bays")
+        elif typology == "arch_structure":
+            params["span"] = st.number_input("Span (m)", 5.0, 50.0, params.get("span", 20.0), 0.5, disabled=st.session_state.locked, key="dim_arch_span")
+            params["rise"] = st.number_input("Rise (m)", 2.0, 20.0, params.get("rise", 8.0), 0.5, disabled=st.session_state.locked, key="dim_arch_rise")
+        elif typology == "cable_net":
+            params["span"] = st.number_input("Span (m)", 5.0, 40.0, params.get("span", 20.0), 0.5, disabled=st.session_state.locked, key="dim_net_span")
+            params["sag"] = st.number_input("Sag (m)", 1.0, 10.0, params.get("sag", 4.0), 0.5, disabled=st.session_state.locked, key="dim_net_sag")
+            params["num_cables"] = st.number_input("Number of Cables", 3, 12, params.get("num_cables", 6), 1, disabled=st.session_state.locked, key="dim_net_cables")
+        else:
+            params["B"] = st.number_input("Span (m)", 4.0, 40.0, params.get("B", 10.0), 0.5, disabled=st.session_state.locked, key="dim_B_general")
+            params["A"] = st.number_input("Rise (m)", 2.0, 20.0, params.get("A", 6.0), 0.5, disabled=st.session_state.locked, key="dim_A_general")
         st.markdown('</div>', unsafe_allow_html=True)
         
         if typology == "saddle_span":
@@ -2162,7 +2226,7 @@ def render_workspace():
         </div>
         """, unsafe_allow_html=True)
         
-        if has_feature("bq") and st.session_state.bq:
+        if st.session_state.bq:
             bq = st.session_state.bq
             currency = get_currency(materials.get("country", "Malaysia"))
             st.divider()
@@ -2172,25 +2236,6 @@ def render_workspace():
             if st.button("📄 View Full BQ", key="workspace_view_full_bq", use_container_width=True, type="primary"):
                 st.session_state.page = "bq"
                 st.rerun()
-    
-    st.divider()
-    
-    st.markdown('<div class="sds-card"><div class="title">❓ Design Confirmation</div>', unsafe_allow_html=True)
-    qa_list = {
-        "saddle_span": ["Are there two primary curved beams?", "Are both beams supported at lower ends?", "Is membrane attached continuously?", "Is A the vertical rise?", "Is B the horizontal span?", "Is LAA the apex-to-apex distance?"],
-        "clear_span_tent": ["Zero interior columns?", "Pin-based supports?", "Fabric tensioned at ridge?", "Sidewalls open or enclosed?"],
-        "tensile_membrane": ["Boundary tension membrane?", "Interior masts present?", "Anticlastic or synclastic?", "Edge cables included?"],
-        "portal_frame": ["Column bases pin-supported?", "Roof purlin-supported?", "Overhead crane present?", "Fully enclosed cladding?"]
-    }
-    qa_list["custom"] = ["This is a custom design. Add your description below."]
-    
-    qa = qa_list.get(typology, qa_list["saddle_span"])
-    for i, q in enumerate(qa):
-        key = f"qa_{i}"
-        default = st.session_state.qa_answers.get(key, "Yes")
-        ans = st.radio(q, ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"qa_radio_{i}", disabled=st.session_state.locked)
-        st.session_state.qa_answers[key] = ans
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
 # MAIN ROUTING
@@ -2201,6 +2246,8 @@ page = st.session_state.get("page", "dashboard")
 
 if page == "dashboard":
     render_dashboard()
+elif page == "intelligent_design":
+    render_intelligent_design()
 elif page == "registration":
     render_registration()
 elif page == "browser":
@@ -2217,4 +2264,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("SDS Design Studio v7.0 | MS EN Wind: 33.5m/s | 100+ Sections | 🔩/⚡ Joints | 🌍 Local Currency | 🧠 Intelligent Engine")
+st.caption("SDSe - Intelligent Fluid Design Workplace v7.0 | MS EN Wind: 33.5m/s | 100+ Sections | 🔩/⚡ Joints | 🌍 Local Currency | 🧠 Intelligent Engine")
