@@ -6,7 +6,7 @@ import numpy as np
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="FDS - 3D Viewer Prototype",
+    page_title="FDS - 3D Viewer Prototype v2",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -129,6 +129,8 @@ if "span" not in st.session_state:
     st.session_state.span = 10.0
 if "rise" not in st.session_state:
     st.session_state.rise = 6.0
+if "laa" not in st.session_state:
+    st.session_state.laa = 15.0  # NEW: Apex-to-Apex distance
 if "supports" not in st.session_state:
     st.session_state.supports = {
         "A": {"x": -5.0, "y": 3.0},
@@ -138,10 +140,10 @@ if "supports" not in st.session_state:
     }
 
 # ============================================================
-# 3D GENERATOR
+# 3D GENERATOR - FIXED!
 # ============================================================
-def generate_3d_view(pretension, shape_type, support_system, supports, span, rise):
-    """Generate 3D visualization with all parameters"""
+def generate_3d_view(pretension, shape_type, support_system, supports, span, rise, laa):
+    """Generate 3D visualization with all parameters - FIXED for 4-point"""
     
     num_points = 40
     
@@ -151,20 +153,22 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
     
     # Determine support configuration
     if support_system == "2_point":
-        y1 = -3.0 * (1 - (2 * x / span)**2)
-        y2 = 3.0 * (1 - (2 * x / span)**2)
+        # Width variation based on LAA
+        width_factor = laa / 10.0
+        y1 = -3.0 * (1 - (2 * x / span)**2) * width_factor
+        y2 = 3.0 * (1 - (2 * x / span)**2) * width_factor
         
         fig = go.Figure()
         
         # Beams
         fig.add_trace(go.Scatter3d(
             x=x, y=y1, z=z_beam,
-            mode='lines', name='Beam 1',
+            mode='lines', name='Beam 1 (Left)',
             line=dict(color='#FF6B6B', width=8)
         ))
         fig.add_trace(go.Scatter3d(
             x=x, y=y2, z=z_beam,
-            mode='lines', name='Beam 2',
+            mode='lines', name='Beam 2 (Right)',
             line=dict(color='#FF6B6B', width=8)
         ))
         
@@ -214,7 +218,34 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             name='Apex'
         ))
         
-    else:  # 4_point
+        # Tie-down cables
+        tie_down_angle = 45
+        for bx in [-span/3, 0, span/3]:
+            idx = np.argmin(np.abs(x - bx))
+            x1 = x[idx]
+            y1_pt = y1[idx]
+            y2_pt = y2[idx]
+            z_pt = z_beam[idx]
+            
+            anchor_offset = 8.0
+            fig.add_trace(go.Scatter3d(
+                x=[x1, x1 - 2],
+                y=[y1_pt, -anchor_offset],
+                z=[z_pt, 0],
+                mode='lines',
+                line=dict(color='#FFD93D', width=2, dash='dash'),
+                showlegend=False
+            ))
+            fig.add_trace(go.Scatter3d(
+                x=[x1, x1 + 2],
+                y=[y2_pt, anchor_offset],
+                z=[z_pt, 0],
+                mode='lines',
+                line=dict(color='#FFD93D', width=2, dash='dash'),
+                showlegend=False
+            ))
+        
+    else:  # 4_POINT - FIXED!
         A = supports["A"]
         B = supports["B"]
         C = supports["C"]
@@ -224,13 +255,16 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
         span_x = B["x"] - A["x"]
         width_y = C["y"] - A["y"]
         
+        # Create mesh grid for membrane
         x_vals = np.linspace(A["x"], B["x"], num_points)
         y_vals = np.linspace(C["y"], A["y"], num_points)
         X, Y = np.meshgrid(x_vals, y_vals)
         
+        # Normalize coordinates
         x_norm = (X - A["x"]) / span_x * 2 - 1
         y_norm = (Y - C["y"]) / width_y * 2 - 1
         
+        # Hypar surface with rise
         Z = rise * (1 - x_norm**2) * (1 - y_norm**2)
         
         fig = go.Figure()
@@ -242,6 +276,51 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             opacity=0.7,
             showscale=False,
             name='Membrane'
+        ))
+        
+        # Draw BEAMS along edges (FIXED!)
+        # Top beam: A → B
+        x_top = np.linspace(A["x"], B["x"], num_points)
+        y_top = np.linspace(A["y"], B["y"], num_points)
+        z_top = rise * (1 - ((2 * (x_top - A["x"]) / span_x) - 1)**2) * (1 - ((2 * (y_top - A["y"]) / width_y) - 1)**2)
+        fig.add_trace(go.Scatter3d(
+            x=x_top, y=y_top, z=z_top,
+            mode='lines',
+            line=dict(color='#FF6B6B', width=8),
+            name='Top Beam'
+        ))
+        
+        # Bottom beam: C → D
+        x_bot = np.linspace(C["x"], D["x"], num_points)
+        y_bot = np.linspace(C["y"], D["y"], num_points)
+        z_bot = rise * (1 - ((2 * (x_bot - A["x"]) / span_x) - 1)**2) * (1 - ((2 * (y_bot - A["y"]) / width_y) - 1)**2)
+        fig.add_trace(go.Scatter3d(
+            x=x_bot, y=y_bot, z=z_bot,
+            mode='lines',
+            line=dict(color='#FF6B6B', width=8),
+            name='Bottom Beam'
+        ))
+        
+        # Left beam: A → C
+        x_left = np.linspace(A["x"], C["x"], num_points)
+        y_left = np.linspace(A["y"], C["y"], num_points)
+        z_left = rise * (1 - ((2 * (x_left - A["x"]) / span_x) - 1)**2) * (1 - ((2 * (y_left - A["y"]) / width_y) - 1)**2)
+        fig.add_trace(go.Scatter3d(
+            x=x_left, y=y_left, z=z_left,
+            mode='lines',
+            line=dict(color='#FF6B6B', width=8),
+            name='Left Beam'
+        ))
+        
+        # Right beam: B → D
+        x_right = np.linspace(B["x"], D["x"], num_points)
+        y_right = np.linspace(B["y"], D["y"], num_points)
+        z_right = rise * (1 - ((2 * (x_right - A["x"]) / span_x) - 1)**2) * (1 - ((2 * (y_right - A["y"]) / width_y) - 1)**2)
+        fig.add_trace(go.Scatter3d(
+            x=x_right, y=y_right, z=z_right,
+            mode='lines',
+            line=dict(color='#FF6B6B', width=8),
+            name='Right Beam'
         ))
         
         # Support points
@@ -282,7 +361,7 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
                 y=[p1["y"], p2["y"]],
                 z=[0, 0],
                 mode='lines',
-                line=dict(color='#FFD93D', width=3, dash='dash'),
+                line=dict(color='#FFD93D', width=2, dash='dash'),
                 showlegend=False
             ))
     
@@ -292,8 +371,8 @@ def generate_3d_view(pretension, shape_type, support_system, supports, span, ris
             xaxis_title='X (m)',
             yaxis_title='Y (m)',
             zaxis_title='Z (m)',
-            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a', range=[-8, 8]),
-            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a', range=[-8, 8]),
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a', range=[-10, 10]),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a', range=[-10, 10]),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a', range=[0, 10]),
             bgcolor='#0a0e17',
             camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))
@@ -366,8 +445,8 @@ def get_anchor_force(pretension):
 # ============================================================
 # MAIN UI
 # ============================================================
-st.title("🧬 FDS - 3D Viewer Prototype")
-st.caption("Test pretension, support systems, and shapes in real-time")
+st.title("🧬 FDS - 3D Viewer Prototype v2")
+st.caption("Test pretension, support systems, shapes, and LAA in real-time")
 st.markdown("---")
 
 # Main layout: 3D viewport on top, controls below
@@ -383,7 +462,8 @@ with col_viewport:
         support_system=st.session_state.support_system,
         supports=st.session_state.supports,
         span=st.session_state.span,
-        rise=st.session_state.rise
+        rise=st.session_state.rise,
+        laa=st.session_state.laa
     )
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
     
@@ -500,15 +580,29 @@ with col_controls:
     
     st.markdown("---")
     
-    # Span and Rise
-    span = st.number_input("📏 Span (m)", 4.0, 40.0, st.session_state.span, 0.5)
-    if span != st.session_state.span:
-        st.session_state.span = span
-        st.rerun()
+    # Span, Rise, and LAA
+    col_span, col_rise = st.columns(2)
+    with col_span:
+        span = st.number_input("📏 Span (m)", 4.0, 40.0, st.session_state.span, 0.5)
+        if span != st.session_state.span:
+            st.session_state.span = span
+            st.rerun()
+    with col_rise:
+        rise = st.number_input("📐 Rise (m)", 2.0, 20.0, st.session_state.rise, 0.5)
+        if rise != st.session_state.rise:
+            st.session_state.rise = rise
+            st.rerun()
     
-    rise = st.number_input("📐 Rise (m)", 2.0, 20.0, st.session_state.rise, 0.5)
-    if rise != st.session_state.rise:
-        st.session_state.rise = rise
+    # NEW: LAA Control
+    laa = st.number_input(
+        "📏 Apex-to-Apex (LAA) m",
+        2.0, 30.0,
+        st.session_state.laa,
+        0.5,
+        help="Distance between the two apex points (width of structure)"
+    )
+    if laa != st.session_state.laa:
+        st.session_state.laa = laa
         st.rerun()
     
     st.markdown("---")
@@ -523,6 +617,7 @@ with col_controls:
             st.session_state.support_system = "2_point"
             st.session_state.span = 10.0
             st.session_state.rise = 6.0
+            st.session_state.laa = 15.0
             st.rerun()
     with col2:
         if st.button("📐 Catenary", use_container_width=True):
@@ -538,5 +633,5 @@ with col_controls:
 # FOOTER
 # ============================================================
 st.markdown("---")
-st.caption("🧬 FDS - 3D Viewer Prototype | Rigid in Principle. Fluid in Application.")
-st.caption("🔬 Use this standalone viewer to test pretension, shapes, and support systems in real-time.")
+st.caption("🧬 FDS - 3D Viewer Prototype v2 | Rigid in Principle. Fluid in Application.")
+st.caption("🔬 Now with LAA control and fixed 4-Point support!")
