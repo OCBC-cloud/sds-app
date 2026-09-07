@@ -130,13 +130,6 @@ dark_mode_css = """
         font-weight: 600;
         margin-bottom: 0.5rem;
     }
-    .license-btn-free { background-color: #2ecc71; color: #0a0e17; border: none; padding: 0.3rem 1rem; border-radius: 20px; font-weight: 600; cursor: pointer; }
-    .license-btn-pro { background-color: #3498db; color: #ffffff; border: none; padding: 0.3rem 1rem; border-radius: 20px; font-weight: 600; cursor: pointer; }
-    .license-btn-business { background-color: #f39c12; color: #0a0e17; border: none; padding: 0.3rem 1rem; border-radius: 20px; font-weight: 600; cursor: pointer; }
-    .license-current { display: inline-block; padding: 0.3rem 1rem; border-radius: 20px; font-weight: 600; }
-    .license-current-free { background-color: #2ecc71; color: #0a0e17; }
-    .license-current-pro { background-color: #3498db; color: #ffffff; }
-    .license-current-business { background-color: #f39c12; color: #0a0e17; }
     
     /* ===== DESIGN PATHS ===== */
     .design-path-card {
@@ -147,6 +140,7 @@ dark_mode_css = """
         text-align: center;
         height: 100%;
         transition: all 0.3s ease;
+        cursor: pointer;
     }
     .design-path-card:hover {
         border-color: #f39c12;
@@ -174,46 +168,6 @@ dark_mode_css = """
     .stRadio > div label:hover {
         border-color: #4a7a9c !important;
         color: #ffffff !important;
-    }
-    .stRadio > div label[data-baseweb="radio"] {
-        background-color: transparent !important;
-    }
-    .stRadio > div label[data-checked="true"] {
-        color: #f39c12 !important;
-        border-color: #f39c12 !important;
-        background-color: rgba(243, 156, 18, 0.1) !important;
-        font-weight: 600 !important;
-    }
-    .stRadio > div label[data-checked="true"]:hover {
-        border-color: #f1c40f !important;
-        color: #f1c40f !important;
-    }
-    .stRadio > div label div[data-testid="stMarkdownContainer"] {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .stRadio > div label div[data-testid="stMarkdownContainer"] > div:first-child {
-        width: 14px !important;
-        height: 14px !important;
-        border-radius: 50% !important;
-        border: 2px solid #4a5a6a !important;
-        transition: all 0.3s ease !important;
-        flex-shrink: 0 !important;
-    }
-    .stRadio > div label[data-checked="true"] div[data-testid="stMarkdownContainer"] > div:first-child {
-        border-color: #f39c12 !important;
-        background-color: #f39c12 !important;
-        box-shadow: 0 0 8px rgba(243, 156, 18, 0.4) !important;
-    }
-    .stRadio > div label[data-checked="true"] div[data-testid="stMarkdownContainer"] > div:first-child::after {
-        content: "" !important;
-        display: block !important;
-        width: 6px !important;
-        height: 6px !important;
-        border-radius: 50% !important;
-        background-color: #0a0e17 !important;
-        margin: 2px auto !important;
     }
     
     /* ===== QUESTION PROGRESS ===== */
@@ -348,55 +302,49 @@ def get_remaining_projects():
 # ============================================================
 # SESSION STATE
 # ============================================================
-if "page" not in st.session_state:
-    st.session_state.page = "dashboard"
-if "design_path" not in st.session_state:
-    st.session_state.design_path = None  # "guided" or "direct"
-if "brief_answers" not in st.session_state:
-    st.session_state.brief_answers = {}
-if "brief_step" not in st.session_state:
-    st.session_state.brief_step = 0
-if "recommended_system" not in st.session_state:
-    st.session_state.recommended_system = None
-if "project_registered" not in st.session_state:
-    st.session_state.project_registered = False
-if "project_info" not in st.session_state:
-    st.session_state.project_info = {}
-if "typology" not in st.session_state:
-    st.session_state.typology = None
-if "params" not in st.session_state:
-    st.session_state.params = {}
-if "qa_answers" not in st.session_state:
-    st.session_state.qa_answers = {}
-if "locked" not in st.session_state:
-    st.session_state.locked = False
-if "comments" not in st.session_state:
-    st.session_state.comments = ""
-if "saved_projects" not in st.session_state:
-    st.session_state.saved_projects = []
-if "license_tier" not in st.session_state:
-    st.session_state.license_tier = "free"
-if "design_results" not in st.session_state:
-    st.session_state.design_results = {}
-if "bq" not in st.session_state:
-    st.session_state.bq = {}
-if "materials" not in st.session_state:
-    st.session_state.materials = {
-        "standard": "EU",
-        "material_type": "Steel",
-        "section_type": "CHS",
-        "fabric_type": "PVC-coated Polyester",
-        "cable_type": "6x19 Galvanized",
-        "tie_down_vertical_angle": 45,
-        "tie_down_horizontal_spread": 30,
-        "shape_type": "parabolic",
-        "member_type": "single_beam",
-        "truss_type": "warren",
-        "num_bays": 2,
-        "prestress_level": "medium",
-        "joint_type": "bolted",
-        "country": "Malaysia"
+def init_session_state():
+    """Initialize all session state variables"""
+    defaults = {
+        "page": "dashboard",
+        "design_path": None,
+        "brief_answers": {},
+        "brief_step": 0,
+        "recommended_system": None,
+        "project_registered": False,
+        "project_info": {},
+        "typology": None,
+        "params": {},
+        "qa_answers": {},
+        "locked": False,
+        "comments": "",
+        "saved_projects": [],
+        "license_tier": "free",
+        "design_results": {},
+        "bq": {},
+        "materials": {
+            "standard": "EU",
+            "material_type": "Steel",
+            "section_type": "CHS",
+            "fabric_type": "PVC-coated Polyester",
+            "cable_type": "6x19 Galvanized",
+            "tie_down_vertical_angle": 45,
+            "tie_down_horizontal_spread": 30,
+            "shape_type": "parabolic",
+            "member_type": "single_beam",
+            "truss_type": "warren",
+            "num_bays": 2,
+            "prestress_level": "medium",
+            "joint_type": "bolted",
+            "country": "Malaysia"
+        }
     }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+# Initialize session state
+init_session_state()
 
 # ============================================================
 # CLEAR PROJECT DATA FUNCTION
@@ -1737,54 +1685,133 @@ def generate_saddle_span(params, materials=None):
     return fig
 
 def generate_tent(params, materials=None):
-    span, ridge, bays, bay_dist = params.get("span_width", 10.0), params.get("ridge_height", 5.0), params.get("num_bays", 4), params.get("bay_distance", 5.0)
+    span = params.get("span_width", 10.0)
+    ridge = params.get("ridge_height", 5.0)
+    bays = params.get("num_bays", 4)
+    bay_dist = params.get("bay_distance", 5.0)
     total_len = bays * bay_dist
+    
     fig = go.Figure()
     fig.add_trace(go.Scatter3d(x=[0,0], y=[0,total_len], z=[ridge,ridge], mode='lines', name='Ridge', line=dict(width=8, color='#f39c12')))
     fig.add_trace(go.Scatter3d(x=[-span/2,-span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Left', line=dict(width=5, color='#4a7a9c')))
     fig.add_trace(go.Scatter3d(x=[span/2,span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Right', line=dict(width=5, color='#4a7a9c')))
+    
     X, Y = np.meshgrid(np.linspace(-span/2, span/2, 30), np.linspace(0, total_len, 30))
     Z = ridge * (1 - (X/(span/2))**2) * (1 - (Y/total_len)**2 * 0.1)
     fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.5, colorscale='Reds', showscale=False, name='Fabric'))
-    fig.update_layout(scene=dict(xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Width (m)',
+            yaxis_title='Length (m)',
+            zaxis_title='Height (m)',
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+        ),
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0, r=0, b=0, t=0)
+    )
     return fig
 
 def generate_tensile(params, materials=None):
-    mast, length, width, cables = params.get("mast_height", 8.0), params.get("span_length", 20.0), params.get("span_width", 15.0), params.get("cable_count", 4)
+    mast = params.get("mast_height", 8.0)
+    length = params.get("span_length", 20.0)
+    width = params.get("span_width", 15.0)
+    cables = params.get("cable_count", 4)
+    
     fig = go.Figure()
     fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0,mast], mode='lines', name='Mast', line=dict(width=10, color='#f39c12')))
+    
     X, Y = np.meshgrid(np.linspace(-length/2, length/2, 30), np.linspace(-width/2, width/2, 30))
     Z = mast * np.exp(-((X/(length/2))**2 + (Y/(width/2))**2) * 0.5)
     fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.4, colorscale='Greens', showscale=False, name='Membrane'))
+    
     for i in range(cables):
         angle = i * 2*np.pi/cables
-        fig.add_trace(go.Scatter3d(x=[0, length/2*np.cos(angle)], y=[0, width/2*np.sin(angle)], z=[mast, 0], mode='lines', name=f'Cable {i+1}', line=dict(width=4, color='#4a7a9c')))
-    fig.update_layout(scene=dict(xaxis_title='Length (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
+        fig.add_trace(go.Scatter3d(
+            x=[0, length/2*np.cos(angle)],
+            y=[0, width/2*np.sin(angle)],
+            z=[mast, 0],
+            mode='lines',
+            name=f'Cable {i+1}',
+            line=dict(width=4, color='#4a7a9c')
+        ))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Length (m)',
+            yaxis_title='Width (m)',
+            zaxis_title='Height (m)',
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+        ),
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0, r=0, b=0, t=0)
+    )
     return fig
 
 def generate_portal(params, materials=None):
-    eave, span, pitch, bays, bay_spacing = params.get("eave_height", 6.0), params.get("span_width", 20.0), params.get("roof_pitch", 5.0), params.get("num_bays", 5), params.get("bay_spacing", 6.0)
+    eave = params.get("eave_height", 6.0)
+    span = params.get("span_width", 20.0)
+    pitch = params.get("roof_pitch", 5.0)
+    bays = params.get("num_bays", 5)
+    bay_spacing = params.get("bay_spacing", 6.0)
     total_len = bays * bay_spacing
     ridge = eave + span/2 * np.tan(np.radians(pitch))
+    
     fig = go.Figure()
     x, z = [-span/2, -span/2, 0, span/2, span/2], [0, eave, ridge, eave, 0]
     fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Portal Frame', line=dict(width=8, color='#4a7a9c')))
+    
     for i in range(bays):
         y = i * bay_spacing
         fig.add_trace(go.Scatter3d(x=x, y=[y]*len(x), z=z, mode='lines', line=dict(width=4, color='#4a7a9c', opacity=0.3), showlegend=False))
+    
     Y, X = np.meshgrid(np.linspace(0, total_len, 10), np.linspace(-span/2, span/2, 30))
     Z = np.where(np.abs(X) < span/2, eave + (span/2 - np.abs(X)) * np.tan(np.radians(pitch)), 0)
     fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.3, colorscale='Greys', showscale=False, name='Roof'))
-    fig.update_layout(scene=dict(xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
+    
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Width (m)',
+            yaxis_title='Length (m)',
+            zaxis_title='Height (m)',
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
+        ),
+        paper_bgcolor='#0a0e17',
+        margin=dict(l=0, r=0, b=0, t=0)
+    )
     return fig
 
 def generate_custom(params, materials=None):
-    width, length, height = params.get("width", 10.0), params.get("length", 15.0), params.get("height", 8.0)
+    width = params.get("width", 10.0)
+    length = params.get("length", 15.0)
+    height = params.get("height", 8.0)
+    
     fig = go.Figure()
-    corners = [[-width/2, -length/2, 0], [width/2, -length/2, 0], [width/2, length/2, 0], [-width/2, length/2, 0], [-width/2, -length/2, height], [width/2, -length/2, height], [width/2, length/2, height], [-width/2, length/2, height]]
+    corners = [
+        [-width/2, -length/2, 0],
+        [width/2, -length/2, 0],
+        [width/2, length/2, 0],
+        [-width/2, length/2, 0],
+        [-width/2, -length/2, height],
+        [width/2, -length/2, height],
+        [width/2, length/2, height],
+        [-width/2, length/2, height]
+    ]
     edges = [(0,1), (1,2), (2,3), (3,0), (4,5), (5,6), (6,7), (7,4), (0,4), (1,5), (2,6), (3,7)]
+    
     for i, j in edges:
-        fig.add_trace(go.Scatter3d(x=[corners[i][0], corners[j][0]], y=[corners[i][1], corners[j][1]], z=[corners[i][2], corners[j][2]], mode='lines', line=dict(color='#4a7a9c', width=3), showlegend=False))
+        fig.add_trace(go.Scatter3d(
+            x=[corners[i][0], corners[j][0]],
+            y=[corners[i][1], corners[j][1]],
+            z=[corners[i][2], corners[j][2]],
+            mode='lines',
+            line=dict(color='#4a7a9c', width=3),
+            showlegend=False
+        ))
+    
     fig.update_layout(
         scene=dict(
             xaxis_title='Width (m)',
@@ -1867,7 +1894,7 @@ def render_top_nav():
 # LICENSE SWITCHER - PROMINENT ON DASHBOARD
 # ============================================================
 def render_license_switcher():
-    """Prominent license switcher on dashboard - Point 1"""
+    """Prominent license switcher on dashboard"""
     current_tier = st.session_state.license_tier
     
     st.markdown("""
@@ -2014,7 +2041,7 @@ def render_design_brief():
     
     # Determine current structure type
     structure_types = list(STRUCTURE_QUESTIONS.keys())
-    current_type = structure_types[0]  # Default to first
+    current_type = structure_types[0]
     
     # Get questions for current structure
     structure_data = STRUCTURE_QUESTIONS.get(current_type, {})
@@ -2030,7 +2057,6 @@ def render_design_brief():
         if q["condition"] is None:
             visible_questions.append(q)
         else:
-            # Check if condition is met
             condition_met = True
             for key, values in q["condition"].items():
                 if key in st.session_state.brief_answers:
@@ -2110,11 +2136,9 @@ def render_design_brief():
                 st.rerun()
         with col2:
             if st.button("🚀 Proceed to Design", use_container_width=True, type="primary"):
-                # Set selected system
                 st.session_state.materials["system_type"] = recommendation["recommended"]
-                st.session_state.materials["member_type"] = "single_beam"  # Default
+                st.session_state.materials["member_type"] = "single_beam"
                 
-                # Set typology based on recommendation
                 if current_type in ["saddle_span", "clear_span_tent"]:
                     st.session_state.typology = current_type
                     st.session_state.params = {"B": 10.0, "A": 6.0, "LAA": 15.0}
@@ -2122,7 +2146,6 @@ def render_design_brief():
                     st.session_state.typology = "saddle_span"
                     st.session_state.params = {"B": 10.0, "A": 6.0, "LAA": 15.0}
                 
-                # Set project info
                 st.session_state.project_info = {
                     "name": f"{current_type.replace('_', ' ').title()} Design",
                     "client": "Guided Design",
@@ -2418,8 +2441,11 @@ def render_reports():
 # WORKSPACE PAGE
 # ============================================================
 def render_workspace():
-    params, materials = st.session_state.params, st.session_state.materials
-    info, typology = st.session_state.project_info, st.session_state.typology
+    params = st.session_state.params
+    materials = st.session_state.materials
+    info = st.session_state.project_info
+    typology = st.session_state.typology
+    
     if typology not in GENERATORS:
         typology = "saddle_span"
     
@@ -2482,290 +2508,244 @@ def render_workspace():
         elif typology == "clear_span_tent":
             params["span_width"] = st.number_input("Span Width (m)", 3.0, 80.0, params.get("span_width", 10.0), 0.5, disabled=st.session_state.locked, key="dim_span_width")
             params["ridge_height"] = st.number_input("Ridge Height (m)", 2.5, 12.0, params.get("ridge_height", 5.0), 0.5, disabled=st.session_state.locked, key="dim_ridge_height")
-            params["bay_distance"] = st.number_input("Bay Distance (m)", 3.0, 10.0, params.get("bay_distance", 5.0), 0.5, disabled=st.session_state.locked, key="dim_bay_distance")
-            params["num_bays"] = st.number_input("Number of Bays", 1, 20, params.get("num_bays", 4), 1, disabled=st.session_state.locked, key="dim_num_bays")
+            params["num_bays"] = st.number_input("Number of Bays", 2, 10, params.get("num_bays", 4), 1, disabled=st.session_state.locked, key="dim_num_bays")
+            params["bay_distance"] = st.number_input("Bay Distance (m)", 3.0, 15.0, params.get("bay_distance", 5.0), 0.5, disabled=st.session_state.locked, key="dim_bay_distance")
         elif typology == "tensile_membrane":
-            params["mast_height"] = st.number_input("Mast Height (m)", 3.0, 30.0, params.get("mast_height", 8.0), 0.5, disabled=st.session_state.locked, key="dim_mast_height")
-            params["span_length"] = st.number_input("Span Length (m)", 5.0, 100.0, params.get("span_length", 20.0), 0.5, disabled=st.session_state.locked, key="dim_span_length")
-            params["span_width"] = st.number_input("Span Width (m)", 5.0, 80.0, params.get("span_width", 15.0), 0.5, disabled=st.session_state.locked, key="dim_tensile_width")
-            params["cable_count"] = st.number_input("Cable Count", 2, 12, params.get("cable_count", 4), 1, disabled=st.session_state.locked, key="dim_cable_count")
+            params["mast_height"] = st.number_input("Mast Height (m)", 3.0, 20.0, params.get("mast_height", 8.0), 0.5, disabled=st.session_state.locked, key="dim_mast_height")
+            params["span_length"] = st.number_input("Span Length (m)", 5.0, 50.0, params.get("span_length", 20.0), 0.5, disabled=st.session_state.locked, key="dim_span_length")
+            params["span_width"] = st.number_input("Span Width (m)", 5.0, 40.0, params.get("span_width", 15.0), 0.5, disabled=st.session_state.locked, key="dim_span_width_tensile")
+            params["cable_count"] = st.number_input("Number of Cables", 3, 8, params.get("cable_count", 4), 1, disabled=st.session_state.locked, key="dim_cable_count")
         elif typology == "portal_frame":
             params["eave_height"] = st.number_input("Eave Height (m)", 3.0, 15.0, params.get("eave_height", 6.0), 0.5, disabled=st.session_state.locked, key="dim_eave_height")
-            params["span_width"] = st.number_input("Span Width (m)", 10.0, 50.0, params.get("span_width", 20.0), 0.5, disabled=st.session_state.locked, key="dim_portal_width")
-            params["bay_spacing"] = st.number_input("Bay Spacing (m)", 4.0, 12.0, params.get("bay_spacing", 6.0), 0.5, disabled=st.session_state.locked, key="dim_bay_spacing")
-            params["roof_pitch"] = st.number_input("Roof Pitch (°)", 1.0, 15.0, params.get("roof_pitch", 5.0), 0.5, disabled=st.session_state.locked, key="dim_roof_pitch")
-            params["num_bays"] = st.number_input("Number of Bays", 2, 30, params.get("num_bays", 5), 1, disabled=st.session_state.locked, key="dim_portal_bays")
+            params["span_width"] = st.number_input("Span Width (m)", 5.0, 50.0, params.get("span_width", 20.0), 0.5, disabled=st.session_state.locked, key="dim_span_width_portal")
+            params["roof_pitch"] = st.number_input("Roof Pitch (degrees)", 1.0, 15.0, params.get("roof_pitch", 5.0), 0.5, disabled=st.session_state.locked, key="dim_roof_pitch")
+            params["num_bays"] = st.number_input("Number of Bays", 2, 10, params.get("num_bays", 5), 1, disabled=st.session_state.locked, key="dim_num_bays_portal")
+            params["bay_spacing"] = st.number_input("Bay Spacing (m)", 3.0, 12.0, params.get("bay_spacing", 6.0), 0.5, disabled=st.session_state.locked, key="dim_bay_spacing")
+        elif typology == "custom":
+            params["width"] = st.number_input("Width (m)", 2.0, 30.0, params.get("width", 10.0), 0.5, disabled=st.session_state.locked, key="dim_width")
+            params["length"] = st.number_input("Length (m)", 2.0, 40.0, params.get("length", 15.0), 0.5, disabled=st.session_state.locked, key="dim_length")
+            params["height"] = st.number_input("Height (m)", 2.0, 20.0, params.get("height", 8.0), 0.5, disabled=st.session_state.locked, key="dim_height")
+        
         st.markdown('</div>', unsafe_allow_html=True)
         
-        if typology == "saddle_span":
-            st.markdown('<div class="sds-card"><div class="title">🔄 Shape</div>', unsafe_allow_html=True)
-            shape_options = ["parabolic", "elliptical", "circular", "catenary"]
-            materials["shape_type"] = st.selectbox("Shape Type", shape_options, index=shape_options.index(materials.get("shape_type", "parabolic")), disabled=st.session_state.locked, key="shape_type")
-            st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="sds-card"><div class="title">🔧 Structural System</div>', unsafe_allow_html=True)
-        member_options = ["single_beam", "planar_truss", "space_truss"]
-        member_labels = ["Single Beam", "Planar Truss", "Space Truss"]
-        current_member = materials.get("member_type", "single_beam")
-        idx = member_options.index(current_member) if current_member in member_options else 0
-        
-        selected_label = st.selectbox("Member Type", member_labels, index=idx, disabled=st.session_state.locked, key="member_type")
-        materials["member_type"] = member_options[member_labels.index(selected_label)]
-        
-        if materials["member_type"] in ["planar_truss", "space_truss"]:
-            truss_options = ["warren", "pratt", "howe", "vierendeel"]
-            truss_labels = ["Warren", "Pratt", "Howe", "Vierendeel"]
-            current_truss = materials.get("truss_type", "warren")
-            truss_idx = truss_options.index(current_truss) if current_truss in truss_options else 0
-            
-            selected_truss_label = st.selectbox("Truss Type", truss_labels, index=truss_idx, disabled=st.session_state.locked, key="truss_type")
-            materials["truss_type"] = truss_options[truss_labels.index(selected_truss_label)]
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="sds-card"><div class="title">🔗 Joint Type</div>', unsafe_allow_html=True)
-        joint_options = ["bolted", "welded"]
-        joint_labels = ["🔩 Bolted (Pin Connection)", "⚡ Welded (Moment Connection)"]
-        current_joint = materials.get("joint_type", "bolted")
-        joint_idx = joint_options.index(current_joint) if current_joint in joint_options else 0
-        
-        selected_joint_label = st.selectbox("Connection Type", joint_labels, index=joint_idx, disabled=st.session_state.locked, key="joint_type")
-        materials["joint_type"] = joint_options[joint_labels.index(selected_joint_label)]
-        
-        joint_desc = JOINT_MULTIPLIERS[materials["joint_type"]]["description"]
-        st.markdown(f"<span style='color:#b0c4de;font-size:0.85rem;'>ℹ️ {joint_desc}</span>", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
+        # Materials section
         st.markdown('<div class="sds-card"><div class="title">🧱 Materials</div>', unsafe_allow_html=True)
-        material_types = ["Steel", "Aluminum", "Wood", "Composite"]
-        current_material = materials.get("material_type", "Steel")
-        materials["material_type"] = st.selectbox("Member Material", material_types, index=material_types.index(current_material), disabled=st.session_state.locked, key="material_type")
-        
-        section_types = ["CHS", "SHS", "RHS", "I-Beam", "Angle", "Channel"]
-        current_section_type = materials.get("section_type", "CHS")
-        materials["section_type"] = st.selectbox("Section Shape", section_types, index=section_types.index(current_section_type), disabled=st.session_state.locked, key="section_type")
-        
-        fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"]
-        materials["fabric_type"] = st.selectbox("Fabric Material", fabric_options, index=fabric_options.index(materials.get("fabric_type", "PVC-coated Polyester")), disabled=st.session_state.locked, key="fabric_type")
-        
-        cable_options = ["6x19 Galvanized", "6x19 Stainless", "Polyester Rope"]
-        materials["cable_type"] = st.selectbox("Cable Type", cable_options, index=cable_options.index(materials.get("cable_type", "6x19 Galvanized")), disabled=st.session_state.locked, key="cable_type")
-        materials["num_bays"] = st.selectbox("Bracing Bays", [1, 2, 3], index=[1, 2, 3].index(materials.get("num_bays", 2)), disabled=st.session_state.locked, key="num_bays")
+        materials["standard"] = st.selectbox(
+            "Design Standard",
+            ["EU", "CN", "UK", "MY", "US"],
+            index=["EU", "CN", "UK", "MY", "US"].index(materials.get("standard", "EU")),
+            disabled=st.session_state.locked,
+            key="mat_standard"
+        )
+        materials["material_type"] = st.selectbox(
+            "Material Type",
+            ["Steel", "Aluminum", "Wood", "Composite"],
+            index=["Steel", "Aluminum", "Wood", "Composite"].index(materials.get("material_type", "Steel")),
+            disabled=st.session_state.locked,
+            key="mat_material_type"
+        )
+        materials["section_type"] = st.selectbox(
+            "Section Type",
+            ["CHS", "SHS", "RHS", "I-Beam", "Angle", "Channel"],
+            index=["CHS", "SHS", "RHS", "I-Beam", "Angle", "Channel"].index(materials.get("section_type", "CHS")),
+            disabled=st.session_state.locked,
+            key="mat_section_type"
+        )
+        materials["joint_type"] = st.selectbox(
+            "Joint Type",
+            ["bolted", "welded"],
+            index=["bolted", "welded"].index(materials.get("joint_type", "bolted")),
+            disabled=st.session_state.locked,
+            key="mat_joint_type"
+        )
+        materials["fabric_type"] = st.selectbox(
+            "Fabric Type",
+            ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"],
+            index=["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"].index(materials.get("fabric_type", "PVC-coated Polyester")),
+            disabled=st.session_state.locked,
+            key="mat_fabric_type"
+        )
+        materials["cable_type"] = st.selectbox(
+            "Cable Type",
+            ["6x19 Galvanized", "6x19 Stainless", "Polyester Rope"],
+            index=["6x19 Galvanized", "6x19 Stainless", "Polyester Rope"].index(materials.get("cable_type", "6x19 Galvanized")),
+            disabled=st.session_state.locked,
+            key="mat_cable_type"
+        )
+        materials["country"] = st.selectbox(
+            "Country",
+            list(COUNTRY_CURRENCIES.keys()),
+            index=list(COUNTRY_CURRENCIES.keys()).index(materials.get("country", "Malaysia")),
+            disabled=st.session_state.locked,
+            key="mat_country"
+        )
         st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="sds-card"><div class="title">🔗 Tie-Down Settings</div>', unsafe_allow_html=True)
-        materials["tie_down_vertical_angle"] = st.slider("Vertical Angle (°)", 20, 70, materials.get("tie_down_vertical_angle", 45), 5, disabled=st.session_state.locked, key="vertical_angle")
-        materials["tie_down_horizontal_spread"] = st.slider("Horizontal Spread (°)", 10, 60, materials.get("tie_down_horizontal_spread", 30), 5, disabled=st.session_state.locked, key="horizontal_spread")
+        # Advanced settings
+        st.markdown('<div class="sds-card"><div class="title">⚙️ Advanced Settings</div>', unsafe_allow_html=True)
+        materials["num_bays"] = st.number_input("Number of Bays", 1, 5, materials.get("num_bays", 2), 1, disabled=st.session_state.locked, key="adv_num_bays")
+        materials["tie_down_vertical_angle"] = st.number_input("Tie-down Vertical Angle (°)", 15, 75, materials.get("tie_down_vertical_angle", 45), 5, disabled=st.session_state.locked, key="adv_vertical_angle")
+        materials["tie_down_horizontal_spread"] = st.number_input("Tie-down Horizontal Spread (°)", 10, 60, materials.get("tie_down_horizontal_spread", 30), 5, disabled=st.session_state.locked, key="adv_horizontal_spread")
+        materials["prestress_level"] = st.selectbox(
+            "Prestress Level",
+            ["low", "medium", "high"],
+            index=["low", "medium", "high"].index(materials.get("prestress_level", "medium")),
+            disabled=st.session_state.locked,
+            key="adv_prestress"
+        )
         st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="sds-card"><div class="title">🌍 Location</div>', unsafe_allow_html=True)
-        countries = list(COUNTRY_CURRENCIES.keys())
-        country_idx = countries.index(materials.get("country", "Malaysia")) if materials.get("country", "Malaysia") in countries else 0
-        materials["country"] = st.selectbox("Country", countries, index=country_idx, disabled=st.session_state.locked, key="country")
-        currency = get_currency(materials["country"])
-        st.markdown(f"**Currency:** {currency['symbol']} ({currency['code']})")
-        std_options = ["EU", "CN", "UK", "MY", "US"]
-        materials["standard"] = st.selectbox("Design Standard", std_options, index=std_options.index(materials.get("standard", "EU")), disabled=st.session_state.locked, key="standard")
-        badge_class = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(materials["standard"], "badge-eu")
-        st.markdown(f'<span class="standard-badge {badge_class}">{materials["standard"]}</span> {get_standard_label(materials["standard"])}', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="sds-card"><div class="title">💬 Notes</div>', unsafe_allow_html=True)
-        st.session_state.comments = st.text_area("", st.session_state.comments, height=80, disabled=st.session_state.locked, key="comments_area")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary"):
-            st.session_state.design_results = {}
-            st.session_state.bq = {}
-            
-            design_results = auto_design_structure(params, materials, typology)
-            st.session_state.design_results = design_results
-            st.session_state.bq = design_results.get("bq", {})
-            
-            st.success("✅ Design analysis completed successfully!")
-            st.rerun()
+        # Design button
+        if st.button("🚀 Run Design", key="run_design", use_container_width=True, type="primary"):
+            with st.spinner("🔄 Running engineering calculations..."):
+                results = auto_design_structure(params, materials, typology)
+                st.session_state.design_results = results
+                st.session_state.bq = results["bq"]
+                st.success("✅ Design complete!")
+                st.rerun()
     
     with col_right:
-        st.subheader("🔬 3D Model")
+        # 3D Viewer
+        st.markdown('<div class="sds-card"><div class="title">🌐 3D Viewer</div>', unsafe_allow_html=True)
+        fig = generator(params, materials if typology == "saddle_span" else None)
+        if fig and isinstance(fig, go.Figure):
+            st.plotly_chart(fig, use_container_width=True, height=500)
+        else:
+            st.info("Adjust dimensions to see 3D visualization")
+        st.markdown('</div>', unsafe_allow_html=True)
         
-        fig = generator(params, materials)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
-        
-        st.divider()
-        
+        # Design Results
         if "design_results" in st.session_state and st.session_state.design_results:
-            design_results = st.session_state.design_results
+            results = st.session_state.design_results
+            
+            # Health Score
+            score = results.get("health_score", 0)
+            if score >= 80:
+                score_class = "health-score-good"
+                status_text = "✅ Healthy Design"
+            elif score >= 60:
+                score_class = "health-score-fair"
+                status_text = "⚠️ Fair Design"
+            else:
+                score_class = "health-score-poor"
+                status_text = "❌ Needs Attention"
+            
+            st.markdown(f"""
+            <div class="sds-card" style="border: 2px solid #2a3a4f;">
+                <div class="title">📊 Design Health</div>
+                <div class="content">
+                    <span class="{score_class}">{score}%</span>
+                    <span style="margin-left: 1rem; color: #b0c4de;">{status_text}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Loads summary
+            loads = results.get("loads", {})
+            if loads:
+                st.markdown('<div class="sds-card"><div class="title">📊 Loads</div>', unsafe_allow_html=True)
+                cols = st.columns(2)
+                with cols[0]:
+                    st.metric("Wind", f"{loads.get('wind', 0):.1f} kN")
+                    st.metric("Dead", f"{loads.get('dead', 0):.1f} kN")
+                with cols[1]:
+                    st.metric("Live", f"{loads.get('live', 0):.1f} kN")
+                    st.metric("Total", f"{loads.get('total', 0):.1f} kN", 
+                             delta=f"{results.get('joint_type', 'bolted').upper()}")
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Section selection
+            if results.get("beams", {}).get("selected"):
+                beam = results["beams"]
+                st.markdown(f"""
+                <div class="sds-card">
+                    <div class="title">🔧 Selected Section</div>
+                    <div class="content">
+                        <strong>{beam.get('selected', 'N/A')}</strong><br>
+                        <span style="color: #8a9aaa;">
+                            Type: {beam.get('section_type', 'N/A')} 
+                            {get_section_tag(beam.get('section_type', ''))}
+                        </span><br>
+                        <span style="color: #8a9aaa;">
+                            Moment: {beam.get('moment_capacity', 0):.1f} kNm / {beam.get('required_moment', 0):.1f} kNm req
+                        </span><br>
+                        <span style="color: #8a9aaa;">
+                            {beam.get('note', '✅ Adequate')}
+                        </span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Fabric and Cables
+            fabric = results.get("fabric", {})
+            cables = results.get("cables", {})
+            if fabric or cables:
+                st.markdown('<div class="sds-card"><div class="title">🧵 Materials</div>', unsafe_allow_html=True)
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Fabric", f"{fabric.get('type', 'N/A')}", 
+                             f"{fabric.get('thickness', 'N/A')}mm")
+                with col2:
+                    st.metric("Cable", f"{cables.get('type', 'N/A')}", 
+                             f"{cables.get('diameter', 'N/A')}mm")
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # All checks summary
+            checks = results.get("all_checks", {})
+            if checks:
+                st.markdown('<div class="sds-card"><div class="title">✅ Design Checks</div>', unsafe_allow_html=True)
+                for key, check in checks.items():
+                    if key in ["section_ratios"]:
+                        continue
+                    status = check.get("status", "N/A")
+                    value = check.get("value", "")
+                    st.markdown(f"""
+                    <div style="display: flex; justify-content: space-between; padding: 0.15rem 0; border-bottom: 1px solid #1a2a3a;">
+                        <span style="color: #b0c4de; font-size: 0.8rem;">{key.replace('_', ' ').title()}</span>
+                        <span style="font-size: 0.8rem;">{status} {value}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
         else:
-            design_results = auto_design_structure(params, materials, typology)
-            st.session_state.design_results = design_results
-            st.session_state.bq = design_results.get("bq", {})
-        
-        st.markdown("## ⚡ Design Results")
-        
-        joint_type = design_results.get("joint_type", "bolted")
-        badge_color = "joint-weld" if joint_type == "welded" else "joint-bolt"
-        st.markdown(f"<span class='joint-badge {badge_color}'>{joint_type.upper()} Connections</span>", unsafe_allow_html=True)
-        
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📊 Loads</div>', unsafe_allow_html=True)
-        loads = design_results["loads"]
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Wind Load", f"{loads['wind']:.1f} kN")
-        c2.metric("Dead Load", f"{loads['dead']:.1f} kN")
-        c3.metric("Total Load", f"{loads['total']:.1f} kN")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">🔧 Member Selection</div>', unsafe_allow_html=True)
-        
-        if materials["member_type"] == "single_beam":
-            beam = design_results["beams"].get("main")
-            if beam:
-                sec_type = beam.get("section_type", materials.get("section_type", "CHS"))
-                st.markdown(f"**Main Beams (2 pcs):** {beam['section']} {get_section_tag(sec_type)}")
-                if beam.get("note"):
-                    st.info(beam["note"])
-                st.markdown(f"**Area:** {beam['properties']['A']:.0f} mm²")
-                st.markdown(f"**Weight:** {beam['properties']['weight']:.1f} kg/m")
-                st.markdown(f"**Required Moment:** {beam['required_moment']:.1f} kNm")
-                st.markdown(f"**Moment Capacity:** {beam['moment_capacity']:.1f} kNm")
-                
-                if "I_required" in beam:
-                    st.markdown(f"**I_required:** {beam['I_required']/1e6:.2f} × 10⁶ mm⁴")
-                    st.markdown(f"**I_actual:** {beam['I_actual']/1e6:.2f} × 10⁶ mm⁴")
-                    ratio = beam['I_actual'] / beam['I_required'] if beam['I_required'] > 0 else 0
-                    st.markdown(f"**I Ratio:** {ratio:.2f}")
-                
-                if beam.get('is_adequate', False):
-                    st.success("✅ Adequate")
-                else:
-                    st.warning("⚠️ Consider custom fabrication or larger section")
-            else:
-                st.markdown("⚠️ No suitable section found")
-        elif materials["member_type"] in ["planar_truss", "space_truss"]:
-            truss = design_results["truss"]
-            if truss:
-                st.markdown(f"**📐 Truss Type:** {materials['truss_type'].upper()}")
-                st.markdown(f"**🔗 Joints:** {truss.get('joint_type', 'N/A').upper()}")
-                st.markdown("---")
-                st.markdown(f"**🔺 Top Chord:** {truss.get('top_chord', 'N/A')}")
-                st.markdown(f"**🔻 Bottom Chord:** {truss.get('bottom_chord', 'N/A')}")
-                st.markdown(f"**╳ Diagonals:** {truss.get('diagonals', 'N/A')}")
-                st.markdown(f"**║ Verticals:** {truss.get('verticals', 'N/A')}")
-                st.markdown("---")
-                if "forces" in truss:
-                    forces = truss["forces"]
-                    st.markdown("**📈 Member Forces:**")
-                    st.markdown(f"Top Chord: {forces['top_chord_force']:.1f} kN (Compression)")
-                    st.markdown(f"Bottom Chord: {forces['bottom_chord_force']:.1f} kN (Tension)")
-                    st.markdown(f"Diagonals: {forces['diag_force']:.1f} kN (Alternating)")
-                    if "vert_force" in forces:
-                        st.markdown(f"Verticals: {forces['vert_force']:.1f} kN")
-            else:
-                st.markdown("⚠️ Truss analysis not available")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">🧵 Fabric & Cables</div>', unsafe_allow_html=True)
-        st.markdown(f"**Fabric:** {design_results['fabric']['type']}")
-        st.markdown(f"**Thickness:** {design_results['fabric']['thickness']} mm")
-        st.markdown(f"**Strength:** {design_results['fabric']['strength']:.0f} kN/m")
-        st.markdown("---")
-        st.markdown(f"**Cable Type:** {design_results['cables']['type']}")
-        st.markdown(f"**Diameter:** {design_results['cables']['diameter']} mm")
-        st.markdown(f"**Breaking Load:** {design_results['cables']['breaking_load']:.0f} kN")
-        st.markdown(f"**Force per Cable:** {design_results['cables']['force_per_cable']:.1f} kN")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="sds-card">', unsafe_allow_html=True)
-        st.markdown('<div class="title">📋 Checklist</div>', unsafe_allow_html=True)
-        
-        for check_name, check_data in design_results["all_checks"].items():
-            status = check_data["status"]
-            if "✅" in status:
-                color = "#2ecc71"
-            else:
-                color = "#f39c12"
-            display_name = check_name.replace('_', ' ').title()
-            if check_name == "section_type":
-                st.markdown(f"<span style='color:{color}; font-weight:700;'>{status}</span> {display_name}: {check_data['value']}", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<span style='color:{color}; font-weight:700;'>{status}</span> {display_name}: {check_data['value']}", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        score = design_results["health_score"]
-        if score >= 80:
-            status = "GOOD"
-            color = "#2ecc71"
-        elif score >= 60:
-            status = "FAIR"
-            color = "#f39c12"
-        else:
-            status = "POOR"
-            color = "#e74c3c"
-        
-        st.markdown(f"""
-        <div style='text-align:center;padding:1rem;background:#141e2b;border-radius:12px;border:2px solid {color};'>
-            <span style='font-size:2.5rem;font-weight:700;color:{color};'>{score}%</span>
-            <br>
-            <span style='font-size:1.2rem;color:{color};'>{status}</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if has_feature("bq") and st.session_state.bq:
-            bq = st.session_state.bq
-            currency = get_currency(materials.get("country", "Malaysia"))
-            st.divider()
-            col1, col2 = st.columns(2)
-            col1.metric("Total Cost", f"{currency['symbol']}{bq.get('total_cost', 0):,.0f}")
-            col2.metric("Steel Weight", f"{bq.get('total_steel_weight', 0):.0f} kg")
-            if st.button("📄 View Full BQ", key="workspace_view_full_bq", use_container_width=True, type="primary"):
-                st.session_state.page = "bq"
-                st.rerun()
+            st.info("💡 Click 'Run Design' to see results")
     
     st.divider()
     
-    st.markdown('<div class="sds-card"><div class="title">❓ Design Confirmation</div>', unsafe_allow_html=True)
-    qa_list = {
-        "saddle_span": ["Are there two primary curved beams?", "Are both beams supported at lower ends?", "Is membrane attached continuously?", "Is A the vertical rise?", "Is B the horizontal span?", "Is LAA the apex-to-apex distance?"],
-        "clear_span_tent": ["Zero interior columns?", "Pin-based supports?", "Fabric tensioned at ridge?", "Sidewalls open or enclosed?"],
-        "tensile_membrane": ["Boundary tension membrane?", "Interior masts present?", "Anticlastic or synclastic?", "Edge cables included?"],
-        "portal_frame": ["Column bases pin-supported?", "Roof purlin-supported?", "Overhead crane present?", "Fully enclosed cladding?"]
-    }
-    qa_list["custom"] = ["This is a custom design. Add your description below."]
+    # Comments
+    with st.expander("📝 Add Comments", expanded=False):
+        comments = st.text_area("Comments", st.session_state.comments, height=100, disabled=st.session_state.locked)
+        if st.button("💬 Save Comments", key="save_comments", use_container_width=True, type="primary"):
+            st.session_state.comments = comments
+            st.success("Comments saved!")
+
+# ============================================================
+# MAIN APP
+# ============================================================
+def main():
+    # Render top navigation
+    render_top_nav()
     
-    qa = qa_list.get(typology, qa_list["saddle_span"])
-    for i, q in enumerate(qa):
-        key = f"qa_{i}"
-        default = st.session_state.qa_answers.get(key, "Yes")
-        ans = st.radio(q, ["Yes", "No", "Not Sure"], index=["Yes", "No", "Not Sure"].index(default), key=f"qa_radio_{i}", disabled=st.session_state.locked)
-        st.session_state.qa_answers[key] = ans
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Page routing
+    page = st.session_state.page
+    
+    if page == "dashboard":
+        render_dashboard()
+    elif page == "design_brief":
+        render_design_brief()
+    elif page == "registration":
+        render_registration()
+    elif page == "browser":
+        render_project_browser()
+    elif page == "catalog":
+        render_catalog()
+    elif page == "workspace":
+        render_workspace()
+    elif page == "bq":
+        render_bq_page()
+    elif page == "reports":
+        render_reports()
+    else:
+        render_dashboard()
 
-# ============================================================
-# MAIN ROUTING
-# ============================================================
-render_top_nav()
-
-page = st.session_state.get("page", "dashboard")
-
-if page == "dashboard":
-    render_dashboard()
-elif page == "registration":
-    render_registration()
-elif page == "browser":
-    render_project_browser()
-elif page == "catalog":
-    render_catalog()
-elif page == "design_brief":
-    render_design_brief()
-elif page == "workspace":
-    render_workspace()
-elif page == "bq":
-    render_bq_page()
-elif page == "reports":
-    render_reports()
-else:
-    render_dashboard()
-
-st.divider()
-st.caption("FDS - Fluid Design Studio v7.0 | 🧠 Intelligent Engine | 🌍 Local Currency | 🔩/⚡ Joints | 🧬 Rigid in Principle. Fluid in Application.")
+if __name__ == "__main__":
+    main()
