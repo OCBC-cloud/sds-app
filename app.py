@@ -1420,20 +1420,16 @@ def generate_cable_net(params):
     z = sag * (1 - (2*x/span)**2)
     
     fig = go.Figure()
-    # Main cables
     for i in range(cables):
         y = i * span/(cables-1) - span/2
         fig.add_trace(go.Scatter3d(x=x, y=[y]*len(x), z=z, mode='lines', line=dict(color='#4a7a9c', width=2), showlegend=False))
     
-    # Cross cables
     for i in range(cables):
         y = i * span/(cables-1) - span/2
         fig.add_trace(go.Scatter3d(x=[x[i], x[-i-1]], y=[y, y], z=[z[i], z[-i-1]], mode='lines', line=dict(color='#f39c12', width=1.5), showlegend=False))
     
     fig.update_layout(scene=dict(xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
     return fig
-
-# Add more generator functions for other structure types...
 
 GENERATORS = {
     "saddle_span": generate_saddle_span,
@@ -1496,7 +1492,7 @@ def render_top_nav():
     st.divider()
 
 # ============================================================
-# DASHBOARD PAGE
+# DASHBOARD PAGE - REMOVED 🧠 ICON AND UPDATED DESCRIPTION
 # ============================================================
 def render_dashboard():
     st.title("🏗️ SDSe - Intelligent Fluid Design Workplace")
@@ -1509,14 +1505,14 @@ def render_dashboard():
     with col1:
         st.markdown("""
         <div class="design-path-card">
-            <div class="icon">🧠</div>
+            <div class="icon">💡</div>
             <div class="title">Intelligent Fluid Design</div>
             <div class="desc">"I need help deciding"<br>
             Answer a few questions and we'll recommend<br>
             the best structure for your needs</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("🧠 Start Intelligent Design", key="start_guided", use_container_width=True, type="primary"):
+        if st.button("Start Intelligent Design", key="start_guided", use_container_width=True, type="primary"):
             st.session_state.page = "intelligent_design"
             st.rerun()
     
@@ -1526,11 +1522,11 @@ def render_dashboard():
             <div class="icon">⚡</div>
             <div class="title">Direct Design</div>
             <div class="desc">"I know what I want"<br>
-            Choose from 25 structure types and<br>
+            Choose from Multiple Structure Types and<br>
             go straight to design</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("⚡ Start Direct Design", key="start_direct", use_container_width=True, type="primary"):
+        if st.button("Start Direct Design", key="start_direct", use_container_width=True, type="primary"):
             st.session_state.page = "catalog"
             st.rerun()
     
@@ -1542,7 +1538,7 @@ def render_dashboard():
     with cols[0]:
         st.markdown(f"<div class='dashboard-card'><div class='icon'>📂</div><div class='value'>{len(projects)}</div><div class='label'>Saved Projects</div></div>", unsafe_allow_html=True)
     with cols[1]:
-        st.markdown(f"<div class='dashboard-card'><div class='icon'>🏗️</div><div class='value'>{len(STRUCTURE_TYPES)}</div><div class='label'>Structure Types</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dashboard-card'><div class='icon'>🏗️</div><div class='value'>Multiple</div><div class='label'>Structure Types</div></div>", unsafe_allow_html=True)
     with cols[2]:
         st.markdown(f"<div class='dashboard-card'><div class='icon'>🔧</div><div class='value'>100+</div><div class='label'>Sections Available</div></div>", unsafe_allow_html=True)
     with cols[3]:
@@ -1570,10 +1566,9 @@ def render_dashboard():
 # INTELLIGENT DESIGN PAGE
 # ============================================================
 def render_intelligent_design():
-    st.title("🧠 Intelligent Fluid Design")
+    st.title("💡 Intelligent Fluid Design")
     st.caption("Answer a few questions and we'll recommend the best structure for you")
     
-    # Brief questions for recommendation
     st.markdown("### 📝 Tell us about your project")
     
     with st.form("intelligent_form"):
@@ -1607,7 +1602,6 @@ def render_intelligent_design():
             )
         
         if st.form_submit_button("🔍 Recommend Structure", use_container_width=True, type="primary"):
-            # Simple recommendation logic
             if span_range == "> 60m" or budget == "High":
                 recommended = "cable_stayed"
             elif span_range == "< 20m" or budget == "Low":
@@ -1621,7 +1615,7 @@ def render_intelligent_design():
             st.success(f"✅ Based on your inputs, we recommend: {recommended.replace('_', ' ').title()}")
             
             if st.button("🚀 Go to Design", use_container_width=True, type="primary"):
-                st.session_state.typology = "saddle_span"  # Default
+                st.session_state.typology = "saddle_span"
                 st.session_state.params = {"B": 10.0, "A": 6.0, "LAA": 15.0}
                 st.session_state.project_info = {
                     "name": "Intelligent Design Project",
@@ -1699,9 +1693,8 @@ def render_project_browser():
 # ============================================================
 def render_catalog():
     st.subheader("🏗️ Choose a Structure Type")
-    st.caption(f"Select from {len(STRUCTURE_TYPES)} different structure types")
+    st.caption("Select from our Multiple Structure Types")
     
-    # Display in grid (3 columns)
     items = list(STRUCTURE_TYPES.items())
     for i in range(0, len(items), 3):
         cols = st.columns(3)
@@ -1718,7 +1711,6 @@ def render_catalog():
                     """, unsafe_allow_html=True)
                     if st.button(f"Select {data['name']}", key=f"catalog_{key}", use_container_width=True, type="primary"):
                         st.session_state.typology = key
-                        # Set default params based on structure type
                         if key in ["saddle_span", "tensile_membrane"]:
                             st.session_state.params = {"B": 10.0, "A": 6.0, "LAA": 15.0}
                         elif key == "clear_span_tent":
@@ -2264,4 +2256,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("SDSe - Intelligent Fluid Design Workplace v7.0 | MS EN Wind: 33.5m/s | 100+ Sections | 🔩/⚡ Joints | 🌍 Local Currency | 🧠 Intelligent Engine")
+st.caption("SDSe - Intelligent Fluid Design Workplace v7.0 | MS EN Wind: 33.5m/s | 100+ Sections | 🔩/⚡ Joints | 🌍 Local Currency | 💡 Intelligent Engine")
