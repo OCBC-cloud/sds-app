@@ -1,11 +1,3 @@
-Chief, you're absolutely right! This is a critical design philosophy:
-
-🎯 THE PRINCIPLE: 100% OR GUIDANCE
-
-"If it's not 100%, the system must tell the user EXACTLY what to change and provide the RECOMMENDED VALUE."
-
-No more vague warnings. No more mystery deductions. The system must:
-
 1. Identify the problem clearly
 2. Calculate the solution automatically
 3. Recommend the exact value to change
