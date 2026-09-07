@@ -17,16 +17,6 @@ import csv
 from io import BytesIO, StringIO
 
 # ============================================================
-# FORCE RESET - COMMENTED OUT FOR PRODUCTION
-# ============================================================
-# FIXED: Commented out to prevent reset on deployment
-# if "force_reset_done" not in st.session_state:
-#     st.session_state.clear()
-#     st.session_state.license_tier = "free"
-#     st.session_state.force_reset_done = True
-#     st.rerun()
-
-# ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
@@ -117,7 +107,7 @@ dark_mode_css = """
     .license-pro { background-color: #3498db; color: #ffffff; }
     .license-business { background-color: #f39c12; color: #0a0e17; }
     
-    /* ===== RADIO BUTTON FIX: GREY WHEN INACTIVE, ORANGE WHEN ACTIVE ===== */
+    /* ===== RADIO BUTTON FIX ===== */
     .stRadio > div {
         gap: 0.5rem;
     }
@@ -148,7 +138,6 @@ dark_mode_css = """
         border-color: #f1c40f !important;
         color: #f1c40f !important;
     }
-    /* Fix for the actual radio circle */
     .stRadio > div label div[data-testid="stMarkdownContainer"] {
         display: flex;
         align-items: center;
@@ -262,16 +251,16 @@ LICENSE_TIERS = {
 # FEATURE CHECK FUNCTIONS
 # ============================================================
 def has_feature(feature_name):
-    tier = st.session_state.get("license_tier", "free")  # FIXED: Changed from "business" to "free"
+    tier = st.session_state.get("license_tier", "free")
     features = LICENSE_TIERS.get(tier, {}).get("features", {})
     return features.get(feature_name, False)
 
 def get_license_info():
-    tier = st.session_state.get("license_tier", "free")  # FIXED: Changed from "business" to "free"
-    return LICENSE_TIERS.get(tier, LICENSE_TIERS["free"])  # FIXED: Changed default
+    tier = st.session_state.get("license_tier", "free")
+    return LICENSE_TIERS.get(tier, LICENSE_TIERS["free"])
 
 def check_project_limit():
-    tier = st.session_state.get("license_tier", "free")  # FIXED: Changed from "business" to "free"
+    tier = st.session_state.get("license_tier", "free")
     limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
     if limit is None:
         return True
@@ -279,12 +268,55 @@ def check_project_limit():
     return current_projects < limit
 
 def get_remaining_projects():
-    tier = st.session_state.get("license_tier", "free")  # FIXED: Changed from "business" to "free"
+    tier = st.session_state.get("license_tier", "free")
     limit = LICENSE_TIERS.get(tier, {}).get("project_limit")
     if limit is None:
         return "Unlimited"
     current = len(st.session_state.saved_projects)
     return max(0, limit - current)
+
+# ============================================================
+# SESSION STATE INITIALIZATION - FIXED
+# ============================================================
+def init_session_state():
+    """Initialize all session state variables"""
+    defaults = {
+        "page": "dashboard",
+        "project_registered": False,
+        "project_info": {},
+        "typology": None,
+        "params": {},
+        "qa_answers": {},
+        "locked": False,
+        "comments": "",
+        "saved_projects": [],
+        "license_tier": "free",
+        "design_results": {},
+        "bq": {},
+        "materials": {
+            "standard": "EU",
+            "material_type": "Steel",
+            "section_type": "CHS",
+            "fabric_type": "PVC-coated Polyester",
+            "cable_type": "6x19 Galvanized",
+            "tie_down_vertical_angle": 45,
+            "tie_down_horizontal_spread": 30,
+            "shape_type": "parabolic",
+            "member_type": "single_beam",
+            "truss_type": "warren",
+            "num_bays": 2,
+            "prestress_level": "medium",
+            "joint_type": "bolted",
+            "country": "Malaysia"
+        }
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+# Initialize session state
+init_session_state()
 
 # ============================================================
 # CLEAR PROJECT DATA FUNCTION
@@ -445,52 +477,6 @@ JOINT_MULTIPLIERS = {
     "welded": {"factor": 1.2, "cost_multiplier": 1.3, "connection_cost": 150, "description": "Rigid moment connections"},
     "bolted": {"factor": 1.0, "cost_multiplier": 1.0, "connection_cost": 80, "description": "Pin connections - economical"}
 }
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-if "page" not in st.session_state:
-    st.session_state.page = "dashboard"
-if "project_registered" not in st.session_state:
-    st.session_state.project_registered = False
-if "project_info" not in st.session_state:
-    st.session_state.project_info = {}
-if "typology" not in st.session_state:
-    st.session_state.typology = None
-if "params" not in st.session_state:
-    st.session_state.params = {}
-if "qa_answers" not in st.session_state:
-    st.session_state.qa_answers = {}
-if "locked" not in st.session_state:
-    st.session_state.locked = False
-if "comments" not in st.session_state:
-    st.session_state.comments = ""
-if "saved_projects" not in st.session_state:
-    st.session_state.saved_projects = []
-if "license_tier" not in st.session_state:
-    # FIXED: Changed from "business" to "free" for production default
-    st.session_state.license_tier = "free"  
-if "design_results" not in st.session_state:
-    st.session_state.design_results = {}
-if "bq" not in st.session_state:
-    st.session_state.bq = {}
-if "materials" not in st.session_state:
-    st.session_state.materials = {
-        "standard": "EU",
-        "material_type": "Steel",
-        "section_type": "CHS",
-        "fabric_type": "PVC-coated Polyester",
-        "cable_type": "6x19 Galvanized",
-        "tie_down_vertical_angle": 45,
-        "tie_down_horizontal_spread": 30,
-        "shape_type": "parabolic",
-        "member_type": "single_beam",
-        "truss_type": "warren",
-        "num_bays": 2,
-        "prestress_level": "medium",
-        "joint_type": "bolted",
-        "country": "Malaysia"
-    }
 
 # ============================================================
 # UTILITY FUNCTIONS
@@ -880,12 +866,9 @@ def calculate_dead_load(span, laa, section_name, fabric_type):
     fabric_kg = fabric_weight * membrane_area
     return (steel_kg + fabric_kg) / 100
 
-# ============================================================
-# FIXED: COMPLETELY REWRITTEN SECTION SELECTION FUNCTION
-# ============================================================
 def calculate_required_section(load_kN, span_m, material_type, section_type, fy=355, typology="saddle_span", rise_m=6.0):
     """
-    FIXED: Intelligent section selection with proper deflection calculation.
+    Intelligent section selection with proper deflection calculation.
     Now correctly selects SMALLEST adequate section instead of largest.
     """
     safety = 1.5
@@ -906,31 +889,27 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     M_Nmm = M * 1e6
     W_required = M_Nmm / (fy / safety)
     
-    # ===== FIXED: CORRECT DEFLECTION CALCULATION =====
+    # Correct deflection calculation
     E = 210000  # N/mm² for steel
     
-    # More lenient deflection for small spans
     if span_m < 10:
-        deflection_ratio = 200  # L/200 for small spans
-        arch_reduction_factor = 0.3  # More relaxed inertia requirement
+        deflection_ratio = 200
+        arch_reduction_factor = 0.3
     elif span_m < 20:
-        deflection_ratio = 250  # L/250 for medium spans
+        deflection_ratio = 250
         arch_reduction_factor = 0.4
     else:
-        deflection_ratio = 300  # L/300 for large spans
+        deflection_ratio = 300
         arch_reduction_factor = 0.5
     
-    deflection_limit = span_m / deflection_ratio  # meters
+    deflection_limit = span_m / deflection_ratio
     
-    # Convert to consistent units for calculation
-    w_Nmm = w / 1000  # kN/m to N/mm
+    w_Nmm = w / 1000
     span_mm = span_m * 1000
     deflection_limit_mm = deflection_limit * 1000
     
-    # Calculate required second moment of area
     I_required = (5 * w_Nmm * span_mm**4) / (384 * E * deflection_limit_mm)
     
-    # ===== FIND SECTIONS =====
     db = SECTION_PROPERTIES
     
     type_map = {
@@ -943,38 +922,32 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
     }
     preferred_type = type_map.get(section_type, "CHS")
     
-    # ===== FIND ALL SECTIONS IN PREFERRED TYPE =====
     sections_in_type = []
     for section, props in db.items():
         if props.get("type") == preferred_type:
             sections_in_type.append((section, props))
     
-    # ===== SORT BY W_el (SMALLEST TO LARGEST) =====
     sections_in_type.sort(key=lambda x: x[1]["W_el"])
     
-    # ===== FIND THE FIRST ADEQUATE SECTION =====
     selected_section = None
     selected_props = None
     selection_note = None
     
-    # Use different factors for W and I requirements
-    W_factor = 0.9  # 90% of required W is acceptable
-    I_factor = arch_reduction_factor  # More lenient for inertia, especially on small spans
+    W_factor = 0.9
+    I_factor = arch_reduction_factor
     
-    # Special case: For very small spans, prioritize section modulus over inertia
     if span_m < 8:
-        I_factor = 0.2  # Only need 20% of calculated I
+        I_factor = 0.2
     
     # First pass: Try to find section meeting both criteria
     for section, props in sections_in_type:
-        # Check both W and I with appropriate factors
         if props["W_el"] >= W_required * W_factor and props["I"] >= I_required * I_factor:
             selected_section = section
             selected_props = props
             selection_note = None
             break
     
-    # Second pass: If none found, try with only W requirement (deflection may be higher)
+    # Second pass: W only
     if not selected_section:
         for section, props in sections_in_type:
             if props["W_el"] >= W_required * W_factor:
@@ -983,7 +956,7 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
                 selection_note = "⚠️ Deflection may be slightly higher than ideal"
                 break
     
-    # Third pass: Try with any section type if preferred type has none
+    # Third pass: Any type
     if not selected_section:
         all_sections = []
         for section, props in db.items():
@@ -997,11 +970,8 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
                 selection_note = f"⚠️ No {preferred_type} section adequate. Using {props['type']} instead."
                 break
     
-    # ===== IF FOUND, RETURN IT =====
     if selected_section and selected_props:
         moment_capacity = (selected_props["W_el"] * fy) / (safety * 1e6)
-        
-        # Determine if section is truly adequate
         is_adequate = (
             selected_props["W_el"] >= W_required * W_factor and 
             selected_props["I"] >= I_required * I_factor
@@ -1022,7 +992,6 @@ def calculate_required_section(load_kN, span_m, material_type, section_type, fy=
             "W_actual": selected_props["W_el"]
         }
     
-    # ===== FINAL FALLBACK: USE LARGEST AVAILABLE =====
     if sections_in_type:
         largest_section, largest_props = sections_in_type[-1]
         moment_capacity = (largest_props["W_el"] * fy) / (safety * 1e6)
@@ -1106,8 +1075,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
             results["beams"]["note"] = beam_result.get("note", None)
             results["beams"]["is_adequate"] = beam_result.get("is_adequate", False)
             results["beams"]["arch_reduction"] = beam_result.get("arch_reduction", 1.0)
-            
-            # FIXED: Add I and W details for debugging
             results["beams"]["I_required"] = beam_result.get("I_required", 0)
             results["beams"]["I_actual"] = beam_result.get("I_actual", 0)
             results["beams"]["W_required"] = beam_result.get("W_required", 0)
@@ -1166,7 +1133,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
             "value": section_display
         }
         
-        # FIXED: Show section size details for debugging
         sec_type = beam.get("section_type", section_type)
         results["all_checks"]["section_type"] = {
             "status": f"📐 {sec_type}",
@@ -1180,7 +1146,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
                 "value": "Arch action reduces bending"
             }
         
-        # FIXED: Add I and W ratio for debugging
         if "I_required" in beam and beam["I_required"] > 0:
             i_ratio = beam["I_actual"] / beam["I_required"] if beam["I_required"] > 0 else 0
             w_ratio = beam["W_actual"] / beam["W_required"] if beam["W_required"] > 0 else 0
@@ -1215,7 +1180,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
         "value": f"{fabric_strength:.0f} kN/m"
     }
     
-    # Calculate health score
     score = 100
     for check in results["all_checks"].values():
         if "⚠️" in check["status"] or "🔄" in check["status"]:
@@ -1230,7 +1194,7 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     return results
 
 # ============================================================
-# 3D GENERATOR
+# 3D GENERATOR - FIXED SYNTAX ERROR
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span = params.get("B", 10.0)
@@ -1493,10 +1457,7 @@ def generate_custom(params):
             yaxis_title='Length (m)',
             zaxis_title='Height (m)',
             bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.5, y = 1.5, z=1.0))
-
-
-
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))
         ),
         paper_bgcolor='#0a0e17',
         margin=dict(l=0, r=0, b=0, t=0)
@@ -1838,7 +1799,6 @@ def render_reports():
             st.rerun()
         return
     
-    # PDF Export
     st.subheader("📄 PDF Report")
     st.markdown("Generate a professional PDF report with design summary, BQ, and 3D visualization")
     
@@ -1907,7 +1867,7 @@ def render_reports():
         st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE
+# WORKSPACE PAGE - CONSOLIDATED
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -2064,7 +2024,6 @@ def render_workspace():
         st.session_state.comments = st.text_area("", st.session_state.comments, height=80, disabled=st.session_state.locked, key="comments_area")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # RUN DESIGN ANALYSIS BUTTON
         if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary"):
             st.session_state.design_results = {}
             st.session_state.bq = {}
@@ -2121,7 +2080,6 @@ def render_workspace():
                 st.markdown(f"**Required Moment:** {beam['required_moment']:.1f} kNm")
                 st.markdown(f"**Moment Capacity:** {beam['moment_capacity']:.1f} kNm")
                 
-                # FIXED: Show I and W details for debugging/transparency
                 if "I_required" in beam:
                     st.markdown(f"**I_required:** {beam['I_required']/1e6:.2f} × 10⁶ mm⁴")
                     st.markdown(f"**I_actual:** {beam['I_actual']/1e6:.2f} × 10⁶ mm⁴")
