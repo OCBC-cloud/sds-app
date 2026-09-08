@@ -866,7 +866,7 @@ def calculate_geometry_recommendation(params, materials, typology, load_kN, fy):
     return recommendations
 
 # ============================================================
-# HEALTH SCORE WITH FIXED CABLE DISPLAY
+# HEALTH SCORE WITH FIXED DISPLAY FORMAT
 # ============================================================
 def calculate_health_score_with_recommendations(beam_result, wind_data, cables, fabric):
     health_report = {
@@ -886,7 +886,7 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
             beam_score = 80
             beam_issues.append({
                 "component": "Combined Check",
-                "issue": f"Combined ratio (M/Mcr + N/Ncr) = {combined_ratio:.2f} exceeds 1.0",
+                "issue": f"Combined ratio (M/Mcr + N/Ncr) = {combined_ratio:.2f} exceeds 1.0",  # 2 d.p. for critical ratio
                 "severity": "high"
             })
             
@@ -900,7 +900,7 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
             beam_score = min(beam_score, 85)
             beam_issues.append({
                 "component": "Section Modulus",
-                "issue": f"W_actual/W_required = {w_actual/w_required:.2f} < 0.9",
+                "issue": f"W_actual/W_required = {w_actual/w_required:.2f} < 0.9",  # 2 d.p. for critical ratio
                 "severity": "medium"
             })
         
@@ -910,7 +910,7 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
             "status": "✅ PASS" if beam_score >= 90 else "⚠️ CHECK" if beam_score >= 70 else "❌ FAIL"
         }
     
-    # ===== 2. CABLES HEALTH - FIXED DECIMAL FORMATTING =====
+    # ===== 2. CABLES HEALTH - FIXED: 0 DECIMAL PLACE =====
     if cables:
         cable_score = 100
         cable_issues = []
@@ -929,7 +929,7 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
             if cable_utilization > 0.8:
                 cable_issues.append({
                     "component": "Cable Capacity",
-                    "issue": f"Cable utilization = {cable_utilization_percent:.1f}% > 80%",
+                    "issue": f"Cable utilization = {cable_utilization_percent:.0f}% > 80%",  # FIXED: 0 d.p.
                     "severity": "high"
                 })
                 
@@ -947,18 +947,18 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
                         "parameter": "Cable Diameter",
                         "current": f"{cable_diameter}mm",
                         "recommended": f"{next_diam}mm",
-                        "reason": f"Current cable {cable_utilization_percent:.1f}% utilized. Next size reduces to {new_utilization:.1f}%",
+                        "reason": f"Current cable {cable_utilization_percent:.0f}% utilized. Next size reduces to {new_utilization:.0f}%",  # FIXED: 0 d.p.
                         "action": "Increase cable diameter"
                     })
         
-        # FIXED: Display with proper decimal formatting
+        # FIXED: Display with 0 decimal place
         health_report["components"]["Cables"] = {
             "score": cable_score,
             "issues": cable_issues,
             "status": "✅ PASS" if cable_score >= 90 else "⚠️ CHECK" if cable_score >= 70 else "❌ FAIL",
             "details": {
                 "diameter": f"{cable_diameter}mm" if cable_diameter else "N/A",
-                "utilization": f"{cable_utilization_percent:.1f}%" if cable_breaking > 0 else "N/A"
+                "utilization": f"{cable_utilization_percent:.0f}%" if cable_breaking > 0 else "N/A"  # FIXED: 0 d.p.
             }
         }
     
@@ -976,7 +976,7 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
             "status": "✅ PASS",
             "details": {
                 "thickness": f"{fabric_thickness}mm",
-                "strength": f"{fabric_strength} kN/m"
+                "strength": f"{fabric_strength:.0f} kN/m"  # FIXED: 0 d.p.
             }
         }
     
@@ -988,7 +988,7 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
             "issues": [],
             "status": "✅ PASS (EFFICIENT)",
             "details": {
-                "reduction": f"{arch_reduction:.0f}%",
+                "reduction": f"{arch_reduction:.0f}%",  # FIXED: 0 d.p.
                 "note": "Arch action reduces bending significantly"
             }
         }
@@ -1937,7 +1937,7 @@ def generate_dome_bill_of_quantities(dome_results, materials):
             weight = group["length"] * 10
             cost = weight * material_cost * group["count"]
             bq_items.append({
-                "item": f"Strut Group {i+1} (Length: {group['length']:.2f}m)",
+                "item": f"Strut Group {i+1} (Length: {group['length']:.1f}m)",  # 1 d.p. for lengths
                 "qty": group["count"],
                 "unit": "pcs",
                 "length_m": group["length"],
@@ -2030,27 +2030,27 @@ def export_to_csv(results, filename="structure.csv"):
     
     loads = results.get("loads", {})
     for key, value in loads.items():
-        writer.writerow([f"Load_{key}", f"{value:.2f} kN"])
+        writer.writerow([f"Load_{key}", f"{value:.0f} kN"])  # FIXED: 0 d.p.
     
     beam = results.get("beams", {}).get("main", {})
     if beam:
         writer.writerow(["Selected_Section", beam.get("section", "N/A")])
-        writer.writerow(["Moment_Capacity", f"{beam.get('moment_capacity', 0):.2f} kNm"])
-        writer.writerow(["Required_Moment", f"{beam.get('required_moment', 0):.2f} kNm"])
+        writer.writerow(["Moment_Capacity", f"{beam.get('moment_capacity', 0):.0f} kNm"])  # FIXED: 0 d.p.
+        writer.writerow(["Required_Moment", f"{beam.get('required_moment', 0):.0f} kNm"])  # FIXED: 0 d.p.
         writer.writerow(["Adequate", beam.get("is_adequate", False)])
         if "arch_reduction" in beam:
-            writer.writerow(["Arch_Reduction", f"{beam.get('arch_reduction', 0):.1f}%"])
+            writer.writerow(["Arch_Reduction", f"{beam.get('arch_reduction', 0):.0f}%"])  # FIXED: 0 d.p.
         if "axial_force" in beam:
-            writer.writerow(["Axial_Force", f"{beam.get('axial_force', 0):.2f} kN"])
+            writer.writerow(["Axial_Force", f"{beam.get('axial_force', 0):.0f} kN"])  # FIXED: 0 d.p.
         if "combined_ratio" in beam:
-            writer.writerow(["Combined_Ratio", f"{beam.get('combined_ratio', 0):.3f}"])
+            writer.writerow(["Combined_Ratio", f"{beam.get('combined_ratio', 0):.2f}"])  # 2 d.p. for critical ratio
         if "enshrined_safety" in beam:
             writer.writerow(["Safety_Enshrined", "✅ Yes"])
         if beam.get("wind_data"):
             wd = beam["wind_data"]
-            writer.writerow(["Governing_Wind_Area", f"{wd.get('governing_area', 0):.1f} m²"])
+            writer.writerow(["Governing_Wind_Area", f"{wd.get('governing_area', 0):.0f} m²"])  # FIXED: 0 d.p.
             writer.writerow(["Wind_Direction", wd.get('governing_direction', 'N/A')])
-            writer.writerow(["Wind_Force_Design", f"{wd.get('wind_force_design', 0):.2f} kN"])
+            writer.writerow(["Wind_Force_Design", f"{wd.get('wind_force_design', 0):.0f} kN"])  # FIXED: 0 d.p.
     
     writer.writerow(["Health_Score", results.get("health_score", 0)])
     return output.getvalue()
@@ -2085,7 +2085,7 @@ def export_to_pdf(results, project_info, materials, filename="report.pdf"):
         loads = results.get('loads', {})
         y_pos = 0.8
         for key, value in loads.items():
-            axes[0, 1].text(0.1, y_pos, f"{key.title()}: {value:.1f} kN", fontsize=11, color='#b0c4de')
+            axes[0, 1].text(0.1, y_pos, f"{key.title()}: {value:.0f} kN", fontsize=11, color='#b0c4de')  # FIXED: 0 d.p.
             y_pos -= 0.08
         
         fabric = results.get('fabric', {})
@@ -2100,15 +2100,15 @@ def export_to_pdf(results, project_info, materials, filename="report.pdf"):
         
         beam = results.get('beams', {}).get('main', {})
         if beam and "arch_reduction" in beam:
-            axes[0, 1].text(0.1, y_pos, f"Arch Reduction: {beam.get('arch_reduction', 0):.1f}%", fontsize=11, color='#b0c4de')
+            axes[0, 1].text(0.1, y_pos, f"Arch Reduction: {beam.get('arch_reduction', 0):.0f}%", fontsize=11, color='#b0c4de')  # FIXED: 0 d.p.
             y_pos -= 0.08
-            axes[0, 1].text(0.1, y_pos, f"Combined Ratio: {beam.get('combined_ratio', 0):.3f}", fontsize=11, color='#b0c4de')
+            axes[0, 1].text(0.1, y_pos, f"Combined Ratio: {beam.get('combined_ratio', 0):.2f}", fontsize=11, color='#b0c4de')  # 2 d.p. for critical ratio
             y_pos -= 0.08
             if beam.get("wind_data"):
                 wd = beam["wind_data"]
                 axes[0, 1].text(0.1, y_pos, f"Wind Direction: {wd.get('governing_direction', 'N/A').upper()}", fontsize=11, color='#f39c12')
                 y_pos -= 0.08
-                axes[0, 1].text(0.1, y_pos, f"Governing Area: {wd.get('governing_area', 0):.0f} m²", fontsize=11, color='#f39c12')
+                axes[0, 1].text(0.1, y_pos, f"Governing Area: {wd.get('governing_area', 0):.0f} m²", fontsize=11, color='#f39c12')  # FIXED: 0 d.p.
                 y_pos -= 0.08
                 axes[0, 1].text(0.1, y_pos, f"🔒 Safety Enshrined: YES", fontsize=11, color='#2ecc71')
         
@@ -2122,7 +2122,7 @@ def export_to_pdf(results, project_info, materials, filename="report.pdf"):
         axes[1, 1].axis('off')
         axes[1, 1].text(0.1, 0.9, "Cost Summary", fontsize=14, color='white', weight='bold')
         axes[1, 1].text(0.1, 0.75, f"Total Cost: {format_currency(bq.get('total_cost', 0), materials.get('country', 'Malaysia'))}", fontsize=12, color='#b0c4de')
-        axes[1, 1].text(0.1, 0.6, f"Steel Weight: {bq.get('total_steel_weight', 0):.0f} kg", fontsize=12, color='#b0c4de')
+        axes[1, 1].text(0.1, 0.6, f"Steel Weight: {bq.get('total_steel_weight', 0):.0f} kg", fontsize=12, color='#b0c4de')  # FIXED: 0 d.p.
         axes[1, 1].text(0.1, 0.45, f"Joint Type: {bq.get('joint_type', 'bolted').upper()}", fontsize=12, color='#b0c4de')
         
         plt.tight_layout()
@@ -2169,8 +2169,8 @@ def auto_design_structure(params, materials, typology="saddle_span"):
         
         results["all_checks"]["num_nodes"] = {"status": f"📍 {dome_results.get('num_nodes', 0)}", "value": "Nodes"}
         results["all_checks"]["num_members"] = {"status": f"🔗 {dome_results.get('num_members', 0)}", "value": "Members"}
-        results["all_checks"]["length_std"] = {"status": f"📊 {dome_results.get('length_std_dev', 0):.3f}", "value": "Std Dev"}
-        results["all_checks"]["buckling"] = {"status": dome_results.get('buckling_check', {}).get('status', '⚠️ CHECK'), "value": f"SF: {dome_results.get('buckling_check', {}).get('safety_factor', 0):.2f}"}
+        results["all_checks"]["length_std"] = {"status": f"📊 {dome_results.get('length_std_dev', 0):.2f}", "value": "Std Dev"}  # 2 d.p. for std dev
+        results["all_checks"]["buckling"] = {"status": dome_results.get('buckling_check', {}).get('status', '⚠️ CHECK'), "value": f"SF: {dome_results.get('buckling_check', {}).get('safety_factor', 0):.1f}"}  # 1 d.p. for safety factor
         results["all_checks"]["safety_enshrined"] = {"status": "🔒 ✅ YES", "value": "Public Safety Enshrined"}
         
         bq = generate_dome_bill_of_quantities(dome_results, materials)
@@ -2272,11 +2272,16 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     cable_data = CABLE_PROPERTIES.get(cable_type, {}).get("diameters", {})
     cable_breaking = cable_data.get(cable_diameter, 0)
     
+    # FIXED: Store utilization with 0 decimal place
+    cable_utilization = cable_force / cable_breaking if cable_breaking > 0 else 0
+    cable_utilization_percent = cable_utilization * 100
+    
     results["cables"]["type"] = cable_type
     results["cables"]["diameter"] = cable_diameter
     results["cables"]["breaking_load"] = cable_breaking
     results["cables"]["force_per_cable"] = cable_force
     results["cables"]["is_adequate"] = cable_breaking >= cable_force * 1.5
+    results["cables"]["utilization"] = f"{cable_utilization_percent:.0f}%"  # FIXED: 0 d.p.
     
     health_report = calculate_health_score_with_recommendations(
         results["beams"].get("main"),
@@ -2290,12 +2295,12 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     results["recommendations"] = health_report.get("recommendations", [])
     results["passed_all"] = health_report.get("passed_all", True)
     
-    results["all_checks"]["wind_load"] = {"status": "✅ PASS", "value": f"{wind_load:.1f} kN"}
+    results["all_checks"]["wind_load"] = {"status": "✅ PASS", "value": f"{wind_load:.0f} kN"}  # FIXED: 0 d.p.
     results["all_checks"]["joint_type"] = {"status": f"🔧 {joint_type.upper()}", "value": joint_data["description"][:30] + "..."}
     
     if typology == "saddle_span" and wind_data:
         results["all_checks"]["governing_area"] = {
-            "status": f"📐 {wind_data['governing_area']:.0f} m²", 
+            "status": f"📐 {wind_data['governing_area']:.0f} m²",  # FIXED: 0 d.p.
             "value": f"Wind from {wind_data['governing_direction'].upper()}"
         }
         results["all_checks"]["safety_enshrined"] = {
@@ -2319,7 +2324,7 @@ def auto_design_structure(params, materials, typology="saddle_span"):
         
         results["all_checks"]["member_capacity"] = {
             "status": status,
-            "value": f"{beam['moment_capacity']:.1f} kNm"
+            "value": f"{beam['moment_capacity']:.0f} kNm"  # FIXED: 0 d.p.
         }
         results["all_checks"]["section_selected"] = {
             "status": status,
@@ -2334,11 +2339,11 @@ def auto_design_structure(params, materials, typology="saddle_span"):
         
         if typology == "saddle_span" and "arch_reduction" in beam:
             results["all_checks"]["arch_action"] = {
-                "status": f"🏹 {beam['arch_reduction']:.0f}% Reduction",
+                "status": f"🏹 {beam['arch_reduction']:.0f}% Reduction",  # FIXED: 0 d.p.
                 "value": f"Rise/Span: {beam.get('rise_span_ratio', 0):.2f}"
             }
             results["all_checks"]["combined_check"] = {
-                "status": f"✅ {beam.get('combined_ratio', 0):.2f}" if beam.get('combined_ratio', 0) <= 1.0 else f"⚠️ {beam.get('combined_ratio', 0):.2f}",
+                "status": f"✅ {beam.get('combined_ratio', 0):.2f}" if beam.get('combined_ratio', 0) <= 1.0 else f"⚠️ {beam.get('combined_ratio', 0):.2f}",  # 2 d.p. for critical ratio
                 "value": "Axial + Bending"
             }
         
@@ -2346,8 +2351,8 @@ def auto_design_structure(params, materials, typology="saddle_span"):
             i_ratio = beam["I_actual"] / beam["I_required"] if beam["I_required"] > 0 else 0
             w_ratio = beam["W_actual"] / beam["W_required"] if beam["W_required"] > 0 else 0
             results["all_checks"]["section_ratios"] = {
-                "status": f"📊 I:{i_ratio:.2f} W:{w_ratio:.2f}",
-                "value": f"W_req={beam['W_required']/1000:.1f}e3, W_act={beam['W_actual']/1000:.1f}e3"
+                "status": f"📊 I:{i_ratio:.1f} W:{w_ratio:.1f}",  # 1 d.p. for non-critical ratios
+                "value": f"W_req={beam['W_required']/1000:.1f}e3, W_act={beam['W_actual']/1000:.1f}e3"  # 1 d.p. for section properties
             }
             
     elif member_type in ["planar_truss", "space_truss"] and truss_members:
@@ -2365,7 +2370,7 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     
     results["all_checks"]["cable_adequacy"] = {
         "status": "✅ PASS" if results["cables"]["is_adequate"] else "⚠️ Check",
-        "value": f"{cable_breaking:.1f} kN"
+        "value": f"{cable_breaking:.0f} kN"  # FIXED: 0 d.p.
     }
     
     fabric_strength = results["fabric"]["strength"]
@@ -2373,7 +2378,7 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     is_adequate = fabric_strength >= required_strength * 1.5
     results["all_checks"]["membrane_strength"] = {
         "status": "✅ PASS" if is_adequate else "⚠️ Check",
-        "value": f"{fabric_strength:.0f} kN/m"
+        "value": f"{fabric_strength:.0f} kN/m"  # FIXED: 0 d.p.
     }
     
     bq = generate_bill_of_quantities(params, materials, results, truss_members, joint_type, country)
@@ -2407,7 +2412,22 @@ def display_health_report(health_report):
         details = data.get("details", {})
         detail_text = ""
         if details:
-            detail_items = [f"{k}: {v}" for k, v in details.items()]
+            # FIXED: Format all details according to our standard
+            detail_items = []
+            for k, v in details.items():
+                if isinstance(v, (int, float)):
+                    # Check if it's a percentage value
+                    if k.lower() in ['utilization', 'utilization_percent', 'reduction']:
+                        v = f"{v:.0f}%"
+                    elif k.lower() in ['strength']:
+                        v = f"{v:.0f} kN/m"
+                    elif k.lower() in ['length_std']:
+                        v = f"{v:.2f}"
+                    else:
+                        v = f"{v:.0f}"
+                else:
+                    v = str(v)
+                detail_items.append(f"{k}: {v}")
             detail_text = " | ".join(detail_items)
         
         st.markdown(f"""
@@ -2513,8 +2533,8 @@ def get_structure_input_form(typology, params, materials, locked):
         gov_area = max(area_span, area_apex)
         gov_dir = "apex" if area_apex >= area_span else "span"
         
-        st.caption(f"📊 Area from Span: {area_span:.0f} m² | Area from Apex: {area_apex:.0f} m²")
-        st.caption(f"🔒 Governing Area: **{gov_area:.0f} m²** (wind from {gov_dir.upper()})")
+        st.caption(f"📊 Area from Span: {area_span:.0f} m² | Area from Apex: {area_apex:.0f} m²")  # FIXED: 0 d.p.
+        st.caption(f"🔒 Governing Area: **{gov_area:.0f} m²** (wind from {gov_dir.upper()})")  # FIXED: 0 d.p.
         
         rise_span_ratio = params["A"] / params["B"] if params["B"] > 0 else 0
         if rise_span_ratio < 0.3:
@@ -2944,9 +2964,9 @@ def render_bq_page():
             "Item": item["item"],
             "Qty": item["qty"],
             "Unit": item["unit"],
-            "Length (m)": item["length_m"],
-            "Total Length (m)": item["total_length_m"],
-            "Weight (kg)": f"{item['weight_kg']:.0f}" if isinstance(item['weight_kg'], (int, float)) else item['weight_kg'],
+            "Length (m)": f"{item['length_m']:.1f}" if isinstance(item['length_m'], (int, float)) else item['length_m'],  # 1 d.p.
+            "Total Length (m)": f"{item['total_length_m']:.1f}" if isinstance(item['total_length_m'], (int, float)) else item['total_length_m'],  # 1 d.p.
+            "Weight (kg)": f"{item['weight_kg']:.0f}" if isinstance(item['weight_kg'], (int, float)) else item['weight_kg'],  # 0 d.p.
             "Unit Price": f"{currency['symbol']}{item['unit_price']:.2f}" if isinstance(item['unit_price'], (int, float)) else item['unit_price'],
             "Total": f"{currency['symbol']}{item['total_price']:,.0f}" if isinstance(item['total_price'], (int, float)) else item['total_price']
         })
@@ -3202,7 +3222,7 @@ def render_reports():
         st.markdown("### 📊 Design Results")
         loads = design_results.get("loads", {})
         for key, value in loads.items():
-            st.metric(key.title(), f"{value:.1f} kN")
+            st.metric(key.title(), f"{value:.0f} kN")  # FIXED: 0 d.p.
         st.markdown("---")
         st.markdown("### 🔒 Safety")
         st.markdown("✅ **Public Safety Enshrined** - Worst-case wind direction used")
@@ -3219,20 +3239,20 @@ def render_reports():
         st.markdown("#### 📊 Loads")
         loads = design_results.get("loads", {})
         for key, value in loads.items():
-            st.metric(key.title(), f"{value:.1f} kN")
+            st.metric(key.title(), f"{value:.0f} kN")  # FIXED: 0 d.p.
         
         beam = design_results.get("beams", {}).get("main", {})
         if beam:
             st.markdown("#### 🔧 Member Selection")
             st.markdown(f"**Section:** {beam.get('section', 'N/A')}")
-            st.markdown(f"**Moment Capacity:** {beam.get('moment_capacity', 0):.1f} kNm")
-            st.markdown(f"**Required Moment:** {beam.get('required_moment', 0):.1f} kNm")
+            st.markdown(f"**Moment Capacity:** {beam.get('moment_capacity', 0):.0f} kNm")  # FIXED: 0 d.p.
+            st.markdown(f"**Required Moment:** {beam.get('required_moment', 0):.0f} kNm")  # FIXED: 0 d.p.
             st.markdown(f"**Adequate:** {'✅ Yes' if beam.get('is_adequate', False) else '⚠️ Check'}")
             
             if "arch_reduction" in beam:
-                st.markdown(f"**Arch Reduction:** {beam.get('arch_reduction', 0):.1f}%")
-                st.markdown(f"**Axial Force:** {beam.get('axial_force', 0):.1f} kN")
-                st.markdown(f"**Combined Ratio:** {beam.get('combined_ratio', 0):.3f}")
+                st.markdown(f"**Arch Reduction:** {beam.get('arch_reduction', 0):.0f}%")  # FIXED: 0 d.p.
+                st.markdown(f"**Axial Force:** {beam.get('axial_force', 0):.0f} kN")  # FIXED: 0 d.p.
+                st.markdown(f"**Combined Ratio:** {beam.get('combined_ratio', 0):.2f}")  # 2 d.p. for critical ratio
                 st.markdown("**🔒 Safety:** Worst-case wind direction enshrined")
         
         fabric = design_results.get("fabric", {})
@@ -3240,22 +3260,22 @@ def render_reports():
             st.markdown("#### 🧵 Fabric")
             st.markdown(f"**Type:** {fabric.get('type', 'N/A')}")
             st.markdown(f"**Thickness:** {fabric.get('thickness', 'N/A')} mm")
-            st.markdown(f"**Strength:** {fabric.get('strength', 0):.0f} kN/m")
+            st.markdown(f"**Strength:** {fabric.get('strength', 0):.0f} kN/m")  # FIXED: 0 d.p.
         
         cables = design_results.get("cables", {})
         if cables:
             st.markdown("#### 🔗 Cables")
             st.markdown(f"**Type:** {cables.get('type', 'N/A')}")
             st.markdown(f"**Diameter:** {cables.get('diameter', 'N/A')} mm")
-            st.markdown(f"**Breaking Load:** {cables.get('breaking_load', 0):.0f} kN")
-            st.markdown(f"**Force per Cable:** {cables.get('force_per_cable', 0):.1f} kN")
+            st.markdown(f"**Breaking Load:** {cables.get('breaking_load', 0):.0f} kN")  # FIXED: 0 d.p.
+            st.markdown(f"**Force per Cable:** {cables.get('force_per_cable', 0):.0f} kN")  # FIXED: 0 d.p.
         
         dome_data = design_results.get("dome_data", {})
         if dome_data:
             st.markdown("#### 🌍 Geodesic Dome Data")
             st.markdown(f"**Nodes:** {dome_data.get('num_nodes', 0)}")
             st.markdown(f"**Members:** {dome_data.get('num_members', 0)}")
-            st.markdown(f"**Total Length:** {dome_data.get('total_length', 0):.1f} m")
+            st.markdown(f"**Total Length:** {dome_data.get('total_length', 0):.1f} m")  # 1 d.p. for lengths
         
         st.markdown('</div>', unsafe_allow_html=True)
         
@@ -3566,9 +3586,9 @@ def render_workspace():
             st.markdown('<div class="title">📊 Loads</div>', unsafe_allow_html=True)
             loads = design_results["loads"]
             c1, c2, c3 = st.columns(3)
-            c1.metric("Wind", f"{loads['wind']:.1f} kN")
-            c2.metric("Dead", f"{loads['dead']:.1f} kN")
-            c3.metric("Total", f"{loads['total']:.1f} kN")
+            c1.metric("Wind", f"{loads['wind']:.0f} kN")  # FIXED: 0 d.p.
+            c2.metric("Dead", f"{loads['dead']:.0f} kN")  # FIXED: 0 d.p.
+            c3.metric("Total", f"{loads['total']:.0f} kN")  # FIXED: 0 d.p.
             st.markdown('</div>', unsafe_allow_html=True)
             
             beam = design_results.get("beams", {}).get("main")
@@ -3579,17 +3599,17 @@ def render_workspace():
                 st.markdown(f"**Selected:** {beam['section']} {get_section_tag(sec_type)}")
                 if beam.get("note"):
                     st.info(beam["note"])
-                st.markdown(f"**Moment:** {beam['moment_capacity']:.1f} / {beam['required_moment']:.1f} kNm")
+                st.markdown(f"**Moment:** {beam['moment_capacity']:.0f} / {beam['required_moment']:.0f} kNm")  # FIXED: 0 d.p.
                 
                 if "arch_reduction" in beam:
-                    st.markdown(f"**Arch Reduction:** {beam['arch_reduction']:.0f}%")
-                    st.markdown(f"**Axial Force:** {beam.get('axial_force', 0):.1f} kN")
-                    st.markdown(f"**Combined Ratio:** {beam.get('combined_ratio', 0):.3f}")
+                    st.markdown(f"**Arch Reduction:** {beam['arch_reduction']:.0f}%")  # FIXED: 0 d.p.
+                    st.markdown(f"**Axial Force:** {beam.get('axial_force', 0):.0f} kN")  # FIXED: 0 d.p.
+                    st.markdown(f"**Combined Ratio:** {beam.get('combined_ratio', 0):.2f}")  # 2 d.p. for critical ratio
                     st.markdown(f"**Rise/Span:** {beam.get('rise_span_ratio', 0):.2f}")
                     
                     wind_data = beam.get("wind_data")
                     if wind_data:
-                        st.markdown(f"**Governing Area:** {wind_data.get('governing_area', 0):.0f} m²")
+                        st.markdown(f"**Governing Area:** {wind_data.get('governing_area', 0):.0f} m²")  # FIXED: 0 d.p.
                         st.markdown(f"**Wind Direction:** {wind_data.get('governing_direction', 'N/A').upper()}")
                 
                 if beam.get('is_adequate', False):
@@ -3608,10 +3628,9 @@ def render_workspace():
                 if cables:
                     cable_util = cables.get('utilization', 'N/A')
                     st.markdown(f"**Cable:** {cables.get('type', 'N/A')} {cables.get('diameter', 'N/A')}mm")
-                    st.markdown(f"**Force per Cable:** {cables.get('force_per_cable', 0):.1f} kN")
-                    st.markdown(f"**Breaking Load:** {cables.get('breaking_load', 0):.1f} kN")
-                    if cable_util != 'N/A':
-                        st.markdown(f"**Utilization:** {cable_util}")
+                    st.markdown(f"**Force per Cable:** {cables.get('force_per_cable', 0):.0f} kN")  # FIXED: 0 d.p.
+                    st.markdown(f"**Breaking Load:** {cables.get('breaking_load', 0):.0f} kN")  # FIXED: 0 d.p.
+                    st.markdown(f"**Utilization:** {cable_util}")  # Already formatted with 0 d.p.
                 st.markdown('</div>', unsafe_allow_html=True)
             
             dome_data = design_results.get("dome_data", {})
@@ -3620,7 +3639,7 @@ def render_workspace():
                 st.markdown('<div class="title">🌍 Dome Statistics</div>', unsafe_allow_html=True)
                 st.markdown(f"**Nodes:** {dome_data.get('num_nodes', 0)}")
                 st.markdown(f"**Members:** {dome_data.get('num_members', 0)}")
-                st.markdown(f"**Total Length:** {dome_data.get('total_length', 0):.1f} m")
+                st.markdown(f"**Total Length:** {dome_data.get('total_length', 0):.1f} m")  # 1 d.p. for length
                 st.markdown('</div>', unsafe_allow_html=True)
             
             if st.session_state.bq:
