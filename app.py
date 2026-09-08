@@ -195,6 +195,16 @@ dark_mode_css = """
         color: #b0c4de;
         font-size: 1rem;
     }
+    .health-report-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #1a2a3a;
+    }
+    .health-report-row .component { color: #b0c4de; font-weight: 500; }
+    .health-report-row .score { font-weight: 700; }
+    .health-report-row .status { color: #6a7a8a; font-size: 0.8rem; }
+    .health-report-row .details { color: #6a7a8a; font-size: 0.75rem; }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -2755,7 +2765,7 @@ def render_reports():
             st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE - FINAL COMPLETE LAYOUT
+# WORKSPACE PAGE - FINAL COMPLETE LAYOUT WITH HEALTH REPORT
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -2910,7 +2920,6 @@ def render_workspace():
         # ============================================================
         st.markdown('<div class="sds-card"><div class="title">🧱 Materials</div>', unsafe_allow_html=True)
         
-        # Material Type
         material_types = ["Steel", "Aluminum", "Wood", "Composite"]
         current_material = materials.get("material_type", "Steel")
         materials["material_type"] = st.selectbox(
@@ -2921,7 +2930,6 @@ def render_workspace():
             key="material_type_workspace"
         )
         
-        # Section Shape
         section_types = ["CHS", "SHS", "RHS", "I-Beam", "Angle", "Channel"]
         current_section_type = materials.get("section_type", "CHS")
         materials["section_type"] = st.selectbox(
@@ -2939,7 +2947,6 @@ def render_workspace():
         # ============================================================
         st.markdown('<div class="sds-card"><div class="title">🔧 Member Configuration</div>', unsafe_allow_html=True)
         
-        # Member Type
         member_types = ["single_beam", "planar_truss", "space_truss"]
         member_labels = ["🏗️ Single Beam", "📐 Planar Truss", "🌐 Space Truss"]
         current_member = materials.get("member_type", "single_beam")
@@ -2953,7 +2960,6 @@ def render_workspace():
             key="member_type_workspace"
         )
         
-        # Truss options
         if materials["member_type"] in ["planar_truss", "space_truss"]:
             truss_types = ["warren", "pratt", "howe", "vierendeel"]
             truss_labels = ["🔺 Warren", "✚ Pratt", "✖ Howe", "▣ Vierendeel"]
@@ -3065,7 +3071,6 @@ def render_workspace():
         st.subheader("🔬 3D Viewer")
         st.caption("🟡 Yellow = Cables | 🔴 Red = Beams | 🔵 Surface = Membrane")
         
-        # Generate and display 3D figure
         if typology == "geodesic_dome":
             dome_params = {
                 "radius": materials.get("dome_radius", 20),
@@ -3085,7 +3090,6 @@ def render_workspace():
             key="3d_viewer_main"
         )
         
-        # Viewer Controls
         with st.expander("🎮 Viewer Controls", expanded=False):
             col_c1, col_c2, col_c3 = st.columns(3)
             with col_c1:
@@ -3123,7 +3127,7 @@ def render_workspace():
         st.divider()
         
         # ============================================================
-        # DESIGN RESULTS - RIGHT COLUMN
+        # DESIGN RESULTS - WITH HEALTH REPORT
         # ============================================================
         if "design_results" in st.session_state and st.session_state.design_results:
             design_results = st.session_state.design_results
@@ -3138,7 +3142,56 @@ def render_workspace():
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Health Score - Always 100%
+            # ============================================================
+            # HEALTH REPORT - COMPONENT BREAKDOWN (RESTORED!)
+            # ============================================================
+            health_report = design_results.get("health_report", {})
+            if health_report:
+                st.markdown("## 🏥 Component Health Report")
+                
+                for component, data in health_report.get("components", {}).items():
+                    score = data.get("score", 0)
+                    status = data.get("status", "⚠️ CHECK")
+                    
+                    if score >= 90:
+                        color = "#2ecc71"
+                        emoji = "✅"
+                    elif score >= 70:
+                        color = "#f39c12"
+                        emoji = "⚠️"
+                    else:
+                        color = "#e74c3c"
+                        emoji = "❌"
+                    
+                    details = data.get("details", {})
+                    detail_text = ""
+                    if details:
+                        detail_items = []
+                        for k, v in details.items():
+                            if isinstance(v, (int, float)):
+                                if k.lower() in ['utilization', 'utilization_percent', 'reduction']:
+                                    v = f"{v:.0f}%"
+                                elif k.lower() in ['strength']:
+                                    v = f"{v:.0f} kN/m"
+                                else:
+                                    v = f"{v:.0f}"
+                            detail_items.append(f"{k}: {v}")
+                        detail_text = " | ".join(detail_items)
+                    
+                    st.markdown(f"""
+                    <div class="health-report-row">
+                        <span class="component">{component}</span>
+                        <span class="score" style="color: {color};">{emoji} {score:.0f}%</span>
+                        <span class="status">{status}</span>
+                        <span class="details">{detail_text}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("---")
+            
+            # ============================================================
+            # OVERALL HEALTH SCORE
+            # ============================================================
             st.markdown("""
             <div class="health-100">
                 <div class="big">🎉 100%</div>
@@ -3146,7 +3199,9 @@ def render_workspace():
             </div>
             """, unsafe_allow_html=True)
             
-            # Loads
+            # ============================================================
+            # LOADS
+            # ============================================================
             loads = design_results.get("loads", {})
             st.markdown('<div class="sds-card"><div class="title">📊 Loads</div>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
@@ -3155,7 +3210,9 @@ def render_workspace():
             c3.metric("Total", f"{loads.get('total', 0):.0f} kN")
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Member Selection
+            # ============================================================
+            # MEMBER SELECTION
+            # ============================================================
             beam = design_results.get("beams", {}).get("main")
             if beam:
                 st.markdown('<div class="sds-card"><div class="title">🔧 Member Selection</div>', unsafe_allow_html=True)
@@ -3182,7 +3239,9 @@ def render_workspace():
                     st.warning("⚠️ Check")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Truss Members
+            # ============================================================
+            # TRUSS MEMBERS
+            # ============================================================
             truss = design_results.get("truss", {})
             if truss:
                 st.markdown('<div class="sds-card"><div class="title">📐 Truss Members</div>', unsafe_allow_html=True)
@@ -3194,7 +3253,9 @@ def render_workspace():
                 st.markdown(f"**Joint Type:** {truss.get('joint_type', 'N/A').upper()}")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Fabric & Cables
+            # ============================================================
+            # FABRIC & CABLES
+            # ============================================================
             fabric = design_results.get("fabric", {})
             cables = design_results.get("cables", {})
             if fabric or cables:
@@ -3208,7 +3269,9 @@ def render_workspace():
                     st.markdown(f"**Utilization:** {cables.get('utilization', 'N/A')}")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Dome Data
+            # ============================================================
+            # DOME DATA
+            # ============================================================
             dome_data = design_results.get("dome_data", {})
             if dome_data:
                 st.markdown('<div class="sds-card"><div class="title">🌍 Dome Statistics</div>', unsafe_allow_html=True)
@@ -3220,7 +3283,9 @@ def render_workspace():
                 st.markdown(f"**Buckling:** {buckling.get('status', 'N/A')}")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # BQ Summary
+            # ============================================================
+            # BQ SUMMARY
+            # ============================================================
             if st.session_state.bq:
                 bq = st.session_state.bq
                 st.divider()
@@ -3231,6 +3296,9 @@ def render_workspace():
                     st.session_state.page = "bq"
                     st.rerun()
             
+            # ============================================================
+            # QUICK EXPORT
+            # ============================================================
             st.divider()
             st.markdown("### 📤 Quick Export")
             export_cols = st.columns(3)
