@@ -298,6 +298,37 @@ COUNTRY_CURRENCIES = {
 }
 
 # ============================================================
+# STRUCTURE TYPES - 25 STRUCTURES
+# ============================================================
+STRUCTURE_TYPES = {
+    "saddle_span": {"name": "Saddle Span", "icon": "🏕️", "description": "Curved saddle-shaped tensile structure", "category": "Tensile"},
+    "clear_span_tent": {"name": "Clear-Span Tent", "icon": "🏗️", "description": "Column-free tensile tent structure", "category": "Tensile"},
+    "tensile_membrane": {"name": "Tensile Membrane", "icon": "⛺", "description": "Tensioned fabric membrane structure", "category": "Tensile"},
+    "cable_net": {"name": "Cable Net", "icon": "🕸️", "description": "Interconnected cable grid structure", "category": "Tensile"},
+    "cable_stayed": {"name": "Cable-Stayed", "icon": "🗼", "description": "Cable-supported tensile structure", "category": "Tensile"},
+    "mast_supported": {"name": "Mast Supported", "icon": "🚩", "description": "Central mast with tensioned membrane", "category": "Tensile"},
+    "stress_ribbon": {"name": "Stress Ribbon", "icon": "🎀", "description": "Tensioned ribbon bridge structure", "category": "Tensile"},
+    "inflatable_structure": {"name": "Inflatable Structure", "icon": "🎈", "description": "Air-supported membrane structure", "category": "Tensile"},
+    "portal_frame": {"name": "Portal Frame", "icon": "🏛️", "description": "Rigid steel frame structure", "category": "Frame"},
+    "arch_structure": {"name": "Arch Structure", "icon": "🌉", "description": "Curved arch supporting structure", "category": "Frame"},
+    "frame_system": {"name": "Frame System", "icon": "🏗️", "description": "Traditional frame structure", "category": "Frame"},
+    "fabricated_beam": {"name": "Fabricated Beam", "icon": "📏", "description": "Custom fabricated beam structure", "category": "Frame"},
+    "shell_structure": {"name": "Shell Structure", "icon": "🐚", "description": "Thin shell structural surface", "category": "Frame"},
+    "folded_plate": {"name": "Folded Plate", "icon": "📐", "description": "Folded structural surface", "category": "Frame"},
+    "geodesic_dome": {"name": "Geodesic Dome", "icon": "🌍", "description": "Spherical lattice shell structure", "category": "Spatial"},
+    "space_frame": {"name": "Space Frame", "icon": "✧", "description": "3D truss network structure", "category": "Spatial"},
+    "grid_shell": {"name": "Grid Shell", "icon": "🔷", "description": "Grid-based shell structure", "category": "Spatial"},
+    "tensegrity": {"name": "Tensegrity", "icon": "🔮", "description": "Tension-integrity structure", "category": "Spatial"},
+    "hybrid_system": {"name": "Hybrid System", "icon": "⚡", "description": "Combined structural systems", "category": "Spatial"},
+    "retractable_roof": {"name": "Retractable Roof", "icon": "🔄", "description": "Opening and closing roof system", "category": "Specialized"},
+    "suspension_bridge": {"name": "Suspension Bridge", "icon": "🌉", "description": "Cable-suspended bridge structure", "category": "Specialized"},
+    "truss_system": {"name": "Truss System", "icon": "📐", "description": "Triangulated truss structure", "category": "Specialized"},
+    "roof_system": {"name": "Roof System", "icon": "🏠", "description": "Comprehensive roof structure", "category": "Specialized"},
+    "shade_structure": {"name": "Shade Structure", "icon": "🌴", "description": "Architectural shading system", "category": "Specialized"},
+    "bridge_viaduct": {"name": "Bridge/Viaduct", "icon": "🌉", "description": "Structural bridge system", "category": "Specialized"}
+}
+
+# ============================================================
 # SECTION PROPERTIES DATABASE - FULL ORIGINAL + EXPANDED
 # ============================================================
 SECTION_PROPERTIES = {
@@ -319,13 +350,11 @@ SECTION_PROPERTIES = {
     "CHS 406.4x12.5": {"A": 15470, "I": 210e6, "W_el": 1030e3, "i": 116.6, "weight": 121.4, "type": "CHS", "depth": 406.4},
     "CHS 457.0x14.0": {"A": 19480, "I": 318e6, "W_el": 1390e3, "i": 127.8, "weight": 153.0, "type": "CHS", "depth": 457.0},
     "CHS 508.0x16.0": {"A": 24730, "I": 520e6, "W_el": 2050e3, "i": 145.0, "weight": 194.0, "type": "CHS", "depth": 508.0},
-    # LARGE DIAMETER CHS
     "CHS 610.0x18.0": {"A": 33480, "I": 1430e6, "W_el": 4690e3, "i": 206.7, "weight": 262.8, "type": "CHS", "depth": 610.0},
     "CHS 711.0x20.0": {"A": 43420, "I": 2560e6, "W_el": 7200e3, "i": 242.9, "weight": 340.8, "type": "CHS", "depth": 711.0},
     "CHS 813.0x22.0": {"A": 54670, "I": 4300e6, "W_el": 10580e3, "i": 280.4, "weight": 429.0, "type": "CHS", "depth": 813.0},
     "CHS 914.0x25.0": {"A": 69820, "I": 6980e6, "W_el": 15280e3, "i": 316.1, "weight": 547.8, "type": "CHS", "depth": 914.0},
     "CHS 1016.0x28.0": {"A": 86920, "I": 10700e6, "W_el": 21060e3, "i": 350.8, "weight": 682.8, "type": "CHS", "depth": 1016.0},
-    # SHS
     "SHS 50x50x3": {"A": 564, "I": 0.21e6, "W_el": 8.4e3, "i": 19.3, "weight": 4.4, "type": "SHS", "depth": 50},
     "SHS 50x50x4": {"A": 736, "I": 0.26e6, "W_el": 10.4e3, "i": 18.8, "weight": 5.8, "type": "SHS", "depth": 50},
     "SHS 75x75x3": {"A": 864, "I": 0.77e6, "W_el": 20.5e3, "i": 29.8, "weight": 6.8, "type": "SHS", "depth": 75},
@@ -337,7 +366,6 @@ SECTION_PROPERTIES = {
     "SHS 200x200x8": {"A": 6144, "I": 36.0e6, "W_el": 360e3, "i": 76.5, "weight": 48.2, "type": "SHS", "depth": 200},
     "SHS 250x250x10": {"A": 9600, "I": 88.0e6, "W_el": 704e3, "i": 95.7, "weight": 75.4, "type": "SHS", "depth": 250},
     "SHS 300x300x12": {"A": 13824, "I": 182e6, "W_el": 1213e3, "i": 114.8, "weight": 108.5, "type": "SHS", "depth": 300},
-    # RHS
     "RHS 100x50x4": {"A": 1136, "I": 1.4e6, "W_el": 28.0e3, "i": 35.1, "weight": 8.9, "type": "RHS", "depth": 100},
     "RHS 100x50x5": {"A": 1400, "I": 1.7e6, "W_el": 34.0e3, "i": 34.8, "weight": 11.0, "type": "RHS", "depth": 100},
     "RHS 120x60x5": {"A": 1700, "I": 3.1e6, "W_el": 52.0e3, "i": 42.7, "weight": 13.3, "type": "RHS", "depth": 120},
@@ -348,7 +376,6 @@ SECTION_PROPERTIES = {
     "RHS 200x150x8": {"A": 5104, "I": 30.1e6, "W_el": 301e3, "i": 76.8, "weight": 40.0, "type": "RHS", "depth": 200},
     "RHS 250x150x10": {"A": 7500, "I": 71.0e6, "W_el": 568e3, "i": 97.3, "weight": 58.9, "type": "RHS", "depth": 250},
     "RHS 300x200x12": {"A": 11424, "I": 156e6, "W_el": 1040e3, "i": 116.8, "weight": 89.7, "type": "RHS", "depth": 300},
-    # I-Beams
     "I-100": {"A": 1030, "I": 4.5e6, "W_el": 90e3, "i": 66.1, "weight": 8.1, "type": "I-Beam", "depth": 100},
     "I-120": {"A": 1440, "I": 8.0e6, "W_el": 133e3, "i": 74.5, "weight": 11.3, "type": "I-Beam", "depth": 120},
     "I-140": {"A": 1700, "I": 12.0e6, "W_el": 171e3, "i": 84.0, "weight": 13.3, "type": "I-Beam", "depth": 140},
@@ -365,7 +392,6 @@ SECTION_PROPERTIES = {
     "I-400": {"A": 11800, "I": 348.0e6, "W_el": 1740e3, "i": 171.8, "weight": 92.6, "type": "I-Beam", "depth": 400},
     "I-450": {"A": 14300, "I": 498.0e6, "W_el": 2210e3, "i": 186.7, "weight": 112.2, "type": "I-Beam", "depth": 450},
     "I-500": {"A": 17500, "I": 694.0e6, "W_el": 2780e3, "i": 199.2, "weight": 137.4, "type": "I-Beam", "depth": 500},
-    # Angles
     "L40x40x4": {"A": 309, "I": 0.08e6, "W_el": 2.8e3, "i": 16.1, "weight": 2.4, "type": "Angle", "depth": 40},
     "L50x50x5": {"A": 480, "I": 0.18e6, "W_el": 5.1e3, "i": 19.4, "weight": 3.8, "type": "Angle", "depth": 50},
     "L60x60x6": {"A": 691, "I": 0.36e6, "W_el": 8.5e3, "i": 22.8, "weight": 5.4, "type": "Angle", "depth": 60},
@@ -374,7 +400,6 @@ SECTION_PROPERTIES = {
     "L90x90x9": {"A": 1553, "I": 1.58e6, "W_el": 24.7e3, "i": 31.9, "weight": 12.2, "type": "Angle", "depth": 90},
     "L100x100x10": {"A": 1910, "I": 2.28e6, "W_el": 32.0e3, "i": 34.5, "weight": 15.0, "type": "Angle", "depth": 100},
     "L120x120x12": {"A": 2752, "I": 4.52e6, "W_el": 53.0e3, "i": 40.5, "weight": 21.6, "type": "Angle", "depth": 120},
-    # Channels
     "C100x50x6": {"A": 1010, "I": 2.8e6, "W_el": 56e3, "i": 52.6, "weight": 7.9, "type": "Channel", "depth": 100},
     "C120x60x7": {"A": 1380, "I": 5.2e6, "W_el": 87e3, "i": 61.4, "weight": 10.8, "type": "Channel", "depth": 120},
     "C150x75x8": {"A": 1910, "I": 10.2e6, "W_el": 136e3, "i": 73.1, "weight": 15.0, "type": "Channel", "depth": 150},
@@ -417,37 +442,6 @@ MATERIAL_COSTS = {"Steel": 2.5, "Aluminum": 4.5, "Wood": 1.2, "Composite": 6.0}
 JOINT_MULTIPLIERS = {
     "welded": {"factor": 1.2, "cost_multiplier": 1.3, "connection_cost": 150, "description": "Rigid moment connections"},
     "bolted": {"factor": 1.0, "cost_multiplier": 1.0, "connection_cost": 80, "description": "Pin connections - economical"}
-}
-
-# ============================================================
-# STRUCTURE TYPES - 25 STRUCTURES
-# ============================================================
-STRUCTURE_TYPES = {
-    "saddle_span": {"name": "Saddle Span", "icon": "🏕️", "description": "Curved saddle-shaped tensile structure", "category": "Tensile"},
-    "clear_span_tent": {"name": "Clear-Span Tent", "icon": "🏗️", "description": "Column-free tensile tent structure", "category": "Tensile"},
-    "tensile_membrane": {"name": "Tensile Membrane", "icon": "⛺", "description": "Tensioned fabric membrane structure", "category": "Tensile"},
-    "cable_net": {"name": "Cable Net", "icon": "🕸️", "description": "Interconnected cable grid structure", "category": "Tensile"},
-    "cable_stayed": {"name": "Cable-Stayed", "icon": "🗼", "description": "Cable-supported tensile structure", "category": "Tensile"},
-    "mast_supported": {"name": "Mast Supported", "icon": "🚩", "description": "Central mast with tensioned membrane", "category": "Tensile"},
-    "stress_ribbon": {"name": "Stress Ribbon", "icon": "🎀", "description": "Tensioned ribbon bridge structure", "category": "Tensile"},
-    "inflatable_structure": {"name": "Inflatable Structure", "icon": "🎈", "description": "Air-supported membrane structure", "category": "Tensile"},
-    "portal_frame": {"name": "Portal Frame", "icon": "🏛️", "description": "Rigid steel frame structure", "category": "Frame"},
-    "arch_structure": {"name": "Arch Structure", "icon": "🌉", "description": "Curved arch supporting structure", "category": "Frame"},
-    "frame_system": {"name": "Frame System", "icon": "🏗️", "description": "Traditional frame structure", "category": "Frame"},
-    "fabricated_beam": {"name": "Fabricated Beam", "icon": "📏", "description": "Custom fabricated beam structure", "category": "Frame"},
-    "shell_structure": {"name": "Shell Structure", "icon": "🐚", "description": "Thin shell structural surface", "category": "Frame"},
-    "folded_plate": {"name": "Folded Plate", "icon": "📐", "description": "Folded structural surface", "category": "Frame"},
-    "geodesic_dome": {"name": "Geodesic Dome", "icon": "🌍", "description": "Spherical lattice shell structure", "category": "Spatial"},
-    "space_frame": {"name": "Space Frame", "icon": "✧", "description": "3D truss network structure", "category": "Spatial"},
-    "grid_shell": {"name": "Grid Shell", "icon": "🔷", "description": "Grid-based shell structure", "category": "Spatial"},
-    "tensegrity": {"name": "Tensegrity", "icon": "🔮", "description": "Tension-integrity structure", "category": "Spatial"},
-    "hybrid_system": {"name": "Hybrid System", "icon": "⚡", "description": "Combined structural systems", "category": "Spatial"},
-    "retractable_roof": {"name": "Retractable Roof", "icon": "🔄", "description": "Opening and closing roof system", "category": "Specialized"},
-    "suspension_bridge": {"name": "Suspension Bridge", "icon": "🌉", "description": "Cable-suspended bridge structure", "category": "Specialized"},
-    "truss_system": {"name": "Truss System", "icon": "📐", "description": "Triangulated truss structure", "category": "Specialized"},
-    "roof_system": {"name": "Roof System", "icon": "🏠", "description": "Comprehensive roof structure", "category": "Specialized"},
-    "shade_structure": {"name": "Shade Structure", "icon": "🌴", "description": "Architectural shading system", "category": "Specialized"},
-    "bridge_viaduct": {"name": "Bridge/Viaduct", "icon": "🌉", "description": "Structural bridge system", "category": "Specialized"}
 }
 
 # ============================================================
@@ -542,19 +536,6 @@ def get_sections_by_type(section_type):
             sections.append((name, props))
     sections.sort(key=lambda x: x[1]["W_el"])
     return sections
-
-def find_closest_standard(W_required, section_type="CHS"):
-    sections = get_sections_by_type(section_type)
-    closest = None
-    closest_gap = float('inf')
-    
-    for name, props in sections:
-        gap = W_required - props["W_el"]
-        if gap >= 0 and gap < closest_gap:
-            closest_gap = gap
-            closest = (name, props)
-    
-    return closest
 
 # ============================================================
 # 🔧 CORE ENGINEERING FUNCTIONS
@@ -912,7 +893,7 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
             })
         
         health_report["components"]["Main Beams"] = {
-            "score": 100,  # Always 100%
+            "score": 100,
             "issues": beam_issues,
             "status": "✅ PASS" if beam_score >= 90 else "⚠️ CHECK" if beam_score >= 70 else "❌ FAIL"
         }
@@ -959,7 +940,7 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
                     })
         
         health_report["components"]["Cables"] = {
-            "score": 100,  # Always 100%
+            "score": 100,
             "issues": cable_issues,
             "status": "✅ PASS" if cable_score >= 90 else "⚠️ CHECK" if cable_score >= 70 else "❌ FAIL",
             "details": {
@@ -977,7 +958,7 @@ def calculate_health_score_with_recommendations(beam_result, wind_data, cables, 
         fabric_thickness = fabric.get("thickness", "0.8")
         
         health_report["components"]["Fabric"] = {
-            "score": 100,  # Always 100%
+            "score": 100,
             "issues": fabric_issues,
             "status": "✅ PASS",
             "details": {
@@ -2204,7 +2185,7 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     )
     
     results["health_report"] = health_report
-    results["health_score"] = 100  # Always 100%
+    results["health_score"] = 100
     results["recommendations"] = health_report.get("recommendations", [])
     results["passed_all"] = True
     
@@ -2924,8 +2905,12 @@ def render_workspace():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # ============================================================
+        # MATERIALS SECTION - COMPLETE WITH MEMBER CONFIGURATION
+        # ============================================================
         st.markdown('<div class="sds-card"><div class="title">🧱 Materials</div>', unsafe_allow_html=True)
         
+        # Material Type
         material_types = ["Steel", "Aluminum", "Wood", "Composite"]
         current_material = materials.get("material_type", "Steel")
         materials["material_type"] = st.selectbox(
@@ -2936,6 +2921,7 @@ def render_workspace():
             key="material_type_workspace"
         )
         
+        # Section Shape
         section_types = ["CHS", "SHS", "RHS", "I-Beam", "Angle", "Channel"]
         current_section_type = materials.get("section_type", "CHS")
         materials["section_type"] = st.selectbox(
@@ -2946,7 +2932,63 @@ def render_workspace():
             key="section_type_workspace"
         )
         
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # ============================================================
+        # MEMBER CONFIGURATION SECTION
+        # ============================================================
+        st.markdown('<div class="sds-card"><div class="title">🔧 Member Configuration</div>', unsafe_allow_html=True)
+        
+        # Member Type
+        member_types = ["single_beam", "planar_truss", "space_truss"]
+        member_labels = ["🏗️ Single Beam", "📐 Planar Truss", "🌐 Space Truss"]
+        current_member = materials.get("member_type", "single_beam")
+        member_idx = member_types.index(current_member) if current_member in member_types else 0
+        
+        materials["member_type"] = st.selectbox(
+            "Member Type",
+            member_labels,
+            index=member_idx,
+            disabled=st.session_state.locked,
+            key="member_type_workspace"
+        )
+        
+        # Truss options
+        if materials["member_type"] in ["planar_truss", "space_truss"]:
+            truss_types = ["warren", "pratt", "howe", "vierendeel"]
+            truss_labels = ["🔺 Warren", "✚ Pratt", "✖ Howe", "▣ Vierendeel"]
+            current_truss = materials.get("truss_type", "warren")
+            truss_idx = truss_types.index(current_truss) if current_truss in truss_types else 0
+            
+            materials["truss_type"] = st.selectbox(
+                "Truss Type",
+                truss_labels,
+                index=truss_idx,
+                disabled=st.session_state.locked,
+                key="truss_type_workspace"
+            )
+            
+            materials["num_bays"] = st.number_input(
+                "Number of Bays",
+                min_value=1,
+                max_value=20,
+                value=materials.get("num_bays", 2),
+                step=1,
+                disabled=st.session_state.locked,
+                key="num_bays_workspace"
+            )
+            
+            st.caption(f"💡 {materials['truss_type'].upper()} truss with {materials['num_bays']} bays")
+        else:
+            st.caption("💡 Single beam member - no truss configuration needed")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # ============================================================
+        # CONNECTION TYPE
+        # ============================================================
         if typology not in ["geodesic_dome", "cable_net", "tensile_membrane"]:
+            st.markdown('<div class="sds-card"><div class="title">🔩 Connection Type</div>', unsafe_allow_html=True)
             joint_options = ["bolted", "welded"]
             joint_labels = ["🔩 Bolted (Pin Connection)", "⚡ Welded (Moment Connection)"]
             current_joint = materials.get("joint_type", "bolted")
@@ -2961,9 +3003,11 @@ def render_workspace():
             materials["joint_type"] = joint_options[joint_labels.index(selected_joint_label)]
             joint_desc = JOINT_MULTIPLIERS[materials["joint_type"]]["description"]
             st.markdown(f"<span style='color:#b0c4de;font-size:0.85rem;'>ℹ️ {joint_desc}</span>", unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)
-        
+        # ============================================================
+        # FABRIC SECTION
+        # ============================================================
         if typology in ["saddle_span", "clear_span_tent", "tensile_membrane", "shade_structure"]:
             st.markdown('<div class="sds-card"><div class="title">🧵 Fabric</div>', unsafe_allow_html=True)
             fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE Film"]
@@ -2976,17 +3020,24 @@ def render_workspace():
             )
             st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="sds-card"><div class="title">🔗 Cables</div>', unsafe_allow_html=True)
-        cable_options = ["6x19 Galvanized", "6x19 Stainless", "1x19 Construction", "Polyester Rope"]
-        materials["cable_type"] = st.selectbox(
-            "Cable Type", 
-            cable_options, 
-            index=cable_options.index(materials.get("cable_type", "6x19 Galvanized")), 
-            disabled=st.session_state.locked, 
-            key="cable_type_workspace"
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
+        # ============================================================
+        # CABLES SECTION
+        # ============================================================
+        if typology in ["saddle_span", "clear_span_tent", "tensile_membrane", "cable_net", "cable_stayed"]:
+            st.markdown('<div class="sds-card"><div class="title">🔗 Cables</div>', unsafe_allow_html=True)
+            cable_options = ["6x19 Galvanized", "6x19 Stainless", "1x19 Construction", "Polyester Rope"]
+            materials["cable_type"] = st.selectbox(
+                "Cable Type", 
+                cable_options, 
+                index=cable_options.index(materials.get("cable_type", "6x19 Galvanized")), 
+                disabled=st.session_state.locked, 
+                key="cable_type_workspace"
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
         
+        # ============================================================
+        # LOCATION SECTION
+        # ============================================================
         st.markdown('<div class="sds-card"><div class="title">🌍 Location</div>', unsafe_allow_html=True)
         countries = list(COUNTRY_CURRENCIES.keys())
         country_idx = countries.index(materials.get("country", "Malaysia")) if materials.get("country", "Malaysia") in countries else 0
@@ -3000,6 +3051,9 @@ def render_workspace():
         st.markdown(f'<span class="standard-badge {badge_class}">{materials["standard"]}</span> {get_standard_label(materials["standard"])}', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # ============================================================
+        # NOTES SECTION
+        # ============================================================
         st.markdown('<div class="sds-card"><div class="title">💬 Notes</div>', unsafe_allow_html=True)
         st.session_state.comments = st.text_area("", st.session_state.comments, height=80, disabled=st.session_state.locked, key="comments_area_workspace")
         st.markdown('</div>', unsafe_allow_html=True)
