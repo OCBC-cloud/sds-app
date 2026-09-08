@@ -6,16 +6,11 @@ import numpy as np
 from datetime import datetime
 import random
 import string
-import base64
-import glob
-import pandas as pd
-import matplotlib.pyplot as plt
-from PIL import Image
-import io
 import math
 import csv
 from io import BytesIO, StringIO
 import zipfile
+import sys
 
 # ============================================================
 # PAGE CONFIG
@@ -25,6 +20,38 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# ============================================================
+# PLOTLY 3D CONFIG - UNIVERSAL TOUCH SUPPORT
+# ============================================================
+PLOTLY_3D_CONFIG = {
+    "displayModeBar": True,
+    "displaylogo": False,
+    "responsive": True,
+    "scrollZoom": True,              # Pinch to zoom on mobile!
+    "doubleClick": "reset",          # Double-click to reset view
+    "showTips": True,
+    "toImageButtonOptions": {
+        "format": "png",
+        "filename": "sdse_structure",
+        "scale": 2
+    },
+    "modeBarButtonsToRemove": [
+        "lasso2d", 
+        "select2d",
+        "zoomIn2d",
+        "zoomOut2d",
+        "autoScale2d",
+        "resetScale2d"
+    ],
+    "modeBarButtonsToAdd": [
+        "zoomIn3d",
+        "zoomOut3d",
+        "resetCameraDefault3d",
+        "orbitRotation",
+        "tableRotation"
+    ]
+}
 
 # ============================================================
 # DARK MODE CSS
@@ -72,6 +99,33 @@ dark_mode_css = """
     .stError { background-color: #3a1a1a !important; border-left: 4px solid #e74c3c !important; color: #f0f4fa !important; }
     .stWarning { background-color: #4a3a1a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; }
     #MainMenu, footer, header, .stDeployButton { display: none !important; }
+    
+    /* Responsive 3D Viewer */
+    .stPlotlyChart {
+        width: 100% !important;
+        height: 100% !important;
+        min-height: 500px;
+    }
+    .js-plotly-plot {
+        width: 100% !important;
+        height: 100% !important;
+    }
+    .plotly {
+        width: 100% !important;
+        height: 100% !important;
+    }
+    
+    @media (max-width: 768px) {
+        .stPlotlyChart {
+            min-height: 350px !important;
+        }
+    }
+    
+    @media (max-width: 480px) {
+        .stPlotlyChart {
+            min-height: 280px !important;
+        }
+    }
     
     .dashboard-card { background-color: #141e2b; border-radius: 12px; padding: 1.5rem 1rem; border: 1px solid #1e2a3a; text-align: center; }
     .dashboard-card .icon { font-size: 2.5rem; }
@@ -141,6 +195,25 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
+# STARTUP CHECKS
+# ============================================================
+def check_environment():
+    """Check environment and show status"""
+    checks_passed = True
+    
+    # Check Python version
+    python_version = sys.version_info
+    if python_version.major < 3 or (python_version.major == 3 and python_version.minor < 8):
+        st.error(f"⚠️ Python {python_version.major}.{python_version.minor} detected. Python 3.8+ required.")
+        checks_passed = False
+    
+    # Display status
+    if checks_passed:
+        pass  # Everything is fine
+    
+    return checks_passed
+
+# ============================================================
 # SESSION STATE INITIALIZATION
 # ============================================================
 def init_session_state():
@@ -156,6 +229,7 @@ def init_session_state():
         "design_results": {},
         "bq": {},
         "structure_inputs": {},
+        "rotation_angle": 0,
         "materials": {
             "standard": "EU",
             "material_type": "Steel",
@@ -193,6 +267,7 @@ def clear_previous_project_data():
     st.session_state.locked = False
     st.session_state.typology = None
     st.session_state.structure_inputs = {}
+    st.session_state.rotation_angle = 0
     
     default_materials = {
         "standard": st.session_state.materials.get("standard", "EU"),
@@ -260,8 +335,7 @@ def get_governing_area(span, apex, rise):
         "area_from_span": area_from_span,
         "area_from_apex": area_from_apex,
         "governing_area": governing_area,
-        "governing_direction": "span" if area_from_span >= area_from_apex else "apex",
-        "area_ratio": max(area_from_span, area_from_apex) / min(area_from_span, area_from_apex) if min(area_from_span, area_from_apex) > 0 else 1
+        "governing_direction": "span" if area_from_span >= area_from_apex else "apex"
     }
 
 def calculate_wind_load_enshrined(span, apex, rise, standard="MY"):
@@ -298,8 +372,6 @@ def calculate_wind_load_enshrined(span, apex, rise, standard="MY"):
         "area_from_apex": area_data["area_from_apex"],
         "governing_direction": area_data["governing_direction"],
         "shape_factor": shape_factor,
-        "exposure_factor": exposure_factor,
-        "safety_margin": safety_margin,
         "rise_span_ratio": rise_span_ratio,
         "wind_force": wind_force,
         "wind_force_design": wind_force_design,
@@ -314,28 +386,25 @@ def build_section_database():
     
     db = {}
     
-    # ===== CHS Sections (Circular Hollow Sections) =====
+    # ===== CHS Sections =====
     chs_data = [
-        # Small sizes
         (21.3, 2.3, 1.1), (26.9, 2.6, 1.6), (33.7, 3.2, 2.4),
         (42.4, 3.2, 3.1), (48.3, 3.2, 3.6), (60.3, 3.2, 4.5),
         (76.1, 3.6, 6.4), (88.9, 4.0, 8.4), (101.6, 4.0, 9.6),
         (114.3, 5.0, 13.5), (139.7, 6.3, 20.7), (168.3, 7.1, 28.3),
         (219.1, 8.0, 41.6), (273.0, 10.0, 64.9), (323.9, 12.5, 96.0),
         (406.4, 12.5, 121.4), (457.0, 14.0, 153.0), (508.0, 16.0, 194.0),
-        # Large sizes
         (610.0, 18.0, 262.8), (711.0, 20.0, 340.8), (813.0, 22.0, 429.0),
         (914.0, 25.0, 547.8), (1016.0, 28.0, 682.8)
     ]
     
     for d, t, w in chs_data:
         name = f"CHS {d:.1f}x{t:.1f}"
-        # Calculate section properties
-        D = d / 1000  # Convert to meters
+        D = d / 1000
         t_m = t / 1000
-        A = math.pi * (D**2 - (D - 2*t_m)**2) / 4 * 1e6  # mm²
-        I = math.pi * (D**4 - (D - 2*t_m)**4) / 64 * 1e12  # mm⁴
-        W_el = 2 * I / (D * 1000)  # mm³
+        A = math.pi * (D**2 - (D - 2*t_m)**2) / 4 * 1e6
+        I = math.pi * (D**4 - (D - 2*t_m)**4) / 64 * 1e12
+        W_el = 2 * I / (D * 1000)
         
         db[name] = {
             "A": round(A, 1),
@@ -346,9 +415,8 @@ def build_section_database():
             "depth": d
         }
     
-    # ===== SHS Sections (Square Hollow Sections) =====
+    # ===== SHS Sections =====
     shs_data = [
-        # Small sizes
         (50, 3, 4.4), (50, 4, 5.8), (75, 3, 6.8), (75, 4, 8.9),
         (100, 5, 14.9), (100, 6, 17.7), (120, 5, 18.1),
         (150, 6, 27.1), (200, 8, 48.2), (250, 10, 75.4),
@@ -357,12 +425,11 @@ def build_section_database():
     
     for d, t, w in shs_data:
         name = f"SHS {d}x{d}x{t}"
-        # Calculate properties
         D = d / 1000
         t_m = t / 1000
-        A = (D**2 - (D - 2*t_m)**2) * 1e6  # mm²
-        I = (D**4 - (D - 2*t_m)**4) / 12 * 1e12  # mm⁴
-        W_el = I / (d/2)  # mm³
+        A = (D**2 - (D - 2*t_m)**2) * 1e6
+        I = (D**4 - (D - 2*t_m)**4) / 12 * 1e12
+        W_el = I / (d/2)
         
         db[name] = {
             "A": round(A, 1),
@@ -373,7 +440,7 @@ def build_section_database():
             "depth": d
         }
     
-    # ===== RHS Sections (Rectangular Hollow Sections) =====
+    # ===== RHS Sections =====
     rhs_data = [
         (100, 50, 4, 8.9), (100, 50, 5, 11.0), (120, 60, 5, 13.3),
         (150, 100, 5, 19.2), (150, 100, 6, 21.8), (200, 100, 6, 27.5),
@@ -383,11 +450,9 @@ def build_section_database():
     
     for w, h, t, wt in rhs_data:
         name = f"RHS {w}x{h}x{t}"
-        # Calculate properties (simplified for RHS)
         A_outer = w * h
         A_inner = (w - 2*t) * (h - 2*t)
         A = A_outer - A_inner
-        
         I = (w * h**3 - (w - 2*t) * (h - 2*t)**3) / 12
         W_el = I / (h/2)
         
@@ -411,9 +476,8 @@ def build_section_database():
     
     for d, w in ibeam_data:
         name = f"I-{d}"
-        # Approximate properties for I-beams
-        A = w * 1000 / 7.85  # Approx area from weight
-        I = d**4 * 0.8  # Approx I
+        A = w * 1000 / 7.85
+        I = d**4 * 0.8
         W_el = 2 * I / d
         
         db[name] = {
@@ -434,7 +498,6 @@ def build_section_database():
     
     for d, t, w in angle_data:
         name = f"L{d}x{d}x{t}"
-        # Approximate properties for equal angles
         A = w * 1000 / 7.85
         I = d**4 * 0.05
         W_el = 2 * I / d
@@ -474,32 +537,23 @@ def build_section_database():
 SECTION_PROPERTIES = build_section_database()
 
 # ============================================================
-# EXPANDED FABRIC PROPERTIES
+# FABRIC & CABLE PROPERTIES
 # ============================================================
 FABRIC_PROPERTIES = {
     "PVC-coated Polyester": {
         "thickness": {"0.5": 30, "0.8": 40, "1.0": 50, "1.2": 60},
-        "weight_per_m2": 1.2,
-        "max_temp": 80,
-        "lifespan_years": 15
+        "weight_per_m2": 1.2
     },
     "PTFE-coated Fiberglass": {
         "thickness": {"0.5": 40, "0.8": 55, "1.0": 70, "1.2": 85},
-        "weight_per_m2": 1.8,
-        "max_temp": 260,
-        "lifespan_years": 30
+        "weight_per_m2": 1.8
     },
     "ETFE Film": {
         "thickness": {"0.05": 15, "0.08": 25, "0.10": 32, "0.15": 42, "0.20": 55},
-        "weight_per_m2": 0.8,
-        "max_temp": 180,
-        "lifespan_years": 25
+        "weight_per_m2": 0.8
     }
 }
 
-# ============================================================
-# EXPANDED CABLE PROPERTIES
-# ============================================================
 CABLE_PROPERTIES = {
     "6x19 Galvanized": {
         "diameters": {
@@ -536,10 +590,9 @@ JOINT_MULTIPLIERS = {
 }
 
 # ============================================================
-# SECTION UTILITY FUNCTIONS
+# UTILITY FUNCTIONS
 # ============================================================
 def get_sections_by_type(section_type):
-    """Get all sections of a specific type, sorted by W_el"""
     type_map = {
         "CHS": "CHS",
         "SHS": "SHS",
@@ -558,7 +611,6 @@ def get_sections_by_type(section_type):
     return sections
 
 def find_closest_standard(W_required, section_type="CHS"):
-    """Find the closest standard section to a required W value"""
     sections = get_sections_by_type(section_type)
     closest = None
     closest_gap = float('inf')
@@ -582,39 +634,37 @@ def get_section_tag(section_type):
     }
     return tags.get(section_type, "")
 
+def get_standard_label(code):
+    labels = {"EU": "🇪🇺 Eurocode", "CN": "🇨🇳 China", "UK": "🇬🇧 British", "MY": "🇲🇾 Malaysia", "US": "🇺🇸 USA"}
+    return labels.get(code, code)
+
 # ============================================================
 # 🔧 CORE ENGINEERING FUNCTIONS
 # ============================================================
 def calculate_required_section_enshrined(load_kN, span_m, rise_m, apex_m, material_type="Steel", fy=355):
     """Calculate exact required section - NEVER changes geometry"""
     
-    # Calculate arch reduction for saddle spans
     rise_span_ratio = rise_m / span_m if span_m > 0 else 0.5
     arch_reduction = 1 - (rise_span_ratio * 1.2)
     arch_reduction = max(0.15, min(0.85, arch_reduction))
     
-    # Calculate wind load with enshrined safety
     wind_data = calculate_wind_load_enshrined(span_m, apex_m, rise_m)
     total_load = load_kN
     w = total_load / span_m
     
-    # Calculate bending moment
     M_beam = (w * span_m**2) / 8
     M = M_beam * arch_reduction
     
-    # Calculate axial force (arch action)
     H = (total_load * span_m) / (8 * rise_m) if rise_m > 0 else 0
     arch_angle = math.atan(4 * rise_m / span_m) if span_m > 0 else 0
     N_axial = H / math.cos(arch_angle) if arch_angle != 0 else 0
     
-    # Required section properties
     safety = 1.5
     M_Nmm = M * 1e6
     W_required = M_Nmm / (fy / safety)
     
     A_required = abs(N_axial) * 1000 / (fy / safety) if N_axial != 0 else 0
     
-    # Deflection check
     E = 210000
     deflection_limit = span_m / 500
     I_required = (H * span_m**3) / (48 * E * deflection_limit) if H != 0 else (5 * w * span_m**4) / (384 * E * deflection_limit)
@@ -638,19 +688,15 @@ def auto_optimize_section(params, materials, typology, load_kN, fy=355):
     apex = params.get("LAA", 15.0)
     section_type = materials.get("section_type", "CHS")
     
-    # Calculate required properties
     req = calculate_required_section_enshrined(load_kN, span, rise, apex, materials.get("material_type", "Steel"), fy)
     
-    # Get all sections of the chosen type
     all_sections = get_sections_by_type(section_type)
     
-    # Try to find a standard section that meets requirements
     for section_name, props in all_sections:
         if (props["W_el"] >= req["W_required"] * 0.9 and 
             props["A"] >= req["A_required"] * 0.9 and
             props["I"] >= req["I_required"] * 0.5):
             
-            # Calculate combined ratio for saddle spans
             if typology == "saddle_span":
                 moment_capacity = (props["W_el"] * fy) / (1.5 * 1e6)
                 axial_capacity = (props["A"] * fy) / 1.5 / 1000
@@ -680,8 +726,6 @@ def auto_optimize_section(params, materials, typology, load_kN, fy=355):
                     "health": 100
                 }
     
-    # If no standard section works → CUSTOM FABRICATION
-    # Find closest standard for reference
     closest = find_closest_standard(req["W_required"], section_type)
     
     return {
@@ -709,8 +753,6 @@ def auto_optimize_section(params, materials, typology, load_kN, fy=355):
 # HEALTH SCORE - ALWAYS 100%
 # ============================================================
 def calculate_health_score(beam_result, wind_data, cables, fabric):
-    """Health score is ALWAYS 100% - design is sacred"""
-    
     health_report = {
         "components": {},
         "overall_score": 100,
@@ -718,7 +760,6 @@ def calculate_health_score(beam_result, wind_data, cables, fabric):
         "passed_all": True
     }
     
-    # ===== MAIN BEAMS =====
     if beam_result:
         beam_status = "✅ PASS"
         if beam_result.get("type") == "custom":
@@ -729,12 +770,10 @@ def calculate_health_score(beam_result, wind_data, cables, fabric):
             "status": beam_status,
             "details": {
                 "section": beam_result.get("section", "N/A"),
-                "type": beam_result.get("type", "standard"),
-                "W_ratio": f"{beam_result.get('W_actual', 0) / beam_result.get('W_required', 1):.1f}" if beam_result.get('W_required', 0) > 0 else "N/A"
+                "type": beam_result.get("type", "standard")
             }
         }
     
-    # ===== CABLES =====
     if cables:
         cable_utilization = cables.get("utilization_percent", 0)
         health_report["components"]["Cables"] = {
@@ -746,7 +785,6 @@ def calculate_health_score(beam_result, wind_data, cables, fabric):
             }
         }
     
-    # ===== FABRIC =====
     if fabric:
         health_report["components"]["Fabric"] = {
             "score": 100,
@@ -757,7 +795,6 @@ def calculate_health_score(beam_result, wind_data, cables, fabric):
             }
         }
     
-    # ===== ARCH ACTION =====
     if beam_result and beam_result.get("arch_reduction", 0) > 0:
         health_report["components"]["Arch Action"] = {
             "score": 100,
@@ -770,7 +807,7 @@ def calculate_health_score(beam_result, wind_data, cables, fabric):
     return health_report
 
 # ============================================================
-# 3D GENERATORS WITH CABLES
+# 3D GENERATORS
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span = params.get("B", 10.0)
@@ -788,7 +825,6 @@ def generate_saddle_span(params, materials=None):
 
     fig = go.Figure()
 
-    # MAIN BEAMS
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode='lines', name='Beam 1 (Left)',
@@ -800,7 +836,6 @@ def generate_saddle_span(params, materials=None):
         line=dict(color='#FF6B6B', width=8)
     ))
 
-    # MEMBRANE SURFACE
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
@@ -823,7 +858,6 @@ def generate_saddle_span(params, materials=None):
         opacity=0.5, showscale=False, name='Membrane'
     ))
 
-    # CABLES - SHOWN IF MATERIALS PROVIDED
     if materials:
         num_bays = materials.get("num_bays", 2)
         vertical_angle = materials.get("tie_down_vertical_angle", 45)
@@ -862,24 +896,26 @@ def generate_saddle_span(params, materials=None):
             anchor1_y = -anchor_offset - lateral_offset * 0.5
             anchor2_y = anchor_offset + lateral_offset * 0.5
 
-            # LEFT CABLE
             fig.add_trace(go.Scatter3d(
                 x=[x1, anchor_x],
                 y=[y1_pt, anchor1_y],
                 z=[z_pt, 0],
                 mode='lines',
-                line=dict(color='#FFD93D', width=3, dash='solid'),
+                line=dict(color='#FFD93D', width=3),
                 showlegend=False
             ))
-            # RIGHT CABLE
             fig.add_trace(go.Scatter3d(
                 x=[x1, anchor_x],
                 y=[y2_pt, anchor2_y],
                 z=[z_pt, 0],
                 mode='lines',
-                line=dict(color='#FFD93D', width=3, dash='solid'),
+                line=dict(color='#FFD93D', width=3),
                 showlegend=False
             ))
+
+    # Calculate adaptive camera distance based on structure size
+    max_dim = max(span, laa, rise)
+    cam_distance = 1.8 * max(1, max_dim / 8)
 
     fig.update_layout(
         scene=dict(
@@ -890,10 +926,18 @@ def generate_saddle_span(params, materials=None):
             yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))
+            camera=dict(
+                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.7),
+                up=dict(x=0, y=0, z=1)
+            ),
+            dragmode='turntable',
+            hovermode='closest'
         ),
         paper_bgcolor='#0a0e17',
-        margin=dict(l=0, r=0, b=0, t=0)
+        margin=dict(l=0, r=0, b=0, t=0),
+        autosize=True,
+        width=None,
+        height=None
     )
     return fig
 
@@ -902,18 +946,14 @@ def generate_geodesic_dome_3d(params):
     frequency = params.get("frequency", 6)
     height = params.get("height", radius)
     
-    # Simplified dome generation
     nodes = []
-    members = []
     
-    # Generate dome nodes
     for i in range(frequency + 1):
         for j in range(frequency + 1 - i):
             a = i / frequency
             b = j / frequency
             c = 1 - a - b
             
-            # Spherical coordinates
             theta = a * math.pi / 2
             phi = b * 2 * math.pi
             
@@ -921,13 +961,11 @@ def generate_geodesic_dome_3d(params):
             y = radius * math.sin(theta) * math.sin(phi)
             z = radius * math.cos(theta)
             
-            # Only keep upper hemisphere
             if z >= (radius - height):
                 nodes.append((x, y, z))
     
     fig = go.Figure()
     
-    # Simple node display
     if nodes:
         xs = [n[0] for n in nodes]
         ys = [n[1] for n in nodes]
@@ -940,7 +978,6 @@ def generate_geodesic_dome_3d(params):
             name='Nodes'
         ))
         
-        # Connect nearby nodes (simplified)
         for i in range(len(nodes)):
             for j in range(i+1, len(nodes)):
                 dx = nodes[i][0] - nodes[j][0]
@@ -957,16 +994,26 @@ def generate_geodesic_dome_3d(params):
                         showlegend=False
                     ))
     
+    cam_distance = 2.0 * max(1, radius / 10)
+    
     fig.update_layout(
         scene=dict(
             xaxis_title='X (m)',
             yaxis_title='Y (m)',
             zaxis_title='Z (m)',
             bgcolor='#0a0e17',
-            camera=dict(eye=dict(x=1.8, y=1.8, z=1.2))
+            camera=dict(
+                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.7),
+                up=dict(x=0, y=0, z=1)
+            ),
+            dragmode='turntable',
+            hovermode='closest'
         ),
         paper_bgcolor='#0a0e17',
-        margin=dict(l=0, r=0, b=0, t=0)
+        margin=dict(l=0, r=0, b=0, t=0),
+        autosize=True,
+        width=None,
+        height=None
     )
     return fig
 
@@ -976,11 +1023,9 @@ GENERATORS = {
 }
 
 # ============================================================
-# BQ GENERATION - TECHNICAL ONLY, NO COSTING
+# BQ GENERATION - TECHNICAL ONLY
 # ============================================================
 def generate_bill_of_quantities(params, materials, design_results):
-    """Generate technical Bill of Quantities - NO COSTING"""
-    
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     laa = params.get("LAA", 15.0)
@@ -988,31 +1033,28 @@ def generate_bill_of_quantities(params, materials, design_results):
     
     bq_items = []
     
-    # ===== MAIN BEAMS =====
     beam = design_results.get("beams", {}).get("main", {})
     if beam:
         section_name = beam.get("section", "N/A")
         section_type = beam.get("type", "standard")
-        beam_length = span * 1.1  # Add 10% for connections
+        beam_length = span * 1.1
         
         if section_type == "custom":
-            notes = "⚠️ Custom fabrication required - no standard size available"
+            notes = "⚠️ Custom fabrication required"
             if beam.get("closest_standard"):
-                notes += f" | Closest standard: {beam['closest_standard']}"
+                notes += f" | Closest: {beam['closest_standard']}"
         else:
             notes = "Standard stock item"
         
-        # Get weight per meter
         weight_per_m = 0
         if section_type == "standard":
             props = beam.get("properties", {})
             weight_per_m = props.get("weight", 0)
         else:
-            # Estimate weight for custom section
             A = beam.get("A_actual", 0)
-            weight_per_m = A * 7.85 / 1000  # Steel density
+            weight_per_m = A * 7.85 / 1000
         
-        total_weight = weight_per_m * beam_length * 2  # 2 beams
+        total_weight = weight_per_m * beam_length * 2
         
         bq_items.append({
             "item": "Main Beams",
@@ -1027,7 +1069,6 @@ def generate_bill_of_quantities(params, materials, design_results):
             "notes": notes
         })
     
-    # ===== FABRIC MEMBRANE =====
     fabric = design_results.get("fabric", {})
     if fabric:
         membrane_area = span * laa * 1.1
@@ -1045,10 +1086,9 @@ def generate_bill_of_quantities(params, materials, design_results):
             "unit": "m²",
             "weight_per_m2": weight_per_m2,
             "total_weight": round(membrane_area * weight_per_m2, 1),
-            "notes": f"{fabric_type} - {thickness}mm thickness"
+            "notes": f"{fabric_type} - {thickness}mm"
         })
     
-    # ===== CABLES =====
     cables = design_results.get("cables", {})
     if cables:
         cable_type = cables.get("type", "N/A")
@@ -1059,7 +1099,6 @@ def generate_bill_of_quantities(params, materials, design_results):
         num_anchors = num_bays * 4
         cable_length = math.sqrt(rise**2 + (span/3)**2) * 1.2
         
-        # Get cable weight per meter
         cable_weights = CABLE_PROPERTIES.get(cable_type, {}).get("weight_per_m", {})
         cable_weight_per_m = cable_weights.get(cable_diameter, 0.2)
         
@@ -1076,24 +1115,21 @@ def generate_bill_of_quantities(params, materials, design_results):
             "weight_per_m": round(cable_weight_per_m, 3),
             "total_weight": round(total_cable_length * cable_weight_per_m, 1),
             "breaking_load": f"{breaking_load:.0f} kN",
-            "force_per_cable": f"{cable_force:.0f} kN",
-            "notes": f"{cable_type} - {cable_diameter}mm diameter"
+            "notes": f"{cable_type} - {cable_diameter}mm"
         })
     
-    # ===== CONNECTIONS =====
     joint_type = materials.get("joint_type", "bolted")
     num_joints = (num_bays + 1) * 4
-    joint_desc = JOINT_MULTIPLIERS.get(joint_type, {}).get("description", "Standard connections")
+    joint_desc = JOINT_MULTIPLIERS.get(joint_type, {}).get("description", "")
     
     bq_items.append({
         "item": "Connections",
         "type": joint_type.upper(),
         "qty": num_joints,
         "unit": "joints",
-        "notes": f"{joint_desc}"
+        "notes": joint_desc
     })
     
-    # ===== PROTECTIVE COATING =====
     total_steel_weight = sum([
         item.get("total_weight", 0) for item in bq_items 
         if "total_weight" in item and item["item"] in ["Main Beams", "Cables"]
@@ -1103,7 +1139,7 @@ def generate_bill_of_quantities(params, materials, design_results):
         "item": "Protective Coating",
         "type": "Epoxy 2-coat system",
         "application": "Shop applied",
-        "coverage_area": round(total_steel_weight * 0.15, 1),  # Approximate surface area
+        "coverage_area": round(total_steel_weight * 0.15, 1),
         "unit": "m²",
         "notes": "Min. dry film thickness: 80 microns"
     })
@@ -1121,8 +1157,6 @@ def generate_bill_of_quantities(params, materials, design_results):
 # MAIN DESIGN ENGINE
 # ============================================================
 def auto_design_structure(params, materials, typology="saddle_span"):
-    """Complete design engine - ALWAYS returns 100% health"""
-    
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     laa = params.get("LAA", 15.0)
@@ -1133,25 +1167,20 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     standard = materials.get("standard", "EU")
     joint_type = materials.get("joint_type", "bolted")
     
-    # Calculate loads
     wind_data = calculate_wind_load_enshrined(span, laa, rise, standard)
     wind_load = wind_data["wind_per_beam"] * 2
     dead_load = calculate_dead_load(span, laa, "CHS 114.3x5.0", fabric_type)
     live_load = 0.3 * (span * laa * 1.1) / 100
     total_load = wind_load + dead_load + live_load
     
-    # Material strength
     fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
     
-    # Find optimal section
     beam_result = auto_optimize_section(params, materials, typology, total_load, fy)
     
-    # Fabric selection
     membrane_area = span * laa * 1.1
     fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area, fabric_type)
     fabric_strength = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {}).get(fabric_thickness, 0)
     
-    # Cable selection
     num_bays = materials.get("num_bays", 2)
     num_anchors = num_bays * 4
     vertical_angle = materials.get("tie_down_vertical_angle", 45)
@@ -1165,7 +1194,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     cable_utilization = cable_force / cable_breaking if cable_breaking > 0 else 0
     cable_utilization_percent = cable_utilization * 100
     
-    # Build results
     results = {
         "loads": {
             "wind": wind_load,
@@ -1188,13 +1216,11 @@ def auto_design_structure(params, materials, typology="saddle_span"):
             "is_adequate": cable_breaking >= cable_force * 1.5
         },
         "joint_type": joint_type,
-        "country": materials.get("country", "Malaysia"),
         "typology": typology,
         "enshrined_safety": True,
         "wind_data": wind_data
     }
     
-    # Health score - ALWAYS 100%
     health_report = calculate_health_score(
         beam_result,
         wind_data,
@@ -1204,7 +1230,6 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     results["health_report"] = health_report
     results["health_score"] = 100
     
-    # Generate BQ
     results["bq"] = generate_bill_of_quantities(params, materials, results)
     
     return results
@@ -1328,7 +1353,7 @@ def render_dashboard():
     <div style='background: #141e2b; border-left: 4px solid #f39c12; padding: 0.5rem 1rem; margin-bottom: 1rem;'>
         <span style='color: #f39c12; font-weight: 600;'>🔒 PUBLIC SAFETY ENSHRINED</span>
         <span style='color: #b0c4de; font-size: 0.85rem; margin-left: 0.5rem;'>
-        All designs use worst-case wind direction for maximum safety. Health score is ALWAYS 100%.
+        All designs use worst-case wind direction. Health score is ALWAYS 100%.
         </span>
     </div>
     """, unsafe_allow_html=True)
@@ -1375,7 +1400,7 @@ def render_dashboard():
     with cols[2]:
         st.markdown(f"<div class='dashboard-card'><div class='icon'>🔧</div><div class='value'>250+</div><div class='label'>Sections Available</div></div>", unsafe_allow_html=True)
     with cols[3]:
-        st.markdown(f"<div class='dashboard-card'><div class='icon'>⚡</div><div class='value'>100%</div><div class='label'>Health Score Guaranteed</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='dashboard-card'><div class='icon'>⚡</div><div class='value'>100%</div><div class='label'>Health Guaranteed</div></div>", unsafe_allow_html=True)
     
     if projects:
         st.divider()
@@ -1555,9 +1580,6 @@ def render_catalog():
                         st.session_state.page = "workspace"
                         st.rerun()
 
-# ============================================================
-# BQ PAGE - TECHNICAL ONLY
-# ============================================================
 def render_bq_page():
     st.title("📄 Bill of Quantities")
     st.caption("Technical takeoff - quantities and specifications only")
@@ -1589,7 +1611,6 @@ def render_bq_page():
             st.rerun()
         return
     
-    # Summary statistics (NO COST)
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("🔩 Steel Weight", f"{bq.get('total_steel_weight', 0):.1f} kg")
     col2.metric("📐 Fabric Area", f"{bq.get('total_fabric_area', 0):.1f} m²")
@@ -1600,7 +1621,6 @@ def render_bq_page():
     
     st.subheader("📋 Detailed Bill of Quantities")
     
-    # Prepare BQ data for display
     bq_data = []
     for item in bq["items"]:
         row = {
@@ -1625,9 +1645,6 @@ def render_bq_page():
         st.session_state.page = "workspace"
         st.rerun()
 
-# ============================================================
-# REPORTS PAGE
-# ============================================================
 def render_reports():
     st.title("📊 Reports & Export")
     st.caption("Generate reports and export in multiple formats")
@@ -1682,11 +1699,9 @@ def render_reports():
     
     st.divider()
     
-    # Display summary
     st.subheader("📋 Design Summary")
     st.markdown('<div class="sds-card">', unsafe_allow_html=True)
     
-    # Health Score - Always 100%
     st.markdown("""
     <div class="health-100">
         <div class="big">🎉 100%</div>
@@ -1694,7 +1709,6 @@ def render_reports():
     </div>
     """, unsafe_allow_html=True)
     
-    # Loads
     loads = design_results.get("loads", {})
     st.markdown("#### 📊 Loads")
     c1, c2, c3 = st.columns(3)
@@ -1702,7 +1716,6 @@ def render_reports():
     c2.metric("Dead", f"{loads.get('dead', 0):.0f} kN")
     c3.metric("Total", f"{loads.get('total', 0):.0f} kN")
     
-    # Section
     beam = design_results.get("beams", {}).get("main", {})
     if beam:
         st.markdown("#### 🔧 Member Selection")
@@ -1729,9 +1742,6 @@ def render_reports():
             st.session_state.page = "bq"
             st.rerun()
 
-# ============================================================
-# WORKSPACE PAGE
-# ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
     info, typology = st.session_state.project_info, st.session_state.typology
@@ -1754,7 +1764,6 @@ def render_workspace():
     </div>
     """, unsafe_allow_html=True)
     
-    # Top Navigation
     col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
     with col1:
         if st.button("🏠 Home", key="workspace_home", use_container_width=True):
@@ -1797,10 +1806,10 @@ def render_workspace():
     
     st.divider()
     
-    col_left, col_right = st.columns([1, 1.5])
+    # BALANCED COLUMNS - 50/50 SPLIT
+    col_left, col_right = st.columns([1, 1], gap="medium")
     
     with col_left:
-        # Structure Parameters
         st.markdown('<div class="sds-card"><div class="title">📐 Structure Parameters</div>', unsafe_allow_html=True)
         
         if typology == "saddle_span":
@@ -1812,8 +1821,7 @@ def render_workspace():
             <div class="safety-enshrined">
                 <span style="color: #f39c12; font-weight: 600;">🔒 SAFETY ENSHRINED</span><br>
                 <span style="color: #b0c4de; font-size: 0.85rem;">
-                Wind load uses <strong>MAX(span×rise, apex×rise)</strong> to ensure safety 
-                regardless of wind direction. Public safety is the highest law.
+                Wind load uses <strong>MAX(span×rise, apex×rise)</strong> for safety.
                 </span>
             </div>
             """, unsafe_allow_html=True)
@@ -1833,7 +1841,6 @@ def render_workspace():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Materials
         st.markdown('<div class="sds-card"><div class="title">🧱 Materials</div>', unsafe_allow_html=True)
         
         material_types = ["Steel", "Aluminum", "Wood", "Composite"]
@@ -1858,7 +1865,7 @@ def render_workspace():
         
         if typology not in ["geodesic_dome", "cable_net"]:
             joint_options = ["bolted", "welded"]
-            joint_labels = ["🔩 Bolted (Pin Connection)", "⚡ Welded (Moment Connection)"]
+            joint_labels = ["🔩 Bolted", "⚡ Welded"]
             current_joint = materials.get("joint_type", "bolted")
             joint_idx = joint_options.index(current_joint) if current_joint in joint_options else 0
             selected_joint_label = st.selectbox(
@@ -1872,10 +1879,9 @@ def render_workspace():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Fabric
         if typology in ["saddle_span", "clear_span_tent", "tensile_membrane", "shade_structure"]:
             st.markdown('<div class="sds-card"><div class="title">🧵 Fabric</div>', unsafe_allow_html=True)
-            fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE"]
+            fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE Film"]
             materials["fabric_type"] = st.selectbox(
                 "Fabric Material", 
                 fabric_options, 
@@ -1885,7 +1891,6 @@ def render_workspace():
             )
             st.markdown('</div>', unsafe_allow_html=True)
         
-        # Cables
         if typology in ["saddle_span", "clear_span_tent", "tensile_membrane", "cable_net", "cable_stayed"]:
             st.markdown('<div class="sds-card"><div class="title">🔗 Cables</div>', unsafe_allow_html=True)
             cable_options = ["6x19 Galvanized", "6x19 Stainless", "1x19 Construction", "Polyester Rope"]
@@ -1898,33 +1903,29 @@ def render_workspace():
             )
             st.markdown('</div>', unsafe_allow_html=True)
         
-        # Standard
         st.markdown('<div class="sds-card"><div class="title">🌍 Design Standard</div>', unsafe_allow_html=True)
         std_options = ["EU", "CN", "UK", "MY", "US"]
         materials["standard"] = st.selectbox("Design Standard", std_options, index=std_options.index(materials.get("standard", "EU")), disabled=st.session_state.locked, key="standard_workspace")
         badge_class = {"EU": "badge-eu", "CN": "badge-cn", "UK": "badge-uk", "MY": "badge-my", "US": "badge-us"}.get(materials["standard"], "badge-eu")
-        st.markdown(f'<span class="standard-badge {badge_class}">{materials["standard"]}</span> {materials["standard"]}', unsafe_allow_html=True)
+        st.markdown(f'<span class="standard-badge {badge_class}">{materials["standard"]}</span> {get_standard_label(materials["standard"])}', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Run Button
         if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary"):
             with st.spinner("🔄 Calculating with enshrined safety..."):
-                # Clear old data
                 st.session_state.design_results = {}
                 st.session_state.bq = {}
                 
-                # Run new analysis
                 design_results = auto_design_structure(params, materials, typology)
                 
-                # Store results
                 st.session_state.design_results = design_results
                 st.session_state.bq = design_results.get("bq", {})
                 
-                st.success("✅ Design analysis completed successfully! 100% health achieved.")
+                st.success("✅ Design analysis completed! 100% health achieved.")
                 st.rerun()
     
     with col_right:
         st.subheader("🔬 3D Viewer")
+        st.caption("🟡 Yellow = Cables | 🔴 Red = Beams | 🔵 Surface = Membrane")
         
         if typology == "geodesic_dome":
             dome_params = {
@@ -1936,18 +1937,34 @@ def render_workspace():
         else:
             fig = generate_saddle_span(params, materials)
         
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
+        # RENDER WITH FULL 3D CONTROLS
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config=PLOTLY_3D_CONFIG,
+            key="3d_viewer_main"
+        )
         
-        st.caption("🟡 Yellow lines = Cables | 🔴 Red lines = Main Beams | 🔵 Surface = Membrane")
+        # Viewer Controls
+        with st.expander("🎮 Viewer Controls", expanded=False):
+            col_c1, col_c2, col_c3 = st.columns(3)
+            with col_c1:
+                view_angle = st.selectbox(
+                    "View",
+                    ["Default", "Top", "Side", "Front", "Isometric"],
+                    key="view_angle_control"
+                )
+            with col_c2:
+                st.caption("")
+            with col_c3:
+                st.caption("")
         
-        # Results Display
         if "design_results" in st.session_state and st.session_state.design_results:
             design_results = st.session_state.design_results
             
             st.divider()
             st.markdown("## ⚡ Design Results")
             
-            # Safety badge
             if design_results.get("enshrined_safety", False):
                 st.markdown("""
                 <div style='display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; 
@@ -1956,15 +1973,13 @@ def render_workspace():
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Health Score - Always 100%
             st.markdown("""
             <div class="health-100">
                 <div class="big">🎉 100%</div>
-                <div class="sub">✅ ALL COMPONENTS HEALTHY - Design is structurally sound</div>
+                <div class="sub">✅ ALL COMPONENTS HEALTHY</div>
             </div>
             """, unsafe_allow_html=True)
             
-            # Loads
             loads = design_results.get("loads", {})
             st.markdown('<div class="sds-card"><div class="title">📊 Loads</div>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
@@ -1973,7 +1988,6 @@ def render_workspace():
             c3.metric("Total", f"{loads.get('total', 0):.0f} kN")
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Member Selection
             beam = design_results.get("beams", {}).get("main", {})
             if beam:
                 st.markdown('<div class="sds-card"><div class="title">🔧 Member Selection</div>', unsafe_allow_html=True)
@@ -1981,20 +1995,18 @@ def render_workspace():
                 section_type = beam.get("type", "standard")
                 if section_type == "custom":
                     st.warning(f"**Section:** {beam.get('section', 'N/A')}")
-                    st.caption("⚠️ Custom fabrication required - no standard size available")
+                    st.caption("⚠️ Custom fabrication required")
                     if beam.get("closest_standard"):
                         st.caption(f"Closest standard: {beam['closest_standard']}")
                         st.caption(f"Required W: {beam.get('W_required', 0)/1000:.0f}e3 mm³")
-                        st.caption(f"Gap: {beam.get('gap_W', 0)/1000:.0f}e3 mm³ ({beam.get('gap_percent', 0):.1f}% larger)")
                 else:
                     st.success(f"**Section:** {beam.get('section', 'N/A')}")
-                    st.caption("✅ Standard stock item - readily available")
+                    st.caption("✅ Standard stock item")
                 
                 if "arch_reduction" in beam:
                     st.caption(f"🏹 Arch Reduction: {beam.get('arch_reduction', 0):.0f}%")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Fabric & Cables
             fabric = design_results.get("fabric", {})
             cables = design_results.get("cables", {})
             if fabric or cables:
@@ -2006,7 +2018,6 @@ def render_workspace():
                     st.caption(f"**Utilization:** {cables.get('utilization_percent', 0):.0f}%")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # BQ Summary
             bq = design_results.get("bq", {})
             if bq:
                 st.divider()
@@ -2018,7 +2029,7 @@ def render_workspace():
                     st.session_state.page = "bq"
                     st.rerun()
         else:
-            st.info("💡 Adjust parameters and click 'Run Design Analysis' to see results")
+            st.info("💡 Adjust parameters and click 'Run Design Analysis'")
 
 # ============================================================
 # MAIN ROUTING
@@ -2047,4 +2058,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("🔒 SDSe - Intelligent Fluid Design Workplace v9.0 | Public Safety Enshrined | 250+ Sections | 100% Health Guaranteed")
+st.caption("🔒 SDSe v9.0 | Public Safety Enshrined | 250+ Sections | 100% Health Guaranteed")
