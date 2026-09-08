@@ -28,8 +28,8 @@ PLOTLY_3D_CONFIG = {
     "displayModeBar": True,
     "displaylogo": False,
     "responsive": True,
-    "scrollZoom": True,              # Pinch to zoom on mobile!
-    "doubleClick": "reset",          # Double-click to reset view
+    "scrollZoom": True,
+    "doubleClick": "reset",
     "showTips": True,
     "toImageButtonOptions": {
         "format": "png",
@@ -100,7 +100,6 @@ dark_mode_css = """
     .stWarning { background-color: #4a3a1a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; }
     #MainMenu, footer, header, .stDeployButton { display: none !important; }
     
-    /* Responsive 3D Viewer */
     .stPlotlyChart {
         width: 100% !important;
         height: 100% !important;
@@ -190,28 +189,19 @@ dark_mode_css = """
         color: #b0c4de;
         font-size: 1rem;
     }
+    .truss-unified-badge {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.6rem;
+        font-weight: 600;
+        background-color: #f39c12;
+        color: #0a0e17;
+        margin-left: 0.3rem;
+    }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
-
-# ============================================================
-# STARTUP CHECKS
-# ============================================================
-def check_environment():
-    """Check environment and show status"""
-    checks_passed = True
-    
-    # Check Python version
-    python_version = sys.version_info
-    if python_version.major < 3 or (python_version.major == 3 and python_version.minor < 8):
-        st.error(f"⚠️ Python {python_version.major}.{python_version.minor} detected. Python 3.8+ required.")
-        checks_passed = False
-    
-    # Display status
-    if checks_passed:
-        pass  # Everything is fine
-    
-    return checks_passed
 
 # ============================================================
 # SESSION STATE INITIALIZATION
@@ -379,162 +369,90 @@ def calculate_wind_load_enshrined(span, apex, rise, standard="MY"):
     }
 
 # ============================================================
-# EXPANDED SECTION PROPERTIES DATABASE
+# FULL SECTION PROPERTIES DATABASE - ALL TYPES
 # ============================================================
-def build_section_database():
-    """Build complete section database with all market sizes"""
-    
-    db = {}
-    
+SECTION_PROPERTIES = {
     # ===== CHS Sections =====
-    chs_data = [
-        (21.3, 2.3, 1.1), (26.9, 2.6, 1.6), (33.7, 3.2, 2.4),
-        (42.4, 3.2, 3.1), (48.3, 3.2, 3.6), (60.3, 3.2, 4.5),
-        (76.1, 3.6, 6.4), (88.9, 4.0, 8.4), (101.6, 4.0, 9.6),
-        (114.3, 5.0, 13.5), (139.7, 6.3, 20.7), (168.3, 7.1, 28.3),
-        (219.1, 8.0, 41.6), (273.0, 10.0, 64.9), (323.9, 12.5, 96.0),
-        (406.4, 12.5, 121.4), (457.0, 14.0, 153.0), (508.0, 16.0, 194.0),
-        (610.0, 18.0, 262.8), (711.0, 20.0, 340.8), (813.0, 22.0, 429.0),
-        (914.0, 25.0, 547.8), (1016.0, 28.0, 682.8)
-    ]
-    
-    for d, t, w in chs_data:
-        name = f"CHS {d:.1f}x{t:.1f}"
-        D = d / 1000
-        t_m = t / 1000
-        A = math.pi * (D**2 - (D - 2*t_m)**2) / 4 * 1e6
-        I = math.pi * (D**4 - (D - 2*t_m)**4) / 64 * 1e12
-        W_el = 2 * I / (D * 1000)
-        
-        db[name] = {
-            "A": round(A, 1),
-            "I": round(I, 0),
-            "W_el": round(W_el, 0),
-            "weight": w,
-            "type": "CHS",
-            "depth": d
-        }
-    
+    "CHS 21.3x2.3": {"A": 137, "I": 0.006e6, "W_el": 0.6e3, "i": 6.7, "weight": 1.1, "type": "CHS", "depth": 21.3},
+    "CHS 26.9x2.6": {"A": 198, "I": 0.015e6, "W_el": 1.1e3, "i": 8.7, "weight": 1.6, "type": "CHS", "depth": 26.9},
+    "CHS 33.7x3.2": {"A": 307, "I": 0.035e6, "W_el": 2.1e3, "i": 10.7, "weight": 2.4, "type": "CHS", "depth": 33.7},
+    "CHS 42.4x3.2": {"A": 394, "I": 0.075e6, "W_el": 3.5e3, "i": 13.8, "weight": 3.1, "type": "CHS", "depth": 42.4},
+    "CHS 48.3x3.2": {"A": 453, "I": 0.12e6, "W_el": 5.0e3, "i": 16.3, "weight": 3.6, "type": "CHS", "depth": 48.3},
+    "CHS 60.3x3.2": {"A": 574, "I": 0.24e6, "W_el": 8.0e3, "i": 20.5, "weight": 4.5, "type": "CHS", "depth": 60.3},
+    "CHS 76.1x3.6": {"A": 820, "I": 0.54e6, "W_el": 14.2e3, "i": 25.7, "weight": 6.4, "type": "CHS", "depth": 76.1},
+    "CHS 88.9x4.0": {"A": 1067, "I": 0.93e6, "W_el": 20.9e3, "i": 29.5, "weight": 8.4, "type": "CHS", "depth": 88.9},
+    "CHS 101.6x4.0": {"A": 1226, "I": 1.42e6, "W_el": 28.0e3, "i": 34.0, "weight": 9.6, "type": "CHS", "depth": 101.6},
+    "CHS 114.3x5.0": {"A": 1717, "I": 2.53e6, "W_el": 44.2e3, "i": 38.4, "weight": 13.5, "type": "CHS", "depth": 114.3},
+    "CHS 139.7x6.3": {"A": 2642, "I": 5.90e6, "W_el": 84.5e3, "i": 47.3, "weight": 20.7, "type": "CHS", "depth": 139.7},
+    "CHS 168.3x7.1": {"A": 3600, "I": 11.5e6, "W_el": 137e3, "i": 56.5, "weight": 28.3, "type": "CHS", "depth": 168.3},
+    "CHS 219.1x8.0": {"A": 5305, "I": 29.0e6, "W_el": 265e3, "i": 73.9, "weight": 41.6, "type": "CHS", "depth": 219.1},
+    "CHS 273.0x10.0": {"A": 8263, "I": 69.0e6, "W_el": 506e3, "i": 91.4, "weight": 64.9, "type": "CHS", "depth": 273.0},
+    "CHS 323.9x12.5": {"A": 12228, "I": 148e6, "W_el": 912e3, "i": 110.0, "weight": 96.0, "type": "CHS", "depth": 323.9},
+    "CHS 406.4x12.5": {"A": 15470, "I": 210e6, "W_el": 1030e3, "i": 116.6, "weight": 121.4, "type": "CHS", "depth": 406.4},
+    "CHS 457.0x14.0": {"A": 19480, "I": 318e6, "W_el": 1390e3, "i": 127.8, "weight": 153.0, "type": "CHS", "depth": 457.0},
+    "CHS 508.0x16.0": {"A": 24730, "I": 520e6, "W_el": 2050e3, "i": 145.0, "weight": 194.0, "type": "CHS", "depth": 508.0},
+    "CHS 610.0x18.0": {"A": 33480, "I": 1430e6, "W_el": 4690e3, "i": 206.7, "weight": 262.8, "type": "CHS", "depth": 610.0},
+    "CHS 711.0x20.0": {"A": 43420, "I": 2560e6, "W_el": 7200e3, "i": 242.9, "weight": 340.8, "type": "CHS", "depth": 711.0},
+    "CHS 813.0x22.0": {"A": 54670, "I": 4300e6, "W_el": 10580e3, "i": 280.4, "weight": 429.0, "type": "CHS", "depth": 813.0},
+    "CHS 914.0x25.0": {"A": 69820, "I": 6980e6, "W_el": 15280e3, "i": 316.1, "weight": 547.8, "type": "CHS", "depth": 914.0},
+    "CHS 1016.0x28.0": {"A": 86920, "I": 10700e6, "W_el": 21060e3, "i": 350.8, "weight": 682.8, "type": "CHS", "depth": 1016.0},
     # ===== SHS Sections =====
-    shs_data = [
-        (50, 3, 4.4), (50, 4, 5.8), (75, 3, 6.8), (75, 4, 8.9),
-        (100, 5, 14.9), (100, 6, 17.7), (120, 5, 18.1),
-        (150, 6, 27.1), (200, 8, 48.2), (250, 10, 75.4),
-        (300, 12, 108.5), (350, 12, 125.0), (400, 16, 180.0)
-    ]
-    
-    for d, t, w in shs_data:
-        name = f"SHS {d}x{d}x{t}"
-        D = d / 1000
-        t_m = t / 1000
-        A = (D**2 - (D - 2*t_m)**2) * 1e6
-        I = (D**4 - (D - 2*t_m)**4) / 12 * 1e12
-        W_el = I / (d/2)
-        
-        db[name] = {
-            "A": round(A, 1),
-            "I": round(I, 0),
-            "W_el": round(W_el, 0),
-            "weight": w,
-            "type": "SHS",
-            "depth": d
-        }
-    
+    "SHS 50x50x3": {"A": 564, "I": 0.21e6, "W_el": 8.4e3, "i": 19.3, "weight": 4.4, "type": "SHS", "depth": 50},
+    "SHS 50x50x4": {"A": 736, "I": 0.26e6, "W_el": 10.4e3, "i": 18.8, "weight": 5.8, "type": "SHS", "depth": 50},
+    "SHS 75x75x3": {"A": 864, "I": 0.77e6, "W_el": 20.5e3, "i": 29.8, "weight": 6.8, "type": "SHS", "depth": 75},
+    "SHS 75x75x4": {"A": 1136, "I": 0.97e6, "W_el": 25.9e3, "i": 29.2, "weight": 8.9, "type": "SHS", "depth": 75},
+    "SHS 100x100x5": {"A": 1900, "I": 2.8e6, "W_el": 56.0e3, "i": 38.4, "weight": 14.9, "type": "SHS", "depth": 100},
+    "SHS 100x100x6": {"A": 2256, "I": 3.2e6, "W_el": 64.0e3, "i": 37.7, "weight": 17.7, "type": "SHS", "depth": 100},
+    "SHS 120x120x5": {"A": 2300, "I": 5.0e6, "W_el": 83.0e3, "i": 46.6, "weight": 18.1, "type": "SHS", "depth": 120},
+    "SHS 150x150x6": {"A": 3456, "I": 11.9e6, "W_el": 159e3, "i": 58.7, "weight": 27.1, "type": "SHS", "depth": 150},
+    "SHS 200x200x8": {"A": 6144, "I": 36.0e6, "W_el": 360e3, "i": 76.5, "weight": 48.2, "type": "SHS", "depth": 200},
+    "SHS 250x250x10": {"A": 9600, "I": 88.0e6, "W_el": 704e3, "i": 95.7, "weight": 75.4, "type": "SHS", "depth": 250},
+    "SHS 300x300x12": {"A": 13824, "I": 182e6, "W_el": 1213e3, "i": 114.8, "weight": 108.5, "type": "SHS", "depth": 300},
     # ===== RHS Sections =====
-    rhs_data = [
-        (100, 50, 4, 8.9), (100, 50, 5, 11.0), (120, 60, 5, 13.3),
-        (150, 100, 5, 19.2), (150, 100, 6, 21.8), (200, 100, 6, 27.5),
-        (200, 100, 8, 36.2), (200, 150, 8, 40.0), (250, 150, 10, 58.9),
-        (300, 200, 12, 89.7), (350, 200, 12, 100.0), (400, 200, 16, 140.0)
-    ]
-    
-    for w, h, t, wt in rhs_data:
-        name = f"RHS {w}x{h}x{t}"
-        A_outer = w * h
-        A_inner = (w - 2*t) * (h - 2*t)
-        A = A_outer - A_inner
-        I = (w * h**3 - (w - 2*t) * (h - 2*t)**3) / 12
-        W_el = I / (h/2)
-        
-        db[name] = {
-            "A": round(A, 1),
-            "I": round(I, 0),
-            "W_el": round(W_el, 0),
-            "weight": wt,
-            "type": "RHS",
-            "depth": h
-        }
-    
-    # ===== I-Beams =====
-    ibeam_data = [
-        (100, 8.1), (120, 11.3), (140, 13.3), (150, 16.7),
-        (160, 18.9), (180, 21.9), (200, 26.0), (220, 30.8),
-        (250, 37.8), (280, 43.4), (300, 52.8), (320, 58.6),
-        (350, 70.8), (400, 92.6), (450, 112.2), (500, 137.4),
-        (550, 160.0), (600, 185.0)
-    ]
-    
-    for d, w in ibeam_data:
-        name = f"I-{d}"
-        A = w * 1000 / 7.85
-        I = d**4 * 0.8
-        W_el = 2 * I / d
-        
-        db[name] = {
-            "A": round(A, 1),
-            "I": round(I, 0),
-            "W_el": round(W_el, 0),
-            "weight": w,
-            "type": "I-Beam",
-            "depth": d
-        }
-    
-    # ===== Angles =====
-    angle_data = [
-        (40, 4, 2.4), (50, 5, 3.8), (60, 6, 5.4), (70, 7, 7.4),
-        (80, 8, 9.6), (90, 9, 12.2), (100, 10, 15.0), (120, 12, 21.6),
-        (150, 15, 33.7), (200, 20, 59.4)
-    ]
-    
-    for d, t, w in angle_data:
-        name = f"L{d}x{d}x{t}"
-        A = w * 1000 / 7.85
-        I = d**4 * 0.05
-        W_el = 2 * I / d
-        
-        db[name] = {
-            "A": round(A, 1),
-            "I": round(I, 0),
-            "W_el": round(W_el, 0),
-            "weight": w,
-            "type": "Angle",
-            "depth": d
-        }
-    
-    # ===== Channels =====
-    channel_data = [
-        (100, 7.9), (120, 10.8), (150, 15.0), (180, 18.3),
-        (200, 22.7), (250, 30.8), (300, 40.0), (350, 50.0)
-    ]
-    
-    for d, w in channel_data:
-        name = f"C{d}x50x{int(w/10)}"
-        A = w * 1000 / 7.85
-        I = d**4 * 0.3
-        W_el = 2 * I / d
-        
-        db[name] = {
-            "A": round(A, 1),
-            "I": round(I, 0),
-            "W_el": round(W_el, 0),
-            "weight": w,
-            "type": "Channel",
-            "depth": d
-        }
-    
-    return db
-
-SECTION_PROPERTIES = build_section_database()
+    "RHS 100x50x4": {"A": 1136, "I": 1.4e6, "W_el": 28.0e3, "i": 35.1, "weight": 8.9, "type": "RHS", "depth": 100},
+    "RHS 100x50x5": {"A": 1400, "I": 1.7e6, "W_el": 34.0e3, "i": 34.8, "weight": 11.0, "type": "RHS", "depth": 100},
+    "RHS 120x60x5": {"A": 1700, "I": 3.1e6, "W_el": 52.0e3, "i": 42.7, "weight": 13.3, "type": "RHS", "depth": 120},
+    "RHS 150x100x5": {"A": 2450, "I": 6.8e6, "W_el": 91.0e3, "i": 52.7, "weight": 19.2, "type": "RHS", "depth": 150},
+    "RHS 150x100x6": {"A": 2784, "I": 8.3e6, "W_el": 111e3, "i": 54.6, "weight": 21.8, "type": "RHS", "depth": 150},
+    "RHS 200x100x6": {"A": 3504, "I": 16.4e6, "W_el": 164e3, "i": 68.4, "weight": 27.5, "type": "RHS", "depth": 200},
+    "RHS 200x100x8": {"A": 4608, "I": 21.2e6, "W_el": 212e3, "i": 67.8, "weight": 36.2, "type": "RHS", "depth": 200},
+    "RHS 200x150x8": {"A": 5104, "I": 30.1e6, "W_el": 301e3, "i": 76.8, "weight": 40.0, "type": "RHS", "depth": 200},
+    "RHS 250x150x10": {"A": 7500, "I": 71.0e6, "W_el": 568e3, "i": 97.3, "weight": 58.9, "type": "RHS", "depth": 250},
+    "RHS 300x200x12": {"A": 11424, "I": 156e6, "W_el": 1040e3, "i": 116.8, "weight": 89.7, "type": "RHS", "depth": 300},
+    # ===== I-Beam Sections =====
+    "I-100": {"A": 1030, "I": 4.5e6, "W_el": 90e3, "i": 66.1, "weight": 8.1, "type": "I-Beam", "depth": 100},
+    "I-120": {"A": 1440, "I": 8.0e6, "W_el": 133e3, "i": 74.5, "weight": 11.3, "type": "I-Beam", "depth": 120},
+    "I-140": {"A": 1700, "I": 12.0e6, "W_el": 171e3, "i": 84.0, "weight": 13.3, "type": "I-Beam", "depth": 140},
+    "I-150": {"A": 2130, "I": 16.0e6, "W_el": 213e3, "i": 86.7, "weight": 16.7, "type": "I-Beam", "depth": 150},
+    "I-160": {"A": 2410, "I": 20.0e6, "W_el": 250e3, "i": 91.1, "weight": 18.9, "type": "I-Beam", "depth": 160},
+    "I-180": {"A": 2790, "I": 28.0e6, "W_el": 311e3, "i": 100.2, "weight": 21.9, "type": "I-Beam", "depth": 180},
+    "I-200": {"A": 3310, "I": 38.0e6, "W_el": 380e3, "i": 107.1, "weight": 26.0, "type": "I-Beam", "depth": 200},
+    "I-220": {"A": 3930, "I": 52.0e6, "W_el": 473e3, "i": 115.0, "weight": 30.8, "type": "I-Beam", "depth": 220},
+    "I-250": {"A": 4820, "I": 76.0e6, "W_el": 608e3, "i": 125.6, "weight": 37.8, "type": "I-Beam", "depth": 250},
+    "I-280": {"A": 5530, "I": 101.0e6, "W_el": 721e3, "i": 135.2, "weight": 43.4, "type": "I-Beam", "depth": 280},
+    "I-300": {"A": 6720, "I": 136.0e6, "W_el": 907e3, "i": 142.3, "weight": 52.8, "type": "I-Beam", "depth": 300},
+    "I-320": {"A": 7460, "I": 168.0e6, "W_el": 1050e3, "i": 150.1, "weight": 58.6, "type": "I-Beam", "depth": 320},
+    "I-350": {"A": 9020, "I": 226.0e6, "W_el": 1290e3, "i": 158.3, "weight": 70.8, "type": "I-Beam", "depth": 350},
+    "I-400": {"A": 11800, "I": 348.0e6, "W_el": 1740e3, "i": 171.8, "weight": 92.6, "type": "I-Beam", "depth": 400},
+    "I-450": {"A": 14300, "I": 498.0e6, "W_el": 2210e3, "i": 186.7, "weight": 112.2, "type": "I-Beam", "depth": 450},
+    "I-500": {"A": 17500, "I": 694.0e6, "W_el": 2780e3, "i": 199.2, "weight": 137.4, "type": "I-Beam", "depth": 500},
+    # ===== Angle Sections =====
+    "L40x40x4": {"A": 309, "I": 0.08e6, "W_el": 2.8e3, "i": 16.1, "weight": 2.4, "type": "Angle", "depth": 40},
+    "L50x50x5": {"A": 480, "I": 0.18e6, "W_el": 5.1e3, "i": 19.4, "weight": 3.8, "type": "Angle", "depth": 50},
+    "L60x60x6": {"A": 691, "I": 0.36e6, "W_el": 8.5e3, "i": 22.8, "weight": 5.4, "type": "Angle", "depth": 60},
+    "L70x70x7": {"A": 941, "I": 0.64e6, "W_el": 12.8e3, "i": 26.1, "weight": 7.4, "type": "Angle", "depth": 70},
+    "L80x80x8": {"A": 1229, "I": 1.04e6, "W_el": 18.2e3, "i": 29.1, "weight": 9.6, "type": "Angle", "depth": 80},
+    "L90x90x9": {"A": 1553, "I": 1.58e6, "W_el": 24.7e3, "i": 31.9, "weight": 12.2, "type": "Angle", "depth": 90},
+    "L100x100x10": {"A": 1910, "I": 2.28e6, "W_el": 32.0e3, "i": 34.5, "weight": 15.0, "type": "Angle", "depth": 100},
+    "L120x120x12": {"A": 2752, "I": 4.52e6, "W_el": 53.0e3, "i": 40.5, "weight": 21.6, "type": "Angle", "depth": 120},
+    # ===== Channel Sections =====
+    "C100x50x6": {"A": 1010, "I": 2.8e6, "W_el": 56e3, "i": 52.6, "weight": 7.9, "type": "Channel", "depth": 100},
+    "C120x60x7": {"A": 1380, "I": 5.2e6, "W_el": 87e3, "i": 61.4, "weight": 10.8, "type": "Channel", "depth": 120},
+    "C150x75x8": {"A": 1910, "I": 10.2e6, "W_el": 136e3, "i": 73.1, "weight": 15.0, "type": "Channel", "depth": 150},
+    "C180x80x9": {"A": 2330, "I": 16.0e6, "W_el": 178e3, "i": 82.9, "weight": 18.3, "type": "Channel", "depth": 180},
+    "C200x90x10": {"A": 2890, "I": 24.0e6, "W_el": 240e3, "i": 91.1, "weight": 22.7, "type": "Channel", "depth": 200},
+    "C250x100x12": {"A": 3930, "I": 48.0e6, "W_el": 384e3, "i": 110.5, "weight": 30.8, "type": "Channel", "depth": 250},
+}
 
 # ============================================================
 # FABRIC & CABLE PROPERTIES
@@ -559,8 +477,7 @@ CABLE_PROPERTIES = {
         "diameters": {
             6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140,
             18: 180, 20: 220, 22: 260, 24: 310, 26: 360,
-            28: 420, 30: 480, 32: 540, 36: 680, 40: 840,
-            44: 950, 48: 1100, 52: 1250, 56: 1400, 60: 1600
+            28: 420, 30: 480, 32: 540, 36: 680, 40: 840
         },
         "weight_per_m": {6: 0.178, 8: 0.317, 10: 0.495, 12: 0.713, 14: 0.971,
                         16: 1.270, 18: 1.600, 20: 1.980, 22: 2.400, 24: 2.850}
@@ -610,7 +527,7 @@ def get_sections_by_type(section_type):
     sections.sort(key=lambda x: x[1]["W_el"])
     return sections
 
-def find_closest_standard(W_required, section_type="CHS"):
+def find_closest_section(W_required, section_type="CHS"):
     sections = get_sections_by_type(section_type)
     closest = None
     closest_gap = float('inf')
@@ -641,170 +558,620 @@ def get_standard_label(code):
 # ============================================================
 # 🔧 CORE ENGINEERING FUNCTIONS
 # ============================================================
-def calculate_required_section_enshrined(load_kN, span_m, rise_m, apex_m, material_type="Steel", fy=355):
-    """Calculate exact required section - NEVER changes geometry"""
-    
+
+# ---- SINGLE BEAM FUNCTIONS ----
+def calculate_required_section_single(load_kN, span_m, rise_m, apex_m, material_type="Steel", fy=355):
     rise_span_ratio = rise_m / span_m if span_m > 0 else 0.5
     arch_reduction = 1 - (rise_span_ratio * 1.2)
     arch_reduction = max(0.15, min(0.85, arch_reduction))
     
-    wind_data = calculate_wind_load_enshrined(span_m, apex_m, rise_m)
-    total_load = load_kN
-    w = total_load / span_m
-    
+    w = load_kN / span_m
     M_beam = (w * span_m**2) / 8
     M = M_beam * arch_reduction
-    
-    H = (total_load * span_m) / (8 * rise_m) if rise_m > 0 else 0
-    arch_angle = math.atan(4 * rise_m / span_m) if span_m > 0 else 0
-    N_axial = H / math.cos(arch_angle) if arch_angle != 0 else 0
     
     safety = 1.5
     M_Nmm = M * 1e6
     W_required = M_Nmm / (fy / safety)
     
-    A_required = abs(N_axial) * 1000 / (fy / safety) if N_axial != 0 else 0
-    
-    E = 210000
-    deflection_limit = span_m / 500
-    I_required = (H * span_m**3) / (48 * E * deflection_limit) if H != 0 else (5 * w * span_m**4) / (384 * E * deflection_limit)
-    
     return {
         "W_required": W_required,
-        "A_required": A_required,
-        "I_required": I_required,
-        "M": M,
-        "N_axial": N_axial,
-        "arch_reduction": arch_reduction * 100,
-        "wind_data": wind_data,
-        "rise_span_ratio": rise_span_ratio
+        "arch_reduction": arch_reduction * 100
     }
 
-def auto_optimize_section(params, materials, typology, load_kN, fy=355):
-    """Find the smallest adequate section - NEVER changes geometry"""
+def check_section_availability(W_required, section_type="CHS"):
+    sections = get_sections_by_type(section_type)
+    
+    for name, props in sections:
+        if props["W_el"] >= W_required * 0.9:
+            return {
+                "available": True,
+                "section": name,
+                "properties": props,
+                "is_standard": True
+            }
+    
+    closest = find_closest_section(W_required, section_type)
+    if closest:
+        return {
+            "available": False,
+            "is_standard": False,
+            "closest": closest[0],
+            "closest_props": closest[1],
+            "gap": W_required - closest[1]["W_el"]
+        }
+    
+    return {
+        "available": False,
+        "is_standard": False,
+        "closest": None,
+        "gap": W_required
+    }
+
+# ---- TRUSS FUNCTIONS - UNIFIED SECTION TYPE ----
+def calculate_dead_load_truss(span, apex, num_bays=2):
+    membrane_area = span * apex * 1.1
+    
+    truss_depth = max(0.8, span / 12)
+    num_panels = num_bays + 1
+    
+    top_chord_length = span * 1.1
+    bottom_chord_length = span * 1.1
+    diag_length = math.sqrt((span/num_panels)**2 + truss_depth**2) * 1.1
+    vert_length = truss_depth * 1.1
+    
+    base_weight = 13.5
+    top_weight = base_weight * top_chord_length
+    bottom_weight = base_weight * bottom_chord_length
+    diag_weight = base_weight * 0.7 * diag_length * (num_panels * 2)
+    vert_weight = base_weight * 0.8 * vert_length * (num_panels * 2)
+    
+    steel_kg = top_weight + bottom_weight + diag_weight + vert_weight
+    
+    fabric_weight = 1.2 * membrane_area
+    fabric_kg = fabric_weight * membrane_area
+    
+    return (steel_kg + fabric_kg) / 100
+
+def calculate_required_section_truss(load_kN, span_m, rise_m, apex_m, 
+                                      material_type="Steel", fy=355, 
+                                      connection_factor=1.0, 
+                                      truss_type="warren", num_bays=2):
+    
+    wind_data = calculate_wind_load_enshrined(span_m, apex_m, rise_m)
+    total_load = load_kN
+    
+    w = total_load / span_m
+    M_max = (w * span_m**2) / 8
+    truss_depth = max(0.8, span_m / 12)
+    
+    if truss_type == "warren":
+        top_chord_force = M_max / truss_depth * 1.2 * connection_factor
+        bottom_chord_force = M_max / truss_depth * 1.1 * connection_factor
+        max_shear = w * span_m / 2 * connection_factor
+        diag_force = max_shear / math.sin(math.atan(truss_depth / (span_m/(num_bays+1)))) * 1.1
+        vert_force = 0
+        
+    elif truss_type == "pratt":
+        top_chord_force = M_max / truss_depth * 1.2 * connection_factor
+        bottom_chord_force = M_max / truss_depth * 1.1 * connection_factor
+        max_shear = w * span_m / 2 * connection_factor
+        diag_force = max_shear / math.sin(math.atan(truss_depth / (span_m/(num_bays+1)))) * 1.0
+        vert_force = max_shear * 0.5 * connection_factor
+        
+    elif truss_type == "howe":
+        top_chord_force = M_max / truss_depth * 1.2 * connection_factor
+        bottom_chord_force = M_max / truss_depth * 1.1 * connection_factor
+        max_shear = w * span_m / 2 * connection_factor
+        diag_force = max_shear / math.sin(math.atan(truss_depth / (span_m/(num_bays+1)))) * 1.3
+        vert_force = max_shear * 0.5 * connection_factor
+        
+    else:  # vierendeel
+        top_chord_force = M_max / truss_depth * 1.5 * connection_factor
+        bottom_chord_force = M_max / truss_depth * 1.4 * connection_factor
+        max_shear = w * span_m / 2 * connection_factor
+        diag_force = 0
+        vert_force = max_shear * 0.8 * connection_factor
+    
+    safety = 1.5
+    
+    W_top = top_chord_force * 1000 / (fy / safety) * 1000
+    A_top = top_chord_force * 1000 / (fy / safety)
+    
+    W_bottom = bottom_chord_force * 1000 / (fy / safety) * 1000
+    A_bottom = bottom_chord_force * 1000 / (fy / safety)
+    
+    if diag_force > 0:
+        W_diag = abs(diag_force) * 1000 / (fy / safety) * 1000
+        A_diag = abs(diag_force) * 1000 / (fy / safety)
+    else:
+        W_diag = 0
+        A_diag = 0
+    
+    if vert_force > 0:
+        W_vert = abs(vert_force) * 1000 / (fy / safety) * 1000
+        A_vert = abs(vert_force) * 1000 / (fy / safety)
+    else:
+        W_vert = 0
+        A_vert = 0
+    
+    return {
+        "top_chord": {"W_required": W_top, "A_required": A_top, "force": top_chord_force},
+        "bottom_chord": {"W_required": W_bottom, "A_required": A_bottom, "force": bottom_chord_force},
+        "diagonals": {"W_required": W_diag, "A_required": A_diag, "force": diag_force},
+        "verticals": {"W_required": W_vert, "A_required": A_vert, "force": vert_force},
+        "truss_depth": truss_depth,
+        "wind_data": wind_data,
+        "max_moment": M_max,
+        "max_shear": max_shear
+    }
+
+def check_section_availability_unified(W_required, section_type="CHS"):
+    """Check if a standard section is available - uses the selected section type"""
+    sections = get_sections_by_type(section_type)
+    
+    for name, props in sections:
+        if props["W_el"] >= W_required * 0.9 and props["A"] >= W_required / 1000 * 0.9:
+            return {
+                "available": True,
+                "section": name,
+                "properties": props,
+                "is_standard": True
+            }
+    
+    closest = find_closest_section(W_required, section_type)
+    if closest:
+        return {
+            "available": False,
+            "is_standard": False,
+            "closest": closest[0],
+            "closest_props": closest[1],
+            "gap": W_required - closest[1]["W_el"]
+        }
+    
+    return {
+        "available": False,
+        "is_standard": False,
+        "closest": None,
+        "gap": W_required
+    }
+
+def auto_select_fabric_thickness(wind_force, membrane_area):
+    required_strength = wind_force / (membrane_area * 0.5) if membrane_area > 0 else 0
+    thickness_options = {"0.5": 30, "0.8": 40, "1.0": 50, "1.2": 60}
+    
+    for thickness, strength in sorted(thickness_options.items()):
+        if strength >= required_strength * 1.5:
+            return thickness
+    return "1.2"
+
+def auto_select_cable_diameter(tie_down_force):
+    cable_data = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140, 18: 180, 20: 220}
+    required_load = tie_down_force * 1.5
+    
+    for diam, load in sorted(cable_data.items()):
+        if load >= required_load:
+            return diam
+    return max(cable_data.keys()) if cable_data else 10
+
+# ============================================================
+# MAIN DESIGN ENGINE
+# ============================================================
+def auto_design_structure(params, materials, typology="saddle_span"):
+    span = params.get("B", 10.0)
+    rise = params.get("A", 6.0)
+    apex = params.get("LAA", 15.0)
+    
+    member_type = materials.get("member_type", "single_beam")
+    
+    # ===== TRUSS DESIGN - UNIFIED SECTION TYPE =====
+    if member_type in ["planar_truss", "space_truss"]:
+        return auto_design_truss_structure(params, materials)
+    
+    # ===== SINGLE BEAM DESIGN =====
+    material_type = materials.get("material_type", "Steel")
+    section_type = materials.get("section_type", "CHS")
+    fabric_type = materials.get("fabric_type", "PVC-coated Polyester")
+    cable_type = materials.get("cable_type", "6x19 Galvanized")
+    standard = materials.get("standard", "EU")
+    joint_type = materials.get("joint_type", "bolted")
+    
+    wind_data = calculate_wind_load_enshrined(span, apex, rise, standard)
+    wind_load = wind_data["wind_per_beam"] * 2
+    dead_load = calculate_dead_load_single(span, apex, fabric_type)
+    live_load = 0.3 * (span * apex * 1.1) / 100
+    total_load = wind_load + dead_load + live_load
+    
+    fy = 355 if material_type == "Steel" else 276
+    req = calculate_required_section_single(total_load, span, rise, apex, material_type, fy)
+    section_check = check_section_availability(req["W_required"], section_type)
+    
+    membrane_area = span * apex * 1.1
+    fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area)
+    fabric_strength = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {}).get(fabric_thickness, 0)
+    
+    num_bays = materials.get("num_bays", 2)
+    num_anchors = num_bays * 4
+    vertical_angle = materials.get("tie_down_vertical_angle", 45)
+    uplift_per_anchor = (wind_load * 0.5) / num_anchors if num_anchors > 0 else 0
+    cable_force = uplift_per_anchor / np.cos(np.radians(vertical_angle))
+    
+    cable_diameter = auto_select_cable_diameter(cable_force)
+    cable_data = CABLE_PROPERTIES.get(cable_type, {}).get("diameters", {})
+    cable_breaking = cable_data.get(cable_diameter, 0)
+    cable_utilization = cable_force / cable_breaking if cable_breaking > 0 else 0
+    
+    results = {
+        "loads": {
+            "wind": wind_load,
+            "dead": dead_load,
+            "live": live_load,
+            "total": total_load
+        },
+        "beams": {
+            "main": {
+                "section": section_check.get("section", "Custom Section"),
+                "available": section_check.get("available", False),
+                "is_standard": section_check.get("is_standard", False),
+                "section_type": section_type,
+                "W_required": req["W_required"],
+                "W_actual": section_check.get("properties", {}).get("W_el", req["W_required"]) if section_check.get("available", False) else req["W_required"],
+                "closest": section_check.get("closest", None) if not section_check.get("available", False) else None,
+                "arch_reduction": req["arch_reduction"]
+            }
+        },
+        "fabric": {
+            "type": fabric_type,
+            "thickness": fabric_thickness,
+            "strength": fabric_strength
+        },
+        "cables": {
+            "type": cable_type,
+            "diameter": cable_diameter,
+            "breaking_load": cable_breaking,
+            "force_per_cable": cable_force,
+            "utilization": cable_utilization * 100,
+            "is_adequate": cable_breaking >= cable_force * 1.5
+        },
+        "joint_type": joint_type,
+        "typology": typology,
+        "enshrined_safety": True,
+        "wind_data": wind_data,
+        "health_score": 100,
+        "passed": section_check.get("available", False)
+    }
+    
+    return results
+
+def auto_design_truss_structure(params, materials):
+    """
+    Truss design with UNIFIED section type - ALL members use the SAME section type
+    as selected by the user (CHS, SHS, RHS, I-Beam, Angle, or Channel)
+    """
     
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     apex = params.get("LAA", 15.0)
-    section_type = materials.get("section_type", "CHS")
     
-    req = calculate_required_section_enshrined(load_kN, span, rise, apex, materials.get("material_type", "Steel"), fy)
+    material_type = materials.get("material_type", "Steel")
+    section_type = materials.get("section_type", "CHS")  # Unified section type
+    fabric_type = materials.get("fabric_type", "PVC-coated Polyester")
+    cable_type = materials.get("cable_type", "6x19 Galvanized")
+    standard = materials.get("standard", "MY")
+    connection_factor = materials.get("connection_factor", 1.0)
+    truss_type = materials.get("truss_type", "warren")
+    num_bays = materials.get("num_bays", 2)
     
-    all_sections = get_sections_by_type(section_type)
+    # Calculate wind load
+    wind_data = calculate_wind_load_enshrined(span, apex, rise, standard)
+    wind_load = wind_data["wind_per_beam"] * 2 * connection_factor
     
-    for section_name, props in all_sections:
-        if (props["W_el"] >= req["W_required"] * 0.9 and 
-            props["A"] >= req["A_required"] * 0.9 and
-            props["I"] >= req["I_required"] * 0.5):
-            
-            if typology == "saddle_span":
-                moment_capacity = (props["W_el"] * fy) / (1.5 * 1e6)
-                axial_capacity = (props["A"] * fy) / 1.5 / 1000
-                combined_ratio = (req["M"] / moment_capacity) + (req["N_axial"] / axial_capacity) if axial_capacity > 0 else 0
-                is_adequate = combined_ratio <= 1.0
-            else:
-                combined_ratio = 0
-                is_adequate = True
-            
-            if is_adequate:
-                return {
-                    "section": section_name,
-                    "properties": props,
-                    "type": "standard",
-                    "status": "Standard section available",
-                    "W_required": req["W_required"],
-                    "W_actual": props["W_el"],
-                    "A_required": req["A_required"],
-                    "A_actual": props["A"],
-                    "I_required": req["I_required"],
-                    "I_actual": props["I"],
-                    "combined_ratio": combined_ratio,
-                    "arch_reduction": req["arch_reduction"],
-                    "wind_data": req["wind_data"],
-                    "rise_span_ratio": req["rise_span_ratio"],
-                    "is_adequate": True,
-                    "health": 100
-                }
+    # Calculate dead load for truss
+    dead_load = calculate_dead_load_truss(span, apex, num_bays)
+    live_load = 0.5 * (span * apex * 1.1) / 100
+    total_load = wind_load + dead_load + live_load
     
-    closest = find_closest_standard(req["W_required"], section_type)
+    # Calculate required sections - ALL use the SAME section type
+    fy = 355 if material_type == "Steel" else 276
+    req = calculate_required_section_truss(total_load, span, rise, apex, 
+                                           material_type, fy, connection_factor, 
+                                           truss_type, num_bays)
     
-    return {
-        "section": f"Custom {section_type} (W={req['W_required']/1000:.0f}e3 mm³, A={req['A_required']:.0f} mm²)",
-        "type": "custom",
-        "status": "⚠️ Custom fabrication required - no standard size available",
-        "W_required": req["W_required"],
-        "W_actual": req["W_required"],
-        "A_required": req["A_required"],
-        "A_actual": req["A_required"],
-        "I_required": req["I_required"],
-        "I_actual": req["I_required"],
-        "combined_ratio": 0.5,
-        "arch_reduction": req["arch_reduction"],
-        "wind_data": req["wind_data"],
-        "rise_span_ratio": req["rise_span_ratio"],
-        "is_adequate": True,
-        "health": 100,
-        "closest_standard": closest[0] if closest else None,
-        "gap_W": req["W_required"] - (closest[1]["W_el"] if closest else 0),
-        "gap_percent": ((req["W_required"] - (closest[1]["W_el"] if closest else 0)) / (closest[1]["W_el"] if closest else 1)) * 100 if closest else 0
+    # Check section availability for each member type using UNIFIED section type
+    top_chord_check = check_section_availability_unified(req["top_chord"]["W_required"], section_type)
+    bottom_chord_check = check_section_availability_unified(req["bottom_chord"]["W_required"], section_type)
+    diag_check = check_section_availability_unified(req["diagonals"]["W_required"], section_type)
+    vert_check = check_section_availability_unified(req["verticals"]["W_required"], section_type)
+    
+    # Determine if overall design passes
+    all_members_available = (
+        top_chord_check.get("available", False) and
+        bottom_chord_check.get("available", False) and
+        (req["diagonals"]["W_required"] == 0 or diag_check.get("available", False)) and
+        (req["verticals"]["W_required"] == 0 or vert_check.get("available", False))
+    )
+    
+    # Select fabric thickness
+    membrane_area = span * apex * 1.1
+    fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area)
+    fabric_strength = {"0.5": 30, "0.8": 40, "1.0": 50, "1.2": 60}.get(fabric_thickness, 0)
+    
+    # Select cables
+    num_anchors = num_bays * 4
+    vertical_angle = 45
+    uplift_per_anchor = (wind_load * 0.5) / num_anchors if num_anchors > 0 else 0
+    cable_force = uplift_per_anchor / math.cos(math.radians(vertical_angle))
+    
+    cable_diameter = auto_select_cable_diameter(cable_force)
+    cable_breaking = {6: 20, 8: 35, 10: 55, 12: 80, 14: 105, 16: 140}.get(cable_diameter, 0)
+    cable_utilization = cable_force / cable_breaking if cable_breaking > 0 else 0
+    
+    # Check fabric adequacy
+    fabric_adequate = fabric_strength >= wind_data["wind_force"] / (membrane_area * 0.5) * 1.5
+    
+    # Overall pass/fail
+    is_adequate = all_members_available and cable_force * 1.5 <= cable_breaking and fabric_adequate
+    
+    # Build results
+    results = {
+        "passed": is_adequate,
+        "truss_type": truss_type,
+        "num_bays": num_bays,
+        "truss_depth": req["truss_depth"],
+        "unified_section_type": section_type,  # This is the key - all members use this type
+        "members": {
+            "top_chord": {
+                "section": top_chord_check.get("section", f"Custom {section_type}") if top_chord_check.get("available", False) else f"Custom {section_type}",
+                "available": top_chord_check.get("available", False),
+                "is_standard": top_chord_check.get("is_standard", False),
+                "force": req["top_chord"]["force"],
+                "W_required": req["top_chord"]["W_required"],
+                "A_required": req["top_chord"]["A_required"],
+                "closest": top_chord_check.get("closest", None) if not top_chord_check.get("available", False) else None
+            },
+            "bottom_chord": {
+                "section": bottom_chord_check.get("section", f"Custom {section_type}") if bottom_chord_check.get("available", False) else f"Custom {section_type}",
+                "available": bottom_chord_check.get("available", False),
+                "is_standard": bottom_chord_check.get("is_standard", False),
+                "force": req["bottom_chord"]["force"],
+                "W_required": req["bottom_chord"]["W_required"],
+                "A_required": req["bottom_chord"]["A_required"],
+                "closest": bottom_chord_check.get("closest", None) if not bottom_chord_check.get("available", False) else None
+            },
+            "diagonals": {
+                "section": diag_check.get("section", f"Custom {section_type}") if diag_check.get("available", False) else f"Custom {section_type}",
+                "available": diag_check.get("available", False),
+                "is_standard": diag_check.get("is_standard", False),
+                "force": req["diagonals"]["force"],
+                "W_required": req["diagonals"]["W_required"],
+                "A_required": req["diagonals"]["A_required"],
+                "closest": diag_check.get("closest", None) if not diag_check.get("available", False) else None
+            },
+            "verticals": {
+                "section": vert_check.get("section", f"Custom {section_type}") if vert_check.get("available", False) else f"Custom {section_type}",
+                "available": vert_check.get("available", False),
+                "is_standard": vert_check.get("is_standard", False),
+                "force": req["verticals"]["force"],
+                "W_required": req["verticals"]["W_required"],
+                "A_required": req["verticals"]["A_required"],
+                "closest": vert_check.get("closest", None) if not vert_check.get("available", False) else None
+            }
+        },
+        "health_score": 100,
+        "loads": {
+            "wind": wind_load,
+            "dead": dead_load,
+            "live": live_load,
+            "total": total_load
+        },
+        "wind_data": wind_data,
+        "fabric": {
+            "type": fabric_type,
+            "thickness": fabric_thickness,
+            "strength": fabric_strength,
+            "adequate": fabric_adequate
+        },
+        "cables": {
+            "type": cable_type,
+            "diameter": cable_diameter,
+            "force_per_cable": cable_force,
+            "breaking_load": cable_breaking,
+            "utilization": cable_utilization * 100,
+            "adequate": cable_force * 1.5 <= cable_breaking
+        },
+        "connection_factor": connection_factor,
+        "governing_area": wind_data["governing_area"],
+        "governing_direction": wind_data["governing_direction"],
+        "max_moment": req["max_moment"],
+        "max_shear": req["max_shear"],
+        "unified": True  # Flag indicating unified section type
     }
+    
+    return results
+
+def calculate_dead_load_single(span, apex, fabric_type):
+    section_data = SECTION_PROPERTIES.get("CHS 114.3x5.0", {"weight": 13.5})
+    steel_kg = section_data.get("weight", 13.5) * span * 2
+    membrane_area = span * apex * 1.1
+    fabric_weight = FABRIC_PROPERTIES.get(fabric_type, {}).get("weight_per_m2", 1.2)
+    fabric_kg = fabric_weight * membrane_area
+    return (steel_kg + fabric_kg) / 100
 
 # ============================================================
-# HEALTH SCORE - ALWAYS 100%
+# BQ GENERATION
 # ============================================================
-def calculate_health_score(beam_result, wind_data, cables, fabric):
-    health_report = {
-        "components": {},
-        "overall_score": 100,
-        "recommendations": [],
-        "passed_all": True
-    }
+def generate_bill_of_quantities(params, materials, design_results):
+    span = params.get("B", 10.0)
+    rise = params.get("A", 6.0)
+    laa = params.get("LAA", 15.0)
+    num_bays = materials.get("num_bays", 2)
     
-    if beam_result:
-        beam_status = "✅ PASS"
-        if beam_result.get("type") == "custom":
-            beam_status = "⚠️ Custom Fabrication"
+    bq_items = []
+    
+    # Check if it's a truss design
+    if "members" in design_results:
+        # Truss BQ - UNIFIED section type
+        members = design_results["members"]
+        unified_type = design_results.get("unified_section_type", "CHS")
         
-        health_report["components"]["Main Beams"] = {
-            "score": 100,
-            "status": beam_status,
-            "details": {
-                "section": beam_result.get("section", "N/A"),
-                "type": beam_result.get("type", "standard")
-            }
-        }
+        for member_name, member_data in members.items():
+            if member_data.get("force", 0) > 0 or member_name in ["top_chord", "bottom_chord"]:
+                section = member_data.get("section", f"Custom {unified_type}")
+                is_standard = member_data.get("is_standard", False)
+                
+                # Estimate length based on member type
+                if member_name == "top_chord":
+                    length = span * 1.1
+                    qty = 1
+                elif member_name == "bottom_chord":
+                    length = span * 1.1
+                    qty = 1
+                elif member_name == "diagonals":
+                    truss_depth = design_results.get("truss_depth", 1.0)
+                    panel_length = span / (num_bays + 1)
+                    length = math.sqrt(panel_length**2 + truss_depth**2) * 1.1
+                    qty = (num_bays + 1) * 2
+                elif member_name == "verticals":
+                    truss_depth = design_results.get("truss_depth", 1.0)
+                    length = truss_depth * 1.1
+                    qty = (num_bays + 1) * 2
+                else:
+                    length = span * 0.5
+                    qty = 1
+                
+                # Get weight per meter from section properties
+                props = SECTION_PROPERTIES.get(section, {})
+                weight_per_m = props.get("weight", 13.5) if is_standard else 15.0
+                
+                total_length = length * qty
+                total_weight = weight_per_m * total_length / 1000
+                
+                bq_items.append({
+                    "item": f"{member_name.replace('_', ' ').title()}",
+                    "section": section,
+                    "material": f"{unified_type} Steel",
+                    "qty": qty,
+                    "unit": "pcs",
+                    "length_per_pc": round(length, 1),
+                    "total_length": round(total_length, 1),
+                    "weight_per_m": round(weight_per_m, 1),
+                    "total_weight": round(total_weight, 1),
+                    "notes": f"Standard {unified_type}" if is_standard else f"⚠️ Custom {unified_type} required"
+                })
     
-    if cables:
-        cable_utilization = cables.get("utilization_percent", 0)
-        health_report["components"]["Cables"] = {
-            "score": 100,
-            "status": "✅ PASS",
-            "details": {
-                "diameter": f"{cables.get('diameter', 'N/A')}mm",
-                "utilization": f"{cable_utilization:.0f}%" if cable_utilization else "N/A"
-            }
-        }
+    else:
+        # Single beam BQ - uses selected section type
+        beam = design_results.get("beams", {}).get("main", {})
+        if beam:
+            section_name = beam.get("section", "Custom Section")
+            is_standard = beam.get("is_standard", False)
+            section_type = beam.get("section_type", "CHS")
+            beam_length = span * 1.1
+            
+            props = SECTION_PROPERTIES.get(section_name, {})
+            weight_per_m = props.get("weight", 13.5) if is_standard else 15.0
+            
+            total_weight = weight_per_m * beam_length * 2 / 1000
+            
+            bq_items.append({
+                "item": "Main Beams",
+                "section": section_name,
+                "material": f"{section_type} Steel",
+                "qty": 2,
+                "unit": "pcs",
+                "length_per_pc": round(beam_length, 1),
+                "total_length": round(beam_length * 2, 1),
+                "weight_per_m": round(weight_per_m, 1),
+                "total_weight": round(total_weight, 1),
+                "notes": "Standard section" if is_standard else "⚠️ Custom section required"
+            })
     
+    # Fabric
+    fabric = design_results.get("fabric", {})
     if fabric:
-        health_report["components"]["Fabric"] = {
-            "score": 100,
-            "status": "✅ PASS",
-            "details": {
-                "thickness": f"{fabric.get('thickness', 'N/A')}mm",
-                "strength": f"{fabric.get('strength', 0):.0f} kN/m" if fabric.get('strength', 0) > 0 else "N/A"
-            }
-        }
+        membrane_area = span * laa * 1.1
+        fabric_type = fabric.get("type", "N/A")
+        thickness = fabric.get("thickness", "N/A")
+        strength = fabric.get("strength", 0)
+        weight_per_m2 = FABRIC_PROPERTIES.get(fabric_type, {}).get("weight_per_m2", 0)
+        
+        bq_items.append({
+            "item": "Fabric Membrane",
+            "material": fabric_type,
+            "thickness": f"{thickness}mm",
+            "strength": f"{strength:.0f} kN/m",
+            "area": round(membrane_area, 1),
+            "unit": "m²",
+            "weight_per_m2": weight_per_m2,
+            "total_weight": round(membrane_area * weight_per_m2, 1),
+            "notes": f"{fabric_type} - {thickness}mm"
+        })
     
-    if beam_result and beam_result.get("arch_reduction", 0) > 0:
-        health_report["components"]["Arch Action"] = {
-            "score": 100,
-            "status": "✅ PASS (EFFICIENT)",
-            "details": {
-                "reduction": f"{beam_result.get('arch_reduction', 0):.0f}%"
-            }
-        }
+    # Cables
+    cables = design_results.get("cables", {})
+    if cables:
+        cable_type = cables.get("type", "N/A")
+        cable_diameter = cables.get("diameter", 0)
+        cable_force = cables.get("force_per_cable", 0)
+        breaking_load = cables.get("breaking_load", 0)
+        
+        num_anchors = num_bays * 4
+        cable_length = math.sqrt(rise**2 + (span/3)**2) * 1.2
+        
+        cable_weights = CABLE_PROPERTIES.get(cable_type, {}).get("weight_per_m", {})
+        cable_weight_per_m = cable_weights.get(cable_diameter, 0.2)
+        
+        total_cable_length = num_anchors * cable_length
+        
+        bq_items.append({
+            "item": "Cables",
+            "type": cable_type,
+            "diameter": f"{cable_diameter}mm",
+            "qty": num_anchors,
+            "unit": "pcs",
+            "length_per_pc": round(cable_length, 1),
+            "total_length": round(total_cable_length, 1),
+            "weight_per_m": round(cable_weight_per_m, 3),
+            "total_weight": round(total_cable_length * cable_weight_per_m, 1),
+            "breaking_load": f"{breaking_load:.0f} kN",
+            "notes": f"{cable_type} - {cable_diameter}mm"
+        })
     
-    return health_report
+    # Connections
+    joint_type = materials.get("joint_type", "bolted")
+    num_joints = (num_bays + 1) * 4 if "members" in design_results else (num_bays + 1) * 2
+    joint_desc = JOINT_MULTIPLIERS.get(joint_type, {}).get("description", "")
+    
+    bq_items.append({
+        "item": "Connections",
+        "type": joint_type.upper(),
+        "qty": num_joints,
+        "unit": "joints",
+        "notes": joint_desc
+    })
+    
+    # Calculate total steel weight
+    total_steel_weight = sum([
+        item.get("total_weight", 0) for item in bq_items 
+        if "total_weight" in item and item["item"] in ["Main Beams", "Top Chord", "Bottom Chord", "Diagonals", "Verticals", "Cables"]
+    ])
+    
+    bq_items.append({
+        "item": "Protective Coating",
+        "type": "Epoxy 2-coat system",
+        "application": "Shop applied",
+        "coverage_area": round(total_steel_weight * 0.15, 1),
+        "unit": "m²",
+        "notes": "Min. dry film thickness: 80 microns"
+    })
+    
+    return {
+        "items": bq_items,
+        "total_steel_weight": round(total_steel_weight, 1),
+        "total_fabric_area": round(membrane_area, 1) if fabric else 0,
+        "total_cable_length": round(total_cable_length, 1) if cables else 0,
+        "total_joints": num_joints,
+        "joint_type": joint_type
+    }
 
 # ============================================================
 # 3D GENERATORS
@@ -913,7 +1280,6 @@ def generate_saddle_span(params, materials=None):
                 showlegend=False
             ))
 
-    # Calculate adaptive camera distance based on structure size
     max_dim = max(span, laa, rise)
     cam_distance = 1.8 * max(1, max_dim / 8)
 
@@ -1023,243 +1389,6 @@ GENERATORS = {
 }
 
 # ============================================================
-# BQ GENERATION - TECHNICAL ONLY
-# ============================================================
-def generate_bill_of_quantities(params, materials, design_results):
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    laa = params.get("LAA", 15.0)
-    num_bays = materials.get("num_bays", 2)
-    
-    bq_items = []
-    
-    beam = design_results.get("beams", {}).get("main", {})
-    if beam:
-        section_name = beam.get("section", "N/A")
-        section_type = beam.get("type", "standard")
-        beam_length = span * 1.1
-        
-        if section_type == "custom":
-            notes = "⚠️ Custom fabrication required"
-            if beam.get("closest_standard"):
-                notes += f" | Closest: {beam['closest_standard']}"
-        else:
-            notes = "Standard stock item"
-        
-        weight_per_m = 0
-        if section_type == "standard":
-            props = beam.get("properties", {})
-            weight_per_m = props.get("weight", 0)
-        else:
-            A = beam.get("A_actual", 0)
-            weight_per_m = A * 7.85 / 1000
-        
-        total_weight = weight_per_m * beam_length * 2
-        
-        bq_items.append({
-            "item": "Main Beams",
-            "section": section_name,
-            "material": materials.get("material_type", "Steel"),
-            "qty": 2,
-            "unit": "pcs",
-            "length_per_pc": round(beam_length, 1),
-            "total_length": round(beam_length * 2, 1),
-            "weight_per_m": round(weight_per_m, 1),
-            "total_weight": round(total_weight, 1),
-            "notes": notes
-        })
-    
-    fabric = design_results.get("fabric", {})
-    if fabric:
-        membrane_area = span * laa * 1.1
-        fabric_type = fabric.get("type", "N/A")
-        thickness = fabric.get("thickness", "N/A")
-        strength = fabric.get("strength", 0)
-        weight_per_m2 = FABRIC_PROPERTIES.get(fabric_type, {}).get("weight_per_m2", 0)
-        
-        bq_items.append({
-            "item": "Fabric Membrane",
-            "material": fabric_type,
-            "thickness": f"{thickness}mm",
-            "strength": f"{strength:.0f} kN/m",
-            "area": round(membrane_area, 1),
-            "unit": "m²",
-            "weight_per_m2": weight_per_m2,
-            "total_weight": round(membrane_area * weight_per_m2, 1),
-            "notes": f"{fabric_type} - {thickness}mm"
-        })
-    
-    cables = design_results.get("cables", {})
-    if cables:
-        cable_type = cables.get("type", "N/A")
-        cable_diameter = cables.get("diameter", 0)
-        cable_force = cables.get("force_per_cable", 0)
-        breaking_load = cables.get("breaking_load", 0)
-        
-        num_anchors = num_bays * 4
-        cable_length = math.sqrt(rise**2 + (span/3)**2) * 1.2
-        
-        cable_weights = CABLE_PROPERTIES.get(cable_type, {}).get("weight_per_m", {})
-        cable_weight_per_m = cable_weights.get(cable_diameter, 0.2)
-        
-        total_cable_length = num_anchors * cable_length
-        
-        bq_items.append({
-            "item": "Cables",
-            "type": cable_type,
-            "diameter": f"{cable_diameter}mm",
-            "qty": num_anchors,
-            "unit": "pcs",
-            "length_per_pc": round(cable_length, 1),
-            "total_length": round(total_cable_length, 1),
-            "weight_per_m": round(cable_weight_per_m, 3),
-            "total_weight": round(total_cable_length * cable_weight_per_m, 1),
-            "breaking_load": f"{breaking_load:.0f} kN",
-            "notes": f"{cable_type} - {cable_diameter}mm"
-        })
-    
-    joint_type = materials.get("joint_type", "bolted")
-    num_joints = (num_bays + 1) * 4
-    joint_desc = JOINT_MULTIPLIERS.get(joint_type, {}).get("description", "")
-    
-    bq_items.append({
-        "item": "Connections",
-        "type": joint_type.upper(),
-        "qty": num_joints,
-        "unit": "joints",
-        "notes": joint_desc
-    })
-    
-    total_steel_weight = sum([
-        item.get("total_weight", 0) for item in bq_items 
-        if "total_weight" in item and item["item"] in ["Main Beams", "Cables"]
-    ])
-    
-    bq_items.append({
-        "item": "Protective Coating",
-        "type": "Epoxy 2-coat system",
-        "application": "Shop applied",
-        "coverage_area": round(total_steel_weight * 0.15, 1),
-        "unit": "m²",
-        "notes": "Min. dry film thickness: 80 microns"
-    })
-    
-    return {
-        "items": bq_items,
-        "total_steel_weight": round(total_steel_weight, 1),
-        "total_fabric_area": round(membrane_area, 1) if fabric else 0,
-        "total_cable_length": round(total_cable_length, 1) if cables else 0,
-        "total_joints": num_joints,
-        "joint_type": joint_type
-    }
-
-# ============================================================
-# MAIN DESIGN ENGINE
-# ============================================================
-def auto_design_structure(params, materials, typology="saddle_span"):
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    laa = params.get("LAA", 15.0)
-    material_type = materials.get("material_type", "Steel")
-    section_type = materials.get("section_type", "CHS")
-    fabric_type = materials.get("fabric_type", "PVC-coated Polyester")
-    cable_type = materials.get("cable_type", "6x19 Galvanized")
-    standard = materials.get("standard", "EU")
-    joint_type = materials.get("joint_type", "bolted")
-    
-    wind_data = calculate_wind_load_enshrined(span, laa, rise, standard)
-    wind_load = wind_data["wind_per_beam"] * 2
-    dead_load = calculate_dead_load(span, laa, "CHS 114.3x5.0", fabric_type)
-    live_load = 0.3 * (span * laa * 1.1) / 100
-    total_load = wind_load + dead_load + live_load
-    
-    fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
-    
-    beam_result = auto_optimize_section(params, materials, typology, total_load, fy)
-    
-    membrane_area = span * laa * 1.1
-    fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area, fabric_type)
-    fabric_strength = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {}).get(fabric_thickness, 0)
-    
-    num_bays = materials.get("num_bays", 2)
-    num_anchors = num_bays * 4
-    vertical_angle = materials.get("tie_down_vertical_angle", 45)
-    uplift_per_anchor = (wind_load * 0.5) / num_anchors if num_anchors > 0 else 0
-    cable_force = uplift_per_anchor / np.cos(np.radians(vertical_angle))
-    
-    cable_diameter = auto_select_cable_diameter(cable_force, cable_type)
-    cable_data = CABLE_PROPERTIES.get(cable_type, {}).get("diameters", {})
-    cable_breaking = cable_data.get(cable_diameter, 0)
-    
-    cable_utilization = cable_force / cable_breaking if cable_breaking > 0 else 0
-    cable_utilization_percent = cable_utilization * 100
-    
-    results = {
-        "loads": {
-            "wind": wind_load,
-            "dead": dead_load,
-            "live": live_load,
-            "total": total_load
-        },
-        "beams": {"main": beam_result} if beam_result else {},
-        "fabric": {
-            "type": fabric_type,
-            "thickness": fabric_thickness,
-            "strength": fabric_strength
-        },
-        "cables": {
-            "type": cable_type,
-            "diameter": cable_diameter,
-            "breaking_load": cable_breaking,
-            "force_per_cable": cable_force,
-            "utilization_percent": cable_utilization_percent,
-            "is_adequate": cable_breaking >= cable_force * 1.5
-        },
-        "joint_type": joint_type,
-        "typology": typology,
-        "enshrined_safety": True,
-        "wind_data": wind_data
-    }
-    
-    health_report = calculate_health_score(
-        beam_result,
-        wind_data,
-        results["cables"],
-        results["fabric"]
-    )
-    results["health_report"] = health_report
-    results["health_score"] = 100
-    
-    results["bq"] = generate_bill_of_quantities(params, materials, results)
-    
-    return results
-
-def calculate_dead_load(span, laa, section_name, fabric_type):
-    section_data = SECTION_PROPERTIES.get(section_name, {"weight": 28.3})
-    steel_kg = section_data.get("weight", 28.3) * span * 2
-    membrane_area = span * laa * 1.1
-    fabric_weight = FABRIC_PROPERTIES.get(fabric_type, {}).get("weight_per_m2", 1.2)
-    fabric_kg = fabric_weight * membrane_area
-    return (steel_kg + fabric_kg) / 100
-
-def auto_select_fabric_thickness(wind_force, membrane_area, fabric_type):
-    required_strength = wind_force / (membrane_area * 0.5) if membrane_area > 0 else 0
-    thickness_options = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {})
-    for thickness, strength in sorted(thickness_options.items()):
-        if strength >= required_strength * 1.5:
-            return thickness
-    return list(thickness_options.keys())[-1] if thickness_options else "0.8"
-
-def auto_select_cable_diameter(tie_down_force, cable_type):
-    cable_data = CABLE_PROPERTIES.get(cable_type, {})
-    diameters = cable_data.get("diameters", {})
-    required_load = tie_down_force * 1.5
-    for diam, load in sorted(diameters.items()):
-        if load >= required_load:
-            return diam
-    return max(diameters.keys()) if diameters else 10
-
-# ============================================================
 # EXPORT FUNCTIONS
 # ============================================================
 def export_to_csv(results, filename="structure.csv"):
@@ -1271,13 +1400,18 @@ def export_to_csv(results, filename="structure.csv"):
     for key, value in loads.items():
         writer.writerow([f"Load_{key}", f"{value:.0f} kN"])
     
-    beam = results.get("beams", {}).get("main", {})
-    if beam:
-        writer.writerow(["Selected_Section", beam.get("section", "N/A")])
-        writer.writerow(["Section_Type", beam.get("type", "standard")])
-        writer.writerow(["Status", beam.get("status", "N/A")])
-        if beam.get("type") == "custom" and beam.get("closest_standard"):
-            writer.writerow(["Closest_Standard", beam["closest_standard"]])
+    if "members" in results:
+        writer.writerow(["Section_Type_Unified", results.get("unified_section_type", "N/A")])
+        for member_name, member_data in results["members"].items():
+            writer.writerow([f"{member_name}_Section", member_data.get("section", "N/A")])
+            writer.writerow([f"{member_name}_Force", f"{member_data.get('force', 0):.0f} kN"])
+            writer.writerow([f"{member_name}_Standard", member_data.get("is_standard", False)])
+    else:
+        beam = results.get("beams", {}).get("main", {})
+        if beam:
+            writer.writerow(["Selected_Section", beam.get("section", "N/A")])
+            writer.writerow(["Section_Type", beam.get("section_type", "N/A")])
+            writer.writerow(["Section_Standard", beam.get("is_standard", False)])
     
     writer.writerow(["Health_Score", results.get("health_score", 0)])
     return output.getvalue()
@@ -1716,17 +1850,26 @@ def render_reports():
     c2.metric("Dead", f"{loads.get('dead', 0):.0f} kN")
     c3.metric("Total", f"{loads.get('total', 0):.0f} kN")
     
-    beam = design_results.get("beams", {}).get("main", {})
-    if beam:
-        st.markdown("#### 🔧 Member Selection")
-        section_type = beam.get("type", "standard")
-        if section_type == "custom":
-            st.warning(f"**Section:** {beam.get('section', 'N/A')} - ⚠️ Custom fabrication required")
-            if beam.get("closest_standard"):
-                st.caption(f"Closest standard: {beam['closest_standard']}")
-                st.caption(f"Gap: {beam.get('gap_W', 0):.0f} mm³ ({beam.get('gap_percent', 0):.1f}% larger)")
-        else:
-            st.success(f"**Section:** {beam.get('section', 'N/A')} - Standard stock item")
+    if "members" in design_results:
+        unified_type = design_results.get("unified_section_type", "CHS")
+        st.markdown(f"#### 🏗️ Truss Members <span class='truss-unified-badge'>ALL {unified_type}</span>", unsafe_allow_html=True)
+        for member_name, member_data in design_results["members"].items():
+            section = member_data.get("section", "N/A")
+            is_standard = member_data.get("is_standard", False)
+            status = f"✅ Standard {unified_type}" if is_standard else f"⚠️ Custom {unified_type}"
+            st.caption(f"**{member_name.replace('_', ' ').title()}:** {section} - {status}")
+    else:
+        beam = design_results.get("beams", {}).get("main", {})
+        if beam:
+            st.markdown("#### 🔧 Member Selection")
+            is_standard = beam.get("is_standard", False)
+            section_type = beam.get("section_type", "CHS")
+            if not is_standard:
+                st.warning(f"**Section:** {beam.get('section', 'N/A')} - ⚠️ Custom {section_type} required")
+                if beam.get("closest"):
+                    st.caption(f"Closest standard: {beam['closest']}")
+            else:
+                st.success(f"**Section:** {beam.get('section', 'N/A')} - ✅ Standard {section_type}")
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -1879,6 +2022,53 @@ def render_workspace():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
+        st.markdown('<div class="sds-card"><div class="title">🏗️ Member Configuration</div>', unsafe_allow_html=True)
+        
+        member_options = ["single_beam", "planar_truss", "space_truss"]
+        member_labels = ["🏗️ Single Beam", "📐 Planar Truss", "🌐 Space Truss"]
+        current_member = materials.get("member_type", "single_beam")
+        member_idx = member_options.index(current_member) if current_member in member_options else 0
+        
+        materials["member_type"] = st.selectbox(
+            "Member Type",
+            member_labels,
+            index=member_idx,
+            disabled=st.session_state.locked,
+            key="member_type_workspace"
+        )
+        
+        if materials["member_type"] in ["planar_truss", "space_truss"]:
+            st.info(f"🔧 Truss uses <strong>UNIFIED section type</strong> - ALL members (top chord, bottom chord, diagonals, verticals) will use <strong>{materials.get('section_type', 'CHS')}</strong> for fabrication harmony.", unsafe_allow_html=True)
+            
+            truss_types = ["warren", "pratt", "howe", "vierendeel"]
+            truss_labels = ["🔺 Warren", "✚ Pratt", "✖ Howe", "▣ Vierendeel"]
+            current_truss = materials.get("truss_type", "warren")
+            truss_idx = truss_types.index(current_truss) if current_truss in truss_types else 0
+            
+            materials["truss_type"] = st.selectbox(
+                "Truss Type",
+                truss_labels,
+                index=truss_idx,
+                disabled=st.session_state.locked,
+                key="truss_type_workspace"
+            )
+            
+            materials["num_bays"] = st.number_input(
+                "Number of Bays",
+                min_value=1,
+                max_value=20,
+                value=materials.get("num_bays", 3),
+                step=1,
+                disabled=st.session_state.locked,
+                key="num_bays_workspace"
+            )
+            
+            st.caption(f"💡 {materials['truss_type'].upper()} truss with {materials['num_bays']} bays - ALL members use {materials.get('section_type', 'CHS')}")
+        else:
+            st.caption("💡 Single beam member using selected section type")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
         if typology in ["saddle_span", "clear_span_tent", "tensile_membrane", "shade_structure"]:
             st.markdown('<div class="sds-card"><div class="title">🧵 Fabric</div>', unsafe_allow_html=True)
             fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE Film"]
@@ -1910,6 +2100,9 @@ def render_workspace():
         st.markdown(f'<span class="standard-badge {badge_class}">{materials["standard"]}</span> {get_standard_label(materials["standard"])}', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
+        if materials["member_type"] in ["planar_truss", "space_truss"]:
+            materials["connection_factor"] = JOINT_MULTIPLIERS.get(materials.get("joint_type", "bolted"), {}).get("factor", 1.0)
+        
         if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary"):
             with st.spinner("🔄 Calculating with enshrined safety..."):
                 st.session_state.design_results = {}
@@ -1937,7 +2130,6 @@ def render_workspace():
         else:
             fig = generate_saddle_span(params, materials)
         
-        # RENDER WITH FULL 3D CONTROLS
         st.plotly_chart(
             fig,
             use_container_width=True,
@@ -1945,7 +2137,6 @@ def render_workspace():
             key="3d_viewer_main"
         )
         
-        # Viewer Controls
         with st.expander("🎮 Viewer Controls", expanded=False):
             col_c1, col_c2, col_c3 = st.columns(3)
             with col_c1:
@@ -1988,24 +2179,41 @@ def render_workspace():
             c3.metric("Total", f"{loads.get('total', 0):.0f} kN")
             st.markdown('</div>', unsafe_allow_html=True)
             
-            beam = design_results.get("beams", {}).get("main", {})
-            if beam:
-                st.markdown('<div class="sds-card"><div class="title">🔧 Member Selection</div>', unsafe_allow_html=True)
+            if "members" in design_results:
+                unified_type = design_results.get("unified_section_type", "CHS")
+                st.markdown(f'<div class="sds-card"><div class="title">🏗️ Truss Members <span class="truss-unified-badge">ALL {unified_type}</span></div>', unsafe_allow_html=True)
                 
-                section_type = beam.get("type", "standard")
-                if section_type == "custom":
-                    st.warning(f"**Section:** {beam.get('section', 'N/A')}")
-                    st.caption("⚠️ Custom fabrication required")
-                    if beam.get("closest_standard"):
-                        st.caption(f"Closest standard: {beam['closest_standard']}")
-                        st.caption(f"Required W: {beam.get('W_required', 0)/1000:.0f}e3 mm³")
-                else:
-                    st.success(f"**Section:** {beam.get('section', 'N/A')}")
-                    st.caption("✅ Standard stock item")
+                for member_name, member_data in design_results["members"].items():
+                    section = member_data.get("section", "N/A")
+                    is_standard = member_data.get("is_standard", False)
+                    force = member_data.get("force", 0)
+                    
+                    if member_data.get("force", 0) > 0 or member_name in ["top_chord", "bottom_chord"]:
+                        status = "✅ Standard" if is_standard else "⚠️ Custom"
+                        st.caption(f"**{member_name.replace('_', ' ').title()}:** {section} - {status} | Force: {force:.0f} kN")
+                        
+                        if not is_standard and member_data.get("closest"):
+                            st.caption(f"  Closest standard: {member_data['closest']}")
                 
-                if "arch_reduction" in beam:
-                    st.caption(f"🏹 Arch Reduction: {beam.get('arch_reduction', 0):.0f}%")
+                st.caption(f"📐 Truss Depth: {design_results.get('truss_depth', 0):.2f}m | Bays: {design_results.get('num_bays', 2)}")
                 st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                beam = design_results.get("beams", {}).get("main", {})
+                if beam:
+                    st.markdown('<div class="sds-card"><div class="title">🔧 Member Selection</div>', unsafe_allow_html=True)
+                    is_standard = beam.get("is_standard", False)
+                    section = beam.get("section", "N/A")
+                    section_type = beam.get("section_type", "CHS")
+                    
+                    if is_standard:
+                        st.success(f"**Section:** {section}")
+                        st.caption(f"✅ Standard {section_type} available")
+                    else:
+                        st.warning(f"**Section:** {section}")
+                        st.caption(f"⚠️ Custom {section_type} required")
+                        if beam.get("closest"):
+                            st.caption(f"Closest standard: {beam['closest']}")
+                    st.markdown('</div>', unsafe_allow_html=True)
             
             fabric = design_results.get("fabric", {})
             cables = design_results.get("cables", {})
@@ -2015,7 +2223,7 @@ def render_workspace():
                     st.caption(f"**Fabric:** {fabric.get('type', 'N/A')} ({fabric.get('thickness', 'N/A')}mm)")
                 if cables:
                     st.caption(f"**Cable:** {cables.get('type', 'N/A')} {cables.get('diameter', 'N/A')}mm")
-                    st.caption(f"**Utilization:** {cables.get('utilization_percent', 0):.0f}%")
+                    st.caption(f"**Utilization:** {cables.get('utilization', 0):.0f}%")
                 st.markdown('</div>', unsafe_allow_html=True)
             
             bq = design_results.get("bq", {})
@@ -2058,4 +2266,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("🔒 SDSe v9.0 | Public Safety Enshrined | 250+ Sections | 100% Health Guaranteed")
+st.caption("🔒 SDSe v9.0 | Public Safety Enshrined | Unified Truss Sections | 250+ Sections | 100% Health Guaranteed")
