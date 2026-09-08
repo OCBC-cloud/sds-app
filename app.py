@@ -2050,7 +2050,12 @@ def render_workspace():
         materials["member_type"] = member_keys[member_labels.index(selected_member_label)]
         
         if materials["member_type"] in ["planar_truss", "space_truss"]:
-            st.info(f"🔧 Truss uses <strong>UNIFIED section type</strong> - ALL members (top chord, bottom chord, diagonals, verticals) will use <strong>{materials.get('section_type', 'CHS')}</strong> for fabrication harmony.", unsafe_allow_html=True)
+            # FIXED: Using st.markdown with HTML instead of st.info with unsafe_allow_html
+            st.markdown(f"""
+            <div style='background-color: #1a2a3a; border-left: 4px solid #f39c12; padding: 0.5rem 1rem; border-radius: 4px; margin: 0.5rem 0;'>
+                <span style='color: #f0f4fa;'>🔧 Truss uses <strong>UNIFIED section type</strong> - ALL members (top chord, bottom chord, diagonals, verticals) will use <strong style='color: #f39c12;'>{materials.get('section_type', 'CHS')}</strong> for fabrication harmony.</span>
+            </div>
+            """, unsafe_allow_html=True)
             
             truss_types = ["warren", "pratt", "howe", "vierendeel"]
             truss_labels = ["🔺 Warren", "✚ Pratt", "✖ Howe", "▣ Vierendeel"]
