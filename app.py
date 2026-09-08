@@ -1482,7 +1482,10 @@ def generate_saddle_span(params, materials=None):
             bgcolor='#0a0e17',
             camera=dict(
                 eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.7),
-                up=dict(x=0, y=0, z=1)
+                up=dict(x=0, y = 0, z=1)
+
+
+
             ),
             dragmode='turntable',
             hovermode='closest'
@@ -1546,10 +1549,7 @@ def generate_arch(params):
     fig = go.Figure()
     fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Arch', line=dict(width=6, color='#FF6B6B')))
     fig.add_trace(go.Scatter3d(x=[-span/2, span/2], y=[0,0], z=[0,0], mode='markers', name='Supports', marker=dict(color='#4ECDC4', size=10, symbol='square')))
-    fig.update_layout(scene=dict(xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y = 1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
-
-
-
+    fig.update_layout(scene=dict(xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
     return fig
 
 def generate_cable_net(params):
