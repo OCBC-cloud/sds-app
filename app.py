@@ -60,7 +60,7 @@ PLOTLY_3D_CONFIG = {
 }
 
 # ============================================================
-# DARK MODE CSS
+# DARK MODE CSS - REFINED FOR 3D VIEWER
 # ============================================================
 dark_mode_css = """
     <style>
@@ -106,10 +106,12 @@ dark_mode_css = """
     .stWarning { background-color: #4a3a1a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; }
     #MainMenu, footer, header, .stDeployButton { display: none !important; }
     
+    /* REFINED 3D VIEWER - Full container with no scrolling */
     .stPlotlyChart {
         width: 100% !important;
         height: 100% !important;
-        min-height: 500px;
+        min-height: 480px !important;
+        max-height: 600px !important;
     }
     .js-plotly-plot {
         width: 100% !important;
@@ -120,15 +122,28 @@ dark_mode_css = """
         height: 100% !important;
     }
     
+    /* Ensure the plotly chart container fills its space */
+    .element-container:has(.stPlotlyChart) {
+        width: 100% !important;
+        height: 100% !important;
+    }
+    
+    /* Remove scrollbars from plotly container */
+    .stPlotlyChart > div {
+        overflow: hidden !important;
+    }
+    
     @media (max-width: 768px) {
         .stPlotlyChart {
             min-height: 350px !important;
+            max-height: 450px !important;
         }
     }
     
     @media (max-width: 480px) {
         .stPlotlyChart {
             min-height: 280px !important;
+            max-height: 380px !important;
         }
     }
     
@@ -205,6 +220,42 @@ dark_mode_css = """
     .health-report-row .score { font-weight: 700; }
     .health-report-row .status { color: #6a7a8a; font-size: 0.8rem; }
     .health-report-row .details { color: #6a7a8a; font-size: 0.75rem; }
+    
+    /* Member size recommendation display - matching other member displays */
+    .member-recommendation {
+        background-color: #1a2a3a;
+        border: 2px solid #f39c12;
+        border-radius: 8px;
+        padding: 0.8rem 1.2rem;
+        margin: 0.5rem 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .member-recommendation .label {
+        color: #b0c4de;
+        font-size: 0.9rem;
+    }
+    .member-recommendation .value {
+        color: #ffffff;
+        font-size: 1.2rem;
+        font-weight: 700;
+    }
+    .member-recommendation .badge {
+        display: inline-block;
+        padding: 0.2rem 0.8rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .member-recommendation .badge-pass {
+        background-color: #2ecc71;
+        color: #0a0e17;
+    }
+    .member-recommendation .badge-check {
+        background-color: #f39c12;
+        color: #0a0e17;
+    }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -2332,8 +2383,7 @@ def render_top_nav():
     st.markdown(f"""
     <div style='display: flex; justify-content: space-between; padding: 0.2rem 0;'>
         <span style='color: #8a9aaa; font-size: 0.7rem;'>
-            🔒 Public Safety Enshrined in All Calculations
-        </span>
+            🔒 Public Safety Enshrined in All Calculations        </span>
         <span style='color: #8a9aaa; font-size: 0.7rem;'>
             Projects: {len(st.session_state.saved_projects)} / Unlimited
         </span>
@@ -2765,7 +2815,7 @@ def render_reports():
             st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE - FINAL COMPLETE LAYOUT WITH HEALTH REPORT
+# WORKSPACE PAGE - REFINED WITH MEMBER RECOMMENDATION DISPLAY
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -3083,6 +3133,7 @@ def render_workspace():
         else:
             fig = generate_simple_structure_3d(params, typology)
         
+        # REFINED: Use container with full width and proper height
         st.plotly_chart(
             fig,
             use_container_width=True,
@@ -3127,7 +3178,7 @@ def render_workspace():
         st.divider()
         
         # ============================================================
-        # DESIGN RESULTS - WITH HEALTH REPORT
+        # DESIGN RESULTS - WITH MEMBER RECOMMENDATION DISPLAY
         # ============================================================
         if "design_results" in st.session_state and st.session_state.design_results:
             design_results = st.session_state.design_results
@@ -3143,7 +3194,37 @@ def render_workspace():
                 """, unsafe_allow_html=True)
             
             # ============================================================
-            # HEALTH REPORT - COMPONENT BREAKDOWN (RESTORED!)
+            # MEMBER RECOMMENDATION - REFINED DISPLAY
+            # ============================================================
+            beam = design_results.get("beams", {}).get("main")
+            if beam and beam.get("section"):
+                sec_type = beam.get("section_type", materials.get("section_type", "CHS"))
+                is_adequate = beam.get("is_adequate", False)
+                
+                # Get section properties for display
+                section_props = SECTION_PROPERTIES.get(beam["section"], {})
+                weight_per_m = section_props.get("weight", 0)
+                depth = section_props.get("depth", 0)
+                
+                st.markdown(f"""
+                <div class="member-recommendation">
+                    <div>
+                        <div class="label">🔧 Recommended Member Size</div>
+                        <div class="value">{beam['section']} {get_section_tag(sec_type)}</div>
+                        <div style="color: #8a9aaa; font-size: 0.75rem; margin-top: 0.2rem;">
+                            Depth: {depth:.1f}mm | Weight: {weight_per_m:.1f} kg/m | Type: {sec_type}
+                        </div>
+                    </div>
+                    <div>
+                        <span class="badge {'badge-pass' if is_adequate else 'badge-check'}">
+                            {'✅ PASS' if is_adequate else '⚠️ CHECK'}
+                        </span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # ============================================================
+            # HEALTH REPORT - COMPONENT BREAKDOWN
             # ============================================================
             health_report = design_results.get("health_report", {})
             if health_report:
@@ -3211,16 +3292,17 @@ def render_workspace():
             st.markdown('</div>', unsafe_allow_html=True)
             
             # ============================================================
-            # MEMBER SELECTION
+            # MEMBER SELECTION - DETAILED
             # ============================================================
-            beam = design_results.get("beams", {}).get("main")
             if beam:
-                st.markdown('<div class="sds-card"><div class="title">🔧 Member Selection</div>', unsafe_allow_html=True)
+                st.markdown('<div class="sds-card"><div class="title">🔧 Member Details</div>', unsafe_allow_html=True)
                 sec_type = beam.get("section_type", materials.get("section_type", "CHS"))
-                st.markdown(f"**Selected:** {beam['section']} {get_section_tag(sec_type)}")
+                st.markdown(f"**Selected Section:** {beam['section']} {get_section_tag(sec_type)}")
                 if beam.get("note"):
                     st.info(beam["note"])
-                st.markdown(f"**Moment:** {beam['moment_capacity']:.0f} / {beam['required_moment']:.0f} kNm")
+                st.markdown(f"**Moment Capacity:** {beam['moment_capacity']:.0f} kNm")
+                st.markdown(f"**Required Moment:** {beam['required_moment']:.0f} kNm")
+                st.markdown(f"**Adequate:** {'✅ Yes' if beam.get('is_adequate', False) else '⚠️ Check'}")
                 
                 if "arch_reduction" in beam:
                     st.markdown(f"**Arch Reduction:** {beam['arch_reduction']:.0f}%")
@@ -3233,10 +3315,6 @@ def render_workspace():
                         st.markdown(f"**Governing Area:** {wind_data.get('governing_area', 0):.0f} m²")
                         st.markdown(f"**Wind Direction:** {wind_data.get('governing_direction', 'N/A').upper()}")
                 
-                if beam.get('is_adequate', False):
-                    st.success("✅ Adequate")
-                else:
-                    st.warning("⚠️ Check")
                 st.markdown('</div>', unsafe_allow_html=True)
             
             # ============================================================
