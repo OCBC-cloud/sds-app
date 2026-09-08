@@ -2815,7 +2815,7 @@ def render_reports():
             st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE - REFINED WITH MEMBER RECOMMENDATION DISPLAY
+# WORKSPACE PAGE - REFINED WITH MEMBER RECOMMENDATION DISPLAY & CHS FIX
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -3224,9 +3224,15 @@ def render_workspace():
                 """, unsafe_allow_html=True)
             
             # ============================================================
-            # HEALTH REPORT - COMPONENT BREAKDOWN
+            # HEALTH REPORT - COMPONENT BREAKDOWN WITH CHS DISPLAY FIX
             # ============================================================
             health_report = design_results.get("health_report", {})
+            # Get beam data for CHS display
+            beam = design_results.get("beams", {}).get("main")
+            selected_section = design_results.get("beams", {}).get("selected", "N/A")
+            section_type = design_results.get("beams", {}).get("section_type", "N/A")
+            is_adequate = design_results.get("beams", {}).get("is_adequate", False)
+            
             if health_report:
                 st.markdown("## 🏥 Component Health Report")
                 
@@ -3258,6 +3264,12 @@ def render_workspace():
                                     v = f"{v:.0f}"
                             detail_items.append(f"{k}: {v}")
                         detail_text = " | ".join(detail_items)
+                    
+                    # ADD CHS SECTION INFORMATION FOR MAIN BEAMS
+                    if component == "Main Beams" and selected_section != "N/A":
+                        section_tag = get_section_tag(section_type)
+                        pass_status = "✅ PASS" if is_adequate else "⚠️ CHECK"
+                        detail_text = f"Section: {selected_section} {section_tag} | {pass_status} | " + detail_text
                     
                     st.markdown(f"""
                     <div class="health-report-row">
