@@ -199,6 +199,22 @@ dark_mode_css = """
         font-size: 1.1rem;
         font-weight: 600;
     }
+    .health-100 {
+        background-color: #1a3a2a;
+        border: 2px solid #2ecc71;
+        border-radius: 12px;
+        padding: 1rem;
+        text-align: center;
+    }
+    .health-100 .big {
+        font-size: 3rem;
+        font-weight: 700;
+        color: #2ecc71;
+    }
+    .health-100 .sub {
+        color: #b0c4de;
+        font-size: 1rem;
+    }
     </style>
 """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
@@ -517,180 +533,25 @@ def calculate_wind_load_enshrined(span, apex, rise, standard="MY"):
         "recommendation": "Full design required" if is_critical else "Preliminary design sufficient"
     }
 
-def find_next_section(current_section, section_type="CHS"):
+def get_sections_by_type(section_type):
     db = SECTION_PROPERTIES
+    type_map = {
+        "CHS": "CHS",
+        "SHS": "SHS",
+        "RHS": "RHS",
+        "I-Beam": "I-Beam",
+        "Angle": "Angle",
+        "Channel": "Channel"
+    }
+    actual_type = type_map.get(section_type, "CHS")
+    
     sections = []
     for name, props in db.items():
-        if props.get("type") == section_type:
-            sections.append((name, props["W_el"], props))
-    sections.sort(key=lambda x: x[1])
-    
-    current_w = 0
-    for name, w, props in sections:
-        if name == current_section:
-            current_w = w
-            break
-    
-    for name, w, props in sections:
-        if w > current_w:
-            return name, props
-    
-    return None, None
+        if props.get("type") == actual_type:
+            sections.append((name, props))
+    sections.sort(key=lambda x: x[1]["W_el"])
+    return sections
 
-def calculate_health_score_with_recommendations(beam_result, wind_data, cables, fabric):
-    health_report = {
-        "components": {},
-        "overall_score": 100,
-        "recommendations": [],
-        "passed_all": True
-    }
-    
-    # ===== 1. MAIN BEAM HEALTH =====
-    if beam_result:
-        beam_score = 100
-        beam_issues = []
-        
-        combined_ratio = beam_result.get("combined_ratio", 0)
-        if combined_ratio > 1.0:
-            beam_score = 80
-            beam_issues.append({
-                "component": "Combined Check",
-                "issue": f"Combined ratio (M/Mcr + N/Ncr) = {combined_ratio:.2f} exceeds 1.0",
-                "severity": "high"
-            })
-            
-            current_rise = beam_result.get("rise_span_ratio", 0) * beam_result.get("span", 10)
-            if current_rise > 0:
-                recommended_rise = current_rise * 1.25
-                health_report["recommendations"].append({
-                    "parameter": "Rise (A)",
-                    "current": f"{current_rise:.1f}m",
-                    "recommended": f"{recommended_rise:.1f}m",
-                    "reason": f"Combined ratio will reduce from {combined_ratio:.2f} to ~{(combined_ratio * 0.8):.2f}",
-                    "action": "Increase rise height"
-                })
-            
-            current_section = beam_result.get("section", "")
-            if current_section:
-                next_section, _ = find_next_section(current_section, beam_result.get("section_type", "CHS"))
-                if next_section:
-                    health_report["recommendations"].append({
-                        "parameter": "Section",
-                        "current": current_section,
-                        "recommended": next_section,
-                        "reason": f"Combined ratio will reduce from {combined_ratio:.2f} to ~{(combined_ratio * 0.85):.2f}",
-                        "action": "Upgrade section"
-                    })
-        
-        w_actual = beam_result.get("W_actual", 0)
-        w_required = beam_result.get("W_required", 0)
-        if w_required > 0 and w_actual / w_required < 0.9:
-            beam_score = min(beam_score, 85)
-            beam_issues.append({
-                "component": "Section Modulus",
-                "issue": f"W_actual/W_required = {w_actual/w_required:.2f} < 0.9",
-                "severity": "medium"
-            })
-        
-        health_report["components"]["Main Beams"] = {
-            "score": beam_score,
-            "issues": beam_issues,
-            "status": "✅ PASS" if beam_score >= 90 else "⚠️ CHECK" if beam_score >= 70 else "❌ FAIL"
-        }
-    
-    # ===== 2. CABLES HEALTH =====
-    if cables:
-        cable_score = 100
-        cable_issues = []
-        
-        cable_force = cables.get("force_per_cable", 0)
-        cable_breaking = cables.get("breaking_load", 0)
-        cable_diameter = cables.get("diameter", 0)
-        cable_type = cables.get("type", "")
-        
-        if cable_breaking > 0:
-            cable_utilization = cable_force / cable_breaking
-            cable_score = max(0, 100 - (cable_utilization * 50))
-            
-            if cable_utilization > 0.8:
-                cable_issues.append({
-                    "component": "Cable Capacity",
-                    "issue": f"Cable utilization = {cable_utilization*100:.0f}% > 80%",
-                    "severity": "high"
-                })
-                
-                cable_data = CABLE_PROPERTIES.get(cable_type, {})
-                diameters = cable_data.get("diameters", {})
-                next_diam = None
-                for diam, load in sorted(diameters.items()):
-                    if diam > cable_diameter:
-                        next_diam = diam
-                        break
-                
-                if next_diam:
-                    health_report["recommendations"].append({
-                        "parameter": "Cable Diameter",
-                        "current": f"{cable_diameter}mm",
-                        "recommended": f"{next_diam}mm",
-                        "reason": f"Current cable {cable_utilization*100:.0f}% utilized. Next size reduces to ~{(cable_force/diameters.get(next_diam, 1))*100:.0f}%",
-                        "action": "Increase cable diameter"
-                    })
-        
-        health_report["components"]["Cables"] = {
-            "score": cable_score,
-            "issues": cable_issues,
-            "status": "✅ PASS" if cable_score >= 90 else "⚠️ CHECK" if cable_score >= 70 else "❌ FAIL",
-            "details": {
-                "diameter": cable_diameter,
-                "utilization": f"{cable_utilization*100:.0f}%" if cable_breaking > 0 else "N/A"
-            }
-        }
-    
-    # ===== 3. FABRIC HEALTH =====
-    if fabric:
-        fabric_score = 100
-        fabric_issues = []
-        
-        fabric_strength = fabric.get("strength", 0)
-        fabric_thickness = fabric.get("thickness", "0.8")
-        
-        health_report["components"]["Fabric"] = {
-            "score": fabric_score,
-            "issues": fabric_issues,
-            "status": "✅ PASS",
-            "details": {
-                "thickness": f"{fabric_thickness}mm",
-                "strength": f"{fabric_strength} kN/m"
-            }
-        }
-    
-    # ===== 4. ARCH ACTION (Positive indicator) =====
-    if beam_result and "arch_reduction" in beam_result:
-        arch_reduction = beam_result.get("arch_reduction", 0)
-        health_report["components"]["Arch Action"] = {
-            "score": 100,
-            "issues": [],
-            "status": "✅ PASS (EFFICIENT)",
-            "details": {
-                "reduction": f"{arch_reduction:.0f}%",
-                "note": "Arch action reduces bending significantly"
-            }
-        }
-    
-    # ===== OVERALL SCORE =====
-    component_scores = [v["score"] for v in health_report["components"].values()]
-    if component_scores:
-        health_report["overall_score"] = int(sum(component_scores) / len(component_scores))
-    else:
-        health_report["overall_score"] = 100
-    
-    health_report["passed_all"] = all(v["score"] >= 90 for v in health_report["components"].values())
-    
-    return health_report
-
-# ============================================================
-# ENGINEERING FUNCTIONS
-# ============================================================
 def calculate_required_section_enshrined(load_kN, span_m, material_type, section_type, fy=355, typology="saddle_span", rise_m=6.0, apex_m=15.0):
     safety = 1.5
     
@@ -881,6 +742,271 @@ def calculate_required_section_enshrined(load_kN, span_m, material_type, section
     
     return None
 
+# ============================================================
+# AUTO-OPTIMIZATION ENGINE
+# ============================================================
+def auto_optimize_section(params, materials, typology, load_kN, fy):
+    section_type = materials.get("section_type", "CHS")
+    all_sections = get_sections_by_type(section_type)
+    
+    best_result = None
+    
+    for section_name, section_props in all_sections:
+        test_materials = materials.copy()
+        test_materials["section_type"] = section_name
+        
+        result = calculate_required_section_enshrined(
+            load_kN, 
+            params.get("B", 10.0), 
+            materials.get("material_type", "Steel"),
+            section_name,
+            fy,
+            typology,
+            params.get("A", 6.0),
+            params.get("LAA", 15.0)
+        )
+        
+        if result:
+            combined_ratio = result.get("combined_ratio", 0)
+            is_adequate = result.get("is_adequate", False)
+            
+            if typology == "saddle_span":
+                if combined_ratio <= 1.0 and is_adequate:
+                    return result
+            else:
+                if is_adequate:
+                    return result
+            
+            if best_result is None:
+                best_result = result
+            elif result.get("combined_ratio", 10) < best_result.get("combined_ratio", 10):
+                best_result = result
+    
+    if best_result:
+        best_result["needs_geometry_change"] = True
+        best_result["geometry_recommendation"] = calculate_geometry_recommendation(
+            params, materials, typology, load_kN, fy
+        )
+    
+    return best_result
+
+def calculate_geometry_recommendation(params, materials, typology, load_kN, fy):
+    current_rise = params.get("A", 6.0)
+    current_span = params.get("B", 10.0)
+    current_apex = params.get("LAA", 15.0)
+    
+    recommendations = []
+    
+    test_rise = current_rise * 1.3
+    test_params = params.copy()
+    test_params["A"] = test_rise
+    
+    test_materials = materials.copy()
+    test_sections = get_sections_by_type(materials.get("section_type", "CHS"))
+    
+    if test_sections:
+        largest_section = test_sections[-1][0]
+        result = calculate_required_section_enshrined(
+            load_kN,
+            current_span,
+            materials.get("material_type", "Steel"),
+            largest_section,
+            fy,
+            typology,
+            test_rise,
+            current_apex
+        )
+        
+        if result and result.get("combined_ratio", 10) <= 1.0:
+            recommendations.append({
+                "parameter": "Rise (A)",
+                "current": f"{current_rise:.1f}m",
+                "recommended": f"{test_rise:.1f}m",
+                "reason": "Increasing the rise reduces bending moment and improves arch action",
+                "action": "Increase Rise"
+            })
+    
+    test_span = current_span * 0.85
+    test_params = params.copy()
+    test_params["B"] = test_span
+    
+    test_materials = materials.copy()
+    if test_sections:
+        largest_section = test_sections[-1][0]
+        result = calculate_required_section_enshrined(
+            load_kN,
+            test_span,
+            materials.get("material_type", "Steel"),
+            largest_section,
+            fy,
+            typology,
+            current_rise,
+            current_apex
+        )
+        
+        if result and result.get("combined_ratio", 10) <= 1.0:
+            recommendations.append({
+                "parameter": "Span (B)",
+                "current": f"{current_span:.1f}m",
+                "recommended": f"{test_span:.1f}m",
+                "reason": "Reducing the span reduces the overall load and bending moment",
+                "action": "Reduce Span"
+            })
+    
+    if not recommendations:
+        recommended_rise = current_rise * 1.5
+        recommendations.append({
+            "parameter": "Rise (A)",
+            "current": f"{current_rise:.1f}m",
+            "recommended": f"{recommended_rise:.1f}m",
+            "reason": "Current geometry cannot be supported. Increase rise significantly to reduce bending.",
+            "action": "Increase Rise"
+        })
+    
+    return recommendations
+
+# ============================================================
+# HEALTH SCORE WITH FIXED CABLE DISPLAY
+# ============================================================
+def calculate_health_score_with_recommendations(beam_result, wind_data, cables, fabric):
+    health_report = {
+        "components": {},
+        "overall_score": 100,
+        "recommendations": [],
+        "passed_all": True
+    }
+    
+    # ===== 1. MAIN BEAM HEALTH =====
+    if beam_result:
+        beam_score = 100
+        beam_issues = []
+        
+        combined_ratio = beam_result.get("combined_ratio", 0)
+        if combined_ratio > 1.0:
+            beam_score = 80
+            beam_issues.append({
+                "component": "Combined Check",
+                "issue": f"Combined ratio (M/Mcr + N/Ncr) = {combined_ratio:.2f} exceeds 1.0",
+                "severity": "high"
+            })
+            
+            if beam_result.get("needs_geometry_change") and beam_result.get("geometry_recommendation"):
+                for rec in beam_result.get("geometry_recommendation", []):
+                    health_report["recommendations"].append(rec)
+        
+        w_actual = beam_result.get("W_actual", 0)
+        w_required = beam_result.get("W_required", 0)
+        if w_required > 0 and w_actual / w_required < 0.9:
+            beam_score = min(beam_score, 85)
+            beam_issues.append({
+                "component": "Section Modulus",
+                "issue": f"W_actual/W_required = {w_actual/w_required:.2f} < 0.9",
+                "severity": "medium"
+            })
+        
+        health_report["components"]["Main Beams"] = {
+            "score": beam_score,
+            "issues": beam_issues,
+            "status": "✅ PASS" if beam_score >= 90 else "⚠️ CHECK" if beam_score >= 70 else "❌ FAIL"
+        }
+    
+    # ===== 2. CABLES HEALTH - FIXED DECIMAL FORMATTING =====
+    if cables:
+        cable_score = 100
+        cable_issues = []
+        
+        cable_force = cables.get("force_per_cable", 0)
+        cable_breaking = cables.get("breaking_load", 0)
+        cable_diameter = cables.get("diameter", 0)
+        cable_type = cables.get("type", "")
+        
+        cable_utilization_percent = 0.0
+        if cable_breaking > 0:
+            cable_utilization = cable_force / cable_breaking
+            cable_utilization_percent = cable_utilization * 100
+            cable_score = max(0, 100 - (cable_utilization * 50))
+            
+            if cable_utilization > 0.8:
+                cable_issues.append({
+                    "component": "Cable Capacity",
+                    "issue": f"Cable utilization = {cable_utilization_percent:.1f}% > 80%",
+                    "severity": "high"
+                })
+                
+                cable_data = CABLE_PROPERTIES.get(cable_type, {})
+                diameters = cable_data.get("diameters", {})
+                next_diam = None
+                for diam, load in sorted(diameters.items()):
+                    if diam > cable_diameter:
+                        next_diam = diam
+                        break
+                
+                if next_diam and diameters.get(next_diam, 0) > 0:
+                    new_utilization = (cable_force / diameters.get(next_diam, 1)) * 100
+                    health_report["recommendations"].append({
+                        "parameter": "Cable Diameter",
+                        "current": f"{cable_diameter}mm",
+                        "recommended": f"{next_diam}mm",
+                        "reason": f"Current cable {cable_utilization_percent:.1f}% utilized. Next size reduces to {new_utilization:.1f}%",
+                        "action": "Increase cable diameter"
+                    })
+        
+        # FIXED: Display with proper decimal formatting
+        health_report["components"]["Cables"] = {
+            "score": cable_score,
+            "issues": cable_issues,
+            "status": "✅ PASS" if cable_score >= 90 else "⚠️ CHECK" if cable_score >= 70 else "❌ FAIL",
+            "details": {
+                "diameter": f"{cable_diameter}mm" if cable_diameter else "N/A",
+                "utilization": f"{cable_utilization_percent:.1f}%" if cable_breaking > 0 else "N/A"
+            }
+        }
+    
+    # ===== 3. FABRIC HEALTH =====
+    if fabric:
+        fabric_score = 100
+        fabric_issues = []
+        
+        fabric_strength = fabric.get("strength", 0)
+        fabric_thickness = fabric.get("thickness", "0.8")
+        
+        health_report["components"]["Fabric"] = {
+            "score": fabric_score,
+            "issues": fabric_issues,
+            "status": "✅ PASS",
+            "details": {
+                "thickness": f"{fabric_thickness}mm",
+                "strength": f"{fabric_strength} kN/m"
+            }
+        }
+    
+    # ===== 4. ARCH ACTION (Positive indicator) =====
+    if beam_result and "arch_reduction" in beam_result:
+        arch_reduction = beam_result.get("arch_reduction", 0)
+        health_report["components"]["Arch Action"] = {
+            "score": 100,
+            "issues": [],
+            "status": "✅ PASS (EFFICIENT)",
+            "details": {
+                "reduction": f"{arch_reduction:.0f}%",
+                "note": "Arch action reduces bending significantly"
+            }
+        }
+    
+    # ===== OVERALL SCORE =====
+    component_scores = [v["score"] for v in health_report["components"].values()]
+    if component_scores:
+        health_report["overall_score"] = int(sum(component_scores) / len(component_scores))
+    else:
+        health_report["overall_score"] = 100
+    
+    health_report["passed_all"] = all(v["score"] >= 90 for v in health_report["components"].values())
+    
+    return health_report
+
+# ============================================================
+# ENGINEERING FUNCTIONS
+# ============================================================
 def calculate_wind_load(span, laa, standard):
     membrane_area = span * laa * 1.1
     wind_speed = WIND_SPEEDS.get(standard, 30.0)
@@ -1968,7 +2094,8 @@ def export_to_pdf(results, project_info, materials, filename="report.pdf"):
             axes[0, 1].text(0.1, y_pos - 0.05, f"Fabric: {fabric.get('type', 'N/A')} ({fabric.get('thickness', 'N/A')}mm)", fontsize=11, color='#b0c4de')
             y_pos -= 0.08
         if cables:
-            axes[0, 1].text(0.1, y_pos, f"Cable: {cables.get('type', 'N/A')} {cables.get('diameter', 'N/A')}mm", fontsize=11, color='#b0c4de')
+            cable_util = cables.get('utilization', 'N/A')
+            axes[0, 1].text(0.1, y_pos, f"Cable: {cables.get('diameter', 'N/A')}mm, {cable_util} utilized", fontsize=11, color='#b0c4de')
             y_pos -= 0.08
         
         beam = results.get('beams', {}).get('main', {})
@@ -2011,7 +2138,7 @@ def export_to_pdf(results, project_info, materials, filename="report.pdf"):
         return None
 
 # ============================================================
-# MAIN DESIGN ENGINE
+# MAIN DESIGN ENGINE - WITH AUTO-OPTIMIZATION
 # ============================================================
 def auto_design_structure(params, materials, typology="saddle_span"):
     if typology == "geodesic_dome":
@@ -2094,10 +2221,8 @@ def auto_design_structure(params, materials, typology="saddle_span"):
     fy = 355 if material_type == "Steel" else 276 if material_type == "Aluminum" else 40
     
     if member_type == "single_beam":
-        beam_result = calculate_required_section_enshrined(
-            total_load, span, material_type, section_type, fy, 
-            typology=typology, rise_m=rise, apex_m=laa
-        )
+        beam_result = auto_optimize_section(params, materials, typology, total_load, fy)
+        
         if beam_result:
             results["beams"]["main"] = beam_result
             results["beams"]["selected"] = beam_result["section"]
@@ -2116,6 +2241,8 @@ def auto_design_structure(params, materials, typology="saddle_span"):
                 results["beams"]["rise_span_ratio"] = beam_result.get("rise_span_ratio", 0)
                 results["beams"]["enshrined_safety"] = True
                 results["beams"]["wind_data"] = wind_data
+                results["beams"]["needs_geometry_change"] = beam_result.get("needs_geometry_change", False)
+                results["beams"]["geometry_recommendation"] = beam_result.get("geometry_recommendation", [])
             
             results["beams"]["I_required"] = beam_result.get("I_required", 0)
             results["beams"]["I_actual"] = beam_result.get("I_actual", 0)
@@ -2295,23 +2422,36 @@ def display_health_report(health_report):
     st.markdown("---")
     
     overall = health_report.get("overall_score", 0)
+    
     if overall >= 90:
         color = "#2ecc71"
         status = "✅ ALL COMPONENTS HEALTHY"
+        st.markdown(f"""
+        <div class="health-100">
+            <div class="big">🎉 {overall}%</div>
+            <div class="sub">{status}</div>
+        </div>
+        """, unsafe_allow_html=True)
     elif overall >= 70:
         color = "#f39c12"
         status = "⚠️ SOME COMPONENTS NEED ATTENTION"
+        st.markdown(f"""
+        <div style="text-align:center;padding:1rem;background:#141e2b;border-radius:12px;border:2px solid {color};">
+            <span style="font-size:2.5rem;font-weight:700;color:{color};">{overall}%</span>
+            <br>
+            <span style="font-size:1.2rem;color:{color};">{status}</span>
+        </div>
+        """, unsafe_allow_html=True)
     else:
         color = "#e74c3c"
         status = "❌ CRITICAL ISSUES FOUND"
-    
-    st.markdown(f"""
-    <div style="text-align:center;padding:1rem;background:#141e2b;border-radius:12px;border:2px solid {color};">
-        <span style="font-size:2.5rem;font-weight:700;color:{color};">{overall}%</span>
-        <br>
-        <span style="font-size:1.2rem;color:{color};">{status}</span>
-    </div>
-    """, unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="text-align:center;padding:1rem;background:#141e2b;border-radius:12px;border:2px solid {color};">
+            <span style="font-size:2.5rem;font-weight:700;color:{color};">{overall}%</span>
+            <br>
+            <span style="font-size:1.2rem;color:{color};">{status}</span>
+        </div>
+        """, unsafe_allow_html=True)
     
     recommendations = health_report.get("recommendations", [])
     if recommendations:
@@ -2344,7 +2484,8 @@ def display_health_report(health_report):
         
         st.info("💡 Update the parameters above and re-run the design to achieve 100% health score.")
     else:
-        st.success("🎉 All components are healthy! Your design is 100% optimized.")
+        if overall >= 90:
+            st.success("🎉 All components are healthy! Your design is 100% optimized.")
 
 # ============================================================
 # STRUCTURE INPUT FORMS
@@ -3465,9 +3606,12 @@ def render_workspace():
                 if fabric:
                     st.markdown(f"**Fabric:** {fabric.get('type', 'N/A')} ({fabric.get('thickness', 'N/A')}mm)")
                 if cables:
+                    cable_util = cables.get('utilization', 'N/A')
                     st.markdown(f"**Cable:** {cables.get('type', 'N/A')} {cables.get('diameter', 'N/A')}mm")
                     st.markdown(f"**Force per Cable:** {cables.get('force_per_cable', 0):.1f} kN")
                     st.markdown(f"**Breaking Load:** {cables.get('breaking_load', 0):.1f} kN")
+                    if cable_util != 'N/A':
+                        st.markdown(f"**Utilization:** {cable_util}")
                 st.markdown('</div>', unsafe_allow_html=True)
             
             dome_data = design_results.get("dome_data", {})
