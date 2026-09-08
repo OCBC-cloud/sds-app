@@ -1258,7 +1258,7 @@ def design_geodesic_dome(params):
     }
 
 # ============================================================
-# 3D GENERATORS - ALL 25 STRUCTURE TYPES
+# 3D GENERATORS - ALL 25 STRUCTURE TYPES - FIXED
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span = params.get("B", 10.0)
@@ -1363,24 +1363,9 @@ def generate_saddle_span(params, materials=None):
             xaxis_title='Span (m)',
             yaxis_title='Width (m)',
             zaxis_title='Height (m)',
-            xaxis=dict(
-                color='#b0c4de', 
-                gridcolor='#1a2a3a',
-                tickfont=dict(size=8),
-                titlefont=dict(size=10)
-            ),
-            yaxis=dict(
-                color='#b0c4de', 
-                gridcolor='#1a2a3a',
-                tickfont=dict(size=8),
-                titlefont=dict(size=10)
-            ),
-            zaxis=dict(
-                color='#b0c4de', 
-                gridcolor='#1a2a3a',
-                tickfont=dict(size=8),
-                titlefont=dict(size=10)
-            ),
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(
                 eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6),
@@ -1412,9 +1397,9 @@ def generate_tent(params):
     fig.update_layout(
         scene=dict(
             xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
-            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
         ),
@@ -1437,9 +1422,9 @@ def generate_tensile(params):
     fig.update_layout(
         scene=dict(
             xaxis_title='Length (m)', yaxis_title='Width (m)', zaxis_title='Height (m)',
-            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
         ),
@@ -1465,9 +1450,9 @@ def generate_portal(params):
     fig.update_layout(
         scene=dict(
             xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
-            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
         ),
@@ -1489,9 +1474,9 @@ def generate_arch(params):
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)',
-            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
         ),
@@ -1519,9 +1504,9 @@ def generate_cable_net(params):
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)',
-            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
         ),
@@ -1570,9 +1555,9 @@ def generate_geodesic_dome_3d(params):
             xaxis_title='X (m)',
             yaxis_title='Y (m)',
             zaxis_title='Z (m)',
-            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(
                 eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6),
@@ -1633,9 +1618,9 @@ def generate_simple_structure_3d(params, typology):
             xaxis_title='Span (m)',
             yaxis_title='Width (m)',
             zaxis_title='Height (m)',
-            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
-            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(
                 eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6),
