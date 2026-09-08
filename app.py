@@ -53,19 +53,20 @@ PLOTLY_3D_CONFIG = {
 }
 
 # ============================================================
-# DARK MODE CSS
+# DARK MODE CSS - WITH BIGGER 3D VIEWER & SMALLER TEXT
 # ============================================================
 dark_mode_css = """
     <style>
     .stApp { background-color: #0a0e17 !important; color: #f0f4fa !important; }
     .stApp > header { display: none !important; }
-    .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; max-width: 100% !important; }
+    .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; max-width: 100% !important; padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
     h1, h2, h3, h4, h5, h6 { color: #ffffff !important; font-weight: 600 !important; }
-    label { color: #ffffff !important; font-weight: 400 !important; }
+    label { color: #ffffff !important; font-weight: 400 !important; font-size: 0.8rem !important; }
     .stButton > button {
         background-color: #1e2a3a !important; color: #ffffff !important;
         border: 1px solid #2a3a4f !important; border-radius: 8px !important;
-        padding: 0.5rem 1rem !important; font-weight: 500 !important;
+        padding: 0.3rem 0.8rem !important; font-weight: 500 !important;
+        font-size: 0.8rem !important;
         width: 100% !important; transition: all 0.3s ease !important;
     }
     .stButton > button:hover {
@@ -91,19 +92,21 @@ dark_mode_css = """
     .stNumberInput > div > div > input, .stSelectbox > div > div > div, .stTextArea textarea {
         background-color: #141e2b !important; color: #ffffff !important;
         border: 1px solid #2a3a4f !important; border-radius: 8px !important;
+        font-size: 0.8rem !important;
     }
-    .stAlert { background-color: #1e2a3a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; }
-    .stInfo { background-color: #1a2a3a !important; border-left: 4px solid #4a7a9c !important; color: #f0f4fa !important; }
-    .stSuccess { background-color: #1a3a2a !important; border-left: 4px solid #2ecc71 !important; color: #f0f4fa !important; }
-    .stError { background-color: #3a1a1a !important; border-left: 4px solid #e74c3c !important; color: #f0f4fa !important; }
-    .stWarning { background-color: #4a3a1a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; }
+    .stAlert { background-color: #1e2a3a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; font-size: 0.8rem !important; }
+    .stInfo { background-color: #1a2a3a !important; border-left: 4px solid #4a7a9c !important; color: #f0f4fa !important; font-size: 0.8rem !important; }
+    .stSuccess { background-color: #1a3a2a !important; border-left: 4px solid #2ecc71 !important; color: #f0f4fa !important; font-size: 0.8rem !important; }
+    .stError { background-color: #3a1a1a !important; border-left: 4px solid #e74c3c !important; color: #f0f4fa !important; font-size: 0.8rem !important; }
+    .stWarning { background-color: #4a3a1a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; font-size: 0.8rem !important; }
     #MainMenu, footer, header, .stDeployButton { display: none !important; }
     
+    /* BIGGER 3D VIEWER - Full height with no scrolling */
     .stPlotlyChart {
         width: 100% !important;
         height: 100% !important;
-        min-height: 480px !important;
-        max-height: 600px !important;
+        min-height: 650px !important;
+        max-height: 800px !important;
     }
     .js-plotly-plot {
         width: 100% !important;
@@ -121,32 +124,39 @@ dark_mode_css = """
         overflow: hidden !important;
     }
     
+    /* Make grid and tick text smaller */
+    .js-plotly-plot .plotly .infolayer .xtick text,
+    .js-plotly-plot .plotly .infolayer .ytick text,
+    .js-plotly-plot .plotly .infolayer .ztick text {
+        font-size: 8px !important;
+    }
+    
     @media (max-width: 768px) {
+        .stPlotlyChart {
+            min-height: 450px !important;
+            max-height: 550px !important;
+        }
+    }
+    @media (max-width: 480px) {
         .stPlotlyChart {
             min-height: 350px !important;
             max-height: 450px !important;
         }
     }
-    @media (max-width: 480px) {
-        .stPlotlyChart {
-            min-height: 280px !important;
-            max-height: 380px !important;
-        }
-    }
     
-    .dashboard-card { background-color: #141e2b; border-radius: 12px; padding: 1.5rem 1rem; border: 1px solid #1e2a3a; text-align: center; }
-    .dashboard-card .icon { font-size: 2.5rem; }
-    .dashboard-card .value { color: #ffffff; font-size: 1.5rem; font-weight: 700; }
-    .dashboard-card .label { color: #8a9aaa; font-size: 0.8rem; }
-    .sds-card { background-color: #141e2b; border-radius: 12px; padding: 1rem 1.2rem; border: 1px solid #1e2a3a; margin-bottom: 0.8rem; }
-    .sds-card .title { color: #ffffff; font-weight: 600; font-size: 1rem; }
-    .standard-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.7rem; font-weight: 600; margin-right: 0.3rem; }
+    .dashboard-card { background-color: #141e2b; border-radius: 12px; padding: 1rem 0.8rem; border: 1px solid #1e2a3a; text-align: center; }
+    .dashboard-card .icon { font-size: 2rem; }
+    .dashboard-card .value { color: #ffffff; font-size: 1.2rem; font-weight: 700; }
+    .dashboard-card .label { color: #8a9aaa; font-size: 0.7rem; }
+    .sds-card { background-color: #141e2b; border-radius: 12px; padding: 0.8rem 1rem; border: 1px solid #1e2a3a; margin-bottom: 0.5rem; }
+    .sds-card .title { color: #ffffff; font-weight: 600; font-size: 0.9rem; }
+    .standard-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.6rem; font-weight: 600; margin-right: 0.2rem; }
     .badge-eu { background-color: #003399; color: #ffffff; }
     .badge-cn { background-color: #DE2910; color: #ffffff; }
     .badge-uk { background-color: #012169; color: #ffffff; }
     .badge-my { background-color: #CC0000; color: #ffffff; }
     .badge-us { background-color: #B22234; color: #ffffff; }
-    .section-tag { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; margin-left: 0.3rem; }
+    .section-tag { display: inline-block; padding: 0.05rem 0.4rem; border-radius: 4px; font-size: 0.55rem; font-weight: 600; margin-left: 0.2rem; }
     .tag-chs { background-color: #e74c3c; color: #ffffff; }
     .tag-shs { background-color: #3498db; color: #ffffff; }
     .tag-rhs { background-color: #2ecc71; color: #ffffff; }
@@ -157,7 +167,7 @@ dark_mode_css = """
     .design-path-card {
         background-color: #141e2b;
         border-radius: 12px;
-        padding: 1.5rem;
+        padding: 1.2rem;
         border: 1px solid #2a3a4f;
         text-align: center;
         height: 100%;
@@ -169,31 +179,32 @@ dark_mode_css = """
         transform: translateY(-5px);
         box-shadow: 0 10px 20px rgba(243, 156, 18, 0.1);
     }
-    .design-path-card .icon { font-size: 3rem; }
-    .design-path-card .title { color: #ffffff; font-size: 1.2rem; font-weight: 600; margin-top: 0.5rem; }
-    .design-path-card .desc { color: #8a9aaa; font-size: 0.9rem; margin-top: 0.5rem; }
+    .design-path-card .icon { font-size: 2.5rem; }
+    .design-path-card .title { color: #ffffff; font-size: 1rem; font-weight: 600; margin-top: 0.3rem; }
+    .design-path-card .desc { color: #8a9aaa; font-size: 0.75rem; margin-top: 0.3rem; }
     
     .safety-enshrined {
         border-left: 4px solid #f39c12;
-        padding-left: 1rem;
-        margin: 0.5rem 0;
+        padding-left: 0.8rem;
+        margin: 0.3rem 0;
+        font-size: 0.8rem;
     }
     
     .member-result-card {
         background-color: #1a2a3a;
         border: 2px solid #f39c12;
         border-radius: 12px;
-        padding: 1rem 1.5rem;
-        margin: 0.5rem 0;
+        padding: 0.8rem 1.2rem;
+        margin: 0.3rem 0;
     }
     .member-result-card .section-name {
         color: #ffffff;
-        font-size: 1.3rem;
+        font-size: 1.1rem;
         font-weight: 700;
     }
     .member-result-card .section-detail {
         color: #8a9aaa;
-        font-size: 0.85rem;
+        font-size: 0.7rem;
     }
     .member-result-card .status-pass {
         color: #2ecc71;
@@ -202,6 +213,14 @@ dark_mode_css = """
     .member-result-card .status-check {
         color: #f39c12;
         font-weight: 700;
+    }
+    
+    /* Fix column layout - remove extra spacing */
+    .row-widget.stColumns {
+        gap: 0.3rem !important;
+    }
+    .column {
+        padding: 0 0.2rem !important;
     }
     </style>
 """
@@ -1260,12 +1279,12 @@ def generate_saddle_span(params, materials=None):
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode='lines', name='Beam 1 (Left)',
-        line=dict(color='#FF6B6B', width=8)
+        line=dict(color='#FF6B6B', width=6)
     ))
     fig.add_trace(go.Scatter3d(
         x=x, y=y2, z=z_beam,
         mode='lines', name='Beam 2 (Right)',
-        line=dict(color='#FF6B6B', width=8)
+        line=dict(color='#FF6B6B', width=6)
     ))
 
     X_surf = np.zeros((num_points, num_points))
@@ -1324,7 +1343,7 @@ def generate_saddle_span(params, materials=None):
                 y=[y1_pt, anchor1_y],
                 z=[z_pt, 0],
                 mode='lines',
-                line=dict(color='#FFD93D', width=3),
+                line=dict(color='#FFD93D', width=2),
                 showlegend=False
             ))
             fig.add_trace(go.Scatter3d(
@@ -1332,24 +1351,39 @@ def generate_saddle_span(params, materials=None):
                 y=[y2_pt, anchor2_y],
                 z=[z_pt, 0],
                 mode='lines',
-                line=dict(color='#FFD93D', width=3),
+                line=dict(color='#FFD93D', width=2),
                 showlegend=False
             ))
 
     max_dim = max(span, laa, rise)
-    cam_distance = 1.8 * max(1, max_dim / 8)
+    cam_distance = 1.5 * max(1, max_dim / 6)
 
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
             yaxis_title='Width (m)',
             zaxis_title='Height (m)',
-            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            xaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=8),
+                titlefont=dict(size=10)
+            ),
+            yaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=8),
+                titlefont=dict(size=10)
+            ),
+            zaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=8),
+                titlefont=dict(size=10)
+            ),
             bgcolor='#0a0e17',
             camera=dict(
-                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.7),
+                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6),
                 up=dict(x=0, y=0, z=1)
             ),
             dragmode='turntable',
@@ -1367,26 +1401,50 @@ def generate_tent(params):
     span, ridge, bays, bay_dist = params.get("span_width", 10.0), params.get("ridge_height", 5.0), params.get("num_bays", 4), params.get("bay_distance", 5.0)
     total_len = bays * bay_dist
     fig = go.Figure()
-    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,total_len], z=[ridge,ridge], mode='lines', name='Ridge', line=dict(width=8, color='#f39c12')))
-    fig.add_trace(go.Scatter3d(x=[-span/2,-span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Left', line=dict(width=5, color='#4a7a9c')))
-    fig.add_trace(go.Scatter3d(x=[span/2,span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Right', line=dict(width=5, color='#4a7a9c')))
+    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,total_len], z=[ridge,ridge], mode='lines', name='Ridge', line=dict(width=6, color='#f39c12')))
+    fig.add_trace(go.Scatter3d(x=[-span/2,-span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Left', line=dict(width=4, color='#4a7a9c')))
+    fig.add_trace(go.Scatter3d(x=[span/2,span/2], y=[0,total_len], z=[0,0], mode='lines', name='Eave Right', line=dict(width=4, color='#4a7a9c')))
     X, Y = np.meshgrid(np.linspace(-span/2, span/2, 30), np.linspace(0, total_len, 30))
     Z = ridge * (1 - (X/(span/2))**2) * (1 - (Y/total_len)**2 * 0.1)
     fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.5, colorscale='Reds', showscale=False, name='Fabric'))
-    fig.update_layout(scene=dict(xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
+    max_dim = max(span, total_len, ridge)
+    cam_distance = 1.5 * max(1, max_dim / 6)
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
+            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
+        ),
+        paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
+    )
     return fig
 
 def generate_tensile(params):
     mast, length, width, cables = params.get("mast_height", 8.0), params.get("span_length", 20.0), params.get("span_width", 15.0), params.get("cable_count", 4)
     fig = go.Figure()
-    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0,mast], mode='lines', name='Mast', line=dict(width=10, color='#f39c12')))
+    fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0,mast], mode='lines', name='Mast', line=dict(width=8, color='#f39c12')))
     X, Y = np.meshgrid(np.linspace(-length/2, length/2, 30), np.linspace(-width/2, width/2, 30))
     Z = mast * np.exp(-((X/(length/2))**2 + (Y/(width/2))**2) * 0.5)
     fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.4, colorscale='Greens', showscale=False, name='Membrane'))
     for i in range(cables):
         angle = i * 2*np.pi/cables
-        fig.add_trace(go.Scatter3d(x=[0, length/2*np.cos(angle)], y=[0, width/2*np.sin(angle)], z=[mast, 0], mode='lines', name=f'Cable {i+1}', line=dict(width=4, color='#4a7a9c')))
-    fig.update_layout(scene=dict(xaxis_title='Length (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
+        fig.add_trace(go.Scatter3d(x=[0, length/2*np.cos(angle)], y=[0, width/2*np.sin(angle)], z=[mast, 0], mode='lines', name=f'Cable {i+1}', line=dict(width=3, color='#4a7a9c')))
+    max_dim = max(length, width, mast)
+    cam_distance = 1.5 * max(1, max_dim / 6)
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Length (m)', yaxis_title='Width (m)', zaxis_title='Height (m)',
+            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
+        ),
+        paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
+    )
     return fig
 
 def generate_portal(params):
@@ -1395,14 +1453,26 @@ def generate_portal(params):
     ridge = eave + span/2 * np.tan(np.radians(pitch))
     fig = go.Figure()
     x, z = [-span/2, -span/2, 0, span/2, span/2], [0, eave, ridge, eave, 0]
-    fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Portal Frame', line=dict(width=8, color='#4a7a9c')))
+    fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Portal Frame', line=dict(width=6, color='#4a7a9c')))
     for i in range(bays):
         y = i * bay_spacing
-        fig.add_trace(go.Scatter3d(x=x, y=[y]*len(x), z=z, mode='lines', line=dict(width=4, color='#4a7a9c', opacity=0.3), showlegend=False))
+        fig.add_trace(go.Scatter3d(x=x, y=[y]*len(x), z=z, mode='lines', line=dict(width=3, color='#4a7a9c', opacity=0.3), showlegend=False))
     Y, X = np.meshgrid(np.linspace(0, total_len, 10), np.linspace(-span/2, span/2, 30))
     Z = np.where(np.abs(X) < span/2, eave + (span/2 - np.abs(X)) * np.tan(np.radians(pitch)), 0)
     fig.add_trace(go.Surface(x=X, y=Y, z=Z, opacity=0.3, colorscale='Greys', showscale=False, name='Roof'))
-    fig.update_layout(scene=dict(xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
+    max_dim = max(span, total_len, ridge)
+    cam_distance = 1.5 * max(1, max_dim / 6)
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Width (m)', yaxis_title='Length (m)', zaxis_title='Height (m)',
+            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
+        ),
+        paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
+    )
     return fig
 
 def generate_arch(params):
@@ -1412,9 +1482,21 @@ def generate_arch(params):
     z = rise * (1 - (2*x/span)**2)
     
     fig = go.Figure()
-    fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Arch', line=dict(width=6, color='#FF6B6B')))
-    fig.add_trace(go.Scatter3d(x=[-span/2, span/2], y=[0,0], z=[0,0], mode='markers', name='Supports', marker=dict(color='#4ECDC4', size=10, symbol='square')))
-    fig.update_layout(scene=dict(xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
+    fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', name='Arch', line=dict(width=5, color='#FF6B6B')))
+    fig.add_trace(go.Scatter3d(x=[-span/2, span/2], y=[0,0], z=[0,0], mode='markers', name='Supports', marker=dict(color='#4ECDC4', size=8, symbol='square')))
+    max_dim = max(span, rise)
+    cam_distance = 1.5 * max(1, max_dim / 6)
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)',
+            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
+        ),
+        paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
+    )
     return fig
 
 def generate_cable_net(params):
@@ -1432,7 +1514,19 @@ def generate_cable_net(params):
         y = i * span/(cables-1) - span/2
         fig.add_trace(go.Scatter3d(x=[x[i], x[-i-1]], y=[y, y], z=[z[i], z[-i-1]], mode='lines', line=dict(color='#f39c12', width=1.5), showlegend=False))
     
-    fig.update_layout(scene=dict(xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)', bgcolor='#0a0e17', camera=dict(eye=dict(x=1.5, y=1.5, z=1.0))), paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0))
+    max_dim = max(span, sag)
+    cam_distance = 1.5 * max(1, max_dim / 6)
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='Span (m)', yaxis_title='Width (m)', zaxis_title='Height (m)',
+            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            bgcolor='#0a0e17',
+            camera=dict(eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6))
+        ),
+        paper_bgcolor='#0a0e17', margin=dict(l=0,r=0,b=0,t=0)
+    )
     return fig
 
 def generate_geodesic_dome_3d(params):
@@ -1464,21 +1558,24 @@ def generate_geodesic_dome_3d(params):
         fig.add_trace(go.Scatter3d(
             x=xs, y=ys, z=zs,
             mode='markers',
-            marker=dict(color='#f39c12', size=4),
+            marker=dict(color='#f39c12', size=3),
             name='Nodes'
         ))
     
     max_dim = max(radius, height)
-    cam_distance = 2.0 * max(1, max_dim / 10)
+    cam_distance = 1.8 * max(1, max_dim / 6)
     
     fig.update_layout(
         scene=dict(
             xaxis_title='X (m)',
             yaxis_title='Y (m)',
             zaxis_title='Z (m)',
+            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(
-                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.7),
+                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6),
                 up=dict(x=0, y=0, z=1)
             ),
             dragmode='turntable',
@@ -1529,16 +1626,19 @@ def generate_simple_structure_3d(params, typology):
         fig.add_trace(go.Scatter3d(x=x, y=[0]*len(x), z=z, mode='lines', line=dict(color='#4a7a9c', width=4), name='Structure'))
     
     max_dim = max(span, width, height)
-    cam_distance = 1.5 * max(1, max_dim / 8)
+    cam_distance = 1.3 * max(1, max_dim / 6)
     
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
             yaxis_title='Width (m)',
             zaxis_title='Height (m)',
+            xaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            yaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
+            zaxis=dict(tickfont=dict(size=8), titlefont=dict(size=10), gridcolor='#1a2a3a'),
             bgcolor='#0a0e17',
             camera=dict(
-                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.7),
+                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6),
                 up=dict(x=0, y=0, z=1)
             ),
             dragmode='turntable',
