@@ -150,6 +150,7 @@ dark_mode_css = """
     .dashboard-card .label { color: #8a9aaa; font-size: 0.7rem; }
     .sds-card { background-color: #141e2b; border-radius: 12px; padding: 0.8rem 1rem; border: 1px solid #1e2a3a; margin-bottom: 0.5rem; }
     .sds-card .title { color: #ffffff; font-weight: 600; font-size: 0.9rem; }
+    .sds-card .selected-value { color: #f39c12; font-weight: 600; font-size: 0.9rem; }
     .standard-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.6rem; font-weight: 600; margin-right: 0.2rem; }
     .badge-eu { background-color: #003399; color: #ffffff; }
     .badge-cn { background-color: #DE2910; color: #ffffff; }
@@ -1258,7 +1259,7 @@ def design_geodesic_dome(params):
     }
 
 # ============================================================
-# 3D GENERATORS - ALL 25 STRUCTURE TYPES - FIXED
+# 3D GENERATORS - ALL 25 STRUCTURE TYPES
 # ============================================================
 def generate_saddle_span(params, materials=None):
     span = params.get("B", 10.0)
@@ -2586,7 +2587,7 @@ def render_reports():
             st.rerun()
 
 # ============================================================
-# WORKSPACE PAGE - MAIN DESIGN INTERFACE
+# WORKSPACE PAGE - MAIN DESIGN INTERFACE WITH MATERIALS DISPLAY FIX
 # ============================================================
 def render_workspace():
     params, materials = st.session_state.params, st.session_state.materials
@@ -2737,9 +2738,47 @@ def render_workspace():
         st.markdown('</div>', unsafe_allow_html=True)
         
         # ============================================================
-        # MATERIALS SECTION
+        # MATERIALS SECTION - WITH CURRENT CONFIGURATION DISPLAY
         # ============================================================
         st.markdown('<div class="sds-card"><div class="title">🧱 Materials</div>', unsafe_allow_html=True)
+        
+        # Display current configuration summary
+        current_section_type = materials.get("section_type", "CHS")
+        current_material = materials.get("material_type", "Steel")
+        current_member_type = materials.get("member_type", "single_beam")
+        current_truss_type = materials.get("truss_type", "warren")
+        
+        member_type_labels = {
+            "single_beam": "🏗️ Single Beam",
+            "planar_truss": "📐 Planar Truss",
+            "space_truss": "🌐 Space Truss"
+        }
+        truss_type_labels = {
+            "warren": "🔺 Warren",
+            "pratt": "✚ Pratt",
+            "howe": "✖ Howe",
+            "vierendeel": "▣ Vierendeel"
+        }
+        
+        st.markdown(f"""
+        <div style="background-color: #141e2b; border: 1px solid #2a3a4f; border-radius: 8px; padding: 0.8rem; margin-bottom: 0.8rem;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 1rem;">
+                <div>
+                    <span style="color: #8a9aaa; font-size: 0.7rem;">Section Shape</span><br>
+                    <span style="color: #ffffff; font-size: 0.9rem; font-weight: 600;">{current_section_type} {get_section_tag(current_section_type)}</span>
+                </div>
+                <div>
+                    <span style="color: #8a9aaa; font-size: 0.7rem;">Member Material</span><br>
+                    <span style="color: #ffffff; font-size: 0.9rem; font-weight: 600;">{current_material}</span>
+                </div>
+                <div>
+                    <span style="color: #8a9aaa; font-size: 0.7rem;">Member Type</span><br>
+                    <span style="color: #ffffff; font-size: 0.9rem; font-weight: 600;">{member_type_labels.get(current_member_type, current_member_type)}</span>
+                </div>
+                {'<div><span style="color: #8a9aaa; font-size: 0.7rem;">Truss Type</span><br><span style="color: #ffffff; font-size: 0.9rem; font-weight: 600;">' + truss_type_labels.get(current_truss_type, current_truss_type) + '</span></div>' if current_member_type in ["planar_truss", "space_truss"] else '<div></div>'}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
         material_types = ["Steel", "Aluminum", "Wood", "Composite"]
         current_material = materials.get("material_type", "Steel")
