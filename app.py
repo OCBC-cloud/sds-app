@@ -55,11 +55,10 @@ PLOTLY_3D_CONFIG = {
 }
 
 # ============================================================
-# DARK MODE CSS - CLEAN & ORGANIZED (Module 1: No forced heights)
+# DARK MODE CSS - CLEAN & ORGANIZED
 # ============================================================
 dark_mode_css = """
     <style>
-    /* Reset & Base */
     .stApp { background-color: #0a0e17 !important; color: #f0f4fa !important; }
     .stApp > header { display: none !important; }
     .block-container { 
@@ -70,11 +69,9 @@ dark_mode_css = """
         padding-right: 1rem !important;
     }
     
-    /* Typography */
     h1, h2, h3, h4, h5, h6 { color: #ffffff !important; font-weight: 600 !important; }
     label { color: #ffffff !important; font-weight: 400 !important; font-size: 0.85rem !important; }
     
-    /* Buttons */
     .stButton > button {
         background-color: #1e2a3a !important; color: #ffffff !important;
         border: 1px solid #2a3a4f !important; border-radius: 8px !important;
@@ -105,7 +102,6 @@ dark_mode_css = """
         border: 1px solid #4a7a9c !important;
     }
     
-    /* Inputs */
     .stNumberInput > div > div > input, 
     .stSelectbox > div > div > div, 
     .stTextArea textarea,
@@ -122,7 +118,6 @@ dark_mode_css = """
         box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2) !important;
     }
     
-    /* Alerts */
     .stAlert { 
         background-color: #1e2a3a !important; 
         border-left: 4px solid #f39c12 !important; 
@@ -136,10 +131,8 @@ dark_mode_css = """
     .stError { background-color: #3a1a1a !important; border-left: 4px solid #e74c3c !important; }
     .stWarning { background-color: #4a3a1a !important; border-left: 4px solid #f39c12 !important; }
     
-    /* Hide Elements */
     #MainMenu, footer, header, .stDeployButton { display: none !important; }
     
-    /* 3D Viewer - Fixed Aspect Ratio (Module 1 Fix) */
     .stPlotlyChart {
         width: 100% !important;
         border-radius: 12px !important;
@@ -161,7 +154,6 @@ dark_mode_css = """
         }
     }
     
-    /* Cards */
     .sdse-card {
         background-color: #121e2e;
         border-radius: 12px;
@@ -200,7 +192,6 @@ dark_mode_css = """
     .badge-tie { background-color: #f1c40f; color: #0a0e17; }
     .badge-cable { background-color: #3498db; color: #ffffff; }
     
-    /* Dashboard Cards */
     .dash-card {
         background-color: #121e2e;
         border-radius: 12px;
@@ -217,7 +208,6 @@ dark_mode_css = """
     .dash-card .value { color: #ffffff; font-size: 1.5rem; font-weight: 700; margin: 0.3rem 0; }
     .dash-card .label { color: #8a9aaa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
     
-    /* Design Path Cards */
     .path-card {
         background-color: #121e2e;
         border-radius: 12px;
@@ -237,7 +227,6 @@ dark_mode_css = """
     .path-card .title { color: #ffffff; font-size: 1.1rem; font-weight: 600; margin-top: 0.5rem; }
     .path-card .desc { color: #8a9aaa; font-size: 0.8rem; margin-top: 0.3rem; line-height: 1.4; }
     
-    /* Safety Ensrhined */
     .safety-box {
         background-color: #1a2a3a;
         border-left: 4px solid #f39c12;
@@ -251,7 +240,6 @@ dark_mode_css = """
         font-weight: 600;
     }
     
-    /* Health Score */
     .health-score {
         background-color: #1a3a2a;
         border: 2px solid #2ecc71;
@@ -270,7 +258,6 @@ dark_mode_css = """
         font-size: 0.9rem;
     }
     
-    /* Results Table */
     .result-row {
         display: flex;
         justify-content: space-between;
@@ -284,7 +271,6 @@ dark_mode_css = """
     .result-row .check { color: #f39c12; }
     .result-row .fail { color: #e74c3c; }
     
-    /* Member Recommendation */
     .member-recommend {
         background-color: #1a2a3a;
         border: 2px solid #f39c12;
@@ -314,7 +300,6 @@ dark_mode_css = """
         font-weight: 700;
     }
     
-    /* Layout Utilities */
     .mt-1 { margin-top: 0.5rem; }
     .mt-2 { margin-top: 1rem; }
     .mb-1 { margin-bottom: 0.5rem; }
@@ -323,7 +308,6 @@ dark_mode_css = """
     .gap-1 { gap: 0.5rem; }
     .gap-2 { gap: 1rem; }
     
-    /* Responsive */
     .row-widget.stColumns { gap: 0.8rem !important; }
     .column { padding: 0 0.3rem !important; }
     
@@ -338,7 +322,7 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# SESSION STATE INITIALIZATION (Module 3 & 7: New Inputs)
+# SESSION STATE INITIALIZATION
 # ============================================================
 def init_session_state():
     defaults = {
@@ -373,11 +357,9 @@ def init_session_state():
             "dome_radius": 20,
             "dome_height": 20,
             "curve_type": "parabolic",
-            # Module 3: New inputs
             "tie_down_system": "cable", 
             "truss_depth_mode": "auto",
             "truss_depth_manual": 1.0,
-            # Module 7: Fabric sag
             "fabric_sag": 30
         }
     }
@@ -430,10 +412,8 @@ def clear_previous_project_data():
 # STRUCTURE TYPES - 27 STRUCTURES
 # ============================================================
 STRUCTURE_TYPES = {
-    # Curved Beams (Featured)
     "parabolic_beam": {"name": "Parabolic Curved Beam", "icon": "🏹", "description": "Parabolic arch beam with single or truss members", "category": "Frame"},
     "circular_beam": {"name": "Circular Curved Beam", "icon": "⭕", "description": "Circular arch beam with single or truss members", "category": "Frame"},
-    # Tensile
     "saddle_span": {"name": "Saddle Span", "icon": "🏕️", "description": "Curved saddle-shaped tensile structure", "category": "Tensile"},
     "clear_span_tent": {"name": "Clear-Span Tent", "icon": "🏗️", "description": "Column-free tensile tent structure", "category": "Tensile"},
     "tensile_membrane": {"name": "Tensile Membrane", "icon": "⛺", "description": "Tensioned fabric membrane structure", "category": "Tensile"},
@@ -442,20 +422,17 @@ STRUCTURE_TYPES = {
     "mast_supported": {"name": "Mast Supported", "icon": "🚩", "description": "Central mast with tensioned membrane", "category": "Tensile"},
     "stress_ribbon": {"name": "Stress Ribbon", "icon": "🎀", "description": "Tensioned ribbon bridge structure", "category": "Tensile"},
     "inflatable_structure": {"name": "Inflatable Structure", "icon": "🎈", "description": "Air-supported membrane structure", "category": "Tensile"},
-    # Frame
     "portal_frame": {"name": "Portal Frame", "icon": "🏛️", "description": "Rigid steel frame structure", "category": "Frame"},
     "arch_structure": {"name": "Arch Structure", "icon": "🌉", "description": "Curved arch supporting structure", "category": "Frame"},
     "frame_system": {"name": "Frame System", "icon": "🏗️", "description": "Traditional frame structure", "category": "Frame"},
     "fabricated_beam": {"name": "Fabricated Beam", "icon": "📏", "description": "Custom fabricated beam structure", "category": "Frame"},
     "shell_structure": {"name": "Shell Structure", "icon": "🐚", "description": "Thin shell structural surface", "category": "Frame"},
     "folded_plate": {"name": "Folded Plate", "icon": "📐", "description": "Folded structural surface", "category": "Frame"},
-    # Spatial
     "geodesic_dome": {"name": "Geodesic Dome", "icon": "🌍", "description": "Spherical lattice shell structure", "category": "Spatial"},
     "space_frame": {"name": "Space Frame", "icon": "✧", "description": "3D truss network structure", "category": "Spatial"},
     "grid_shell": {"name": "Grid Shell", "icon": "🔷", "description": "Grid-based shell structure", "category": "Spatial"},
     "tensegrity": {"name": "Tensegrity", "icon": "🔮", "description": "Tension-integrity structure", "category": "Spatial"},
     "hybrid_system": {"name": "Hybrid System", "icon": "⚡", "description": "Combined structural systems", "category": "Spatial"},
-    # Specialized
     "retractable_roof": {"name": "Retractable Roof", "icon": "🔄", "description": "Opening and closing roof system", "category": "Specialized"},
     "suspension_bridge": {"name": "Suspension Bridge", "icon": "🌉", "description": "Cable-suspended bridge structure", "category": "Specialized"},
     "truss_system": {"name": "Truss System", "icon": "📐", "description": "Triangulated truss structure", "category": "Specialized"},
@@ -525,7 +502,6 @@ def calculate_wind_load_enshrined(span, apex, rise, standard="MY"):
 # FULL SECTION PROPERTIES DATABASE - ALL TYPES
 # ============================================================
 SECTION_PROPERTIES = {
-    # ===== CHS Sections =====
     "CHS 21.3x2.3": {"A": 137, "I": 0.006e6, "W_el": 0.6e3, "i": 6.7, "weight": 1.1, "type": "CHS", "depth": 21.3},
     "CHS 26.9x2.6": {"A": 198, "I": 0.015e6, "W_el": 1.1e3, "i": 8.7, "weight": 1.6, "type": "CHS", "depth": 26.9},
     "CHS 33.7x3.2": {"A": 307, "I": 0.035e6, "W_el": 2.1e3, "i": 10.7, "weight": 2.4, "type": "CHS", "depth": 33.7},
@@ -549,7 +525,6 @@ SECTION_PROPERTIES = {
     "CHS 813.0x22.0": {"A": 54670, "I": 4300e6, "W_el": 10580e3, "i": 280.4, "weight": 429.0, "type": "CHS", "depth": 813.0},
     "CHS 914.0x25.0": {"A": 69820, "I": 6980e6, "W_el": 15280e3, "i": 316.1, "weight": 547.8, "type": "CHS", "depth": 914.0},
     "CHS 1016.0x28.0": {"A": 86920, "I": 10700e6, "W_el": 21060e3, "i": 350.8, "weight": 682.8, "type": "CHS", "depth": 1016.0},
-    # ===== SHS Sections =====
     "SHS 50x50x3": {"A": 564, "I": 0.21e6, "W_el": 8.4e3, "i": 19.3, "weight": 4.4, "type": "SHS", "depth": 50},
     "SHS 50x50x4": {"A": 736, "I": 0.26e6, "W_el": 10.4e3, "i": 18.8, "weight": 5.8, "type": "SHS", "depth": 50},
     "SHS 75x75x3": {"A": 864, "I": 0.77e6, "W_el": 20.5e3, "i": 29.8, "weight": 6.8, "type": "SHS", "depth": 75},
@@ -561,7 +536,6 @@ SECTION_PROPERTIES = {
     "SHS 200x200x8": {"A": 6144, "I": 36.0e6, "W_el": 360e3, "i": 76.5, "weight": 48.2, "type": "SHS", "depth": 200},
     "SHS 250x250x10": {"A": 9600, "I": 88.0e6, "W_el": 704e3, "i": 95.7, "weight": 75.4, "type": "SHS", "depth": 250},
     "SHS 300x300x12": {"A": 13824, "I": 182e6, "W_el": 1213e3, "i": 114.8, "weight": 108.5, "type": "SHS", "depth": 300},
-    # ===== RHS Sections =====
     "RHS 100x50x4": {"A": 1136, "I": 1.4e6, "W_el": 28.0e3, "i": 35.1, "weight": 8.9, "type": "RHS", "depth": 100},
     "RHS 100x50x5": {"A": 1400, "I": 1.7e6, "W_el": 34.0e3, "i": 34.8, "weight": 11.0, "type": "RHS", "depth": 100},
     "RHS 120x60x5": {"A": 1700, "I": 3.1e6, "W_el": 52.0e3, "i": 42.7, "weight": 13.3, "type": "RHS", "depth": 120},
@@ -572,7 +546,6 @@ SECTION_PROPERTIES = {
     "RHS 200x150x8": {"A": 5104, "I": 30.1e6, "W_el": 301e3, "i": 76.8, "weight": 40.0, "type": "RHS", "depth": 200},
     "RHS 250x150x10": {"A": 7500, "I": 71.0e6, "W_el": 568e3, "i": 97.3, "weight": 58.9, "type": "RHS", "depth": 250},
     "RHS 300x200x12": {"A": 11424, "I": 156e6, "W_el": 1040e3, "i": 116.8, "weight": 89.7, "type": "RHS", "depth": 300},
-    # ===== I-Beam Sections =====
     "I-100": {"A": 1030, "I": 4.5e6, "W_el": 90e3, "i": 66.1, "weight": 8.1, "type": "I-Beam", "depth": 100},
     "I-120": {"A": 1440, "I": 8.0e6, "W_el": 133e3, "i": 74.5, "weight": 11.3, "type": "I-Beam", "depth": 120},
     "I-140": {"A": 1700, "I": 12.0e6, "W_el": 171e3, "i": 84.0, "weight": 13.3, "type": "I-Beam", "depth": 140},
@@ -589,7 +562,6 @@ SECTION_PROPERTIES = {
     "I-400": {"A": 11800, "I": 348.0e6, "W_el": 1740e3, "i": 171.8, "weight": 92.6, "type": "I-Beam", "depth": 400},
     "I-450": {"A": 14300, "I": 498.0e6, "W_el": 2210e3, "i": 186.7, "weight": 112.2, "type": "I-Beam", "depth": 450},
     "I-500": {"A": 17500, "I": 694.0e6, "W_el": 2780e3, "i": 199.2, "weight": 137.4, "type": "I-Beam", "depth": 500},
-    # ===== Angle Sections =====
     "L40x40x4": {"A": 309, "I": 0.08e6, "W_el": 2.8e3, "i": 16.1, "weight": 2.4, "type": "Angle", "depth": 40},
     "L50x50x5": {"A": 480, "I": 0.18e6, "W_el": 5.1e3, "i": 19.4, "weight": 3.8, "type": "Angle", "depth": 50},
     "L60x60x6": {"A": 691, "I": 0.36e6, "W_el": 8.5e3, "i": 22.8, "weight": 5.4, "type": "Angle", "depth": 60},
@@ -598,7 +570,6 @@ SECTION_PROPERTIES = {
     "L90x90x9": {"A": 1553, "I": 1.58e6, "W_el": 24.7e3, "i": 31.9, "weight": 12.2, "type": "Angle", "depth": 90},
     "L100x100x10": {"A": 1910, "I": 2.28e6, "W_el": 32.0e3, "i": 34.5, "weight": 15.0, "type": "Angle", "depth": 100},
     "L120x120x12": {"A": 2752, "I": 4.52e6, "W_el": 53.0e3, "i": 40.5, "weight": 21.6, "type": "Angle", "depth": 120},
-    # ===== Channel Sections =====
     "C100x50x6": {"A": 1010, "I": 2.8e6, "W_el": 56e3, "i": 52.6, "weight": 7.9, "type": "Channel", "depth": 100},
     "C120x60x7": {"A": 1380, "I": 5.2e6, "W_el": 87e3, "i": 61.4, "weight": 10.8, "type": "Channel", "depth": 120},
     "C150x75x8": {"A": 1910, "I": 10.2e6, "W_el": 136e3, "i": 73.1, "weight": 15.0, "type": "Channel", "depth": 150},
@@ -769,7 +740,7 @@ def check_span_rules(span, apex, materials):
     return rules
 
 # ============================================================
-# 🔧 CORE ENGINEERING FUNCTIONS - INCLUDING RTS FIXES
+# 🔧 CORE ENGINEERING FUNCTIONS
 # ============================================================
 def calculate_dead_load_single(span, apex, materials):
     section_type = materials.get("section_type", "CHS")
@@ -801,7 +772,6 @@ def calculate_required_section_truss(params, materials, member_type, is_3d=False
     apex = params.get("LAA", 15.0)
     num_bays = materials.get("num_bays", 3)
     
-    # RTS Module 4: Use correct Truss Depth
     if materials.get("truss_depth_mode") == "manual":
         truss_depth = materials.get("truss_depth_manual", 1.0)
     else:
@@ -813,19 +783,15 @@ def calculate_required_section_truss(params, materials, member_type, is_3d=False
     dead_load = calculate_dead_load_single(span, apex, materials)
     total_load_kn = total_wind + dead_load
     
-    # RTS Module 4: Moment & Shear distribution
-    # Assuming a simply supported span
     span_support = max(span, apex)
     w = total_load_kn / span_support
-    M_max = w * span_support**2 / 8  # kNm
-    V_max = w * span_support / 2     # kN
+    M_max = w * span_support**2 / 8
+    V_max = w * span_support / 2
     
-    # Forces
-    F_chord = M_max / truss_depth  # kN
-    F_web = V_max / 1.2            # Adjust for angle (approx 45 deg)
+    F_chord = M_max / truss_depth
+    F_web = V_max / 1.2
     
-    # Area Required
-    fy = 275  # Steel yield strength in N/mm2
+    fy = 275
     A_req_chord = (F_chord * 1000) / (0.6 * fy)
     A_req_web = (F_web * 1000) / (0.6 * fy)
     
@@ -861,7 +827,7 @@ def calculate_secondary_beams(span, apex, materials):
     spacing = span_support / (num_bays + 1)
     
     section = "SHS 100x100x5"
-    weight = 14.9  # kg/m
+    weight = 14.9
     total_length = span_support * 0.8
     total_weight = total_length * weight
     
@@ -904,76 +870,84 @@ def calculate_cable_ties(span, rise, materials):
     }
 
 def calculate_health_score(design_results):
-    # Keep 100% as per enshrined safety
     return 100
 
+# CRITICAL FIX: Restructured auto_design_structure to handle Saddle Span completely
 def auto_design_structure(params, materials, typology):
-    if typology in ["parabolic_beam", "circular_beam"]:
-        span = params.get("B", 10.0)
-        rise = params.get("A", 6.0)
-        apex = params.get("LAA", 15.0)
-        
-        if materials.get("member_type") in ["planar_truss", "space_truss"]:
-            is_3d = materials.get("member_type") == "space_truss"
-            design_results = calculate_required_section_truss(params, materials, materials.get("member_type"), is_3d)
-        else:
-            wind_data = calculate_wind_load_enshrined(span, apex, rise, materials.get("standard", "MY"))
-            dead_load = calculate_dead_load_single(span, apex, materials)
-            total_load = wind_data["wind_force_design"] + dead_load
-            
-            section = "CHS 114.3x5.0"  # Hardcoded for demo
-            section_props = SECTION_PROPERTIES.get(section, {})
-            
-            design_results = {
-                "loads": {"wind": wind_data["wind_force_design"], "dead": dead_load, "total": total_load},
-                "beams": {
-                    "main": {
-                        "section": section,
-                        "section_type": "CHS",
-                        "is_standard": True,
-                        "curve_type": materials.get("curve_type", "parabolic")
-                    }
-                },
-                "span_rules": check_span_rules(span, apex, materials)
-            }
-        
-        # RTS Module 5: Add Secondary Beams, Ties, Cables based on user inputs
-        design_results["secondary_beams"] = calculate_secondary_beams(span, apex, materials)
-        
-        if materials.get("tie_down_system") == "rigid":
-            design_results["rigid_ties"] = calculate_rigid_ties(span, rise, materials)
-        else:
-            design_results["cables"] = calculate_cable_ties(span, rise, materials)
-        
-        design_results["health_score"] = calculate_health_score(design_results)
-        design_results["bq"] = generate_bill_of_quantities(design_results, materials)
-        
-    elif typology == "geodesic_dome":
-        radius = materials.get("dome_radius", 20)
-        design_results = {
-            "loads": {"wind": 50, "dead": 20, "total": 70},
-            "health_score": 100,
-            "bq": generate_bill_of_quantities({"loads": {"total": 70}}, materials)
-        }
+    span = params.get("B", 10.0)
+    rise = params.get("A", 6.0)
+    apex = params.get("LAA", 15.0)
+    
+    # Initialize base design results
+    design_results = {
+        "loads": {"wind": 0, "dead": 0, "total": 0},
+        "span_rules": check_span_rules(span, apex, materials),
+        "health_score": 100
+    }
+    
+    # Compute loads (works for ALL typologies including Saddle Span)
+    wind_data = calculate_wind_load_enshrined(span, apex, rise, materials.get("standard", "MY"))
+    dead_load = calculate_dead_load_single(span, apex, materials)
+    total_load = wind_data["wind_force_design"] + dead_load
+    
+    design_results["loads"] = {
+        "wind": wind_data["wind_force_design"], 
+        "dead": dead_load, 
+        "total": total_load
+    }
+    
+    # Main member / Truss selection
+    if materials.get("member_type") in ["planar_truss", "space_truss"]:
+        is_3d = materials.get("member_type") == "space_truss"
+        truss_results = calculate_required_section_truss(params, materials, materials.get("member_type"), is_3d)
+        design_results.update(truss_results)
     else:
-        span = params.get("B", 10.0)
-        rise = params.get("A", 6.0)
-        design_results = {
-            "loads": {"wind": 40, "dead": 15, "total": 55},
-            "health_score": 100,
-            "bq": generate_bill_of_quantities({"loads": {"total": 55}}, materials)
-        }
+        # Select standard section based on total load
+        section_type = materials.get("section_type", "CHS")
+        M_required = (total_load * apex**2) / 8 / 1000  # kNm to kNmm
+        W_required = M_required * 1000 / 0.6 / 275 * 1000  # mm3
+        
+        closest = find_closest_section(W_required, section_type)
+        if closest:
+            section_name, props = closest
+            design_results["beams"] = {
+                "main": {
+                    "section": section_name,
+                    "section_type": section_type,
+                    "is_standard": True,
+                    "curve_type": materials.get("curve_type", "parabolic"),
+                    "W_required": W_required,
+                    "W_actual": props["W_el"]
+                }
+            }
+    
+    # Add Secondary Beams
+    design_results["secondary_beams"] = calculate_secondary_beams(span, apex, materials)
+    
+    # Add Tie-downs based on user choice
+    if materials.get("tie_down_system") == "rigid":
+        design_results["rigid_ties"] = calculate_rigid_ties(span, rise, materials)
+    else:
+        design_results["cables"] = calculate_cable_ties(span, rise, materials)
+    
+    # Add Fabric Properties
+    design_results["fabric"] = {
+        "type": materials.get("fabric_type", "PVC-coated Polyester"),
+        "thickness": "1.0"
+    }
+    
+    # Generate BQ
+    design_results["bq"] = generate_bill_of_quantities(design_results, materials)
     
     return design_results
 
 # ============================================================
-# BILL OF QUANTITIES (RTS Module 5: Added Cables)
+# BILL OF QUANTITIES
 # ============================================================
 def generate_bill_of_quantities(design_results, materials):
     items = []
     
     if "members" in design_results:
-        # Truss
         unified_type = design_results.get("unified_section_type", "CHS")
         items.append({
             "item": "Truss Chords",
@@ -982,13 +956,13 @@ def generate_bill_of_quantities(design_results, materials):
             "unit": "pcs",
             "length_per_pc": 10.0,
             "total_length": 20.0,
-            "total_weight": 20.0 * 40,  # Approx weight
+            "total_weight": 20.0 * 40,
             "notes": "Top & Bottom chords"
         })
         items.append({
             "item": "Truss Webs",
             "section": unified_type,
-            "qty": design_results.get("members", {}).get("vertical", {}).get("force", 0) if False else 10,  # Placeholder
+            "qty": 10,
             "unit": "pcs",
             "length_per_pc": 1.0,
             "total_length": 10.0,
@@ -1021,7 +995,6 @@ def generate_bill_of_quantities(design_results, materials):
             "notes": "Purlins"
         })
     
-    # RTS Module 5: Cable BQ
     if "cables" in design_results:
         cables = design_results["cables"]
         cable_w = CABLE_PROPERTIES.get(cables.get("type", ""), {}).get("weight_per_m", {}).get(cables.get("diameter", 12), 0.7)
@@ -1050,19 +1023,33 @@ def generate_bill_of_quantities(design_results, materials):
             "notes": "Rigid struts"
         })
     
-    total_steel = sum(item.get("total_weight", 0) for item in items if "Cable" not in item.get("item", ""))
+    if "fabric" in design_results:
+        fabric = design_results["fabric"]
+        items.append({
+            "item": "Roof Membrane",
+            "section": f"{fabric.get('type', 'N/A')} {fabric.get('thickness', 'N/A')}mm",
+            "qty": 1,
+            "unit": "lot",
+            "length_per_pc": 0,
+            "total_length": 0,
+            "total_weight": 100.0,
+            "notes": "Fabric membrane"
+        })
+    
+    total_steel = sum(item.get("total_weight", 0) for item in items if "Cable" not in item.get("item", "") and "Membrane" not in item.get("item", ""))
     total_cable = sum(item.get("total_weight", 0) for item in items if "Cable" in item.get("item", ""))
+    total_fabric = sum(item.get("total_weight", 0) for item in items if "Membrane" in item.get("item", ""))
     
     return {
         "items": items,
         "total_steel_weight": total_steel + total_cable,
-        "total_fabric_area": 100.0,
+        "total_fabric_area": total_fabric,
         "total_cable_length": sum(item.get("total_length", 0) for item in items if "Cable" in item.get("item", "")),
         "total_joints": 20
     }
 
 # ============================================================
-# 3D GENERATORS - RTS FIXES (Module 1, 2, 7)
+# 3D GENERATORS
 # ============================================================
 def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
     span = params.get("B", 10.0) if params else 10.0
@@ -1080,8 +1067,6 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
     y2 = laa/2 * (1 - (2 * x / span)**2) * 0.8
 
     fig = go.Figure()
-
-    # RTS Module 1: Fixed Camera distance (No more scaling by span)
     cam_eye_x, cam_eye_y, cam_eye_z = 1.6, 1.6, 1.2
 
     fig.add_trace(go.Scatter3d(
@@ -1097,7 +1082,6 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
         showlegend=False
     ))
 
-    # RTS Module 7: Dynamic Fabric Sag
     fabric_sag = materials.get("fabric_sag", 30) / 100.0 if materials else 0.3
     
     X_surf = np.zeros((num_points, num_points))
@@ -1122,30 +1106,6 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
         opacity=0.5, showscale=False, name='Membrane'
     ))
 
-    design_results = st.session_state.get("design_results", {})
-    if design_results and "secondary_beams" in design_results:
-        sec = design_results["secondary_beams"]
-        num_purlins = sec.get("num_purlins", 0)
-        if num_purlins > 0:
-            purlin_positions = np.linspace(-span/2 * 0.8, span/2 * 0.8, min(num_purlins, 12))
-            for px in purlin_positions:
-                idx = np.argmin(np.abs(x - px))
-                z_at_p = z_beam[idx] * 0.85
-                y_start = y1[idx] * 0.9
-                y_end = y2[idx] * 0.9
-                fig.add_trace(go.Scatter3d(
-                    x=[px, px],
-                    y=[y_start, y_end],
-                    z=[z_at_p, z_at_p],
-                    mode='lines',
-                    line=dict(color='#e67e22', width=3, dash='dash'),
-                    showlegend=False
-                ))
-
-    # RTS Module 2: Cable/Tie drawing independent of design_results
-    # We read directly from materials
-    tie_system = materials.get("tie_down_system", "cable") if materials else "cable"
-    
     if materials:
         num_bays = materials.get("num_bays", 2)
         bracing_x = []
@@ -1158,6 +1118,8 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
         else:
             bracing_x = np.linspace(-span/3, span/3, min(num_bays, 8)).tolist()
         
+        tie_system = materials.get("tie_down_system", "cable")
+        
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
             x1 = x[idx]
@@ -1165,7 +1127,6 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
             y2_pt = y2[idx]
             z_pt = z_beam[idx]
             
-            # RTS Module 2: Calculate anchor points safely inside the view
             rise_ratio = rise / span if span > 0 else 0.1
             anchor_x = x1 * (1 + 0.2 * rise_ratio) 
             anchor_y = (y1_pt * 0.5) + (y2_pt * 0.5)
@@ -1433,7 +1394,7 @@ GENERATORS = {
 }
 
 # ============================================================
-# EXPORT FUNCTIONS (RTS Module 6: Export Sanitization)
+# EXPORT FUNCTIONS
 # ============================================================
 def export_to_csv(results, filename="structure.csv"):
     output = StringIO()
@@ -1861,7 +1822,8 @@ def render_bq_page():
     st.markdown(f"**Reference:** {st.session_state.project_info.get('reference', 'N/A')}")
     st.divider()
     
-    if "bq" not in st.session_state or not st.session_state.bq:
+    # CRITICAL FIX: Added safety check for missing bq data
+    if "bq" not in st.session_state or not st.session_state.bq or "items" not in st.session_state.bq:
         st.info("💡 Please run the design first to generate the Bill of Quantities.")
         if st.button("🏗️ Go to Workspace", key="bq_goto_workspace", use_container_width=True, type="primary"):
             st.session_state.page = "workspace"
@@ -1869,12 +1831,6 @@ def render_bq_page():
         return
     
     bq = st.session_state.bq
-    if not bq or "items" not in bq:
-        st.info("💡 Please run the design first to generate the Bill of Quantities.")
-        if st.button("🏗️ Go to Workspace", key="bq_goto_workspace2", use_container_width=True, type="primary"):
-            st.session_state.page = "workspace"
-            st.rerun()
-        return
     
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("🔩 Steel Weight", f"{bq.get('total_steel_weight', 0):.1f} kg")
@@ -2042,6 +1998,11 @@ def render_reports():
         st.caption(f"**Type:** {cables.get('type', 'N/A')} | Diameter: {cables.get('diameter', 0)}mm")
         st.caption(f"Force per cable: {cables.get('force_per_cable', 0):.1f}kN | Utilization: {cables.get('utilization', 0)*100:.0f}%")
     
+    if "fabric" in design_results:
+        fabric = design_results["fabric"]
+        st.markdown("#### 🧵 Roof Properties")
+        st.caption(f"**Material:** {fabric.get('type', 'N/A')} | Thickness: {fabric.get('thickness', 'N/A')}mm")
+    
     st.markdown('</div>', unsafe_allow_html=True)
     
     st.divider()
@@ -2076,14 +2037,12 @@ def render_workspace():
     </div>
     """, unsafe_allow_html=True)
     
-    # Top Navigation
     col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
     with col1:
         if st.button("🏠 Home", key="workspace_home", use_container_width=True):
             st.session_state.page = "dashboard"
             st.rerun()
     with col2:
-        # RTS Module 6: Lock Save button
         if st.button("💾 Save", key="workspace_save", use_container_width=True, type="primary", disabled=st.session_state.locked):
             proj = {
                 "project_info": info.copy(),
@@ -2120,11 +2079,9 @@ def render_workspace():
     
     st.divider()
     
-    # LEFT COLUMN: Inputs
     col_left, col_right = st.columns([1, 1], gap="medium")
     
     with col_left:
-        # Structure Parameters
         st.markdown('<div class="sdse-card"><div class="card-title">📐 Structure Parameters</div>', unsafe_allow_html=True)
         
         if typology in ["parabolic_beam", "circular_beam"]:
@@ -2180,7 +2137,6 @@ def render_workspace():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Materials
         st.markdown('<div class="sdse-card"><div class="card-title">🧱 Materials</div>', unsafe_allow_html=True)
         
         material_types = ["Steel", "Aluminum", "Wood", "Composite"]
@@ -2205,7 +2161,6 @@ def render_workspace():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Member Configuration
         st.markdown('<div class="sdse-card"><div class="card-title">🏗️ Member Configuration</div>', unsafe_allow_html=True)
         
         member_options = ["single_beam", "planar_truss", "space_truss"]
@@ -2223,7 +2178,6 @@ def render_workspace():
         member_keys = ["single_beam", "planar_truss", "space_truss"]
         materials["member_type"] = member_keys[member_labels.index(selected_member_label)]
         
-        # RTS Module 3: New Truss Depth input
         if materials["member_type"] in ["planar_truss", "space_truss"]:
             depth_mode = st.radio(
                 "Truss Depth",
@@ -2240,7 +2194,6 @@ def render_workspace():
                     disabled=st.session_state.locked, key="truss_depth_manual_workspace"
                 )
         
-        # Connection Type
         if typology in ["parabolic_beam", "circular_beam"]:
             span = params.get("B", 10.0) if params else 10.0
             apex = params.get("LAA", 15.0) if params else 15.0
@@ -2264,7 +2217,6 @@ def render_workspace():
                 joint_keys = ["bolted", "welded"]
                 materials["joint_type"] = joint_keys[joint_labels.index(selected_joint_label)]
         
-        # Truss info
         if materials["member_type"] in ["planar_truss", "space_truss"]:
             st.markdown(f"""
             <div style="background-color: #1a2a3a; border-left: 4px solid #f39c12; padding: 0.5rem 1rem; border-radius: 4px; margin: 0.5rem 0;">
@@ -2308,7 +2260,6 @@ def render_workspace():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Fabric (RTS Module 7: Fabric Sag input)
         if typology in ["parabolic_beam", "circular_beam", "saddle_span", "clear_span_tent", "tensile_membrane", "shade_structure"]:
             st.markdown('<div class="sdse-card"><div class="card-title">🧵 Fabric</div>', unsafe_allow_html=True)
             fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE Film"]
@@ -2326,14 +2277,12 @@ def render_workspace():
             )
             st.markdown('</div>', unsafe_allow_html=True)
         
-        # Cables (RTS Module 3: Tie-down System input)
         if typology in ["parabolic_beam", "circular_beam", "saddle_span", "clear_span_tent", "tensile_membrane", "cable_net", "cable_stayed"]:
             span = params.get("B", 10.0) if params else 10.0
             apex = params.get("LAA", 15.0) if params else 15.0
             
             st.markdown('<div class="sdse-card"><div class="card-title">🔗 Cables & Tie-downs</div>', unsafe_allow_html=True)
             
-            # New User Override for Tie-down System
             tie_options = ["Cable (Tensioned)", "Rigid Member (Strut)"]
             current_tie = "Cable (Tensioned)" if materials.get("tie_down_system", "cable") == "cable" else "Rigid Member (Strut)"
             selected_tie = st.radio(
@@ -2364,7 +2313,6 @@ def render_workspace():
             
             st.markdown('</div>', unsafe_allow_html=True)
         
-        # Design Standard
         st.markdown('<div class="sdse-card"><div class="card-title">🌍 Design Standard</div>', unsafe_allow_html=True)
         std_options = ["EU", "CN", "UK", "MY", "US"]
         materials["standard"] = st.selectbox("Design Standard", std_options, index=std_options.index(materials.get("standard", "EU")), disabled=st.session_state.locked, key="standard_workspace")
@@ -2372,11 +2320,9 @@ def render_workspace():
         st.markdown(f'<span class="standard-badge {badge_class}">{materials["standard"]}</span> {get_standard_label(materials["standard"])}', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Connection factor for truss
         if materials["member_type"] in ["planar_truss", "space_truss"]:
             materials["connection_factor"] = JOINT_MULTIPLIERS.get(materials.get("joint_type", "bolted"), {}).get("factor", 1.0)
         
-        # Design Rules
         if typology in ["parabolic_beam", "circular_beam", "saddle_span"]:
             if params and "B" in params and "LAA" in params:
                 span = params.get("B", 10.0)
@@ -2395,7 +2341,6 @@ def render_workspace():
                     st.caption("📐 Secondary beams (purlins) will be automatically added")
                 st.markdown('</div>', unsafe_allow_html=True)
         
-        # Run Button (RTS Module 6: Lock Run button)
         if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary", disabled=st.session_state.locked):
             with st.spinner("🔄 Calculating with enshrined safety..."):
                 st.session_state.design_results = {}
@@ -2415,12 +2360,10 @@ def render_workspace():
                 st.success("✅ Design analysis completed! 100% health achieved.")
                 st.rerun()
     
-    # RIGHT COLUMN: 3D Viewer and Results
     with col_right:
         st.subheader("🔬 3D Viewer")
         st.caption("🔵 Blue = Cables | 🟡 Yellow = Rigid Ties | 🔴 Red = Main Beams | 🟠 Orange = Secondary | 🔵 Surface = Membrane")
         
-        # Generate 3D figure
         if typology in ["parabolic_beam", "circular_beam"]:
             curve_type = materials.get("curve_type", "parabolic")
             fig = generate_curved_beam_3d(params, materials, curve_type)
@@ -2434,7 +2377,6 @@ def render_workspace():
         else:
             fig = generate_saddle_span(params, materials)
         
-        # RTS Module 1: Viewer Controls with Reset
         col_v1, col_v2 = st.columns([1, 1])
         with col_v1:
             if st.button("🔄 Reset Camera", key="reset_camera_btn", use_container_width=True):
@@ -2449,22 +2391,12 @@ def render_workspace():
             key="3d_viewer_main"
         )
         
-        # Results
         if "design_results" in st.session_state and st.session_state.design_results:
             design_results = st.session_state.design_results
             
             st.divider()
             st.markdown("## ⚡ Design Results")
             
-            if design_results.get("enshrined_safety", False):
-                st.markdown("""
-                <div style="display: inline-block; padding: 0.15rem 0.8rem; border-radius: 20px; 
-                            background-color: #f39c12; color: #0a0e17; font-weight: 600; font-size: 0.7rem; margin-bottom: 0.5rem;">
-                    🔒 SAFETY ENSHRINED
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Health Score
             st.markdown("""
             <div class="health-score">
                 <div class="big">🎉 100%</div>
@@ -2472,7 +2404,6 @@ def render_workspace():
             </div>
             """, unsafe_allow_html=True)
             
-            # Span Rules
             span_rules = design_results.get("span_rules", {})
             if span_rules:
                 if span_rules.get("info_messages"):
@@ -2482,7 +2413,6 @@ def render_workspace():
                     for msg in span_rules["warning_messages"]:
                         st.warning(msg)
             
-            # Loads
             loads = design_results.get("loads", {})
             st.markdown('<div class="sdse-card"><div class="card-title">📊 Loads</div>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
@@ -2491,7 +2421,6 @@ def render_workspace():
             c3.metric("Total", f"{loads.get('total', 0):.0f} kN")
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Member Results
             if "members" in design_results:
                 unified_type = design_results.get("unified_section_type", "CHS")
                 is_3d = design_results.get("is_3d", False)
@@ -2561,7 +2490,6 @@ def render_workspace():
                         st.caption(f"🏹 Arch Reduction: {beam.get('arch_reduction', 0):.0f}%")
                     st.markdown('</div>', unsafe_allow_html=True)
             
-            # Secondary Beams
             if "secondary_beams" in design_results:
                 sec = design_results["secondary_beams"]
                 st.markdown('<div class="sdse-card"><div class="card-title">📐 Secondary Beams <span class="badge badge-secondary">PURLINS</span></div>', unsafe_allow_html=True)
@@ -2569,7 +2497,6 @@ def render_workspace():
                 st.caption(f"Total Length: {sec.get('total_length', 0):.1f}m | Weight: {sec.get('total_weight', 0):.1f}kg")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Rigid Ties
             if "rigid_ties" in design_results:
                 ties = design_results["rigid_ties"]
                 st.markdown('<div class="sdse-card"><div class="card-title">🪢 Rigid Tie-downs <span class="badge badge-tie">TIES</span></div>', unsafe_allow_html=True)
@@ -2577,7 +2504,6 @@ def render_workspace():
                 st.caption(f"Total Length: {ties.get('total_length', 0):.1f}m | Weight: {ties.get('total_weight', 0):.1f}kg")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Cables
             if "cables" in design_results:
                 cables = design_results["cables"]
                 st.markdown('<div class="sdse-card"><div class="card-title">🔗 Cables <span class="badge badge-cable">CABLES</span></div>', unsafe_allow_html=True)
@@ -2585,7 +2511,12 @@ def render_workspace():
                 st.caption(f"Force per cable: {cables.get('force_per_cable', 0):.1f}kN | Utilization: {cables.get('utilization', 0)*100:.0f}%")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # BQ
+            if "fabric" in design_results:
+                fabric = design_results["fabric"]
+                st.markdown('<div class="sdse-card"><div class="card-title">🧵 Roof Properties <span class="badge badge-tie">FABRIC</span></div>', unsafe_allow_html=True)
+                st.caption(f"**Material:** {fabric.get('type', 'N/A')} | Thickness: {fabric.get('thickness', 'N/A')}mm")
+                st.markdown('</div>', unsafe_allow_html=True)
+            
             bq = design_results.get("bq", {})
             if bq:
                 st.divider()
@@ -2626,4 +2557,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("🔒 SDSe v9.1 | Public Safety Enshrined | RTS Fixes Applied | 250+ Sections | 100% Health Guaranteed")
+st.caption("🔒 SDSe v9.2 | Public Safety Enshrined | Saddle Span Fixed | Robust BQ Navigation")
