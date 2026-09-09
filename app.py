@@ -55,7 +55,7 @@ PLOTLY_3D_CONFIG = {
 }
 
 # ============================================================
-# DARK MODE CSS
+# DARK MODE CSS - ENHANCED FOR FULL HEIGHT 3D VIEWER
 # ============================================================
 dark_mode_css = """
     <style>
@@ -101,10 +101,12 @@ dark_mode_css = """
     .stWarning { background-color: #4a3a1a !important; border-left: 4px solid #f39c12 !important; color: #f0f4fa !important; }
     #MainMenu, footer, header, .stDeployButton { display: none !important; }
     
+    /* ENHANCED 3D VIEWER - FULL HEIGHT */
     .stPlotlyChart {
         width: 100% !important;
         height: 100% !important;
-        min-height: 500px;
+        min-height: 700px !important;
+        max-height: 900px !important;
     }
     .js-plotly-plot {
         width: 100% !important;
@@ -114,16 +116,25 @@ dark_mode_css = """
         width: 100% !important;
         height: 100% !important;
     }
+    .element-container:has(.stPlotlyChart) {
+        width: 100% !important;
+        height: 100% !important;
+    }
+    .stPlotlyChart > div {
+        overflow: hidden !important;
+    }
     
     @media (max-width: 768px) {
         .stPlotlyChart {
-            min-height: 350px !important;
+            min-height: 450px !important;
+            max-height: 550px !important;
         }
     }
     
     @media (max-width: 480px) {
         .stPlotlyChart {
-            min-height: 280px !important;
+            min-height: 350px !important;
+            max-height: 450px !important;
         }
     }
     
@@ -330,7 +341,7 @@ def clear_previous_project_data():
     st.session_state.materials = default_materials
 
 # ============================================================
-# STRUCTURE TYPES - ENHANCED WITH CURVE TYPES
+# STRUCTURE TYPES - 27 STRUCTURES
 # ============================================================
 STRUCTURE_TYPES = {
     "parabolic_beam": {"name": "Parabolic Curved Beam", "icon": "🏹", "description": "Parabolic arch beam structure", "category": "Frame"},
@@ -629,7 +640,6 @@ def get_curve_shape(x, span, rise, curve_type="parabolic"):
     if curve_type == "parabolic":
         return rise * (1 - x_norm**2)
     elif curve_type == "circular":
-        # Circular arch: x² + (y - R)² = R²
         R = (span**2 + 4*rise**2) / (8*rise) if rise > 0 else span/2
         return rise - (R - np.sqrt(max(0, R**2 - x**2)))
     else:
@@ -637,7 +647,7 @@ def get_curve_shape(x, span, rise, curve_type="parabolic"):
 
 def check_span_rules(span, apex, materials):
     """Check design rules based on span"""
-    span_trigger = 20.0  # 20m threshold
+    span_trigger = 20.0
     
     rules = {
         "cables_allowed": True,
@@ -649,7 +659,6 @@ def check_span_rules(span, apex, materials):
     }
     
     if span >= span_trigger or apex >= span_trigger:
-        # Large span rules
         rules["cables_allowed"] = False
         rules["pin_forced"] = True
         rules["secondary_beams_required"] = True
@@ -658,11 +667,9 @@ def check_span_rules(span, apex, materials):
         rules["info_messages"].append(f"🔒 Span/apex ≥ 20m: Pin connections forced, cables replaced with rigid ties")
         rules["info_messages"].append(f"📐 Secondary beams (purlins) required for stability")
         
-        # Check if user selected welded/fixed
         if materials.get("joint_type") == "welded":
             rules["warning_messages"].append("⚠️ Fixed connections not recommended for spans ≥ 20m. Forcing Pin connections.")
     else:
-        # Small span rules - user choice
         if materials.get("joint_type") == "welded":
             rules["info_messages"].append("✅ Fixed connections allowed for spans < 20m")
         else:
@@ -671,16 +678,21 @@ def check_span_rules(span, apex, materials):
         if materials.get("cable_type") and materials.get("cable_type") != "None":
             rules["info_messages"].append("✅ Cables allowed for spans < 20m")
     
-    # Check rise/span ratio
-    rise = params.get("A", 6.0)
-    if span > 0:
-        ratio = rise / span
-        if ratio < 0.15:
-            rules["warning_messages"].append(f"⚠️ Rise/Span ratio = {ratio:.2f} (< 0.15). Arch action may be inefficient. Consider increasing rise.")
-        elif ratio > 0.8:
-            rules["info_messages"].append(f"💡 Rise/Span ratio = {ratio:.2f} - Excellent arch efficiency")
-    
     return rules
+
+def calculate_curve_point_on_span(x, span, rise, curve_type="parabolic"):
+    """Calculate the z (height) at a given x position on the curve"""
+    if span <= 0:
+        return 0
+    x_norm = 2 * x / span
+    
+    if curve_type == "parabolic":
+        return rise * (1 - x_norm**2)
+    elif curve_type == "circular":
+        R = (span**2 + 4*rise**2) / (8*rise) if rise > 0 else span/2
+        return rise - (R - np.sqrt(max(0, R**2 - x**2)))
+    else:
+        return rise * (1 - x_norm**2)
 
 # ============================================================
 # 🔧 CORE ENGINEERING FUNCTIONS
@@ -690,9 +702,6 @@ def check_span_rules(span, apex, materials):
 def calculate_required_section_single(load_kN, span_m, rise_m, apex_m, 
                                        material_type="Steel", fy=355, 
                                        curve_type="parabolic"):
-    """Calculate required section for single curved beam"""
-    
-    # Arch reduction based on rise/span ratio
     rise_span_ratio = rise_m / span_m if span_m > 0 else 0.5
     arch_reduction = 1 - (rise_span_ratio * 1.2)
     arch_reduction = max(0.15, min(0.85, arch_reduction))
@@ -741,10 +750,9 @@ def check_section_availability(W_required, section_type="CHS"):
         "gap": W_required
     }
 
-# ---- TRUSS FUNCTIONS - UNIFIED SECTION TYPE ----
+# ---- TRUSS FUNCTIONS ----
 def calculate_dead_load_truss(span, apex, num_bays=2):
     membrane_area = span * apex * 1.1
-    
     truss_depth = max(0.8, span / 12)
     num_panels = num_bays + 1
     
@@ -764,15 +772,27 @@ def calculate_dead_load_truss(span, apex, num_bays=2):
     
     return (steel_kg + fabric_kg) / 100
 
+def calculate_dead_load_space_truss(span, apex, num_bays=2):
+    """Calculate dead load for 3D space truss"""
+    membrane_area = span * apex * 1.1
+    truss_depth = max(0.8, span / 12)
+    num_panels = num_bays + 1
+    
+    base_weight = 2.4
+    top_weight = base_weight * span * 1.1 * 2
+    bottom_weight = base_weight * span * 1.1 * 2
+    grid_weight = base_weight * 0.6 * span * (num_panels * 2) / 10
+    
+    steel_kg = top_weight + bottom_weight + grid_weight
+    fabric_kg = 1.2 * membrane_area
+    
+    return (steel_kg + fabric_kg) / 100
+
 def calculate_required_section_truss(load_kN, span_m, rise_m, apex_m, 
                                       material_type="Steel", fy=355, 
                                       connection_factor=1.0, 
                                       truss_type="warren", num_bays=2,
                                       curve_type="parabolic"):
-    """
-    Calculate required AREA for truss members (axial forces)
-    Truss members carry axial forces, not bending moments.
-    """
     
     wind_data = calculate_wind_load_enshrined(span_m, apex_m, rise_m)
     total_load = load_kN
@@ -781,13 +801,11 @@ def calculate_required_section_truss(load_kN, span_m, rise_m, apex_m,
     M_max = (w * span_m**2) / 8
     truss_depth = max(0.8, span_m / 12)
     
-    # Curved truss - arch action reduces forces
     rise_span_ratio = rise_m / span_m if span_m > 0 else 0.5
     arch_reduction = 1 - (rise_span_ratio * 1.2)
     arch_reduction = max(0.15, min(0.85, arch_reduction))
     M_eff = M_max * arch_reduction
     
-    # Calculate member forces based on truss action
     if truss_type == "warren":
         top_chord_force = M_eff / truss_depth * connection_factor
         bottom_chord_force = M_eff / truss_depth * connection_factor
@@ -809,7 +827,7 @@ def calculate_required_section_truss(load_kN, span_m, rise_m, apex_m,
         diag_force = max_shear / math.sin(math.atan(truss_depth / (span_m/(num_bays+1)))) * connection_factor
         vert_force = max_shear * 0.5 * connection_factor
         
-    else:  # vierendeel
+    else:
         top_chord_force = M_eff / truss_depth * 1.5 * connection_factor
         bottom_chord_force = M_eff / truss_depth * 1.4 * connection_factor
         max_shear = w * span_m / 2 * connection_factor
@@ -818,29 +836,16 @@ def calculate_required_section_truss(load_kN, span_m, rise_m, apex_m,
     
     safety = 1.5
     
-    # Calculate required AREA for axial forces
     A_top = abs(top_chord_force) * 1000 / (fy / safety)
     A_bottom = abs(bottom_chord_force) * 1000 / (fy / safety)
     A_diag = abs(diag_force) * 1000 / (fy / safety) if diag_force > 0 else 0
     A_vert = abs(vert_force) * 1000 / (fy / safety) if vert_force > 0 else 0
     
     return {
-        "top_chord": {
-            "A_required": A_top, 
-            "force": top_chord_force
-        },
-        "bottom_chord": {
-            "A_required": A_bottom, 
-            "force": bottom_chord_force
-        },
-        "diagonals": {
-            "A_required": A_diag, 
-            "force": diag_force
-        },
-        "verticals": {
-            "A_required": A_vert, 
-            "force": vert_force
-        },
+        "top_chord": {"A_required": A_top, "force": top_chord_force},
+        "bottom_chord": {"A_required": A_bottom, "force": bottom_chord_force},
+        "diagonals": {"A_required": A_diag, "force": diag_force},
+        "verticals": {"A_required": A_vert, "force": vert_force},
         "truss_depth": truss_depth,
         "wind_data": wind_data,
         "max_moment": M_eff,
@@ -850,7 +855,6 @@ def calculate_required_section_truss(load_kN, span_m, rise_m, apex_m,
     }
 
 def check_section_availability_unified(A_required, section_type="CHS"):
-    """Check section availability based on AREA for truss members"""
     sections = get_sections_by_type(section_type)
     
     for name, props in sections:
@@ -883,45 +887,15 @@ def check_section_availability_unified(A_required, section_type="CHS"):
         "gap": A_required
     }
 
-# ---- SPACE TRUSS (3D) FUNCTIONS ----
-def calculate_dead_load_space_truss(span_x, span_y, apex, num_bays=2):
-    """Calculate dead load for 3D space truss"""
-    membrane_area = span_x * apex * 1.1
-    
-    truss_depth = max(0.8, min(span_x, span_y) / 12)
-    num_panels = num_bays + 1
-    
-    # More members in 3D - load distributed
-    top_chord_length = span_x * 1.1
-    bottom_chord_length = span_x * 1.1
-    
-    base_weight = 2.4
-    top_weight = base_weight * top_chord_length * 2  # Two main chords
-    bottom_weight = base_weight * bottom_chord_length * 2
-    
-    # Additional grid members
-    grid_members = (num_panels * 2) * 2
-    grid_weight = base_weight * 0.6 * span_x * grid_members / 10
-    
-    steel_kg = top_weight + bottom_weight + grid_weight
-    fabric_kg = 1.2 * membrane_area
-    
-    return (steel_kg + fabric_kg) / 100
-
 def calculate_required_section_space_truss(load_kN, span_x, span_y, rise_m, apex_m,
                                             material_type="Steel", fy=355,
                                             connection_factor=1.0,
                                             truss_type="warren", num_bays=2,
                                             curve_type="parabolic"):
-    """
-    Calculate required AREA for 3D space truss members
-    Load is distributed in both directions
-    """
     
     wind_data = calculate_wind_load_enshrined(max(span_x, span_y), apex_m, rise_m)
     total_load = load_kN
     
-    # Load distribution in 3D
     w_x = total_load / span_x
     w_y = total_load / span_y
     
@@ -930,7 +904,6 @@ def calculate_required_section_space_truss(load_kN, span_x, span_y, rise_m, apex
     
     truss_depth = max(0.8, min(span_x, span_y) / 12)
     
-    # Arch reduction
     rise_span_ratio = rise_m / min(span_x, span_y) if min(span_x, span_y) > 0 else 0.5
     arch_reduction = 1 - (rise_span_ratio * 1.2)
     arch_reduction = max(0.15, min(0.85, arch_reduction))
@@ -938,7 +911,6 @@ def calculate_required_section_space_truss(load_kN, span_x, span_y, rise_m, apex
     M_eff_x = M_max_x * arch_reduction
     M_eff_y = M_max_y * arch_reduction
     
-    # Forces in 3D - combined from both directions
     top_chord_force_x = M_eff_x / truss_depth * connection_factor
     top_chord_force_y = M_eff_y / truss_depth * connection_factor
     top_chord_force = math.sqrt(top_chord_force_x**2 + top_chord_force_y**2)
@@ -972,17 +944,11 @@ def calculate_required_section_space_truss(load_kN, span_x, span_y, rise_m, apex
         "is_3d": True
     }
 
-# ---- SECONDARY BEAMS (Purlins) ----
+# ---- SECONDARY BEAMS ----
 def calculate_secondary_beams(span, apex, num_bays=2, member_type="single_beam"):
-    """Calculate purlin requirements for secondary structure"""
-    
-    # Number of purlin lines
     num_purlins = num_bays + 2
-    
-    # Purlin spacing
     purlin_spacing = span / (num_purlins - 1)
     
-    # Typical purlin sections based on span
     if span < 10:
         purlin_section = "CHS 33.7x3.2"
     elif span < 15:
@@ -1005,17 +971,11 @@ def calculate_secondary_beams(span, apex, num_bays=2, member_type="single_beam")
         "total_weight": purlin_props.get("weight", 0) * num_purlins * apex * 1.1 / 1000
     }
 
-# ---- RIGID TIE-DOWN MEMBERS ----
+# ---- RIGID TIES ----
 def calculate_rigid_ties(span, apex, num_bays=2):
-    """Calculate rigid tie-down members for large spans"""
-    
-    # Number of tie locations
     num_ties = num_bays + 1
+    tie_force = span * 0.5
     
-    # Tie forces (approximate)
-    tie_force = span * 0.5  # kN (simplified)
-    
-    # Tie member selection
     if tie_force < 50:
         tie_section = "CHS 33.7x3.2"
     elif tie_force < 100:
@@ -1038,19 +998,16 @@ def calculate_rigid_ties(span, apex, num_bays=2):
         "total_weight": tie_props.get("weight", 0) * num_ties * apex * 0.8 / 1000
     }
 
-# ---- CABLE TIE-DOWN ----
+# ---- CABLE TIES ----
 def calculate_cable_ties(wind_load, span, apex, num_bays=2, cable_type="6x19 Galvanized"):
-    """Calculate cable tie-down system"""
-    
     num_anchors = num_bays * 4
     vertical_angle = 45
     
     uplift_per_anchor = (wind_load * 0.5) / num_anchors if num_anchors > 0 else 0
     cable_force = uplift_per_anchor / math.cos(math.radians(vertical_angle))
     
-    # Select cable diameter
     cable_data = CABLE_PROPERTIES.get(cable_type, {}).get("diameters", {})
-    cable_diameter = 10  # default
+    cable_diameter = 10
     for diam, load in sorted(cable_data.items()):
         if load >= cable_force * 1.5:
             cable_diameter = diam
@@ -1060,6 +1017,7 @@ def calculate_cable_ties(wind_load, span, apex, num_bays=2, cable_type="6x19 Gal
     cable_length = math.sqrt(apex**2 + (span/3)**2) * 1.2
     
     return {
+        "type": cable_type,
         "diameter": cable_diameter,
         "force_per_cable": cable_force,
         "breaking_load": cable_breaking,
@@ -1081,7 +1039,6 @@ def calculate_health_score(design_results, span_rules):
         "span_rules": span_rules
     }
     
-    # Primary structure
     if "beams" in design_results and design_results["beams"].get("main"):
         beam = design_results["beams"]["main"]
         health_report["components"]["Primary Structure"] = {
@@ -1093,7 +1050,6 @@ def calculate_health_score(design_results, span_rules):
             }
         }
     
-    # Truss members
     if "members" in design_results:
         for member_name, member_data in design_results["members"].items():
             if member_data.get("force", 0) > 0:
@@ -1106,7 +1062,6 @@ def calculate_health_score(design_results, span_rules):
                     }
                 }
     
-    # Secondary beams (if present)
     if "secondary_beams" in design_results:
         sec = design_results["secondary_beams"]
         health_report["components"]["Secondary Beams (Purlins)"] = {
@@ -1118,7 +1073,6 @@ def calculate_health_score(design_results, span_rules):
             }
         }
     
-    # Rigid ties (if present)
     if "rigid_ties" in design_results:
         ties = design_results["rigid_ties"]
         health_report["components"]["Rigid Tie-downs"] = {
@@ -1131,7 +1085,6 @@ def calculate_health_score(design_results, span_rules):
             }
         }
     
-    # Cables (if present)
     if "cables" in design_results:
         cables = design_results["cables"]
         health_report["components"]["Cable Tie-downs"] = {
@@ -1143,7 +1096,6 @@ def calculate_health_score(design_results, span_rules):
             }
         }
     
-    # Fabric
     if "fabric" in design_results:
         fabric = design_results["fabric"]
         health_report["components"]["Fabric Membrane"] = {
@@ -1176,21 +1128,19 @@ def auto_select_cable_diameter(tie_down_force):
     return max(cable_data.keys()) if cable_data else 10
 
 # ============================================================
-# MAIN DESIGN ENGINE - ENHANCED
+# MAIN DESIGN ENGINE
 # ============================================================
 def auto_design_structure(params, materials, typology="parabolic_beam"):
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    apex = params.get("LAA", 15.0)
+    span = params.get("B", 10.0) if params else 10.0
+    rise = params.get("A", 6.0) if params else 6.0
+    apex = params.get("LAA", 15.0) if params else 15.0
     
     member_type = materials.get("member_type", "single_beam")
     curve_type = materials.get("curve_type", "parabolic")
     joint_type = materials.get("joint_type", "bolted")
     
-    # Check design rules based on span
     span_rules = check_span_rules(span, apex, materials)
     
-    # Apply forced rules
     if span_rules["pin_forced"]:
         materials["joint_type"] = "bolted"
         joint_type = "bolted"
@@ -1200,17 +1150,15 @@ def auto_design_structure(params, materials, typology="parabolic_beam"):
     
     connection_factor = JOINT_MULTIPLIERS.get(joint_type, {}).get("factor", 1.0)
     
-    # ===== TRUSS DESIGN =====
     if member_type in ["planar_truss", "space_truss"]:
         return auto_design_truss_structure(params, materials, curve_type, span_rules)
     
-    # ===== SINGLE BEAM DESIGN =====
     return auto_design_single_beam(params, materials, curve_type, span_rules)
 
 def auto_design_single_beam(params, materials, curve_type="parabolic", span_rules=None):
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    apex = params.get("LAA", 15.0)
+    span = params.get("B", 10.0) if params else 10.0
+    rise = params.get("A", 6.0) if params else 6.0
+    apex = params.get("LAA", 15.0) if params else 15.0
     
     material_type = materials.get("material_type", "Steel")
     section_type = materials.get("section_type", "CHS")
@@ -1228,7 +1176,6 @@ def auto_design_single_beam(params, materials, curve_type="parabolic", span_rule
     
     fy = 355 if material_type == "Steel" else 276
     
-    # Calculate required section for curved beam
     req = calculate_required_section_single(total_load, span, rise, apex, material_type, fy, curve_type)
     section_check = check_section_availability(req["W_required"], section_type)
     
@@ -1236,22 +1183,18 @@ def auto_design_single_beam(params, materials, curve_type="parabolic", span_rule
     fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area)
     fabric_strength = FABRIC_PROPERTIES.get(fabric_type, {}).get("thickness", {}).get(fabric_thickness, 0)
     
-    # Secondary beams for large spans
     secondary_beams = None
     if span_rules and span_rules.get("secondary_beams_required", False):
         secondary_beams = calculate_secondary_beams(span, apex, materials.get("num_bays", 2), "single_beam")
     
-    # Rigid ties for large spans
     rigid_ties = None
     cables = None
     if span_rules and span_rules.get("rigid_ties_required", False):
         rigid_ties = calculate_rigid_ties(span, apex, materials.get("num_bays", 2))
     else:
-        # Cables for small spans
         if cable_type and cable_type != "None":
             cables = calculate_cable_ties(wind_load, span, apex, materials.get("num_bays", 2), cable_type)
     
-    # Build results
     results = {
         "loads": {
             "wind": wind_load,
@@ -1287,32 +1230,25 @@ def auto_design_single_beam(params, materials, curve_type="parabolic", span_rule
         "span_rules": span_rules
     }
     
-    # Add secondary beams
     if secondary_beams:
         results["secondary_beams"] = secondary_beams
-    
-    # Add rigid ties
     if rigid_ties:
         results["rigid_ties"] = rigid_ties
-    
-    # Add cables
     if cables:
         results["cables"] = cables
     
-    # Generate BQ
     bq = generate_bill_of_quantities(params, materials, results)
     results["bq"] = bq
     
-    # Health report
     health_report = calculate_health_score(results, span_rules)
     results["health_report"] = health_report
     
     return results
 
 def auto_design_truss_structure(params, materials, curve_type="parabolic", span_rules=None):
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    apex = params.get("LAA", 15.0)
+    span = params.get("B", 10.0) if params else 10.0
+    rise = params.get("A", 6.0) if params else 6.0
+    apex = params.get("LAA", 15.0) if params else 15.0
     
     material_type = materials.get("material_type", "Steel")
     section_type = materials.get("section_type", "CHS")
@@ -1328,9 +1264,8 @@ def auto_design_truss_structure(params, materials, curve_type="parabolic", span_
     wind_data = calculate_wind_load_enshrined(span, apex, rise, standard)
     wind_load = wind_data["wind_per_beam"] * 2 * connection_factor
     
-    # Different dead load for 3D truss
     if member_type == "space_truss":
-        dead_load = calculate_dead_load_space_truss(span, apex, apex, num_bays)
+        dead_load = calculate_dead_load_space_truss(span, apex, num_bays)
         req = calculate_required_section_space_truss(
             wind_load + dead_load, span, apex, rise, apex,
             material_type, 355, connection_factor, truss_type, num_bays, curve_type
@@ -1345,7 +1280,6 @@ def auto_design_truss_structure(params, materials, curve_type="parabolic", span_
     live_load = 0.5 * (span * apex * 1.1) / 100
     total_load = wind_load + dead_load + live_load
     
-    # Check section availability for each member
     top_chord_check = check_section_availability_unified(req["top_chord"]["A_required"], section_type)
     bottom_chord_check = check_section_availability_unified(req["bottom_chord"]["A_required"], section_type)
     diag_check = check_section_availability_unified(req["diagonals"]["A_required"], section_type) if req["diagonals"]["A_required"] > 0 else {"available": True, "section": "N/A", "is_standard": True}
@@ -1362,12 +1296,10 @@ def auto_design_truss_structure(params, materials, curve_type="parabolic", span_
     fabric_thickness = auto_select_fabric_thickness(wind_load, membrane_area)
     fabric_strength = {"0.5": 30, "0.8": 40, "1.0": 50, "1.2": 60}.get(fabric_thickness, 0)
     
-    # Secondary beams for large spans
     secondary_beams = None
     if span_rules and span_rules.get("secondary_beams_required", False):
         secondary_beams = calculate_secondary_beams(span, apex, num_bays, member_type)
     
-    # Rigid ties for large spans
     rigid_ties = None
     cables = None
     if span_rules and span_rules.get("rigid_ties_required", False):
@@ -1449,23 +1381,16 @@ def auto_design_truss_structure(params, materials, curve_type="parabolic", span_
         "unified": True
     }
     
-    # Add secondary beams
     if secondary_beams:
         results["secondary_beams"] = secondary_beams
-    
-    # Add rigid ties
     if rigid_ties:
         results["rigid_ties"] = rigid_ties
-    
-    # Add cables
     if cables:
         results["cables"] = cables
     
-    # Generate BQ
     bq = generate_bill_of_quantities(params, materials, results)
     results["bq"] = bq
     
-    # Health report
     health_report = calculate_health_score(results, span_rules)
     results["health_report"] = health_report
     
@@ -1483,14 +1408,13 @@ def calculate_dead_load_single(span, apex, fabric_type):
 # BQ GENERATION
 # ============================================================
 def generate_bill_of_quantities(params, materials, design_results):
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    laa = params.get("LAA", 15.0)
+    span = params.get("B", 10.0) if params else 10.0
+    rise = params.get("A", 6.0) if params else 6.0
+    laa = params.get("LAA", 15.0) if params else 15.0
     num_bays = materials.get("num_bays", 2)
     
     bq_items = []
     
-    # Check if it's a truss design
     if "members" in design_results:
         members = design_results["members"]
         unified_type = design_results.get("unified_section_type", "CHS")
@@ -1564,7 +1488,6 @@ def generate_bill_of_quantities(params, materials, design_results):
                 "notes": "Standard section" if is_standard else "⚠️ Custom section required"
             })
     
-    # Secondary beams
     if "secondary_beams" in design_results:
         sec = design_results["secondary_beams"]
         sec_section = sec.get("section", "N/A")
@@ -1583,7 +1506,6 @@ def generate_bill_of_quantities(params, materials, design_results):
             "notes": f"{sec_count} purlins @ {sec.get('spacing', 0):.1f}m spacing"
         })
     
-    # Rigid ties
     if "rigid_ties" in design_results:
         ties = design_results["rigid_ties"]
         tie_section = ties.get("section", "N/A")
@@ -1602,7 +1524,6 @@ def generate_bill_of_quantities(params, materials, design_results):
             "notes": f"{tie_count} ties @ {ties.get('force_per_tie', 0):.0f}kN each"
         })
     
-    # Fabric
     fabric = design_results.get("fabric", {})
     if fabric:
         membrane_area = span * laa * 1.1
@@ -1623,7 +1544,6 @@ def generate_bill_of_quantities(params, materials, design_results):
             "notes": f"{fabric_type} - {thickness}mm"
         })
     
-    # Cables
     cables = design_results.get("cables", {})
     if cables:
         cable_type = cables.get("type", "N/A")
@@ -1653,7 +1573,6 @@ def generate_bill_of_quantities(params, materials, design_results):
             "notes": f"{cable_type} - {cable_diameter}mm"
         })
     
-    # Connections
     joint_type = materials.get("joint_type", "bolted")
     num_joints = (num_bays + 1) * 4 if "members" in design_results else (num_bays + 1) * 2
     joint_desc = JOINT_MULTIPLIERS.get(joint_type, {}).get("description", "")
@@ -1666,7 +1585,6 @@ def generate_bill_of_quantities(params, materials, design_results):
         "notes": joint_desc
     })
     
-    # Calculate total steel weight
     total_steel_weight = sum([
         item.get("total_weight", 0) for item in bq_items 
         if "total_weight" in item and item["item"] in ["Main Beams", "Top Chord", "Bottom Chord", "Diagonals", "Verticals", "Secondary Beams (Purlins)", "Rigid Tie-downs", "Cables"]
@@ -1691,41 +1609,46 @@ def generate_bill_of_quantities(params, materials, design_results):
     }
 
 # ============================================================
-# 3D GENERATORS - ENHANCED FOR CURVED BEAMS AND COMPONENTS
+# 3D GENERATORS - FIXED: SCALED MARKERS, FULL HEIGHT
 # ============================================================
 def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    laa = params.get("LAA", 15.0)
+    span = params.get("B", 10.0) if params else 10.0
+    rise = params.get("A", 6.0) if params else 6.0
+    laa = params.get("LAA", 15.0) if params else 15.0
     num_points = 50
 
     if span <= 0 or rise <= 0 or laa <= 0:
         return go.Figure()
 
     x = np.linspace(-span/2, span/2, num_points)
-    
-    # Get curve shape
     z_beam = get_curve_shape(x, span, rise, curve_type)
     
-    # Beam curves in 3D
     y1 = -laa/2 * (1 - (2 * x / span)**2) * 0.8
     y2 = laa/2 * (1 - (2 * x / span)**2) * 0.8
 
     fig = go.Figure()
 
+    # Calculate adaptive line width based on structure size
+    max_dim = max(span, laa, rise)
+    line_width = max(2, min(8, 40 / (max_dim / 10)))
+    marker_size = max(2, min(6, 30 / (max_dim / 10)))
+
     # Main beams
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
-        mode='lines', name='Beam 1 (Left)',
-        line=dict(color='#FF6B6B', width=8)
+        mode='lines',
+        line=dict(color='#FF6B6B', width=line_width),
+        showlegend=False
     ))
     fig.add_trace(go.Scatter3d(
         x=x, y=y2, z=z_beam,
-        mode='lines', name='Beam 2 (Right)',
-        line=dict(color='#FF6B6B', width=8)
+        mode='lines',
+        line=dict(color='#FF6B6B', width=line_width),
+        showlegend=False
     ))
 
-    # Membrane surface
+    # Membrane surface (with reduced opacity for large structures)
+    opacity = max(0.25, min(0.5, 30 / (max_dim / 5)))
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
@@ -1745,7 +1668,7 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
     fig.add_trace(go.Surface(
         x=X_surf, y=Y_surf, z=Z_surf,
         colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
-        opacity=0.4, showscale=False, name='Membrane'
+        opacity=opacity, showscale=False, name='Membrane'
     ))
 
     # Secondary beams (purlins) - if present in design results
@@ -1754,7 +1677,7 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
         sec = design_results["secondary_beams"]
         num_purlins = sec.get("num_purlins", 0)
         if num_purlins > 0:
-            purlin_positions = np.linspace(-span/2 * 0.8, span/2 * 0.8, num_purlins)
+            purlin_positions = np.linspace(-span/2 * 0.8, span/2 * 0.8, min(num_purlins, 12))
             for px in purlin_positions:
                 idx = np.argmin(np.abs(x - px))
                 z_at_p = z_beam[idx] * 0.85
@@ -1765,7 +1688,7 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
                     y=[y_start, y_end],
                     z=[z_at_p, z_at_p],
                     mode='lines',
-                    line=dict(color='#e67e22', width=3, dash='dash'),
+                    line=dict(color='#e67e22', width=line_width * 0.5, dash='dash'),
                     showlegend=False
                 ))
 
@@ -1774,16 +1697,15 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
         ties = design_results["rigid_ties"]
         num_ties = ties.get("num_ties", 0)
         if num_ties > 0:
-            tie_positions = np.linspace(-span/2 * 0.7, span/2 * 0.7, num_ties)
+            tie_positions = np.linspace(-span/2 * 0.7, span/2 * 0.7, min(num_ties, 10))
             for tx in tie_positions:
                 idx = np.argmin(np.abs(x - tx))
-                # Vertical ties from beam to ground
                 fig.add_trace(go.Scatter3d(
                     x=[tx, tx],
                     y=[0, 0],
                     z=[z_beam[idx] * 0.8, 0],
                     mode='lines',
-                    line=dict(color='#f1c40f', width=4),
+                    line=dict(color='#f1c40f', width=line_width * 0.6),
                     showlegend=False
                 ))
 
@@ -1801,24 +1723,39 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
                     y=[0, 0],
                     z=[z_beam[idx] * 0.7, 0],
                     mode='lines',
-                    line=dict(color='#3498db', width=2, dash='dot'),
+                    line=dict(color='#3498db', width=line_width * 0.4, dash='dot'),
                     showlegend=False
                 ))
 
-    max_dim = max(span, laa, rise)
-    cam_distance = 1.8 * max(1, max_dim / 8)
+    # Adaptive camera distance
+    cam_distance = 1.5 * max(1, max_dim / 6)
 
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
             yaxis_title='Width (m)',
             zaxis_title='Height (m)',
-            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            xaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=max(8, min(12, 20 - max_dim/10))),
+                titlefont=dict(size=max(10, min(14, 22 - max_dim/10)))
+            ),
+            yaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=max(8, min(12, 20 - max_dim/10))),
+                titlefont=dict(size=max(10, min(14, 22 - max_dim/10)))
+            ),
+            zaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=max(8, min(12, 20 - max_dim/10))),
+                titlefont=dict(size=max(10, min(14, 22 - max_dim/10)))
+            ),
             bgcolor='#0a0e17',
             camera=dict(
-                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.7),
+                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6),
                 up=dict(x=0, y=0, z=1)
             ),
             dragmode='turntable',
@@ -1833,9 +1770,9 @@ def generate_curved_beam_3d(params, materials=None, curve_type="parabolic"):
     return fig
 
 def generate_saddle_span(params, materials=None):
-    span = params.get("B", 10.0)
-    rise = params.get("A", 6.0)
-    laa = params.get("LAA", 15.0)
+    span = params.get("B", 10.0) if params else 10.0
+    rise = params.get("A", 6.0) if params else 6.0
+    laa = params.get("LAA", 15.0) if params else 15.0
     num_points = 50
 
     if span <= 0 or rise <= 0 or laa <= 0:
@@ -1848,17 +1785,23 @@ def generate_saddle_span(params, materials=None):
 
     fig = go.Figure()
 
+    max_dim = max(span, laa, rise)
+    line_width = max(2, min(8, 40 / (max_dim / 10)))
+
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
-        mode='lines', name='Beam 1 (Left)',
-        line=dict(color='#FF6B6B', width=8)
+        mode='lines',
+        line=dict(color='#FF6B6B', width=line_width),
+        showlegend=False
     ))
     fig.add_trace(go.Scatter3d(
         x=x, y=y2, z=z_beam,
-        mode='lines', name='Beam 2 (Right)',
-        line=dict(color='#FF6B6B', width=8)
+        mode='lines',
+        line=dict(color='#FF6B6B', width=line_width),
+        showlegend=False
     ))
 
+    opacity = max(0.25, min(0.5, 30 / (max_dim / 5)))
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
@@ -1878,7 +1821,7 @@ def generate_saddle_span(params, materials=None):
     fig.add_trace(go.Surface(
         x=X_surf, y=Y_surf, z=Z_surf,
         colorscale=[[0, '#2a3a5f'], [0.5, '#4a7a9c'], [1, '#6ab0d4']],
-        opacity=0.5, showscale=False, name='Membrane'
+        opacity=opacity, showscale=False, name='Membrane'
     ))
 
     if materials:
@@ -1894,10 +1837,11 @@ def generate_saddle_span(params, materials=None):
         elif num_bays == 3:
             bracing_x = [-span/3, 0.0, span/3]
         else:
-            bracing_x = np.linspace(-span/3, span/3, num_bays).tolist()
+            bracing_x = np.linspace(-span/3, span/3, min(num_bays, 8)).tolist()
         
         roof_radius = max(span/2, laa/2)
         anchor_offset = roof_radius * 1.3
+        cable_width = max(1, min(3, 15 / (max_dim / 10)))
         
         for bx in bracing_x:
             idx = np.argmin(np.abs(x - bx))
@@ -1924,7 +1868,7 @@ def generate_saddle_span(params, materials=None):
                 y=[y1_pt, anchor1_y],
                 z=[z_pt, 0],
                 mode='lines',
-                line=dict(color='#FFD93D', width=3),
+                line=dict(color='#FFD93D', width=cable_width),
                 showlegend=False
             ))
             fig.add_trace(go.Scatter3d(
@@ -1932,24 +1876,38 @@ def generate_saddle_span(params, materials=None):
                 y=[y2_pt, anchor2_y],
                 z=[z_pt, 0],
                 mode='lines',
-                line=dict(color='#FFD93D', width=3),
+                line=dict(color='#FFD93D', width=cable_width),
                 showlegend=False
             ))
 
-    max_dim = max(span, laa, rise)
-    cam_distance = 1.8 * max(1, max_dim / 8)
+    cam_distance = 1.5 * max(1, max_dim / 6)
 
     fig.update_layout(
         scene=dict(
             xaxis_title='Span (m)',
             yaxis_title='Width (m)',
             zaxis_title='Height (m)',
-            xaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            yaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
-            zaxis=dict(color='#b0c4de', gridcolor='#1a2a3a'),
+            xaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=max(8, min(12, 20 - max_dim/10))),
+                titlefont=dict(size=max(10, min(14, 22 - max_dim/10)))
+            ),
+            yaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=max(8, min(12, 20 - max_dim/10))),
+                titlefont=dict(size=max(10, min(14, 22 - max_dim/10)))
+            ),
+            zaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=max(8, min(12, 20 - max_dim/10))),
+                titlefont=dict(size=max(10, min(14, 22 - max_dim/10)))
+            ),
             bgcolor='#0a0e17',
             camera=dict(
-                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.7),
+                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6),
                 up=dict(x=0, y=0, z=1)
             ),
             dragmode='turntable',
@@ -1964,9 +1922,9 @@ def generate_saddle_span(params, materials=None):
     return fig
 
 def generate_geodesic_dome_3d(params):
-    radius = params.get("radius", 20)
-    frequency = params.get("frequency", 6)
-    height = params.get("height", radius)
+    radius = params.get("radius", 20) if params else 20
+    frequency = params.get("frequency", 6) if params else 6
+    height = params.get("height", radius) if params else radius
     
     nodes = []
     
@@ -1988,6 +1946,10 @@ def generate_geodesic_dome_3d(params):
     
     fig = go.Figure()
     
+    max_dim = radius * 2
+    line_width = max(1, min(3, 20 / (max_dim / 10)))
+    marker_size = max(1, min(4, 15 / (max_dim / 10)))
+    
     if nodes:
         xs = [n[0] for n in nodes]
         ys = [n[1] for n in nodes]
@@ -1996,36 +1958,57 @@ def generate_geodesic_dome_3d(params):
         fig.add_trace(go.Scatter3d(
             x=xs, y=ys, z=zs,
             mode='markers',
-            marker=dict(color='#f39c12', size=4),
+            marker=dict(color='#f39c12', size=marker_size),
             name='Nodes'
         ))
         
-        for i in range(len(nodes)):
-            for j in range(i+1, len(nodes)):
-                dx = nodes[i][0] - nodes[j][0]
-                dy = nodes[i][1] - nodes[j][1]
-                dz = nodes[i][2] - nodes[j][2]
-                dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-                if dist < radius / frequency * 1.5:
-                    fig.add_trace(go.Scatter3d(
-                        x=[nodes[i][0], nodes[j][0]],
-                        y=[nodes[i][1], nodes[j][1]],
-                        z=[nodes[i][2], nodes[j][2]],
-                        mode='lines',
-                        line=dict(color='#4a7a9c', width=2),
-                        showlegend=False
-                    ))
+        # Only connect nodes that are close enough (with adaptive threshold)
+        threshold = radius / frequency * 1.5
+        if len(nodes) < 200:  # Only draw lines if not too many nodes
+            for i in range(len(nodes)):
+                for j in range(i+1, len(nodes)):
+                    dx = nodes[i][0] - nodes[j][0]
+                    dy = nodes[i][1] - nodes[j][1]
+                    dz = nodes[i][2] - nodes[j][2]
+                    dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                    if dist < threshold:
+                        fig.add_trace(go.Scatter3d(
+                            x=[nodes[i][0], nodes[j][0]],
+                            y=[nodes[i][1], nodes[j][1]],
+                            z=[nodes[i][2], nodes[j][2]],
+                            mode='lines',
+                            line=dict(color='#4a7a9c', width=line_width),
+                            showlegend=False
+                        ))
     
-    cam_distance = 2.0 * max(1, radius / 10)
+    cam_distance = 1.8 * max(1, radius / 6)
     
     fig.update_layout(
         scene=dict(
             xaxis_title='X (m)',
             yaxis_title='Y (m)',
             zaxis_title='Z (m)',
+            xaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=max(8, min(12, 20 - max_dim/10))),
+                titlefont=dict(size=max(10, min(14, 22 - max_dim/10)))
+            ),
+            yaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=max(8, min(12, 20 - max_dim/10))),
+                titlefont=dict(size=max(10, min(14, 22 - max_dim/10)))
+            ),
+            zaxis=dict(
+                color='#b0c4de', 
+                gridcolor='#1a2a3a',
+                tickfont=dict(size=max(8, min(12, 20 - max_dim/10))),
+                titlefont=dict(size=max(10, min(14, 22 - max_dim/10)))
+            ),
             bgcolor='#0a0e17',
             camera=dict(
-                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.7),
+                eye=dict(x=cam_distance, y=cam_distance, z=cam_distance * 0.6),
                 up=dict(x=0, y=0, z=1)
             ),
             dragmode='turntable',
@@ -2078,19 +2061,16 @@ def export_to_csv(results, filename="structure.csv"):
             writer.writerow(["Curve_Type", beam.get("curve_type", "parabolic")])
             writer.writerow(["Section_Standard", beam.get("is_standard", False)])
     
-    # Secondary beams
     if "secondary_beams" in results:
         sec = results["secondary_beams"]
         writer.writerow(["Secondary_Beams_Section", sec.get("section", "N/A")])
         writer.writerow(["Secondary_Beams_Count", sec.get("num_purlins", 0)])
     
-    # Rigid ties
     if "rigid_ties" in results:
         ties = results["rigid_ties"]
         writer.writerow(["Rigid_Ties_Section", ties.get("section", "N/A")])
         writer.writerow(["Rigid_Ties_Count", ties.get("num_ties", 0)])
     
-    # Cables
     if "cables" in results:
         cables = results["cables"]
         writer.writerow(["Cable_Diameter_mm", cables.get("diameter", 0)])
@@ -2361,7 +2341,6 @@ def render_catalog():
     st.subheader("🏗️ Choose a Structure Type")
     st.caption("Select from 27 different structure types")
     
-    # Show curved beam options prominently
     st.markdown("""
     <div style='background-color: #141e2b; border: 1px solid #f39c12; border-radius: 8px; padding: 0.8rem 1rem; margin-bottom: 1rem;'>
         <span style='color: #f39c12; font-weight: 600;'>🏹 CURVED BEAM STRUCTURES</span>
@@ -2371,7 +2350,6 @@ def render_catalog():
     </div>
     """, unsafe_allow_html=True)
     
-    # Curved beam options
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("""
@@ -2413,8 +2391,6 @@ def render_catalog():
     selected_category = st.radio("Filter by Category", categories, horizontal=True)
     
     items = list(STRUCTURE_TYPES.items())
-    
-    # Filter out curved beam types as they're shown above
     items = [(k, v) for k, v in items if k not in ["parabolic_beam", "circular_beam"]]
     
     if selected_category != "All":
@@ -2583,7 +2559,6 @@ def render_reports():
     c2.metric("Dead", f"{loads.get('dead', 0):.0f} kN")
     c3.metric("Total", f"{loads.get('total', 0):.0f} kN")
     
-    # Display span rules info
     span_rules = design_results.get("span_rules", {})
     if span_rules:
         if span_rules.get("info_messages"):
@@ -2628,21 +2603,18 @@ def render_reports():
             if "arch_reduction" in beam:
                 st.caption(f"🏹 Arch Reduction: {beam.get('arch_reduction', 0):.0f}%")
     
-    # Secondary beams
     if "secondary_beams" in design_results:
         sec = design_results["secondary_beams"]
         st.markdown("#### 📐 Secondary Beams <span class='secondary-badge'>PURLINS</span>", unsafe_allow_html=True)
         st.caption(f"**Section:** {sec.get('section', 'N/A')} | Count: {sec.get('num_purlins', 0)} | Spacing: {sec.get('spacing', 0):.1f}m")
         st.caption(f"Total Length: {sec.get('total_length', 0):.1f}m | Weight: {sec.get('total_weight', 0):.1f}kg")
     
-    # Rigid ties
     if "rigid_ties" in design_results:
         ties = design_results["rigid_ties"]
         st.markdown("#### 🪢 Rigid Tie-downs <span class='tie-badge'>TIES</span>", unsafe_allow_html=True)
         st.caption(f"**Section:** {ties.get('section', 'N/A')} | Count: {ties.get('num_ties', 0)} | Force per tie: {ties.get('force_per_tie', 0):.1f}kN")
         st.caption(f"Total Length: {ties.get('total_length', 0):.1f}m | Weight: {ties.get('total_weight', 0):.1f}kg")
     
-    # Cables
     if "cables" in design_results:
         cables = design_results["cables"]
         st.markdown("#### 🔗 Cables <span class='cable-badge'>TIE-DOWN</span>", unsafe_allow_html=True)
@@ -2727,13 +2699,11 @@ def render_workspace():
     
     st.divider()
     
-    # BALANCED COLUMNS - 50/50 SPLIT
     col_left, col_right = st.columns([1, 1], gap="medium")
     
     with col_left:
         st.markdown('<div class="sds-card"><div class="title">📐 Structure Parameters</div>', unsafe_allow_html=True)
         
-        # Curve type selector (for curved beam structures)
         if typology in ["parabolic_beam", "circular_beam"]:
             curve_options = ["parabolic", "circular"]
             curve_labels = ["🏹 Parabolic", "⭕ Circular"]
@@ -2749,6 +2719,11 @@ def render_workspace():
             materials["curve_type"] = curve_options[curve_labels.index(selected_curve_label)]
         
         if typology in ["parabolic_beam", "circular_beam", "saddle_span"]:
+            # Ensure params has default values
+            if not params:
+                params = {"A": 6.0, "B": 10.0, "LAA": 15.0}
+                st.session_state.params = params
+            
             params["A"] = st.number_input("Rise (A) m", 2.0, 50.0, params.get("A", 6.0), 0.5, disabled=st.session_state.locked, key="dim_A")
             params["B"] = st.number_input("Span (B) m", 4.0, 100.0, params.get("B", 10.0), 0.5, disabled=st.session_state.locked, key="dim_B")
             params["LAA"] = st.number_input("Apex Dist (LAA) m", 4.0, 100.0, params.get("LAA", 15.0), 0.5, disabled=st.session_state.locked, key="dim_LAA")
@@ -2770,7 +2745,6 @@ def render_workspace():
             st.caption(f"📊 Area from Span: {area_span:.0f} m² | Area from Apex: {area_apex:.0f} m²")
             st.caption(f"🔒 Governing Area: **{gov_area:.0f} m²** (wind from {gov_dir.upper()})")
             
-            # Rise/Span ratio check
             if params["B"] > 0:
                 ratio = params["A"] / params["B"]
                 if ratio < 0.15:
@@ -2826,11 +2800,9 @@ def render_workspace():
         member_keys = ["single_beam", "planar_truss", "space_truss"]
         materials["member_type"] = member_keys[member_labels.index(selected_member_label)]
         
-        # Connection type selection (with span rules)
         if typology in ["parabolic_beam", "circular_beam"]:
-            # Check span rules
-            span = params.get("B", 10.0)
-            apex = params.get("LAA", 15.0)
+            span = params.get("B", 10.0) if params else 10.0
+            apex = params.get("LAA", 15.0) if params else 15.0
             
             if span >= 20.0 or apex >= 20.0:
                 st.info("🔒 **Large span detected (≥ 20m). Pin connections forced per design rules.**")
@@ -2892,7 +2864,6 @@ def render_workspace():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Fabric (only for structures with membrane)
         if typology in ["parabolic_beam", "circular_beam", "saddle_span", "clear_span_tent", "tensile_membrane", "shade_structure"]:
             st.markdown('<div class="sds-card"><div class="title">🧵 Fabric</div>', unsafe_allow_html=True)
             fabric_options = ["PVC-coated Polyester", "PTFE-coated Fiberglass", "ETFE Film"]
@@ -2905,10 +2876,9 @@ def render_workspace():
             )
             st.markdown('</div>', unsafe_allow_html=True)
         
-        # Cables (with span rules)
         if typology in ["parabolic_beam", "circular_beam", "saddle_span", "clear_span_tent", "tensile_membrane", "cable_net", "cable_stayed"]:
-            span = params.get("B", 10.0)
-            apex = params.get("LAA", 15.0)
+            span = params.get("B", 10.0) if params else 10.0
+            apex = params.get("LAA", 15.0) if params else 15.0
             
             st.markdown('<div class="sds-card"><div class="title">🔗 Cables</div>', unsafe_allow_html=True)
             
@@ -2941,35 +2911,33 @@ def render_workspace():
         if materials["member_type"] in ["planar_truss", "space_truss"]:
             materials["connection_factor"] = JOINT_MULTIPLIERS.get(materials.get("joint_type", "bolted"), {}).get("factor", 1.0)
         
-        # Display design rules
-        if typology in ["parabolic_beam", "circular_beam"]:
-            span = params.get("B", 10.0)
-            apex = params.get("LAA", 15.0)
-            rules = check_span_rules(span, apex, materials)
-            
-            st.markdown('<div class="sds-card"><div class="title">📋 Design Rules</div>', unsafe_allow_html=True)
-            if rules.get("info_messages"):
-                for msg in rules["info_messages"]:
-                    st.info(msg)
-            if rules.get("warning_messages"):
-                for msg in rules["warning_messages"]:
-                    st.warning(msg)
-            
-            # Show secondary beam requirement
-            if rules.get("secondary_beams_required", False):
-                st.caption("📐 Secondary beams (purlins) will be automatically added")
-            if rules.get("rigid_ties_required", False):
-                st.caption("🪢 Rigid tie-downs will replace cables")
-            st.markdown('</div>', unsafe_allow_html=True)
+        # Display design rules (only for curved beam types that have params)
+        if typology in ["parabolic_beam", "circular_beam", "saddle_span"]:
+            if params and "B" in params and "LAA" in params:
+                span = params.get("B", 10.0)
+                apex = params.get("LAA", 15.0)
+                rules = check_span_rules(span, apex, materials)
+                
+                st.markdown('<div class="sds-card"><div class="title">📋 Design Rules</div>', unsafe_allow_html=True)
+                if rules.get("info_messages"):
+                    for msg in rules["info_messages"]:
+                        st.info(msg)
+                if rules.get("warning_messages"):
+                    for msg in rules["warning_messages"]:
+                        st.warning(msg)
+                
+                if rules.get("secondary_beams_required", False):
+                    st.caption("📐 Secondary beams (purlins) will be automatically added")
+                if rules.get("rigid_ties_required", False):
+                    st.caption("🪢 Rigid tie-downs will replace cables")
+                st.markdown('</div>', unsafe_allow_html=True)
         
         if st.button("⚡ Run Design Analysis", key="workspace_run_analysis", use_container_width=True, type="primary"):
             with st.spinner("🔄 Calculating with enshrined safety..."):
                 st.session_state.design_results = {}
                 st.session_state.bq = {}
                 
-                # Ensure curve_type is set for curved beams
                 if typology in ["parabolic_beam", "circular_beam"]:
-                    # Set curve type based on typology if not already set
                     if typology == "parabolic_beam":
                         materials["curve_type"] = "parabolic"
                     elif typology == "circular_beam":
@@ -2988,7 +2956,6 @@ def render_workspace():
         st.caption("🟡 Yellow = Ties | 🔴 Red = Main Beams | 🟠 Orange = Secondary | 🔵 Surface = Membrane")
         
         if typology in ["parabolic_beam", "circular_beam"]:
-            # Pass the curve type to the generator
             curve_type = materials.get("curve_type", "parabolic")
             fig = generate_curved_beam_3d(params, materials, curve_type)
         elif typology == "geodesic_dome":
@@ -3001,6 +2968,7 @@ def render_workspace():
         else:
             fig = generate_saddle_span(params, materials)
         
+        # FIXED: Full height 3D viewer with proper sizing
         st.plotly_chart(
             fig,
             use_container_width=True,
@@ -3042,7 +3010,6 @@ def render_workspace():
             </div>
             """, unsafe_allow_html=True)
             
-            # Show span rules info
             span_rules = design_results.get("span_rules", {})
             if span_rules:
                 if span_rules.get("info_messages"):
@@ -3106,7 +3073,6 @@ def render_workspace():
                         st.caption(f"🏹 Arch Reduction: {beam.get('arch_reduction', 0):.0f}%")
                     st.markdown('</div>', unsafe_allow_html=True)
             
-            # Secondary beams
             if "secondary_beams" in design_results:
                 sec = design_results["secondary_beams"]
                 st.markdown('<div class="sds-card"><div class="title">📐 Secondary Beams <span class="secondary-badge">PURLINS</span></div>', unsafe_allow_html=True)
@@ -3114,7 +3080,6 @@ def render_workspace():
                 st.caption(f"Total Length: {sec.get('total_length', 0):.1f}m | Weight: {sec.get('total_weight', 0):.1f}kg")
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # Rigid ties
             if "rigid_ties" in design_results:
                 ties = design_results["rigid_ties"]
                 st.markdown('<div class="sds-card"><div class="title">🪢 Rigid Tie-downs <span class="tie-badge">TIES</span></div>', unsafe_allow_html=True)
