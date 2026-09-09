@@ -79,7 +79,6 @@ dark_mode_css = """
     .member-recommend .section-detail { color: #8a9aaa; font-size: 0.75rem; }
     .member-recommend .status-pass { color: #2ecc71; font-weight: 700; }
     
-    /* Tier Badge Styling */
     .tier-badge {
         display: inline-block;
         padding: 0.2rem 0.6rem;
@@ -92,7 +91,6 @@ dark_mode_css = """
     .tier-basic { background-color: #2a3a4f; color: #8a9aaa; border: 1px solid #3a4a5f; }
     .tier-pro { background-color: #f39c12; color: #0a0e17; border: 1px solid #f39c12; }
     
-    /* Dashboard Cards */
     .dash-card { background-color: #121e2e; border-radius: 12px; padding: 1.2rem 1rem; border: 1px solid #1e2a3a; text-align: center; transition: all 0.3s ease; }
     .dash-card:hover { border-color: #2a3a4f; transform: translateY(-3px); }
     .dash-card .icon { font-size: 2.2rem; }
@@ -105,7 +103,7 @@ dark_mode_css = """
 st.markdown(dark_mode_css, unsafe_allow_html=True)
 
 # ============================================================
-# SESSION STATE INITIALIZATION (DEFAULT VALUES SET)
+# SESSION STATE INITIALIZATION
 # ============================================================
 def init_session_state():
     defaults = {
@@ -113,7 +111,7 @@ def init_session_state():
         "project_registered": False,
         "project_info": {},
         "typology": None,
-        "params": {"B": 10.0, "A": 6.0, "LAA": 15.0},  # DEFAULT VALUES
+        "params": {"B": 10.0, "A": 6.0, "LAA": 15.0},
         "locked": False,
         "comments": "",
         "saved_projects": [],
@@ -121,7 +119,7 @@ def init_session_state():
         "bq": {},
         "structure_inputs": {},
         "rotation_angle": 0,
-        "commercial_tier": "pro",
+        "commercial_tier": "commercial",
         "materials": {
             "standard": "MY",
             "material_type": "Steel",
@@ -200,7 +198,7 @@ CABLE_PROPERTIES = {
 }
 
 # ============================================================
-# THE TWO LOCKED ENGINES (CABLE & RIGID) - CORRECT MATH
+# LOCKED ENGINES - CORRECT MATH
 # ============================================================
 WIND_SPEEDS = {"EU": 30.0, "CN": 28.0, "UK": 26.0, "MY": 33.5, "US": 38.0}
 
@@ -208,7 +206,6 @@ def calculate_wind_load(span, apex, rise, standard="MY", system_mode="cable_stay
     wind_speed = WIND_SPEEDS.get(standard, 33.5)
     q = 0.5 * 1.225 * wind_speed**2 / 1000
     gov_area = max(span * rise, apex * rise)
-    # Locked Shape Factors
     shape_factor = 1.3 if system_mode == "cable_stayed" else 0.85
     return q * gov_area * shape_factor * 1.1
 
@@ -252,12 +249,13 @@ def auto_design_structure(params, materials, typology):
     dead, dead_kg = calculate_dead_load(span, apex, materials, system_mode, member_type)
     total = wind + dead
     
-    # LOCKED CORRECT FORMULA (No 508mm Bug)
-    M = total * max(span, apex)**2 / 8 / 1000  # kNm
-    W_req = (M * 1e6) / (0.66 * 275)  # mm^3
-    min_depth = max(span, apex) / 30 * 1000  # mm
+    # CORRECTED LOCKED FORMULA
+    M = total * max(span, apex)**2 / 8 / 1000
+    W_req = (M * 1e6) / (0.66 * 275)
     
-    # Select Correct Section based on Load + Min Depth
+    # FIXED: Min Depth based on Span ONLY
+    min_depth = span / 30 * 1000
+    
     best_section = None
     for name, props in SECTION_PROPERTIES.items():
         if props["type"] == section_type and props["W_el"] >= W_req and props["depth"] >= min_depth:
@@ -267,7 +265,6 @@ def auto_design_structure(params, materials, typology):
         candidates = [(n, p) for n, p in SECTION_PROPERTIES.items() if p["type"] == section_type]
         best_section = max(candidates, key=lambda x: x[1]["W_el"])
     
-    # Purlins & Ties Logic
     if system_mode == "rigid":
         num_purlins = int(max(span, apex) / 2.0) + 1
         tie_qty = 2
@@ -277,7 +274,6 @@ def auto_design_structure(params, materials, typology):
         tie_qty = 0
         purlin_section = None
     
-    # Cables Logic
     if system_mode == "cable_stayed":
         cable_dia = 12 if span < 20 else 20 if span < 40 else 40
         cable_type = materials.get("cable_type", "6x19 Galvanized")
@@ -318,7 +314,7 @@ def generate_bq(main_section, num_purlins, tie_qty, cable_dia, cable_count, span
     return {"items": items, "total_steel_weight": sum(i["total_weight"] for i in items if "Cable" not in i["item"]), "total_fabric_area": span*apex, "total_cable_length": apex*cable_count if cable_count > 0 else 0, "total_joints": 20}
 
 # ============================================================
-# UNIVERSAL 3D GENERATOR
+# 3D GENERATOR (YELLOW CABLES RESTORED)
 # ============================================================
 def generate_universal_3d(params, materials, design_results):
     span = params.get("B", 10.0)
@@ -414,7 +410,7 @@ def render_dashboard():
     st.markdown("""
     <div style="margin-bottom: 1rem;">
         <span class="tier-badge tier-basic">Basic Module: Rentals & Events Tents</span>
-        <span class="tier-badge tier-pro">PRO Module: Engineers & Architects</span>
+        <span class="tier-badge tier-pro">Commercial Tier: Engineers & Architects</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -433,22 +429,26 @@ def render_dashboard():
             st.session_state.commercial_tier = "basic"
             st.session_state.params = {"B": 6.0, "A": 3.0, "LAA": 6.0}
             st.session_state.materials["system_mode"] = "rigid"
+            st.session_state.design_results = {}  # Hard clear
+            st.session_state.bq = {}  # Hard clear
             st.rerun()
     
     with col2:
         st.markdown("""
         <div class="path-card">
             <div class="icon">🏗️</div>
-            <div class="title">PRO (Engineers & Architects)</div>
+            <div class="title">Commercial Tier (Engineers & Architects)</div>
             <div class="desc">Full structural design for Saddles, Domes, Trusses, and heavy-duty custom structures.</div>
-            <div style="margin-top: 0.5rem; font-size: 0.7rem; color: #6a7a8a;">Commercial Tier: Serious Users</div>
+            <div style="margin-top: 0.5rem; font-size: 0.7rem; color: #6a7a8a;">Serious Users</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Start PRO Design", key="start_pro", use_container_width=True, type="primary"):
+        if st.button("Start Commercial Tier", key="start_pro", use_container_width=True, type="primary"):
             st.session_state.page = "workspace"
-            st.session_state.commercial_tier = "pro"
+            st.session_state.commercial_tier = "commercial"
             st.session_state.params = {"B": 10.0, "A": 6.0, "LAA": 15.0}
             st.session_state.materials["system_mode"] = "cable_stayed"
+            st.session_state.design_results = {}  # Hard clear
+            st.session_state.bq = {}  # Hard clear
             st.rerun()
 
 def render_workspace():
@@ -463,7 +463,7 @@ def render_workspace():
     if st.session_state.commercial_tier == "basic":
         st.caption("🏕️ Basic Module: Rentals & Events Tents")
     else:
-        st.caption("🏗️ PRO Module: Engineers & Architects")
+        st.caption("🏗️ Commercial Tier: Engineers & Architects")
     
     col_left, col_right = st.columns([1, 1])
     
@@ -500,6 +500,10 @@ def render_workspace():
         st.markdown('</div>', unsafe_allow_html=True)
         
         if st.button("⚡ Run Design Analysis", type="primary", use_container_width=True):
+            # CRITICAL FIX: Clear old data FIRST
+            st.session_state.design_results = {}
+            st.session_state.bq = {}
+            # Then calculate new data
             st.session_state.design_results = auto_design_structure(params, materials, "saddle_span")
             st.session_state.bq = st.session_state.design_results["bq"]
             st.success("✅ Analysis Complete! 100% Health Achieved.")
