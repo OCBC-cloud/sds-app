@@ -740,9 +740,9 @@ def check_span_rules(span, apex, materials):
     return rules
 
 # ============================================================
-# 🔧 CORE ENGINEERING FUNCTIONS
+# 🔧 CORE ENGINEERING FUNCTIONS - RTS v9.3 FIXES
 # ============================================================
-def calculate_dead_load_single(span, apex, materials):
+def calculate_dead_load_single(span, apex, materials, typology="parabolic_beam"):
     section_type = materials.get("section_type", "CHS")
     main_depth = 0.4 if section_type == "CHS" else 0.5
     if materials.get("member_type") in ["planar_truss", "space_truss"]:
@@ -759,12 +759,23 @@ def calculate_dead_load_single(span, apex, materials):
     main_length = apex * 2
     dead_load_beam = self_weight_per_m * main_length / 1000
     
+    # RTS v9.3: Add Fabric Dead Load
+    fabric_dead = 0.0
+    if typology in ["saddle_span", "clear_span_tent", "tensile_membrane", "shade_structure"]:
+        fabric_weight = FABRIC_PROPERTIES.get(materials.get("fabric_type", "PVC-coated Polyester"), {}).get("weight_per_m2", 1.2)
+        fabric_area = span * apex * 1.2  # 20% extra for curvature
+        fabric_dead = fabric_weight * fabric_area / 1000  # kN
+    
+    # RTS v9.3: Suppress secondary dead load for tensile structures
     secondary_dead = 0
     if materials.get("member_type") in ["planar_truss", "space_truss"]:
         num_bays = materials.get("num_bays", 3)
         secondary_dead = 0.5 * span * num_bays * 0.25 / 1000
-    
-    return dead_load_beam + secondary_dead
+    elif typology not in ["saddle_span", "clear_span_tent", "tensile_membrane", "shade_structure"]:
+        num_bays = materials.get("num_bays", 2)
+        secondary_dead = 0.5 * span * num_bays * 0.25 / 1000
+        
+    return dead_load_beam + secondary_dead + fabric_dead
 
 def calculate_required_section_truss(params, materials, member_type, is_3d=False):
     span = params.get("B", 10.0)
@@ -821,7 +832,17 @@ def calculate_required_section_truss(params, materials, member_type, is_3d=False
         "span_rules": check_span_rules(span, apex, materials)
     }
 
-def calculate_secondary_beams(span, apex, materials):
+def calculate_secondary_beams(span, apex, materials, typology):
+    # RTS v9.3: Suppress secondary beams for tensile structures
+    if typology in ["saddle_span", "clear_span_tent", "tensile_membrane", "shade_structure"]:
+        return {
+            "section": "None (Cable-stayed / Tensile)",
+            "num_purlins": 0,
+            "spacing": 0,
+            "total_length": 0,
+            "total_weight": 0
+        }
+    
     span_support = max(span, apex)
     num_bays = materials.get("num_bays", 2)
     spacing = span_support / (num_bays + 1)
@@ -872,22 +893,20 @@ def calculate_cable_ties(span, rise, materials):
 def calculate_health_score(design_results):
     return 100
 
-# CRITICAL FIX: Restructured auto_design_structure to handle Saddle Span completely
 def auto_design_structure(params, materials, typology):
     span = params.get("B", 10.0)
     rise = params.get("A", 6.0)
     apex = params.get("LAA", 15.0)
     
-    # Initialize base design results
     design_results = {
         "loads": {"wind": 0, "dead": 0, "total": 0},
         "span_rules": check_span_rules(span, apex, materials),
-        "health_score": 100
+        "health_score": 100,
+        "curve_type": "Saddle Span" if typology == "saddle_span" else materials.get("curve_type", "parabolic").title()
     }
     
-    # Compute loads (works for ALL typologies including Saddle Span)
     wind_data = calculate_wind_load_enshrined(span, apex, rise, materials.get("standard", "MY"))
-    dead_load = calculate_dead_load_single(span, apex, materials)
+    dead_load = calculate_dead_load_single(span, apex, materials, typology)
     total_load = wind_data["wind_force_design"] + dead_load
     
     design_results["loads"] = {
@@ -896,15 +915,17 @@ def auto_design_structure(params, materials, typology):
         "total": total_load
     }
     
-    # Main member / Truss selection
     if materials.get("member_type") in ["planar_truss", "space_truss"]:
         is_3d = materials.get("member_type") == "space_truss"
         truss_results = calculate_required_section_truss(params, materials, materials.get("member_type"), is_3d)
         design_results.update(truss_results)
     else:
-        # Select standard section based on total load
         section_type = materials.get("section_type", "CHS")
-        M_required = (total_load * apex**2) / 8 / 1000  # kNm to kNmm
+        
+        # RTS v9.3: Correct moment calculation for Saddle Span
+        # For tensile/cable structures, the governing span is the longest distance
+        span_support = max(span, apex)
+        M_required = (total_load * span_support**2) / 8 / 1000  # kNm
         W_required = M_required * 1000 / 0.6 / 275 * 1000  # mm3
         
         closest = find_closest_section(W_required, section_type)
@@ -915,28 +936,25 @@ def auto_design_structure(params, materials, typology):
                     "section": section_name,
                     "section_type": section_type,
                     "is_standard": True,
-                    "curve_type": materials.get("curve_type", "parabolic"),
+                    "curve_type": design_results["curve_type"],
                     "W_required": W_required,
                     "W_actual": props["W_el"]
                 }
             }
     
-    # Add Secondary Beams
-    design_results["secondary_beams"] = calculate_secondary_beams(span, apex, materials)
+    # RTS v9.3: Pass typology to suppress secondary beams for tensile
+    design_results["secondary_beams"] = calculate_secondary_beams(span, apex, materials, typology)
     
-    # Add Tie-downs based on user choice
     if materials.get("tie_down_system") == "rigid":
         design_results["rigid_ties"] = calculate_rigid_ties(span, rise, materials)
     else:
         design_results["cables"] = calculate_cable_ties(span, rise, materials)
     
-    # Add Fabric Properties
     design_results["fabric"] = {
         "type": materials.get("fabric_type", "PVC-coated Polyester"),
         "thickness": "1.0"
     }
     
-    # Generate BQ
     design_results["bq"] = generate_bill_of_quantities(design_results, materials)
     
     return design_results
@@ -984,16 +1002,17 @@ def generate_bill_of_quantities(design_results, materials):
     
     if "secondary_beams" in design_results:
         sec = design_results["secondary_beams"]
-        items.append({
-            "item": "Secondary Beams",
-            "section": sec.get("section", "N/A"),
-            "qty": sec.get("num_purlins", 0),
-            "unit": "pcs",
-            "length_per_pc": 8.0,
-            "total_length": sec.get("total_length", 0),
-            "total_weight": sec.get("total_weight", 0),
-            "notes": "Purlins"
-        })
+        if sec.get("num_purlins", 0) > 0:
+            items.append({
+                "item": "Secondary Beams",
+                "section": sec.get("section", "N/A"),
+                "qty": sec.get("num_purlins", 0),
+                "unit": "pcs",
+                "length_per_pc": 8.0,
+                "total_length": sec.get("total_length", 0),
+                "total_weight": sec.get("total_weight", 0),
+                "notes": "Purlins"
+            })
     
     if "cables" in design_results:
         cables = design_results["cables"]
@@ -1822,7 +1841,6 @@ def render_bq_page():
     st.markdown(f"**Reference:** {st.session_state.project_info.get('reference', 'N/A')}")
     st.divider()
     
-    # CRITICAL FIX: Added safety check for missing bq data
     if "bq" not in st.session_state or not st.session_state.bq or "items" not in st.session_state.bq:
         st.info("💡 Please run the design first to generate the Bill of Quantities.")
         if st.button("🏗️ Go to Workspace", key="bq_goto_workspace", use_container_width=True, type="primary"):
@@ -1982,9 +2000,12 @@ def render_reports():
     
     if "secondary_beams" in design_results:
         sec = design_results["secondary_beams"]
-        st.markdown("#### 📐 Secondary Beams")
-        st.caption(f"**Section:** {sec.get('section', 'N/A')} | Count: {sec.get('num_purlins', 0)} | Spacing: {sec.get('spacing', 0):.1f}m")
-        st.caption(f"Total Length: {sec.get('total_length', 0):.1f}m | Weight: {sec.get('total_weight', 0):.1f}kg")
+        if sec.get("num_purlins", 0) > 0:
+            st.markdown("#### 📐 Secondary Beams")
+            st.caption(f"**Section:** {sec.get('section', 'N/A')} | Count: {sec.get('num_purlins', 0)} | Spacing: {sec.get('spacing', 0):.1f}m")
+            st.caption(f"Total Length: {sec.get('total_length', 0):.1f}m | Weight: {sec.get('total_weight', 0):.1f}kg")
+        else:
+            st.caption("📐 Secondary Beams: Not required for this tensile structure")
     
     if "rigid_ties" in design_results:
         ties = design_results["rigid_ties"]
@@ -2492,9 +2513,12 @@ def render_workspace():
             
             if "secondary_beams" in design_results:
                 sec = design_results["secondary_beams"]
-                st.markdown('<div class="sdse-card"><div class="card-title">📐 Secondary Beams <span class="badge badge-secondary">PURLINS</span></div>', unsafe_allow_html=True)
-                st.caption(f"**Section:** {sec.get('section', 'N/A')} | Count: {sec.get('num_purlins', 0)} | Spacing: {sec.get('spacing', 0):.1f}m")
-                st.caption(f"Total Length: {sec.get('total_length', 0):.1f}m | Weight: {sec.get('total_weight', 0):.1f}kg")
+                if sec.get("num_purlins", 0) > 0:
+                    st.markdown('<div class="sdse-card"><div class="card-title">📐 Secondary Beams <span class="badge badge-secondary">PURLINS</span></div>', unsafe_allow_html=True)
+                    st.caption(f"**Section:** {sec.get('section', 'N/A')} | Count: {sec.get('num_purlins', 0)} | Spacing: {sec.get('spacing', 0):.1f}m")
+                    st.caption(f"Total Length: {sec.get('total_length', 0):.1f}m | Weight: {sec.get('total_weight', 0):.1f}kg")
+                else:
+                    st.caption("📐 Secondary Beams: Not required for this tensile structure")
                 st.markdown('</div>', unsafe_allow_html=True)
             
             if "rigid_ties" in design_results:
@@ -2557,4 +2581,4 @@ else:
     render_dashboard()
 
 st.divider()
-st.caption("🔒 SDSe v9.2 | Public Safety Enshrined | Saddle Span Fixed | Robust BQ Navigation")
+st.caption("🔒 SDSe v9.3 | Public Safety Enshrined | Tensile Structure Physics Fixed | No Rigid Purlins for Saddle Span")
