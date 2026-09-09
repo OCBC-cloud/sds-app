@@ -252,7 +252,7 @@ CABLE_PROPERTIES = {
 }
 
 # ============================================================
-# LOCKED ENGINE v12.2 - THE 2 MATHEMATICAL ENGINES
+# LOCKED ENGINE v12.3 - THE 2 MATHEMATICAL ENGINES
 # ============================================================
 WIND_SPEEDS = {"EU": 30.0, "CN": 28.0, "UK": 26.0, "MY": 33.5, "US": 38.0}
 
@@ -260,7 +260,6 @@ def calculate_wind_load(span, apex, rise, standard="MY", system_mode="cable_stay
     wind_speed = WIND_SPEEDS.get(standard, 33.5)
     q = 0.5 * 1.225 * wind_speed**2 / 1000
     gov_area = max(span * rise, apex * rise)
-    # LOCKED: Shape Factor 1.3 for tensile, 0.85 for rigid
     shape_factor = 1.3 if system_mode == "cable_stayed" else 0.85
     return q * gov_area * shape_factor * 1.1
 
@@ -275,7 +274,6 @@ def calculate_dead_load(span, apex, materials, system_mode, member_type):
     else:
         purlin_kg = 0
         tie_kg = 0
-    # Add member weight based on complexity
     if member_type == "planar_truss":
         steel_kg *= 1.5
     elif member_type == "space_truss":
@@ -305,7 +303,6 @@ def auto_design_structure(params, materials, typology):
     dead, dead_kg = calculate_dead_load(span, apex, materials, system_mode, member_type)
     total = wind + dead
     
-    # LOCKED SECTION SELECTION (Thrust Line + Min Depth)
     M = total * max(span, apex)**2 / 8 / 1000
     W_req = M * 1000 / (0.6 * 275) * 1000
     min_depth = max(span, apex) / 30 * 1000
@@ -319,18 +316,15 @@ def auto_design_structure(params, materials, typology):
         candidates = [(n, p) for n, p in SECTION_PROPERTIES.items() if p["type"] == section_type]
         best_section = max(candidates, key=lambda x: x[1]["W_el"])
     
-    # Generate Purlin/Tie logic (LOCKED)
     if system_mode == "rigid":
         num_purlins = int(max(span, apex) / 2.0) + 1
         tie_qty = 2
-        purlin_w_req = W_req / 10
-        purlin_section = find_closest_section(purlin_w_req, section_type)
+        purlin_section = find_closest_section(W_req / 10, section_type)
     else:
         num_purlins = 0
         tie_qty = 0
         purlin_section = None
     
-    # Generate Cable logic (LOCKED)
     if system_mode == "cable_stayed":
         cable_dia = 12 if span < 20 else 20 if span < 40 else 40
         cable_type = materials.get("cable_type", "6x19 Galvanized")
@@ -340,13 +334,11 @@ def auto_design_structure(params, materials, typology):
         cable_type = "N/A"
         cable_count = 0
     
-    # Harmonic Selection (Main, Purlin, Ties all use same type)
-    main_section_type = section_type
-    tie_section = find_closest_section(W_req / 20, main_section_type)
+    tie_section = find_closest_section(W_req / 20, section_type)
     
     return {
         "loads": {"wind": wind, "dead": dead, "total": total, "dead_kg": dead_kg},
-        "beams": {"main": {"section": best_section[0], "section_type": main_section_type, "is_standard": True, "W_actual": best_section[1]["W_el"], "W_required": W_req}},
+        "beams": {"main": {"section": best_section[0], "section_type": section_type, "is_standard": True, "W_actual": best_section[1]["W_el"], "W_required": W_req}},
         "secondary_beams": {"section": purlin_section[0] if purlin_section else "N/A", "num_purlins": num_purlins, "spacing": 2.0 if num_purlins > 0 else 0, "total_weight": (purlin_section[1]["weight"] * 10 * num_purlins) if purlin_section else 0},
         "rigid_ties": {"section": tie_section[0] if tie_section else best_section[0], "num_ties": tie_qty, "total_weight": tie_qty * 10 * (tie_section[1]["weight"] if tie_section else best_section[1]["weight"])},
         "cables": {"type": cable_type, "diameter": cable_dia, "num_cables": cable_count, "total_length": cable_count * apex * 1.1},
@@ -373,7 +365,7 @@ def generate_bq(main_section, num_purlins, tie_qty, cable_dia, cable_count, span
     return {"items": items, "total_steel_weight": sum(i["total_weight"] for i in items if "Cable" not in i["item"]), "total_fabric_area": span*apex, "total_cable_length": apex*cable_count if cable_count > 0 else 0, "total_joints": 20}
 
 # ============================================================
-# UNIVERSAL 3D GENERATOR
+# UNIVERSAL 3D GENERATOR (RESTORED YELLOW CABLES)
 # ============================================================
 def generate_universal_3d(params, materials, design_results):
     span = params.get("B", 10.0)
@@ -387,14 +379,12 @@ def generate_universal_3d(params, materials, design_results):
 
     fig = go.Figure()
     
-    # Main Beams (Supports Single, Planar, 3D by drawing complexity)
+    # Main Beams
     beam_width = 5
     if materials.get("member_type") == "planar_truss":
-        # Draw Top & Bottom chords
         fig.add_trace(go.Scatter3d(x=x, y=y1, z=z, mode='lines', line=dict(color='#FF6B6B', width=beam_width), showlegend=False))
         fig.add_trace(go.Scatter3d(x=x, y=y1, z=z-rise/10, mode='lines', line=dict(color='#FF6B6B', width=beam_width/2), showlegend=False))
     elif materials.get("member_type") == "space_truss":
-        # Draw 3D Lattice
         fig.add_trace(go.Scatter3d(x=x, y=y1, z=z, mode='lines', line=dict(color='#FF6B6B', width=beam_width), showlegend=False))
         fig.add_trace(go.Scatter3d(x=x, y=y1, z=z-rise/10, mode='lines', line=dict(color='#FF6B6B', width=beam_width/2), showlegend=False))
         fig.add_trace(go.Scatter3d(x=x, y=y1+apex/10, z=z, mode='lines', line=dict(color='#FF6B6B', width=beam_width/2), showlegend=False))
@@ -412,19 +402,50 @@ def generate_universal_3d(params, materials, design_results):
             X_surf[i,j], Y_surf[i,j], Z_surf[i,j] = x_pos, y, z_pos
     fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf, colorscale=[[0,'#2a3a5f'],[1,'#6ab0d4']], opacity=0.5, showscale=False))
 
-    # Secondary & Ties
+    # Purlins
     if design_results and design_results.get("secondary_beams", {}).get("num_purlins", 0) > 0:
         num_purlins = design_results["secondary_beams"]["num_purlins"]
         for px in np.linspace(-span/2*0.8, span/2*0.8, num_purlins):
             idx = np.argmin(np.abs(x - px))
             fig.add_trace(go.Scatter3d(x=[px, px], y=[y1[idx], y2[idx]], z=[z[idx]*0.9, z[idx]*0.9], mode='lines', line=dict(color='#e67e22', width=3), showlegend=False))
-    
+
+    # YELLOW TIEDOWN CABLES (RESTORED FROM ORIGINAL)
     if design_results and design_results.get("cables", {}).get("num_cables", 0) > 0:
         num_cables = design_results["cables"]["num_cables"]
-        for i in range(num_cables):
-            idx = int(len(x) * (i+1)/(num_cables+1))
-            fig.add_trace(go.Scatter3d(x=[x[idx], x[idx]*1.2], y=[0, 0], z=[z[idx]*0.7, 0], mode='lines', line=dict(color='#3498db', width=2, dash='dot'), showlegend=False))
+        # Original logic: based on num_bays, draw from roof edge to ground anchor
+        num_bays = materials.get("num_bays", 2)
+        bracing_x = []
+        if num_bays == 1: bracing_x = [0.0]
+        elif num_bays == 2: bracing_x = [-span/4, span/4]
+        elif num_bays == 3: bracing_x = [-span/3, 0.0, span/3]
+        else: bracing_x = np.linspace(-span/3, span/3, min(num_bays, 8)).tolist()
 
+        roof_radius = max(span/2, apex/2)
+        anchor_offset = roof_radius * 1.3
+        cable_width = 2
+
+        for bx in bracing_x:
+            idx = np.argmin(np.abs(x - bx))
+            x1 = x[idx]
+            y1_pt = y1[idx]
+            y2_pt = y2[idx]
+            z_pt = z[idx]
+
+            horizontal_offset = rise * math.tan(math.radians(materials.get("tie_down_vertical_angle", 45)))
+            lateral_offset = horizontal_offset * math.tan(math.radians(materials.get("tie_down_horizontal_spread", 30)))
+
+            if bx < 0: anchor_x = bx - horizontal_offset * 0.5
+            elif bx > 0: anchor_x = bx + horizontal_offset * 0.5
+            else: anchor_x = bx + horizontal_offset * 0.3
+
+            anchor1_y = -anchor_offset - lateral_offset * 0.5
+            anchor2_y = anchor_offset + lateral_offset * 0.5
+
+            # Restored Yellow Color #f1c40f
+            fig.add_trace(go.Scatter3d(x=[x1, anchor_x], y=[y1_pt, anchor1_y], z=[z_pt, 0], mode='lines', line=dict(color='#f1c40f', width=cable_width), showlegend=False))
+            fig.add_trace(go.Scatter3d(x=[x1, anchor_x], y=[y2_pt, anchor2_y], z=[z_pt, 0], mode='lines', line=dict(color='#f1c40f', width=cable_width), showlegend=False))
+
+    # Rigid Ties (Yellow)
     if design_results and design_results.get("rigid_ties", {}).get("num_ties", 0) > 0:
         fig.add_trace(go.Scatter3d(x=[-span/2, span/2], y=[0, 0], z=[0, 0], mode='lines', line=dict(color='#f1c40f', width=4), showlegend=False))
 
@@ -438,8 +459,30 @@ def generate_universal_3d(params, materials, design_results):
     return fig
 
 # ============================================================
-# RENDER FUNCTIONS
+# RESTORED TOP NAVIGATION & RENDER FUNCTIONS
 # ============================================================
+def render_top_nav():
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        if st.button("🏠 Dashboard", key="nav_dashboard", use_container_width=True):
+            st.session_state.page = "dashboard"
+            st.rerun()
+    with col2:
+        if st.button("📋 New Project", key="nav_new_project", use_container_width=True):
+            st.session_state.page = "registration"
+            st.rerun()
+    with col3:
+        if st.button("💾 Save", key="nav_save", use_container_width=True, type="primary"):
+            proj = {
+                "project_info": st.session_state.project_info,
+                "typology": st.session_state.typology,
+                "params": st.session_state.params,
+                "materials": st.session_state.materials
+            }
+            st.session_state.saved_projects.append(proj)
+            st.success("Project saved!")
+            st.rerun()
+
 def render_dashboard():
     st.title("🏗️ SDSe Intelligent Fluid Design Workplace")
     st.caption("Design. Analyze. Build. All Free.")
@@ -507,7 +550,6 @@ def render_workspace():
     col_left, col_right = st.columns([1, 1])
     
     with col_left:
-        # FULL INPUT HIERARCHY RESTORED
         st.markdown('<div class="sdse-card"><div class="card-title">📐 Structure Parameters</div>', unsafe_allow_html=True)
         params["A"] = st.number_input("Rise (A) m", 2.0, 50.0, params["A"], 0.5)
         params["B"] = st.number_input("Span (B) m", 4.0, 100.0, params["B"], 0.5)
@@ -515,30 +557,23 @@ def render_workspace():
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown('<div class="sdse-card"><div class="card-title">🏗️ System Design</div>', unsafe_allow_html=True)
-        # System Mode
         system_mode = st.radio("Structure System", ["Cable-Stayed (Tension)", "Rigid Purlins (Frame)"], index=0 if materials["system_mode"] == "cable_stayed" else 1)
         materials["system_mode"] = "cable_stayed" if system_mode == "Cable-Stayed (Tension)" else "rigid"
         
-        # Member Type
         member_type = st.selectbox("Main Beam Type", ["Single Beam", "Planar Truss", "3D Space Truss"], index=0)
         materials["member_type"] = member_type.lower().replace(" ", "_")
         
-        # Section Type
         section_type = st.selectbox("Unified Section Shape", ["CHS", "SHS", "RHS"])
         materials["section_type"] = section_type
         
-        # Cable Type
         cable_type = st.selectbox("Cable Type", list(CABLE_PROPERTIES.keys()))
         materials["cable_type"] = cable_type
         
-        # Fabric Type
         fabric_type = st.selectbox("Fabric Material", list(FABRIC_PROPERTIES.keys()))
         materials["fabric_type"] = fabric_type
         
-        # Number of Bays
         materials["num_bays"] = st.number_input("Number of Bays", 1, 20, materials.get("num_bays", 2))
         
-        # Truss Depth
         if materials["member_type"] in ["planar_truss", "space_truss"]:
             depth_mode = st.radio("Truss Depth", ["Auto-Calculate", "Manual Input"], index=0)
             materials["truss_depth_mode"] = "auto" if depth_mode == "Auto-Calculate" else "manual"
@@ -605,6 +640,9 @@ def render_bq_page():
         return
     bq = st.session_state.bq
     st.dataframe(pd.DataFrame(bq["items"]), use_container_width=True)
+    if st.button("🏠 Back to Workspace", use_container_width=True):
+        st.session_state.page = "workspace"
+        st.rerun()
 
 def render_reports():
     st.title("📊 Reports & Export")
@@ -612,7 +650,6 @@ def render_reports():
         st.info("No design to export.")
         return
     
-    # CSV Export
     csv_data = StringIO()
     writer = csv.writer(csv_data)
     writer.writerow(["Parameter", "Value"])
@@ -622,7 +659,6 @@ def render_reports():
     writer.writerow(["Health", "100%"])
     st.download_button("📥 Download CSV", csv_data.getvalue(), "results.csv", "text/csv")
     
-    # PDF Export
     if PDF_ENABLED:
         buffer = BytesIO()
         c = canvas.Canvas(buffer, pagesize=A4)
@@ -641,10 +677,15 @@ def render_reports():
         st.download_button("📥 Download PDF Report", buffer, "SDSe_Report.pdf", "application/pdf")
     else:
         st.warning("Install `reportlab` for PDF export: pip install reportlab")
+    
+    if st.button("🏠 Back to Workspace", use_container_width=True):
+        st.session_state.page = "workspace"
+        st.rerun()
 
 # ============================================================
 # MAIN ROUTING
 # ============================================================
+render_top_nav()
 page = st.session_state.get("page", "dashboard")
 if page == "dashboard": render_dashboard()
 elif page == "workspace": render_workspace()
