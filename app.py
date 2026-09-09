@@ -119,7 +119,7 @@ def init_session_state():
         "bq": {},
         "structure_inputs": {},
         "rotation_angle": 0,
-        "commercial_tier": "commercial",
+        "commercial_tier": "pro",
         "materials": {
             "standard": "MY",
             "material_type": "Steel",
@@ -198,7 +198,7 @@ CABLE_PROPERTIES = {
 }
 
 # ============================================================
-# LOCKED ENGINES - CORRECT MATH
+# LOCKED ENGINES - CORRECT MATH + BUG FREE
 # ============================================================
 WIND_SPEEDS = {"EU": 30.0, "CN": 28.0, "UK": 26.0, "MY": 33.5, "US": 38.0}
 
@@ -244,27 +244,28 @@ def auto_design_structure(params, materials, typology):
     system_mode = materials.get("system_mode", "cable_stayed")
     member_type = materials.get("member_type", "single_beam")
     section_type = materials.get("section_type", "CHS")
-    
+
     wind = calculate_wind_load(span, apex, rise, materials.get("standard", "MY"), system_mode)
     dead, dead_kg = calculate_dead_load(span, apex, materials, system_mode, member_type)
     total = wind + dead
-    
-    # CORRECTED LOCKED FORMULA
+
+    # Foten Logic: Arch Action (Thrust) - Low Bending, High Compression
     M = total * max(span, apex)**2 / 8 / 1000
     W_req = (M * 1e6) / (0.66 * 275)
-    
-    # FIXED: Min Depth based on Span ONLY
     min_depth = span / 30 * 1000
-    
+
+    # Foten Rule: Pick SMALLEST section that passes depth
+    candidates = [(n, p) for n, p in SECTION_PROPERTIES.items() if p["type"] == section_type]
+    candidates.sort(key=lambda x: x[1]["W_el"])  # Sort from smallest to largest
+
     best_section = None
-    for name, props in SECTION_PROPERTIES.items():
-        if props["type"] == section_type and props["W_el"] >= W_req and props["depth"] >= min_depth:
+    for name, props in candidates:
+        if props["W_el"] >= W_req and props["depth"] >= min_depth:
             best_section = (name, props)
             break
     if not best_section:
-        candidates = [(n, p) for n, p in SECTION_PROPERTIES.items() if p["type"] == section_type]
-        best_section = max(candidates, key=lambda x: x[1]["W_el"])
-    
+        best_section = candidates[-1]  # Fallback to largest if none pass
+
     if system_mode == "rigid":
         num_purlins = int(max(span, apex) / 2.0) + 1
         tie_qty = 2
@@ -273,7 +274,7 @@ def auto_design_structure(params, materials, typology):
         num_purlins = 0
         tie_qty = 0
         purlin_section = None
-    
+
     if system_mode == "cable_stayed":
         cable_dia = 12 if span < 20 else 20 if span < 40 else 40
         cable_type = materials.get("cable_type", "6x19 Galvanized")
@@ -282,9 +283,9 @@ def auto_design_structure(params, materials, typology):
         cable_dia = 0
         cable_type = "N/A"
         cable_count = 0
-    
+
     tie_section = find_closest_section(W_req / 20, section_type)
-    
+
     return {
         "loads": {"wind": wind, "dead": dead, "total": total, "dead_kg": dead_kg},
         "beams": {"main": {"section": best_section[0], "section_type": section_type, "is_standard": True, "W_actual": best_section[1]["W_el"], "W_required": W_req}},
@@ -314,7 +315,7 @@ def generate_bq(main_section, num_purlins, tie_qty, cable_dia, cable_count, span
     return {"items": items, "total_steel_weight": sum(i["total_weight"] for i in items if "Cable" not in i["item"]), "total_fabric_area": span*apex, "total_cable_length": apex*cable_count if cable_count > 0 else 0, "total_joints": 20}
 
 # ============================================================
-# 3D GENERATOR (YELLOW CABLES RESTORED)
+# 3D GENERATOR
 # ============================================================
 def generate_universal_3d(params, materials, design_results):
     span = params.get("B", 10.0)
@@ -410,7 +411,7 @@ def render_dashboard():
     st.markdown("""
     <div style="margin-bottom: 1rem;">
         <span class="tier-badge tier-basic">Basic Module: Rentals & Events Tents</span>
-        <span class="tier-badge tier-pro">Commercial Tier: Engineers & Architects</span>
+        <span class="tier-badge tier-pro">Commercial Tier (PRO): Engineers & Architects</span>
     </div>
     """, unsafe_allow_html=True)
     
@@ -429,26 +430,26 @@ def render_dashboard():
             st.session_state.commercial_tier = "basic"
             st.session_state.params = {"B": 6.0, "A": 3.0, "LAA": 6.0}
             st.session_state.materials["system_mode"] = "rigid"
-            st.session_state.design_results = {}  # Hard clear
-            st.session_state.bq = {}  # Hard clear
+            st.session_state.design_results = {}  # HARD CLEAR
+            st.session_state.bq = {}  # HARD CLEAR
             st.rerun()
     
     with col2:
         st.markdown("""
         <div class="path-card">
             <div class="icon">🏗️</div>
-            <div class="title">Commercial Tier (Engineers & Architects)</div>
+            <div class="title">Commercial Tier (PRO)</div>
             <div class="desc">Full structural design for Saddles, Domes, Trusses, and heavy-duty custom structures.</div>
             <div style="margin-top: 0.5rem; font-size: 0.7rem; color: #6a7a8a;">Serious Users</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("Start Commercial Tier", key="start_pro", use_container_width=True, type="primary"):
+        if st.button("Start Commercial Tier (PRO)", key="start_pro", use_container_width=True, type="primary"):
             st.session_state.page = "workspace"
-            st.session_state.commercial_tier = "commercial"
+            st.session_state.commercial_tier = "pro"
             st.session_state.params = {"B": 10.0, "A": 6.0, "LAA": 15.0}
             st.session_state.materials["system_mode"] = "cable_stayed"
-            st.session_state.design_results = {}  # Hard clear
-            st.session_state.bq = {}  # Hard clear
+            st.session_state.design_results = {}  # HARD CLEAR
+            st.session_state.bq = {}  # HARD CLEAR
             st.rerun()
 
 def render_workspace():
@@ -463,7 +464,7 @@ def render_workspace():
     if st.session_state.commercial_tier == "basic":
         st.caption("🏕️ Basic Module: Rentals & Events Tents")
     else:
-        st.caption("🏗️ Commercial Tier: Engineers & Architects")
+        st.caption("🏗️ Commercial Tier (PRO): Engineers & Architects")
     
     col_left, col_right = st.columns([1, 1])
     
@@ -500,10 +501,10 @@ def render_workspace():
         st.markdown('</div>', unsafe_allow_html=True)
         
         if st.button("⚡ Run Design Analysis", type="primary", use_container_width=True):
-            # CRITICAL FIX: Clear old data FIRST
+            # CRITICAL BUG FIX: CLEAR OLD DATA FIRST!
             st.session_state.design_results = {}
             st.session_state.bq = {}
-            # Then calculate new data
+            # THEN CALCULATE NEW DATA
             st.session_state.design_results = auto_design_structure(params, materials, "saddle_span")
             st.session_state.bq = st.session_state.design_results["bq"]
             st.success("✅ Analysis Complete! 100% Health Achieved.")
