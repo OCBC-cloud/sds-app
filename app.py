@@ -412,7 +412,6 @@ def generate_universal_3d(params, materials, design_results):
     # YELLOW TIEDOWN CABLES (RESTORED FROM ORIGINAL)
     if design_results and design_results.get("cables", {}).get("num_cables", 0) > 0:
         num_cables = design_results["cables"]["num_cables"]
-        # Original logic: based on num_bays, draw from roof edge to ground anchor
         num_bays = materials.get("num_bays", 2)
         bracing_x = []
         if num_bays == 1: bracing_x = [0.0]
@@ -441,7 +440,6 @@ def generate_universal_3d(params, materials, design_results):
             anchor1_y = -anchor_offset - lateral_offset * 0.5
             anchor2_y = anchor_offset + lateral_offset * 0.5
 
-            # Restored Yellow Color #f1c40f
             fig.add_trace(go.Scatter3d(x=[x1, anchor_x], y=[y1_pt, anchor1_y], z=[z_pt, 0], mode='lines', line=dict(color='#f1c40f', width=cable_width), showlegend=False))
             fig.add_trace(go.Scatter3d(x=[x1, anchor_x], y=[y2_pt, anchor2_y], z=[z_pt, 0], mode='lines', line=dict(color='#f1c40f', width=cable_width), showlegend=False))
 
@@ -459,7 +457,7 @@ def generate_universal_3d(params, materials, design_results):
     return fig
 
 # ============================================================
-# RESTORED TOP NAVIGATION & RENDER FUNCTIONS
+# NAVIGATION & RENDER FUNCTIONS
 # ============================================================
 def render_top_nav():
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -540,6 +538,11 @@ def render_dashboard():
 def render_workspace():
     params = st.session_state.params
     materials = st.session_state.materials
+    
+    # ✅ EMERGENCY EXIT: BACK TO DASHBOARD
+    if st.button("⬅️ Back to Dashboard", key="emergency_back", use_container_width=True):
+        st.session_state.page = "dashboard"
+        st.rerun()
     
     st.subheader("📐 Design Workspace")
     if st.session_state.commercial_tier == "basic":
