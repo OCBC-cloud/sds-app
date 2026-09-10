@@ -1,17 +1,17 @@
 # =============================================================================
-# SDSe — Intelligent Fluid Design Workplace
-# Version 10.0 — Eurocode-Aligned (EN 1990 + EN 1991 + EN 1993 / MS EN)
+# SDSe - Intelligent Fluid Design Workplace
+# Version 10.0 - Eurocode-Aligned (EN 1990 + EN 1991 + EN 1993 / MS EN)
 # -----------------------------------------------------------------------------
 # Platform : Streamlit Cloud (repo: sds-app, entrypoint: app.py)
 # Standard : EN 1990 (basis), EN 1991 (actions), EN 1993 (steel design)
 #            MS EN adopted for Malaysia. Optional EU / UK / CN / US overlays.
 # Charter  : gamma_G = 1.35, gamma_Q = 1.50, gamma_M0 = 1.00,
 #            gamma_M1 = 1.00, gamma_M2 = 1.20 (MY national annex)
-# Health   : Computed from actual unity ratios. 100% only when ALL pass.
-# Scope    : 6 structure families — saddle span, sail membrane, frame tents,
+# Health   : Computed from actual unity ratios. 100 percent only when ALL pass.
+# Scope    : 6 structure families - saddle span, sail membrane, frame tents,
 #            portal frame, single cone membrane, multiple cone membrane.
-# Units    : mm-based section properties (A mm^2, I mm^4, W_el mm^3,
-#            i mm, weight kg/m, depth mm).
+# Units    : mm-based section properties.
+#            A mm2, I mm4, W_el mm3, i mm, weight kg/m, depth mm.
 # =============================================================================
 
 import math
@@ -28,14 +28,14 @@ import plotly.graph_objects as go
 # =============================================================================
 
 st.set_page_config(
-    page_title="SDSe — Intelligent Fluid Design Workplace",
-    page_icon="⛺",
+    page_title="SDSe - Intelligent Fluid Design Workplace",
+    page_icon="S",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
 # =============================================================================
-# GLOBAL CSS — dark theme, accent orange #f39c12, background #0a0e17
+# GLOBAL CSS
 # =============================================================================
 
 st.markdown(
@@ -310,7 +310,7 @@ CABLE_PROPERTIES = {
 }
 
 # =============================================================================
-# STRUCTURE TYPES — 6 EXACT FAMILIES
+# STRUCTURE TYPES - 6 FAMILIES
 # =============================================================================
 
 STRUCTURE_TYPES = {
@@ -371,8 +371,8 @@ STRUCTURE_TYPES = {
 }
 
 # =============================================================================
-# SECTION PROPERTIES — exact user-supplied dict
-# Units: A mm^2, I mm^4, W_el mm^3, i mm, weight kg/m, depth mm
+# SECTION PROPERTIES
+# Units: A mm2, I mm4, W_el mm3, i mm, weight kg/m, depth mm
 # =============================================================================
 
 SECTION_PROPERTIES = {
@@ -432,13 +432,13 @@ def get_section(name):
 
 
 # =============================================================================
-# ENGINEERING — WIND LOAD (EN 1991-1-4 enshrined)
+# ENGINEERING - WIND LOAD (EN 1991-1-4)
 # =============================================================================
 
 def calculate_wind_load_enshrined(span, apex, rise, standard):
     """
-    EN 1991-1-4 peak velocity pressure q_p(z) applied to a curved/duopitch
-    roof envelope, returning net uplift and pressure in kPa.
+    EN 1991-1-4 peak velocity pressure q_p(z) for a curved/duopitch roof.
+    Returns dict with q_p_kpa, uplift_kpa, pressure_kpa, vb_ms.
     """
     vb = WIND_SPEEDS.get(standard, 30.0)
 
@@ -479,12 +479,13 @@ def calculate_wind_load_enshrined(span, apex, rise, standard):
 
 
 # =============================================================================
-# ENGINEERING — DEAD LOAD
+# ENGINEERING - DEAD LOAD
 # =============================================================================
 
 def calculate_dead_load_single(params, materials):
     """
-    Self-weight of a single structural unit (roof bay / span).
+    Self-weight estimate for a single structural unit.
+    Returns gk values in kPa and kN.
     """
     A = float(params.get("A", 20.0))
     B = float(params.get("B", 12.0))
@@ -539,12 +540,12 @@ def calculate_dead_load_single(params, materials):
 
 
 # =============================================================================
-# ENGINEERING — ULS COMBINATION (EN 1990 §6.4.3 Eq. 6.10)
+# ENGINEERING - ULS COMBINATION (EN 1990 6.4.3 Eq. 6.10)
 # =============================================================================
 
 def get_uls_combination(Gk, Qk_wind, Qk_live, standard):
     """
-    EN 1990 Eq. (6.10) — ULS combination.
+    EN 1990 Eq. (6.10) ULS combination. Returns gravity, uplift, governing.
     """
     gG = PARTIAL_FACTORS["gamma_G"]
     gQ = PARTIAL_FACTORS["gamma_Q_wind"]
@@ -578,8 +579,8 @@ def get_uls_combination(Gk, Qk_wind, Qk_live, standard):
 # ============================== CHUNK 1 END ==================================
 
 # =============================================================================
-# ENGINEERING — CHECK FUNCTIONS (EN 1993-1-1 / MS EN)
-# All inputs in N, Nmm, mm, MPa. Section props from SECTION_PROPERTIES.
+# ENGINEERING - CHECK FUNCTIONS (EN 1993-1-1 / MS EN)
+# Inputs in N, Nmm, mm, MPa. Section props from SECTION_PROPERTIES.
 # =============================================================================
 
 def _fy_from_materials(materials):
@@ -590,7 +591,7 @@ def _fy_from_materials(materials):
 
 
 def _E_from_materials(materials):
-    """Return Young's modulus E (MPa). Default steel."""
+    """Return Young modulus E (MPa). Default steel."""
     family = "Steel"
     grade = STEEL_MATERIALS[family].get("default", "S355")
     return STEEL_MATERIALS[family][grade]["E"]
@@ -598,8 +599,7 @@ def _E_from_materials(materials):
 
 def check_bending(section_name, M_Ed_kNm, materials):
     """
-    EN 1993-1-1 §6.2.5 — bending resistance of cross-section.
-    M_Ed_kNm : design bending moment (kNm).
+    EN 1993-1-1 6.2.5 - bending resistance of cross-section.
     Returns dict with ratio, Mc_Rd_kNm, status.
     """
     sec = SECTION_PROPERTIES.get(section_name)
@@ -630,9 +630,7 @@ def check_bending(section_name, M_Ed_kNm, materials):
 
 def check_compression_buckling(section_name, N_Ed_kN, L_cr_m, materials):
     """
-    EN 1993-1-1 §6.3.1 — flexural buckling of compression members.
-    N_Ed_kN : design axial compression (kN, positive).
-    L_cr_m  : buckling length (m).
+    EN 1993-1-1 6.3.1 - flexural buckling of compression members.
     """
     sec = SECTION_PROPERTIES.get(section_name)
     if sec is None:
@@ -701,7 +699,7 @@ def check_compression_buckling(section_name, N_Ed_kN, L_cr_m, materials):
 
 def check_tension(section_name, N_Ed_kN, materials):
     """
-    EN 1993-1-1 §6.2.3 — tension resistance of gross cross-section.
+    EN 1993-1-1 6.2.3 - tension resistance of gross cross-section.
     """
     sec = SECTION_PROPERTIES.get(section_name)
     if sec is None:
@@ -729,8 +727,7 @@ def check_tension(section_name, N_Ed_kN, materials):
 
 def check_shear(section_name, V_Ed_kN, materials):
     """
-    EN 1993-1-1 §6.2.6 — shear resistance.
-    Vpl_Rd = A_v * fy / (sqrt(3) * gamma_M0).
+    EN 1993-1-1 6.2.6 - shear resistance.
     """
     sec = SECTION_PROPERTIES.get(section_name)
     if sec is None:
@@ -766,9 +763,7 @@ def check_shear(section_name, V_Ed_kN, materials):
 
 def check_deflection(section_name, M_Ed_kNm, L_m, materials, limit_ratio=250.0):
     """
-    SLS deflection check — simply-supported approximation.
-    delta ≈ M * L^2 / (12 * E * I).
-    limit_ratio: L / delta allowable (default 250 for roofs).
+    SLS deflection check. delta = M L^2 / (12 E I). Limit L/limit_ratio.
     """
     sec = SECTION_PROPERTIES.get(section_name)
     if sec is None:
@@ -803,14 +798,13 @@ def check_deflection(section_name, M_Ed_kNm, L_m, materials, limit_ratio=250.0):
 
 
 # =============================================================================
-# ENGINEERING — SECTION SELECTION / AUTO-DESIGN
+# ENGINEERING - SECTION SELECTION / AUTO-DESIGN
 # =============================================================================
 
 def select_optimal_section(section_type, M_Ed_kNm, N_Ed_kN, V_Ed_kN, L_m,
                            materials, limit_ratio=250.0):
     """
-    Iterate SECTION_PROPERTIES filtered by type; return the lightest
-    section that passes bending + buckling + tension + shear + deflection.
+    Return lightest section that passes all 5 checks.
     """
     candidates = get_catalogue(section_type)
     if not candidates:
@@ -858,8 +852,7 @@ def select_optimal_section(section_type, M_Ed_kNm, N_Ed_kN, V_Ed_kN, L_m,
 
 def compute_health(check_results):
     """
-    Health score from actual unity ratios.
-    100% only when every check has ratio <= 1.0.
+    Health score from unity ratios. 100 only if every check passes.
     """
     if not check_results:
         return 0.0, "fail"
@@ -892,13 +885,7 @@ def compute_health(check_results):
 
 def auto_design_structure(params, materials, structure_type, load_case=None):
     """
-    Full design pipeline:
-      1. Wind (uplift + pressure) and dead load.
-      2. ULS gravity and uplift combinations.
-      3. Approximate internal actions for the family.
-      4. Auto-select optimal section.
-      5. Run all checks on selected section.
-      6. Compute health score.
+    Full pipeline: loads -> ULS -> actions -> section select -> checks -> health.
     """
     A = float(params.get("A", 20.0))
     B = float(params.get("B", 12.0))
@@ -992,8 +979,7 @@ def auto_design_structure(params, materials, structure_type, load_case=None):
 
 def generate_bill_of_quantities(results, materials):
     """
-    Produce a list of BQ rows from a design result.
-    Each row: description, unit, qty, rate, amount.
+    Produce BQ rows from a design result.
     """
     if not results:
         return []
@@ -1009,8 +995,9 @@ def generate_bill_of_quantities(results, materials):
     total_length_m = span * 4.0 if family == "frame" else span * 2.0
     steel_kg = total_length_m * weight_kg_m
     steel_tonne = steel_kg / 1000.0
+    desc_steel = "Structural steel - " + str(chosen)
     rows.append({
-        "description": "Structural steel — " + str(chosen),
+        "description": desc_steel,
         "unit": "tonne",
         "qty": round(steel_tonne, 3),
         "rate": 8500.0,
@@ -1063,9 +1050,7 @@ def generate_bill_of_quantities(results, materials):
 # =============================================================================
 
 def generate_curved_beam_3d(span, rise, num_points=60):
-    """
-    Plotly Figure — parabolic curved beam (arch) in 3D.
-    """
+    """Parabolic curved beam (arch) in 3D."""
     x = np.linspace(-span / 2.0, span / 2.0, num_points)
     z = rise * (1.0 - (2.0 * x / span) ** 2)
     y = np.zeros_like(x)
@@ -1105,9 +1090,7 @@ def generate_curved_beam_3d(span, rise, num_points=60):
 
 
 def generate_saddle_span(A, B, rise=2.5, num_points=40):
-    """
-    Plotly Figure — saddle span (hypar) surface.
-    """
+    """Saddle span (hypar) surface."""
     u = np.linspace(-A / 2.0, A / 2.0, num_points)
     v = np.linspace(-B / 2.0, B / 2.0, num_points)
     U, V = np.meshgrid(u, v)
@@ -1140,14 +1123,9 @@ def generate_saddle_span(A, B, rise=2.5, num_points=40):
 
 
 def generate_geodesic_dome_3d(radius=10.0, num_rings=5, num_meridians=12):
-    """
-    Plotly Figure — geodesic-style dome (hemisphere wireframe).
-    radius: sphere radius (m). num_rings: horizontal rings.
-    num_meridians: number of meridians.
-    """
+    """Geodesic-style dome (hemisphere wireframe)."""
     fig = go.Figure()
 
-    # Meridians — from pole down to equator
     theta_pole = 0.0
     theta_eq = math.pi / 2.0
     for m in range(num_meridians):
@@ -1165,7 +1143,6 @@ def generate_geodesic_dome_3d(radius=10.0, num_rings=5, num_meridians=12):
             hoverinfo="skip",
         ))
 
-    # Parallel rings
     for r in range(1, num_rings + 1):
         theta = (math.pi / 2.0) * (r / float(num_rings + 1))
         ring_radius = radius * math.sin(theta)
@@ -1182,7 +1159,6 @@ def generate_geodesic_dome_3d(radius=10.0, num_rings=5, num_meridians=12):
             hoverinfo="skip",
         ))
 
-    # Apex node
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[radius],
         mode="markers",
@@ -1211,13 +1187,554 @@ def generate_geodesic_dome_3d(radius=10.0, num_rings=5, num_meridians=12):
 
 # ============================== CHUNK 2 END ==================================
 
-# ============================== CHUNK 2 END ==================================
+# =============================================================================
+# UI - TOP NAVIGATION
+# =============================================================================
 
+def render_top_nav():
+    """Top navigation bar. Sets st.session_state.active_nav on click."""
+    nav_items = [
+        "Dashboard",
+        "Catalog",
+        "Workspace",
+        "BQ",
+        "Reports",
+        "Register",
+        "Projects",
+    ]
 
-[then whatever comes next — which right now is the old Chunk 4]
+    active = st.session_state.get("active_nav", "Dashboard")
+
+    cols = st.columns(len(nav_items))
+    for i, item in enumerate(nav_items):
+        with cols[i]:
+            label = ("* " if item == active else "  ") + item
+            if st.button(label, key="nav_" + item, use_container_width=True):
+                st.session_state.active_nav = item
+                st.rerun()
+
+    st.markdown('<div class="sdse-divider"></div>', unsafe_allow_html=True)
+
 
 # =============================================================================
-# MAIN — SIDEBAR
+# UI - HEADER
+# =============================================================================
+
+def render_header():
+    """Page header banner."""
+    header_html = (
+        '<div class="sdse-card" style="background: linear-gradient(90deg, #1a2332 0%, #0a0e17 100%);">'
+        + '<h3 style="margin:0;">SDSe - Intelligent Fluid Design Workplace</h3>'
+        + '<span class="sdse-badge ec">EN 1990 / 1991 / 1993</span>'
+        + '<span class="sdse-badge my">MS EN - Malaysia</span>'
+        + '<div class="sdse-muted" style="margin-top:6px;">'
+        + 'Version 10.0 - Eurocode-aligned structural design for tensile, '
+        + 'curved-beam and cable structures.'
+        + '</div>'
+        + '</div>'
+    )
+    st.markdown(header_html, unsafe_allow_html=True)
+
+
+# =============================================================================
+# UI - DASHBOARD
+# =============================================================================
+
+def render_dashboard():
+    """Dashboard: project info, health score, quick KPIs."""
+    render_header()
+
+    st.markdown('<div class="sdse-card"><h3>Project Information</h3>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.session_state.project_info["name"] = st.text_input(
+            "Project Name",
+            value=st.session_state.project_info.get("name", "Untitled Project"),
+        )
+        st.session_state.project_info["ref"] = st.text_input(
+            "Project Ref",
+            value=st.session_state.project_info.get("ref", "SDSe-0001"),
+        )
+    with c2:
+        st.session_state.project_info["engineer"] = st.text_input(
+            "Engineer",
+            value=st.session_state.project_info.get("engineer", ""),
+        )
+        st.session_state.project_info["client"] = st.text_input(
+            "Client",
+            value=st.session_state.project_info.get("client", ""),
+        )
+    with c3:
+        st.session_state.project_info["location"] = st.text_input(
+            "Location",
+            value=st.session_state.project_info.get("location", ""),
+        )
+        st.session_state.project_info["revision"] = st.text_input(
+            "Revision",
+            value=st.session_state.project_info.get("revision", "A"),
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="sdse-divider"></div>', unsafe_allow_html=True)
+
+    health = st.session_state.get("health_score", 0.0)
+    results = st.session_state.get("results")
+
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+
+    with c1:
+        if health >= 95.0:
+            cls = "pass"
+        elif health >= 70.0:
+            cls = "warn"
+        else:
+            cls = "fail"
+        health_card = (
+            '<div class="sdse-card">'
+            + '<div class="health-score ' + cls + '">' + str(health) + '</div>'
+            + '<div class="health-score-label">Health Score</div>'
+            + '</div>'
+        )
+        st.markdown(health_card, unsafe_allow_html=True)
+
+    with c2:
+        val = "-"
+        if results:
+            val = str(results.get("structure_type", "-"))
+        struct_card = (
+            '<div class="sdse-card">'
+            + '<div class="sdse-muted">Structure</div>'
+            + '<div style="font-size:1.05rem;font-weight:600;">' + val + '</div>'
+            + '</div>'
+        )
+        st.markdown(struct_card, unsafe_allow_html=True)
+
+    with c3:
+        val = "-"
+        if results:
+            val = str(results.get("selected_section", "-"))
+        section_card = (
+            '<div class="sdse-card">'
+            + '<div class="sdse-muted">Selected Section</div>'
+            + '<div style="font-size:1.05rem;font-weight:600;font-family:monospace;">' + val + '</div>'
+            + '</div>'
+        )
+        st.markdown(section_card, unsafe_allow_html=True)
+
+    with c4:
+        val = "-"
+        if results:
+            val = str(results.get("span_m", "-")) + " m"
+        span_card = (
+            '<div class="sdse-card">'
+            + '<div class="sdse-muted">Span</div>'
+            + '<div style="font-size:1.05rem;font-weight:600;">' + val + '</div>'
+            + '</div>'
+        )
+        st.markdown(span_card, unsafe_allow_html=True)
+
+    if results:
+        st.markdown('<div class="sdse-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="sdse-card"><h3>Design Checks</h3>', unsafe_allow_html=True)
+        checks = results.get("checks", {})
+        for key in ["bending", "buckling", "tension", "shear", "deflection"]:
+            chk = checks.get(key, {})
+            ratio = chk.get("ratio", 0.0)
+            status = chk.get("status", "fail")
+            check_html = (
+                '<div class="safety-box ' + status + '">'
+                + '<span>' + key.capitalize() + '</span>'
+                + '<span class="ratio ' + status + '">'
+                + ("%.3f" % ratio) + ' (' + status + ')'
+                + '</span>'
+                + '</div>'
+            )
+            st.markdown(check_html, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.info("No design results yet. Go to Workspace to run a design.")
+
+
+# =============================================================================
+# UI - CATALOG
+# =============================================================================
+
+def render_catalog():
+    """Section catalogue browser."""
+    render_header()
+    st.markdown('<div class="sdse-card"><h3>Section Catalogue</h3>', unsafe_allow_html=True)
+
+    types = sorted(set(v.get("type", "") for v in SECTION_PROPERTIES.values()))
+    type_filter = st.selectbox("Filter by type", ["All"] + types, index=0)
+
+    rows = []
+    for name, props in SECTION_PROPERTIES.items():
+        if type_filter != "All" and props.get("type") != type_filter:
+            continue
+        rows.append({
+            "Name": name,
+            "Type": props.get("type", ""),
+            "A (mm2)": props.get("A", 0),
+            "I (mm4)": props.get("I", 0),
+            "W_el (mm3)": props.get("W_el", 0),
+            "i (mm)": props.get("i", 0),
+            "Weight (kg/m)": props.get("weight", 0),
+            "Depth (mm)": props.get("depth", 0),
+        })
+
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, height=520)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# =============================================================================
+# UI - WORKSPACE
+# =============================================================================
+
+def render_workspace():
+    """Main design workspace: inputs, run button, 3D view, checks, selection."""
+    render_header()
+
+    col_left, col_right = st.columns([1, 2])
+
+    with col_left:
+        st.markdown('<div class="sdse-card"><h3>Structure</h3>', unsafe_allow_html=True)
+
+        structure_type = st.selectbox(
+            "Type",
+            list(STRUCTURE_TYPES.keys()),
+            index=0,
+            key="ws_structure_type",
+        )
+        stype = STRUCTURE_TYPES[structure_type]
+
+        st.markdown('<div class="sdse-muted">Load paths:</div>', unsafe_allow_html=True)
+        for lp in stype["load_paths"]:
+            path_card = (
+                '<div class="path-card">'
+                + '<div class="label">Load path</div>'
+                + '<div class="value">' + lp + '</div>'
+                + '</div>'
+            )
+            st.markdown(path_card, unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="sdse-card"><h3>Geometry (m)</h3>', unsafe_allow_html=True)
+        A = st.number_input(
+            "A - primary dimension",
+            value=float(st.session_state.params.get("A", stype["default_A"])),
+            min_value=1.0, step=0.5, key="ws_A",
+        )
+        B = st.number_input(
+            "B - secondary dimension",
+            value=float(st.session_state.params.get("B", stype["default_B"])),
+            min_value=1.0, step=0.5, key="ws_B",
+        )
+        LAA = st.number_input(
+            "LAA - length along arc",
+            value=float(st.session_state.params.get("LAA", stype["default_LAA"])),
+            min_value=0.0, step=0.5, key="ws_LAA",
+        )
+
+        st.session_state.params["A"] = A
+        st.session_state.params["B"] = B
+        st.session_state.params["LAA"] = LAA
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="sdse-card"><h3>Materials and Standard</h3>', unsafe_allow_html=True)
+        standard_list = list(WIND_SPEEDS.keys())
+        standard = st.selectbox(
+            "Standard",
+            standard_list,
+            index=standard_list.index(st.session_state.materials.get("standard", "MY")),
+            key="ws_standard",
+        )
+        section_families = ["CHS", "SHS", "RHS", "I-Beam", "Angle", "Channel"]
+        section_type = st.selectbox(
+            "Section family",
+            section_families,
+            index=section_families.index(st.session_state.materials.get("section_type", "CHS")),
+            key="ws_section_type",
+        )
+        member_type = st.selectbox(
+            "Member type",
+            ["Primary", "Secondary", "Bracing"],
+            key="ws_member_type",
+        )
+        joint_type = st.selectbox(
+            "Joint type",
+            ["Welded", "Bolted", "Pinned"],
+            key="ws_joint_type",
+        )
+        cable_type = st.selectbox(
+            "Cable type",
+            list(CABLE_PROPERTIES.keys()),
+            key="ws_cable_type",
+        )
+        fabric_type = st.selectbox(
+            "Fabric type",
+            list(FABRIC_PROPERTIES.keys()),
+            key="ws_fabric_type",
+        )
+        num_bays = st.number_input(
+            "Number of bays",
+            value=int(st.session_state.materials.get("num_bays", 1)),
+            min_value=1, max_value=20, step=1, key="ws_num_bays",
+        )
+
+        st.session_state.materials["standard"] = standard
+        st.session_state.materials["section_type"] = section_type
+        st.session_state.materials["member_type"] = member_type
+        st.session_state.materials["joint_type"] = joint_type
+        st.session_state.materials["cable_type"] = cable_type
+        st.session_state.materials["fabric_type"] = fabric_type
+        st.session_state.materials["num_bays"] = int(num_bays)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        run = st.button("Run Design", use_container_width=True, type="primary")
+
+    with col_right:
+        if run:
+            with st.spinner("Running Eurocode-aligned design..."):
+                results = auto_design_structure(
+                    st.session_state.params,
+                    st.session_state.materials,
+                    structure_type,
+                )
+            st.session_state.results = results
+            st.session_state.health_score = results.get("health", 0.0)
+            st.session_state.selected_section = results.get("selected_section")
+            st.session_state.bq_rows = generate_bill_of_quantities(
+                results, st.session_state.materials
+            )
+
+        results = st.session_state.get("results")
+        if not results:
+            st.info("Press Run Design to compute loads, actions, and select a section.")
+            return
+
+        st.markdown('<div class="sdse-card"><h3>3D View</h3>', unsafe_allow_html=True)
+        span = results.get("span_m", 10.0)
+        if structure_type == "Saddle Span":
+            fig = generate_saddle_span(A, B, rise=max(A, B) * 0.10)
+        elif structure_type in ("Single Cone Membrane Roof", "Multiple Cone Membrane Roof"):
+            fig = generate_geodesic_dome_3d(radius=span / 2.0)
+        else:
+            fig = generate_curved_beam_3d(span, rise=span * 0.10)
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        rec_html = (
+            '<div class="member-recommend">'
+            + '<div class="title">Recommended Section</div>'
+            + '<div class="spec">' + str(results.get("selected_section", "-")) + '</div>'
+            + '</div>'
+        )
+        st.markdown(rec_html, unsafe_allow_html=True)
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("N_Ed", "%.1f kN" % results["actions"]["N_Ed_kN"])
+        with c2:
+            st.metric("M_Ed", "%.2f kNm" % results["actions"]["M_Ed_kNm"])
+        with c3:
+            st.metric("V_Ed", "%.1f kN" % results["actions"]["V_Ed_kN"])
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("q_p", "%.3f kPa" % results["wind"]["q_p_kpa"])
+        with c2:
+            st.metric("Uplift", "%.3f kPa" % results["wind"]["uplift_kpa"])
+        with c3:
+            st.metric("Pressure", "%.3f kPa" % results["wind"]["pressure_kpa"])
+
+        st.markdown('<div class="sdse-card"><h3>Unity Checks</h3>', unsafe_allow_html=True)
+        for key in ["bending", "buckling", "tension", "shear", "deflection"]:
+            chk = results["checks"].get(key, {})
+            ratio = chk.get("ratio", 0.0)
+            status = chk.get("status", "fail")
+            check_html = (
+                '<div class="safety-box ' + status + '">'
+                + '<span>' + key.capitalize() + '</span>'
+                + '<span class="ratio ' + status + '">'
+                + ("%.3f" % ratio)
+                + '</span>'
+                + '</div>'
+            )
+            st.markdown(check_html, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        with st.expander("Section selection report (all candidates)"):
+            df = pd.DataFrame(results.get("selection_report", []))
+            if not df.empty:
+                st.dataframe(df, use_container_width=True)
+
+
+# =============================================================================
+# UI - BILL OF QUANTITIES
+# =============================================================================
+
+def render_bq_page():
+    """Bill of quantities page."""
+    render_header()
+    st.markdown('<div class="sdse-card"><h3>Bill of Quantities</h3>', unsafe_allow_html=True)
+
+    rows = st.session_state.get("bq_rows", [])
+    if not rows:
+        st.info("No BQ yet. Run a design in Workspace first.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
+
+    df = pd.DataFrame(rows)
+    df["amount"] = df["amount"].astype(float)
+    total = df["amount"].sum()
+
+    st.dataframe(df, use_container_width=True)
+
+    total_html = (
+        '<div class="sdse-card">'
+        + '<div class="sdse-muted">Total estimated cost</div>'
+        + '<div style="font-size:1.4rem;font-weight:700;color:#f39c12;">'
+        + 'MYR ' + ("{:,.2f}".format(total))
+        + '</div></div>'
+    )
+    st.markdown(total_html, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# =============================================================================
+# UI - REPORTS
+# =============================================================================
+
+def render_reports():
+    """Design report summary."""
+    render_header()
+    st.markdown('<div class="sdse-card"><h3>Design Report</h3>', unsafe_allow_html=True)
+
+    results = st.session_state.get("results")
+    if not results:
+        st.info("No design results available. Run a design in Workspace first.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
+
+    info = st.session_state.project_info
+
+    proj_html = (
+        '<div class="sdse-muted">Project</div>'
+        + '<div style="font-weight:600;">'
+        + str(info.get("name", ""))
+        + ' - '
+        + str(info.get("ref", ""))
+        + '</div>'
+    )
+    st.markdown(proj_html, unsafe_allow_html=True)
+
+    st.markdown('<div class="sdse-divider"></div>', unsafe_allow_html=True)
+
+    st.markdown("**Structure** - " + str(results.get("structure_type", "")))
+    st.markdown("**Family** - " + str(results.get("family", "")))
+    st.markdown("**Span** - " + ("%.2f m" % results.get("span_m", 0.0)))
+    st.markdown("**Plan area** - " + ("%.2f m2" % results.get("plan_area_m2", 0.0)))
+    st.markdown("**Selected section** - `" + str(results.get("selected_section", "")) + "`")
+
+    st.markdown('<div class="sdse-divider"></div>', unsafe_allow_html=True)
+
+    health = results.get("health", 0.0)
+    status = results.get("health_status", "fail")
+    health_card = (
+        '<div class="sdse-card">'
+        + '<div class="sdse-muted">Health score</div>'
+        + '<div class="health-score ' + status + '">' + str(health) + '</div>'
+        + '</div>'
+    )
+    st.markdown(health_card, unsafe_allow_html=True)
+
+    export = {
+        "project": info,
+        "params": st.session_state.params,
+        "materials": st.session_state.materials,
+        "results_summary": {
+            "structure_type": results.get("structure_type"),
+            "family": results.get("family"),
+            "span_m": results.get("span_m"),
+            "plan_area_m2": results.get("plan_area_m2"),
+            "selected_section": results.get("selected_section"),
+            "health": health,
+            "health_status": status,
+            "actions": results.get("actions"),
+            "wind": results.get("wind"),
+        },
+    }
+    st.download_button(
+        "Download report (JSON)",
+        data=json.dumps(export, indent=2),
+        file_name=str(info.get("ref", "SDSe")) + "_report.json",
+        mime="application/json",
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# =============================================================================
+# UI - REGISTRATION
+# =============================================================================
+
+def render_registration():
+    """Register current project into st.session_state.registered_projects."""
+    render_header()
+    st.markdown('<div class="sdse-card"><h3>Register Project</h3>', unsafe_allow_html=True)
+
+    with st.form("register_form"):
+        name = st.text_input(
+            "Project name",
+            value=st.session_state.project_info.get("name", ""),
+        )
+        ref = st.text_input(
+            "Reference",
+            value=st.session_state.project_info.get("ref", ""),
+        )
+        engineer = st.text_input(
+            "Engineer",
+            value=st.session_state.project_info.get("engineer", ""),
+        )
+        submitted = st.form_submit_button("Register")
+
+    if submitted:
+        st.session_state.registered_projects.append({
+            "name": name,
+            "ref": ref,
+            "engineer": engineer,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        })
+        st.success("Project registered: " + name + " (" + ref + ")")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# =============================================================================
+# UI - PROJECT BROWSER
+# =============================================================================
+
+def render_project_browser():
+    """Browse registered projects."""
+    render_header()
+    st.markdown('<div class="sdse-card"><h3>Registered Projects</h3>', unsafe_allow_html=True)
+
+    projects = st.session_state.get("registered_projects", [])
+    if not projects:
+        st.info("No projects registered yet. Go to Register to add one.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
+
+    df = pd.DataFrame(projects)
+    st.dataframe(df, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ============================== CHUNK 3 END ==================================
+
+# =============================================================================
+# MAIN - SIDEBAR
 # =============================================================================
 
 def render_sidebar_meta():
@@ -1246,9 +1763,9 @@ def render_sidebar_meta():
 
         meta_card = (
             '<div class="sdse-muted">'
-            + 'EN 1990 &middot; EN 1991 &middot; EN 1993 / MS EN<br>'
-            + 'gamma_G=1.35 &middot; gamma_Q=1.50 &middot; gamma_M0=1.00 '
-            + '&middot; gamma_M1=1.00 &middot; gamma_M2=1.20'
+            + 'EN 1990 - EN 1991 - EN 1993 / MS EN<br>'
+            + 'gamma_G=1.35 - gamma_Q=1.50 - gamma_M0=1.00 '
+            + '- gamma_M1=1.00 - gamma_M2=1.20'
             + '</div>'
         )
         st.markdown(meta_card, unsafe_allow_html=True)
@@ -1260,7 +1777,7 @@ def render_sidebar_meta():
 
 
 # =============================================================================
-# MAIN — NAVIGATION DISPATCH
+# MAIN - NAVIGATION DISPATCH
 # =============================================================================
 
 def main():
