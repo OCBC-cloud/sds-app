@@ -2017,7 +2017,7 @@ def render_workspace():
             )
             st.markdown(row_html, unsafe_allow_html=True)
 
-                st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
             else:
                 beam = design_results.get("beams", {}).get("main", {})
                 if beam:
