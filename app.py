@@ -1752,37 +1752,40 @@ def render_project_browser():
 # ============================== CHUNK 3 END ==================================
 
 # =============================================================================
-# MAIN — ENTRY POINT / NAVIGATION DISPATCH
+# MAIN — SIDEBAR
 # =============================================================================
 
 def render_sidebar_meta():
     """Left sidebar: project quick-info + reset button."""
     with st.sidebar:
-        st.markdown(
-            '<div class="sdse-card">'
-            '<h3>' + str(st.session_state.project_info.get("name", "Untitled")) + '</h3>'
-            '<div class="sdse-muted">'
-            + str(st.session_state.project_info.get("ref", ""))
-            + '</div></div>',
-            unsafe_allow_html=True,
-        )
+        proj_name = str(st.session_state.project_info.get("name", "Untitled"))
+        proj_ref = str(st.session_state.project_info.get("ref", ""))
+        health_val = str(st.session_state.get("health_score", 0.0))
 
-        st.markdown(
+        sidebar_card_html = (
+            '<div class="sdse-card">'
+            '<h3>' + proj_name + '</h3>'
+            '<div class="sdse-muted">' + proj_ref + '</div>'
+            '</div>'
+        )
+        st.markdown(sidebar_card_html, unsafe_allow_html=True)
+
+        health_card_html = (
             '<div class="sdse-card">'
             '<div class="sdse-muted">Health</div>'
             '<div style="font-size:1.6rem;font-weight:700;color:#f39c12;">'
-            + str(st.session_state.get("health_score", 0.0))
-            + '</div></div>',
-            unsafe_allow_html=True,
+            + health_val +
+            '</div></div>'
         )
+        st.markdown(health_card_html, unsafe_allow_html=True)
 
-        st.markdown(
+        meta_html = (
             '<div class="sdse-muted">'
             'EN 1990 · EN 1991 · EN 1993 / MS EN<br>'
             'γG=1.35 · γQ=1.50 · γM0=1.00 · γM1=1.00 · γM2=1.20'
-            '</div>',
-            unsafe_allow_html=True,
+            '</div>'
         )
+        st.markdown(meta_html, unsafe_allow_html=True)
 
         if st.button("↺ Reset session", use_container_width=True):
             for key in list(st.session_state.keys()):
@@ -1790,8 +1793,12 @@ def render_sidebar_meta():
             st.rerun()
 
 
+# =============================================================================
+# MAIN — NAVIGATION DISPATCH
+# =============================================================================
+
 def main():
-    """Top-level app entry. Renders top nav, then dispatches to active page."""
+    """Top-level app entry. Renders sidebar + top nav, then dispatches."""
     render_sidebar_meta()
     render_top_nav()
 
