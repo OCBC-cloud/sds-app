@@ -2008,14 +2008,14 @@ def render_workspace():
 
                     label = "Primary Chord" if is_chord else "Secondary Web"
 
-                    st.markdown(
-                        '<div class="result-row">'
-                        '<span class="label">' + member_name.replace("_", " ").title() + ' ' + label + '</span>'
-                        '<span class="value">' + section + '</span>'
-                        '<span style="color: #6a7a8a; font-size: 0.75rem;">%.1f kN | %.0f mm2</span>' % (force, a_req)
-                        '</div>',
-                        unsafe_allow_html=True,
-                    )
+            row_html = (
+                '<div class="result-row">'
+                + '<span class="label">' + member_name.replace("_", " ").title() + ' ' + label + '</span>'
+                + '<span class="value">' + section + '</span>'
+                + '<span style="color: #6a7a8a; font-size: 0.75rem;">%.1f kN | %.0f mm2</span>' % (force, a_req)
+                + '</div>'
+            )
+            st.markdown(row_html, unsafe_allow_html=True)
 
                 st.markdown("</div>", unsafe_allow_html=True)
             else:
