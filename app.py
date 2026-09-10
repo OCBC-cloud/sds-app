@@ -1752,3 +1752,81 @@ def render_project_browser():
 # ============================== CHUNK 3 END ==================================
 
 
+# =============================================================================
+# MAIN — SIDEBAR
+# =============================================================================
+
+def render_sidebar_meta():
+    """Left sidebar: project quick-info + reset button."""
+    with st.sidebar:
+        proj_name = str(st.session_state.project_info.get("name", "Untitled"))
+        proj_ref = str(st.session_state.project_info.get("ref", ""))
+        health_val = str(st.session_state.get("health_score", 0.0))
+
+        sidebar_card = (
+            '<div class="sdse-card">'
+            + '<h3>' + proj_name + '</h3>'
+            + '<div class="sdse-muted">' + proj_ref + '</div>'
+            + '</div>'
+        )
+        st.markdown(sidebar_card, unsafe_allow_html=True)
+
+        health_card = (
+            '<div class="sdse-card">'
+            + '<div class="sdse-muted">Health</div>'
+            + '<div style="font-size:1.6rem;font-weight:700;color:#f39c12;">'
+            + health_val
+            + '</div></div>'
+        )
+        st.markdown(health_card, unsafe_allow_html=True)
+
+        meta_card = (
+            '<div class="sdse-muted">'
+            + 'EN 1990 &middot; EN 1991 &middot; EN 1993 / MS EN<br>'
+            + 'gamma_G=1.35 &middot; gamma_Q=1.50 &middot; gamma_M0=1.00 '
+            + '&middot; gamma_M1=1.00 &middot; gamma_M2=1.20'
+            + '</div>'
+        )
+        st.markdown(meta_card, unsafe_allow_html=True)
+
+        if st.button("Reset session", use_container_width=True):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+
+# =============================================================================
+# MAIN — NAVIGATION DISPATCH
+# =============================================================================
+
+def main():
+    """Top-level app entry. Renders sidebar + top nav, then dispatches."""
+    render_sidebar_meta()
+    render_top_nav()
+
+    active = st.session_state.get("active_nav", "Dashboard")
+
+    if active == "Dashboard":
+        render_dashboard()
+    elif active == "Catalog":
+        render_catalog()
+    elif active == "Workspace":
+        render_workspace()
+    elif active == "BQ":
+        render_bq_page()
+    elif active == "Reports":
+        render_reports()
+    elif active == "Register":
+        render_registration()
+    elif active == "Projects":
+        render_project_browser()
+    else:
+        render_dashboard()
+
+
+# Run the app
+main()
+
+
+# ============================== CHUNK 4 END ==================================
+
