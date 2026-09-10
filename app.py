@@ -304,7 +304,55 @@ SECTION_PROPERTIES = {
     "C200x90x10": {"A": 2890, "I": 24.0e6, "W_el": 240e3, "i": 91.1, "weight": 22.7, "type": "Channel", "depth": 200},
     "C250x100x12": {"A": 3930, "I": 48.0e6, "W_el": 384e3, "i": 110.5, "weight": 30.8, "type": "Channel", "depth": 250},
 }
+# ============================================================
+# SDSe ENGINEERING CHARTER v10.0 — FOUNDATION LAYER
+# Eurocode EN 1990 + EN 1993 (MS EN for Malaysia)
+# ============================================================
 
+PARTIAL_FACTORS = {
+    "MY": {"name": "Malaysia (MS EN)",
+           "gamma_G": 1.35, "gamma_G_fav": 0.90,
+           "gamma_Q_wind": 1.50, "gamma_Q_live": 1.50,
+           "psi_0_wind": 0.60, "psi_0_live": 0.70,
+           "gamma_M0": 1.00, "gamma_M1": 1.00, "gamma_M2": 1.20,
+           "gamma_cable": 1.50, "gamma_fabric_perm": 4.00,
+           "deflection_roof": 200, "deflection_floor": 300},
+    "EU": {"name": "Eurocode (EN)",
+           "gamma_G": 1.35, "gamma_G_fav": 0.90,
+           "gamma_Q_wind": 1.50, "gamma_Q_live": 1.50,
+           "psi_0_wind": 0.60, "psi_0_live": 0.70,
+           "gamma_M0": 1.00, "gamma_M1": 1.00, "gamma_M2": 1.25,
+           "gamma_cable": 1.50, "gamma_fabric_perm": 4.00,
+           "deflection_roof": 200, "deflection_floor": 300},
+    "UK": {"name": "United Kingdom (BS EN)",
+           "gamma_G": 1.35, "gamma_G_fav": 0.90,
+           "gamma_Q_wind": 1.50, "gamma_Q_live": 1.50,
+           "psi_0_wind": 0.60, "psi_0_live": 0.70,
+           "gamma_M0": 1.00, "gamma_M1": 1.00, "gamma_M2": 1.25,
+           "gamma_cable": 1.50, "gamma_fabric_perm": 4.00,
+           "deflection_roof": 200, "deflection_floor": 300},
+    "US": {"name": "United States (ASCE 7 + AISC)",
+           "gamma_G": 1.20, "gamma_G_fav": 0.90,
+           "gamma_Q_wind": 1.00, "gamma_Q_live": 1.60,
+           "psi_0_wind": 0.60, "psi_0_live": 0.70,
+           "gamma_M0": 1.11, "gamma_M1": 1.11, "gamma_M2": 1.35,
+           "gamma_cable": 1.67, "gamma_fabric_perm": 4.00,
+           "deflection_roof": 240, "deflection_floor": 360},
+    "CN": {"name": "China (GB 50009 + GB 50017)",
+           "gamma_G": 1.30, "gamma_G_fav": 0.90,
+           "gamma_Q_wind": 1.50, "gamma_Q_live": 1.50,
+           "psi_0_wind": 0.60, "psi_0_live": 0.70,
+           "gamma_M0": 1.10, "gamma_M1": 1.10, "gamma_M2": 1.25,
+           "gamma_cable": 1.50, "gamma_fabric_perm": 4.00,
+           "deflection_roof": 200, "deflection_floor": 300}
+}
+
+def get_partial_factors(standard="MY"):
+    return PARTIAL_FACTORS.get(standard, PARTIAL_FACTORS["MY"])
+
+# ============================================================
+# END PIECE 1
+# ============================================================
 FABRIC_PROPERTIES = {
     "PVC-coated Polyester": {"thickness": {"0.5": 30, "0.8": 40, "1.0": 50, "1.2": 60}, "weight_per_m2": 1.2},
     "PTFE-coated Fiberglass": {"thickness": {"0.5": 40, "0.8": 55, "1.0": 70, "1.2": 85}, "weight_per_m2": 1.8},
