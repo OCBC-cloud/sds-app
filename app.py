@@ -353,7 +353,51 @@ def get_partial_factors(standard="MY"):
 # ============================================================
 # END PIECE 1
 # ============================================================
-FABRIC_PROPERTIES = {
+# ============================================================
+# PIECE 2 — STEEL MATERIALS AND BUCKLING CURVES
+# ============================================================
+
+STEEL_MATERIALS = {
+    "Steel":     {"fy": 355, "fu": 490, "E": 210000, "name": "S355 Steel"},
+    "Aluminum":  {"fy": 276, "fu": 310, "E": 70000,  "name": "Aluminium 6082-T6"},
+    "Wood":      {"fy": 24,  "fu": 30,  "E": 11000,  "name": "Glulam GL28"},
+    "Composite": {"fy": 300, "fu": 450, "E": 150000, "name": "Composite"}
+}
+
+BUCKLING_IMPERFECTION = {
+    "a": 0.21,
+    "b": 0.34,
+    "c": 0.49,
+    "d": 0.76
+}
+
+def get_buckling_curve(section_type):
+    mapping = {
+        "CHS": "a",
+        "SHS": "a",
+        "RHS": "a",
+        "I-Beam": "b",
+        "Angle": "c",
+        "Channel": "c"
+    }
+    return mapping.get(section_type, "c")
+
+def get_material_safety_factors(standard="MY"):
+    pf = get_partial_factors(standard)
+    return {
+        "gamma_M0": pf["gamma_M0"],
+        "gamma_M1": pf["gamma_M1"],
+        "gamma_M2": pf["gamma_M2"],
+        "gamma_cable": pf["gamma_cable"],
+        "gamma_fabric_perm": pf["gamma_fabric_perm"]
+    }
+
+def get_steel_properties(material_type="Steel"):
+    return STEEL_MATERIALS.get(material_type, STEEL_MATERIALS["Steel"])
+
+# ============================================================
+# END PIECE 2
+# ============================================================FABRIC_PROPERTIES = {
     "PVC-coated Polyester": {"thickness": {"0.5": 30, "0.8": 40, "1.0": 50, "1.2": 60}, "weight_per_m2": 1.2},
     "PTFE-coated Fiberglass": {"thickness": {"0.5": 40, "0.8": 55, "1.0": 70, "1.2": 85}, "weight_per_m2": 1.8},
     "ETFE Film": {"thickness": {"0.05": 15, "0.08": 25, "0.10": 32, "0.15": 42, "0.20": 55}, "weight_per_m2": 0.8}
