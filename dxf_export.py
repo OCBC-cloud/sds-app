@@ -11,14 +11,14 @@
 #   MAIN_BEAM        - main curved beam
 #   RIBS             - radial ribs (leaf) or secondary members
 #   CABLE_PERIMETER  - perimeter cable segments
-#   MEMBRANE         - membrane surface (polyface mesh)
+#   MEMBRANE         - membrane surface (3D faces)
 #   STRUT            - curved strut
 #   RING_CABLE       - ring cable (if opening present)
 #   NODES            - key nodes (column node, leaf tip)
 #
 # Usage:
 #   from dxf_export import build_dxf_from_leaf_session
-#   dxf_bytes = build_dxf_from_leaf_session()
+#   dxf_bytes = build_dxf_from_leaf_session(st.session_state)
 # =============================================================================
 
 import io
@@ -30,7 +30,6 @@ import numpy as np
 try:
     import ezdxf
     from ezdxf import units
-    from ezdxf.enums import TextEntityAlignment
     EZDXF_AVAILABLE = True
 except ImportError:
     EZDXF_AVAILABLE = False
@@ -56,20 +55,20 @@ LAYER_NODES = "NODES"
 # =============================================================================
 
 LAYER_STYLES = {
-    LAYER_COLUMN: {"color": 3},     # green
-    LAYER_BASEPLATE: {"color": 3},  # green
-    LAYER_MAIN_BEAM: {"color": 1},  # red
-    LAYER_RIBS: {"color": 5},       # blue
-    LAYER_CABLE: {"color": 2},      # yellow
-    LAYER_MEMBRANE: {"color": 4},   # cyan
-    LAYER_STRUT: {"color": 30},     # orange
-    LAYER_RING: {"color": 2},       # yellow
-    LAYER_NODES: {"color": 2},      # yellow
+    LAYER_COLUMN: {"color": 3},      # green
+    LAYER_BASEPLATE: {"color": 3},   # green
+    LAYER_MAIN_BEAM: {"color": 1},   # red
+    LAYER_RIBS: {"color": 5},        # blue
+    LAYER_CABLE: {"color": 2},       # yellow
+    LAYER_MEMBRANE: {"color": 4},    # cyan
+    LAYER_STRUT: {"color": 30},      # orange
+    LAYER_RING: {"color": 2},        # yellow
+    LAYER_NODES: {"color": 2},       # yellow
 }
 
 
 # =============================================================================
-# GEOMETRY BUILDERS (mirror the leaf logic from viewer_app.py)
+# GEOMETRY BUILDERS
 # =============================================================================
 
 def _build_leaf_geometry(state):
@@ -120,8 +119,8 @@ def _build_leaf_geometry(state):
         rib_tips_right.append((a_x, +half_w, tip_z))
 
     # ---- Membrane grid
-    n_u = 40
-    n_v = 40
+    n_u = 30
+    n_v = 30
     X_surf = np.zeros((n_u, n_v))
     Y_surf = np.zeros((n_u, n_v))
     Z_surf = np.zeros((n_u, n_v))
@@ -180,7 +179,7 @@ def _build_leaf_geometry(state):
 
 
 # =============================================================================
-# DXF BUILDER
+# DXF HELPERS
 # =============================================================================
 
 def _setup_layers(doc):
@@ -192,12 +191,12 @@ def _setup_layers(doc):
 
 
 def _add_line(msp, layer, p1, p2):
-    """Add a 3D line to the modelspace."""
+    """Add a 3D line."""
     msp.add_line(p1, p2, dxfattribs={"layer": layer})
 
 
 def _add_polyline_3d(msp, layer, points):
-    """Add a 3D polyline (many vertices) to the modelspace."""
+    """Add a 3D polyline."""
     if len(points) < 2:
         return
     msp.add_polyline3d(points, dxfattribs={"layer": layer})
@@ -209,41 +208,37 @@ def _add_point(msp, layer, p):
 
 
 def _add_mesh(msp, layer, X, Y, Z):
-    """Add a polyface mesh from a grid of coordinates (n_u by n_v)."""
+    """Add 3D faces for each grid cell of the membrane surface."""
     n_u = len(X)
     n_v = len(X[0])
-    vertices = []
-    for i in range(n_u):
-        for j in range(n_v):
-            vertices.append((X[i][j], Y[i][j], Z[i][j]))
 
-    faces = []
     for i in range(n_u - 1):
         for j in range(n_v - 1):
-            v00 = i * n_v + j
-            v01 = i * n_v + (j + 1)
-            v10 = (i + 1) * n_v + j
-            v11 = (i + 1) * n_v + (j + 1)
-            faces.append((v00 + 1, v01 + 1, v11 + 1, v10 + 1))  # 1-indexed
-
-    msp.add_polyface_mesh(vertices, faces, dxfattribs={"layer": layer})
+            p00 = (X[i][j], Y[i][j], Z[i][j])
+            p01 = (X[i][j + 1], Y[i][j + 1], Z[i][j + 1])
+            p10 = (X[i + 1][j], Y[i + 1][j], Z[i + 1][j])
+            p11 = (X[i + 1][j + 1], Y[i + 1][j + 1], Z[i + 1][j + 1])
+            msp.add_3dface(p00, p01, p11, p10, dxfattribs={"layer": layer})
 
 
 def _embed_metadata(doc, meta):
-    """Write SDSe metadata into the DXF header as comments."""
+    """Write SDSe metadata into the DXF header."""
     try:
         doc.header["$PROJECTNAME"] = "SDSe"
         doc.header["$LASTSAVEDBY"] = "SDSe"
     except Exception:
         pass
 
-    # ezdxf stores extended data; we use custom vars via header
     meta_json = json.dumps(meta, default=str)
     try:
         doc.header.custom_vars.append("SDSE_META", meta_json[:250])
     except Exception:
         pass
 
+
+# =============================================================================
+# MAIN EXPORT FUNCTION
+# =============================================================================
 
 def build_dxf_from_leaf_session(state):
     """
@@ -274,12 +269,12 @@ def build_dxf_from_leaf_session(state):
         for p1, p2 in geo["ribs_left"] + geo["ribs_right"]:
             _add_line(msp, LAYER_RIBS, p1, p2)
 
-    # Perimeter cable
+    # Perimeter cables
     if state.get("leaf_show_cables", True):
         _add_polyline_3d(msp, LAYER_CABLE, geo["tips_left"])
         _add_polyline_3d(msp, LAYER_CABLE, geo["tips_right"])
 
-    # Membrane mesh
+    # Membrane
     if state.get("leaf_show_membrane", True):
         _add_mesh(msp, LAYER_MEMBRANE,
                   geo["membrane"]["X"], geo["membrane"]["Y"], geo["membrane"]["Z"])
