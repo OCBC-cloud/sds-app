@@ -55,27 +55,24 @@ LAYER_NODES = "NODES"
 # =============================================================================
 
 LAYER_STYLES = {
-    LAYER_COLUMN: {"color": 3},      # green
-    LAYER_BASEPLATE: {"color": 3},   # green
-    LAYER_MAIN_BEAM: {"color": 1},   # red
-    LAYER_RIBS: {"color": 5},        # blue
-    LAYER_CABLE: {"color": 2},       # yellow
-    LAYER_MEMBRANE: {"color": 4},    # cyan
-    LAYER_STRUT: {"color": 30},      # orange
-    LAYER_RING: {"color": 2},        # yellow
-    LAYER_NODES: {"color": 2},       # yellow
+    LAYER_COLUMN: {"color": 3},
+    LAYER_BASEPLATE: {"color": 3},
+    LAYER_MAIN_BEAM: {"color": 1},
+    LAYER_RIBS: {"color": 5},
+    LAYER_CABLE: {"color": 2},
+    LAYER_MEMBRANE: {"color": 4},
+    LAYER_STRUT: {"color": 30},
+    LAYER_RING: {"color": 2},
+    LAYER_NODES: {"color": 2},
 }
 
 
 # =============================================================================
-# GEOMETRY BUILDERS
+# GEOMETRY BUILDER
 # =============================================================================
 
 def _build_leaf_geometry(state):
-    """
-    Rebuild the leaf geometry from session state.
-    Returns dict of arrays for each element.
-    """
+    """Rebuild the leaf geometry from session state."""
     col_h = state.get("leaf_column_height", 6.0)
     outreach = state.get("leaf_outreach", 8.0)
     ribs_per_side = int(state.get("leaf_ribs_per_side", 5))
@@ -83,21 +80,18 @@ def _build_leaf_geometry(state):
     arc_r = state.get("leaf_beam_arc_radius", 5.0)
     sag_pct = state.get("leaf_membrane_sag_pct", 15.0) / 100.0
 
-    # ---- Main beam
     n_beam = 80
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
     beam_z = col_h + arc_r * np.sin(t_beam * np.pi * 0.6) * 0.7
     beam_y = np.zeros_like(t_beam)
 
-    # ---- Rib envelope
     def leaf_half_width(t):
         return outreach * 0.42 * (np.sin(np.pi * t) ** 0.7)
 
     def rib_tilt_at(t):
         return np.radians(rib_tilt_deg) * (np.sin(np.pi * t) ** 0.7)
 
-    # ---- Ribs
     rib_ts = np.linspace(0.08, 0.92, ribs_per_side)
     ribs_left = []
     ribs_right = []
@@ -118,7 +112,6 @@ def _build_leaf_geometry(state):
         rib_tips_left.append((a_x, -half_w, tip_z))
         rib_tips_right.append((a_x, +half_w, tip_z))
 
-    # ---- Membrane grid
     n_u = 30
     n_v = 30
     X_surf = np.zeros((n_u, n_v))
@@ -132,7 +125,6 @@ def _build_leaf_geometry(state):
         half_w = leaf_half_width(t)
         tilt = rib_tilt_at(t)
         tip_z_at_t = b_z + half_w * np.tan(tilt)
-
         for j, v in enumerate(np.linspace(-1, 1, n_v)):
             X_surf[i, j] = b_x
             Y_surf[i, j] = v * half_w
@@ -140,7 +132,6 @@ def _build_leaf_geometry(state):
             sag_amount = sag_pct * half_w * (1 - (2 * abs(v) - 1) ** 2)
             Z_surf[i, j] = z_edge - sag_amount
 
-    # ---- Strut
     idx_third = int(0.33 * (n_beam - 1))
     px = beam_x[idx_third]
     py = beam_y[idx_third]
@@ -207,6 +198,28 @@ def _add_point(msp, layer, p):
     msp.add_point(p, dxfattribs={"layer": layer})
 
 
+def _add_3dface(msp, layer, p1, p2, p3, p4):
+    """
+    Add a single 3D face. Uses the ezdxf 3DFACE entity via low-level
+    new_entity call to avoid signature conflicts across ezdxf versions.
+    """
+    try:
+        face = msp.add_3dface([p1, p2, p3, p4], dxfattribs={"layer": layer})
+    except TypeError:
+        # Fallback: build the 3DFACE entity via new_entity
+        from ezdxf.entities import Face3d
+        face = Face3d.new(
+            dxfattribs={
+                "layer": layer,
+                "vtx0": p1,
+                "vtx1": p2,
+                "vtx2": p3,
+                "vtx3": p4,
+            }
+        )
+        msp.add_entity(face)
+
+
 def _add_mesh(msp, layer, X, Y, Z):
     """Add 3D faces for each grid cell of the membrane surface."""
     n_u = len(X)
@@ -218,7 +231,7 @@ def _add_mesh(msp, layer, X, Y, Z):
             p01 = (X[i][j + 1], Y[i][j + 1], Z[i][j + 1])
             p10 = (X[i + 1][j], Y[i + 1][j], Z[i + 1][j])
             p11 = (X[i + 1][j + 1], Y[i + 1][j + 1], Z[i + 1][j + 1])
-            msp.add_3dface(p00, p01, p11, p10, dxfattribs={"layer": layer})
+            _add_3dface(msp, layer, p00, p01, p11, p10)
 
 
 def _embed_metadata(doc, meta):
