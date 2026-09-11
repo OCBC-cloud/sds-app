@@ -1,9 +1,10 @@
 # =============================================================================
-# FDS - 3D Viewer Prototype v3
+# FDS - 3D Viewer Prototype v3.1
 # =============================================================================
 # Standalone 3D viewer for prototyping SDSe structural shapes without touching
-# the main app. Now supports Standard Saddle, 4-Point Hypar, and Cantilever
-# Leaf configurations.
+# the main app. Supports Standard Saddle, 4-Point Hypar, and Cantilever Leaf.
+# v3.1: corrected leaf geometry - pointed both ends, widest in middle, ribs
+#       tilt progressively from max at middle to zero at both ends.
 # =============================================================================
 
 import streamlit as st
@@ -15,7 +16,7 @@ import numpy as np
 # =============================================================================
 
 st.set_page_config(
-    page_title="FDS - 3D Viewer Prototype v3",
+    page_title="FDS - 3D Viewer Prototype v3.1",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -81,9 +82,6 @@ dark_mode_css = """
     }
     .metric-card .value { color: #ffffff; font-size: 1.1rem; font-weight: 700; }
     .metric-card .label { color: #8a9aaa; font-size: 0.7rem; }
-    .metric-card .good { color: #2ecc71; }
-    .metric-card .warning { color: #f39c12; }
-    .metric-card .danger { color: #e74c3c; }
     .sdse-badge {
         display: inline-block; padding: 2px 8px;
         border-radius: 10px; font-size: 0.7rem;
@@ -193,19 +191,17 @@ if "leaf_opening_radius" not in st.session_state:
 
 def generate_3d_view(pretension, shape_type, support_system, supports, span, rise, laa):
     """Dispatch to the correct 3D generator."""
-
     if support_system == "leaf":
         return generate_leaf_3d(pretension)
     elif support_system == "2_point":
         return generate_two_point_3d(shape_type, span, rise, laa)
-    else:  # 4_point
+    else:
         return generate_four_point_3d(supports, rise)
 
 
 def generate_two_point_3d(shape_type, span, rise, laa):
     """Standard saddle span: two curved beams + membrane."""
     num_points = 40
-
     x = np.linspace(-span / 2, span / 2, num_points)
     z_beam = get_beam_shape(x, span, rise, shape_type)
 
@@ -214,22 +210,14 @@ def generate_two_point_3d(shape_type, span, rise, laa):
     y2 = base_width * (1 - (2 * x / span) ** 2)
 
     fig = go.Figure()
-
-    fig.add_trace(go.Scatter3d(
-        x=x, y=y1, z=z_beam,
-        mode="lines", name="Beam 1 (Left)",
-        line=dict(color="#FF6B6B", width=8),
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=x, y=y2, z=z_beam,
-        mode="lines", name="Beam 2 (Right)",
-        line=dict(color="#FF6B6B", width=8),
-    ))
+    fig.add_trace(go.Scatter3d(x=x, y=y1, z=z_beam, mode="lines",
+                                name="Beam 1", line=dict(color="#FF6B6B", width=8)))
+    fig.add_trace(go.Scatter3d(x=x, y=y2, z=z_beam, mode="lines",
+                                name="Beam 2", line=dict(color="#FF6B6B", width=8)))
 
     X_surf = np.zeros((num_points, num_points))
     Y_surf = np.zeros((num_points, num_points))
     Z_surf = np.zeros((num_points, num_points))
-
     for i, x_pos in enumerate(x):
         y_beam1 = y1[i]
         y_beam2 = y2[i]
@@ -241,32 +229,14 @@ def generate_two_point_3d(shape_type, span, rise, laa):
             Y_surf[i, j] = y_pos
             Z_surf[i, j] = z_pos
 
-    fig.add_trace(go.Surface(
-        x=X_surf, y=Y_surf, z=Z_surf,
-        colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
-        opacity=0.7, showscale=False, name="Membrane",
-    ))
+    fig.add_trace(go.Surface(x=X_surf, y=Y_surf, z=Z_surf,
+                              colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
+                              opacity=0.7, showscale=False, name="Membrane"))
 
-    support_y = base_width
-    fig.add_trace(go.Scatter3d(
-        x=[-span / 2, span / 2],
-        y=[-support_y, support_y],
-        z=[0, 0],
-        mode="markers+text",
-        marker=dict(color="#FF6B6B", size=12, symbol="square"),
-        text=["Support L", "Support R"],
-        textposition="top center",
-        name="Supports",
-    ))
-
-    fig.add_trace(go.Scatter3d(
-        x=[0], y=[0], z=[rise],
-        mode="markers+text",
-        marker=dict(color="#FFD93D", size=14, symbol="diamond"),
-        text=["APEX"],
-        textposition="top center",
-        name="Apex",
-    ))
+    fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[rise],
+                                mode="markers+text",
+                                marker=dict(color="#FFD93D", size=14, symbol="diamond"),
+                                text=["APEX"], textposition="top center", name="Apex"))
 
     return _apply_common_layout(fig, rise)
 
@@ -292,42 +262,31 @@ def generate_four_point_3d(supports, rise):
 
     x_norm = (X - A["x"]) / span_x * 2 - 1
     y_norm = (Y - C["y"]) / width_y * 2 - 1
-
     Z = rise * np.maximum(0, (1 - x_norm ** 2) * (1 - y_norm ** 2))
 
     fig = go.Figure()
+    fig.add_trace(go.Surface(x=X, y=Y, z=Z,
+                              colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
+                              opacity=0.7, showscale=False, name="Membrane"))
 
-    fig.add_trace(go.Surface(
-        x=X, y=Y, z=Z,
-        colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
-        opacity=0.7, showscale=False, name="Membrane",
-    ))
-
-    for label, p1, p2 in [
-        ("Top Beam", A, B),
-        ("Bottom Beam", C, D),
-        ("Left Beam", A, C),
-        ("Right Beam", B, D),
-    ]:
+    for label, p1, p2 in [("Top", A, B), ("Bottom", C, D), ("Left", A, C), ("Right", B, D)]:
         x_line = np.linspace(p1["x"], p2["x"], num_points)
         y_line = np.linspace(p1["y"], p2["y"], num_points)
         x_n = (x_line - A["x"]) / span_x * 2 - 1
         y_n = (y_line - A["y"]) / width_y * 2 - 1
         z_line = rise * np.maximum(0, (1 - x_n ** 2) * (1 - y_n ** 2))
-        fig.add_trace(go.Scatter3d(
-            x=x_line, y=y_line, z=z_line,
-            mode="lines",
-            line=dict(color="#FF6B6B", width=8),
-            name=label,
-        ))
+        fig.add_trace(go.Scatter3d(x=x_line, y=y_line, z=z_line,
+                                    mode="lines", line=dict(color="#FF6B6B", width=8),
+                                    name=label + " Beam"))
 
     return _apply_common_layout(fig, rise)
 
 
 def generate_leaf_3d(pretension):
     """
-    Cantilever leaf: column at origin + arc + radial ribs tilted upward +
-    segment edge cables + membrane draped below ribs and main beam.
+    Cantilever leaf v2 - pointed both ends, widest in middle,
+    ribs tilt upward (max at middle, zero at ends), perimeter
+    cable connects rib tips in segments.
     """
     fig = go.Figure()
 
@@ -335,195 +294,157 @@ def generate_leaf_3d(pretension):
     outreach = st.session_state.leaf_outreach
     ribs_per_side = int(st.session_state.leaf_ribs_per_side)
     rib_tilt_deg = st.session_state.leaf_rib_tilt_deg
-    rib_spacing_deg = st.session_state.leaf_rib_spacing_deg
     arc_r = st.session_state.leaf_beam_arc_radius
     sag_pct = st.session_state.leaf_membrane_sag_pct / 100.0
 
-    # ---- Column (vertical from origin to column top)
+    # ---- Column
     if st.session_state.leaf_show_column:
-        col_top = (0.0, 0.0, col_h)
         fig.add_trace(go.Scatter3d(
-            x=[0, col_top[0]],
-            y=[0, col_top[1]],
-            z=[0, col_top[2]],
-            mode="lines",
-            line=dict(color="#2ecc71", width=10),
-            name="Column",
+            x=[0, 0], y=[0, 0], z=[0, col_h],
+            mode="lines", line=dict(color="#2ecc71", width=10), name="Column",
         ))
-        # Baseplate
         fig.add_trace(go.Scatter3d(
-            x=[0], y=[0], z=[0],
-            mode="markers",
-            marker=dict(color="#2ecc71", size=10, symbol="square"),
-            name="Baseplate",
+            x=[0], y=[0], z=[0], mode="markers",
+            marker=dict(color="#2ecc71", size=10, symbol="square"), name="Baseplate",
         ))
 
-    # ---- Main beam (arc from column top, curving upward and outward)
-    # Parameter along the arc from column top outward
-    t_beam = np.linspace(0, 1, 60)
-    # Main beam sweeps along x from 0 to outreach with an arc in z
+    # ---- Main beam (arc from column top curving up and outward)
+    n_beam = 80
+    t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
-    # Vertical rise of main beam from column top; use arc_r to shape
-    beam_z = col_h + arc_r * (1 - np.cos(t_beam * np.pi / 2))
+    beam_z = col_h + arc_r * np.sin(t_beam * np.pi * 0.6) * 0.7
     beam_y = np.zeros_like(t_beam)
 
     fig.add_trace(go.Scatter3d(
         x=beam_x, y=beam_y, z=beam_z,
-        mode="lines",
-        line=dict(color="#FF6B6B", width=8),
-        name="Main Beam (arc)",
+        mode="lines", line=dict(color="#FF6B6B", width=8), name="Main Beam",
     ))
 
-    # ---- Radial ribs (tilted upward, symmetric per side)
-    rib_tilt = np.radians(rib_tilt_deg)
-    rib_spacing = np.radians(rib_spacing_deg)
+    # ---- Leaf envelope: half-width as function of position along beam
+    def leaf_half_width(t):
+        return outreach * 0.42 * (np.sin(np.pi * t) ** 0.7)
 
-    # Sample positions along the main beam where ribs attach
-    n_attach = ribs_per_side
-    attach_t = np.linspace(0.15, 0.95, n_attach)
+    # ---- Rib positioning
+    n_ribs = ribs_per_side
+    rib_ts = np.linspace(0.08, 0.92, n_ribs)
 
-    rib_tip_x_list = []
-    rib_tip_y_list = []
-    rib_tip_z_list = []
+    def rib_tilt_at(t):
+        return np.radians(rib_tilt_deg) * (np.sin(np.pi * t) ** 0.7)
+
+    rib_tip_x = {"L": [], "R": []}
+    rib_tip_y = {"L": [], "R": []}
+    rib_tip_z = {"L": [], "R": []}
 
     if st.session_state.leaf_show_ribs:
-        for side in (-1, +1):
-            for t in attach_t:
-                # Attachment point on main beam
-                idx = int(t * (len(beam_x) - 1))
+        for side_key, side_sign in (("L", -1), ("R", +1)):
+            for t in rib_ts:
+                idx = int(t * (n_beam - 1))
                 a_x = beam_x[idx]
                 a_y = beam_y[idx]
                 a_z = beam_z[idx]
 
-                # Rib direction: outward in x, sideways in y (side), tilted up in z
-                # Rib length scales with outreach
-                rib_len = outreach * 0.6
+                half_w = leaf_half_width(t)
+                tilt = rib_tilt_at(t)
 
-                # Angle in plan from x-axis:
-                # side +1 => ribs fan toward +y
-                # side -1 => ribs fan toward -y
-                plan_ang = side * rib_spacing * 0.5 * (1 + 0.5 * t)
+                tip_y = side_sign * half_w
+                tip_z = a_z + half_w * np.tan(tilt)
 
-                tip_x = a_x + rib_len * np.cos(plan_ang) * np.cos(rib_tilt)
-                tip_y = a_y + rib_len * np.sin(plan_ang) * np.cos(rib_tilt)
-                tip_z = a_z + rib_len * np.sin(rib_tilt)
-
-                rib_tip_x_list.append(tip_x)
-                rib_tip_y_list.append(tip_y)
-                rib_tip_z_list.append(tip_z)
+                rib_tip_x[side_key].append(a_x)
+                rib_tip_y[side_key].append(tip_y)
+                rib_tip_z[side_key].append(tip_z)
 
                 fig.add_trace(go.Scatter3d(
-                    x=[a_x, tip_x],
-                    y=[a_y, tip_y],
-                    z=[a_z, tip_z],
-                    mode="lines",
-                    line=dict(color="#3498db", width=4),
-                    showlegend=False,
+                    x=[a_x, a_x], y=[a_y, tip_y], z=[a_z, tip_z],
+                    mode="lines", line=dict(color="#3498db", width=4), showlegend=False,
                 ))
-
-                # Rib attachment node on main beam
                 fig.add_trace(go.Scatter3d(
-                    x=[a_x], y=[a_y], z=[a_z],
-                    mode="markers",
-                    marker=dict(color="#3498db", size=3),
-                    showlegend=False,
+                    x=[a_x], y=[a_y], z=[a_z], mode="markers",
+                    marker=dict(color="#3498db", size=3), showlegend=False,
                 ))
 
-    # ---- Segment edge cables between rib tips (both sides)
-    if st.session_state.leaf_show_cables and len(rib_tip_x_list) > 0:
-        # split per side
-        n = len(attach_t)
-        for side_idx in range(2):
-            side_slice = slice(side_idx * n, (side_idx + 1) * n)
-            xs = rib_tip_x_list[side_slice]
-            ys = rib_tip_y_list[side_slice]
-            zs = rib_tip_z_list[side_slice]
-            fig.add_trace(go.Scatter3d(
-                x=xs, y=ys, z=zs,
-                mode="lines",
-                line=dict(color="#FFD93D", width=2, dash="dash"),
-                name="Edge cable" if side_idx == 0 else None,
-                showlegend=(side_idx == 0),
-            ))
+    # ---- Perimeter cable segments
+    if st.session_state.leaf_show_cables:
+        for side_key in ("L", "R"):
+            if len(rib_tip_x[side_key]) > 1:
+                fig.add_trace(go.Scatter3d(
+                    x=rib_tip_x[side_key], y=rib_tip_y[side_key], z=rib_tip_z[side_key],
+                    mode="lines", line=dict(color="#FFD93D", width=3, dash="dash"),
+                    name="Perimeter " + side_key,
+                ))
 
-    # ---- Membrane surface (Option A: sags below ribs and main beam)
+    # ---- Membrane
     if st.session_state.leaf_show_membrane:
-        n_u = 30
-        n_v = 30
-        U = np.linspace(0, 1, n_u)
-        V = np.linspace(-1, 1, n_v)
-
+        n_u = 40
+        n_v = 40
         X_surf = np.zeros((n_u, n_v))
         Y_surf = np.zeros((n_u, n_v))
         Z_surf = np.zeros((n_u, n_v))
 
-        for i_u, u in enumerate(U):
-            idx = int(u * (len(beam_x) - 1))
-            bx = beam_x[idx]
-            bz = beam_z[idx]
-            # Membrane sags below the beam line by sag_pct * (arc radius)
-            sag_amount = sag_pct * arc_r
-            for i_v, v in enumerate(V):
-                # Spread in y proportional to u (narrow at column, wide at tip)
-                y_spread = outreach * 0.5 * u
-                # Membrane height: below beam line, with sag deeper in middle of v
-                sag_v = (1 - v ** 2)  # 1 at centre of leaf, 0 at edges
-                z_pos = bz - sag_amount * sag_v
-                X_surf[i_u, i_v] = bx
-                Y_surf[i_u, i_v] = v * y_spread
-                Z_surf[i_u, i_v] = z_pos
+        for i, t in enumerate(np.linspace(0.02, 0.98, n_u)):
+            idx = int(t * (n_beam - 1))
+            b_x = beam_x[idx]
+            b_z = beam_z[idx]
+            half_w = leaf_half_width(t)
+            tilt = rib_tilt_at(t)
+
+            for j, v in enumerate(np.linspace(-1, 1, n_v)):
+                X_surf[i, j] = b_x
+                Y_surf[i, j] = v * half_w
+                tip_z_at_t = b_z + half_w * np.tan(tilt)
+                z_edge = b_z * (1 - abs(v)) + tip_z_at_t * abs(v)
+                sag_amount = sag_pct * half_w * (1 - (2 * abs(v) - 1) ** 2)
+                Z_surf[i, j] = z_edge - sag_amount
 
         fig.add_trace(go.Surface(
             x=X_surf, y=Y_surf, z=Z_surf,
             colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
-            opacity=0.6,
-            showscale=False,
-            name="Membrane",
+            opacity=0.6, showscale=False, name="Membrane",
         ))
 
     # ---- Curved strut from 1/3 of main beam down to column
     if st.session_state.leaf_show_strut:
-        # Point at 1/3 of main beam
-        idx_third = int(0.33 * (len(beam_x) - 1))
+        idx_third = int(0.33 * (n_beam - 1))
         px = beam_x[idx_third]
         py = beam_y[idx_third]
         pz = beam_z[idx_third]
-        # Curved path to column at lower point
         t = np.linspace(0, 1, 25)
-        # Curve dips down and back to column
         sx = px * (1 - t)
         sy = py * (1 - t)
         sz = pz + (col_h * 0.4 - pz) * t + 0.5 * np.sin(np.pi * t) * (col_h * 0.15)
         fig.add_trace(go.Scatter3d(
             x=sx, y=sy, z=sz,
-            mode="lines",
-            line=dict(color="#e67e22", width=4),
-            name="Curved strut",
+            mode="lines", line=dict(color="#e67e22", width=4), name="Curved strut",
         ))
 
-    # ---- Optional central membrane opening with ring cable
+    # ---- Optional central opening
     if st.session_state.leaf_show_opening:
         r_op = st.session_state.leaf_opening_radius
-        # Place opening near mid-leaf
         c_x = outreach * 0.5
         c_z = col_h + arc_r * 0.3
-        # Ring cable (circle in xy plane)
         angles = np.linspace(0, 2 * np.pi, 40)
         ring_x = c_x + r_op * np.cos(angles)
         ring_y = r_op * np.sin(angles)
         ring_z = np.full_like(ring_x, c_z)
         fig.add_trace(go.Scatter3d(
             x=ring_x, y=ring_y, z=ring_z,
-            mode="lines",
-            line=dict(color="#f1c40f", width=3),
-            name="Ring cable",
+            mode="lines", line=dict(color="#f1c40f", width=3), name="Ring cable",
         ))
+
+    # ---- Column node and tip node
+    fig.add_trace(go.Scatter3d(
+        x=[0], y=[0], z=[col_h], mode="markers",
+        marker=dict(color="#FFD93D", size=8, symbol="diamond"), name="Column node",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[outreach], y=[0], z=[beam_z[-1]], mode="markers",
+        marker=dict(color="#FFD93D", size=8, symbol="diamond"), name="Leaf tip",
+    ))
 
     return _apply_common_layout(fig, col_h + arc_r)
 
 
 def _apply_common_layout(fig, rise_ref):
-    """Apply shared Plotly layout to any figure."""
+    """Apply shared Plotly layout."""
     z_max = max(10, rise_ref * 1.5)
     fig.update_layout(
         scene=dict(
@@ -543,13 +464,10 @@ def _apply_common_layout(fig, rise_ref):
         legend=dict(
             font=dict(color="#ffffff", size=8),
             orientation="h",
-            yanchor="bottom",
-            y=-0.12,
-            xanchor="center",
-            x=0.5,
+            yanchor="bottom", y=-0.12,
+            xanchor="center", x=0.5,
             bgcolor="rgba(10,14,23,0.7)",
-            bordercolor="#2a3a4f",
-            borderwidth=1,
+            bordercolor="#2a3a4f", borderwidth=1,
         ),
     )
     return fig
@@ -608,10 +526,9 @@ def get_anchor_force(pretension):
 # MAIN UI
 # =============================================================================
 
-st.title("FDS - 3D Viewer Prototype v3")
+st.title("FDS - 3D Viewer Prototype v3.1")
 st.caption("Test pretension, support systems, shapes, LAA, and the cantilever leaf in real-time")
 
-# badges
 st.markdown(
     '<span class="sdse-badge leaf">LEAF</span>'
     '<span class="sdse-badge column">COLUMN</span>'
@@ -684,104 +601,62 @@ with col_controls:
 
     pretension = st.slider(
         "Pretension (kN/m)",
-        min_value=0,
-        max_value=100,
-        value=st.session_state.pretension,
-        step=1,
+        min_value=0, max_value=100,
+        value=st.session_state.pretension, step=1,
     )
     if pretension != st.session_state.pretension:
         st.session_state.pretension = pretension
         rerun()
 
     st.markdown("---")
-
     st.markdown("**Support System**")
     support_labels = ["2_Point", "4_Point", "Leaf"]
     support_keys = ["2_point", "4_point", "leaf"]
     current_idx = support_keys.index(st.session_state.support_system)
     support = st.radio(
-        "Support system",
-        support_labels,
-        index=current_idx,
-        key="support_radio",
-        label_visibility="collapsed",
+        "Support system", support_labels, index=current_idx,
+        key="support_radio", label_visibility="collapsed",
     )
     support_key = support_keys[support_labels.index(support)]
     if support_key != st.session_state.support_system:
         st.session_state.support_system = support_key
         rerun()
 
-    # ---- Leaf-specific controls
     if st.session_state.support_system == "leaf":
         st.markdown("---")
         st.markdown("**Leaf Geometry**")
 
-        col_h = st.number_input(
-            "Column Height (m)",
-            2.0, 20.0,
-            st.session_state.leaf_column_height,
-            0.5,
-        )
+        col_h = st.number_input("Column Height (m)", 2.0, 20.0, st.session_state.leaf_column_height, 0.5)
         if col_h != st.session_state.leaf_column_height:
             st.session_state.leaf_column_height = col_h
             rerun()
 
-        outreach = st.number_input(
-            "Leaf Outreach (m)",
-            2.0, 20.0,
-            st.session_state.leaf_outreach,
-            0.5,
-        )
+        outreach = st.number_input("Leaf Outreach (m)", 2.0, 20.0, st.session_state.leaf_outreach, 0.5)
         if outreach != st.session_state.leaf_outreach:
             st.session_state.leaf_outreach = outreach
             rerun()
 
-        ribs = st.number_input(
-            "Ribs per Side (min 5)",
-            5, 15,
-            int(st.session_state.leaf_ribs_per_side),
-            1,
-        )
+        ribs = st.number_input("Ribs per Side (min 5)", 5, 15, int(st.session_state.leaf_ribs_per_side), 1)
         if int(ribs) != int(st.session_state.leaf_ribs_per_side):
             st.session_state.leaf_ribs_per_side = int(ribs)
             rerun()
 
-        tilt = st.slider(
-            "Rib Tilt (deg)",
-            5.0, 40.0,
-            st.session_state.leaf_rib_tilt_deg,
-            1.0,
-        )
+        tilt = st.slider("Rib Tilt (deg)", 5.0, 40.0, st.session_state.leaf_rib_tilt_deg, 1.0)
         if tilt != st.session_state.leaf_rib_tilt_deg:
             st.session_state.leaf_rib_tilt_deg = tilt
             rerun()
 
-        spacing = st.slider(
-            "Rib Plan Spacing (deg)",
-            15.0, 90.0,
-            st.session_state.leaf_rib_spacing_deg,
-            5.0,
-        )
+        spacing = st.slider("Rib Plan Spacing (deg)", 15.0, 90.0, st.session_state.leaf_rib_spacing_deg, 5.0)
         if spacing != st.session_state.leaf_rib_spacing_deg:
             st.session_state.leaf_rib_spacing_deg = spacing
             rerun()
 
-        arc_r = st.number_input(
-            "Main Beam Arc Radius (m)",
-            1.0, 15.0,
-            st.session_state.leaf_beam_arc_radius,
-            0.5,
-        )
+        arc_r = st.number_input("Main Beam Arc Radius (m)", 1.0, 15.0, st.session_state.leaf_beam_arc_radius, 0.5)
         if arc_r != st.session_state.leaf_beam_arc_radius:
             st.session_state.leaf_beam_arc_radius = arc_r
             rerun()
 
-        sag_pct = st.slider(
-            "Membrane Sag (%)",
-            5.0, 40.0,
-            st.session_state.leaf_membrane_sag_pct,
-            1.0,
-        )
+        sag_pct = st.slider("Membrane Sag (%)", 5.0, 40.0, st.session_state.leaf_membrane_sag_pct, 1.0)
         if sag_pct != st.session_state.leaf_membrane_sag_pct:
             st.session_state.leaf_membrane_sag_pct = sag_pct
             rerun()
@@ -817,17 +692,11 @@ with col_controls:
             rerun()
 
         if st.session_state.leaf_show_opening:
-            op_r = st.slider(
-                "Opening Radius (m)",
-                0.5, 4.0,
-                st.session_state.leaf_opening_radius,
-                0.25,
-            )
+            op_r = st.slider("Opening Radius (m)", 0.5, 4.0, st.session_state.leaf_opening_radius, 0.25)
             if op_r != st.session_state.leaf_opening_radius:
                 st.session_state.leaf_opening_radius = op_r
                 rerun()
 
-    # ---- Non-leaf: shape type
     if st.session_state.support_system in ("2_point",):
         st.markdown("---")
         st.markdown("**Shape Type**")
@@ -835,14 +704,12 @@ with col_controls:
             "Shape",
             ["parabolic", "elliptical", "circular", "catenary"],
             index=["parabolic", "elliptical", "circular", "catenary"].index(st.session_state.shape_type),
-            key="shape_radio",
-            label_visibility="collapsed",
+            key="shape_radio", label_visibility="collapsed",
         )
         if shape != st.session_state.shape_type:
             st.session_state.shape_type = shape
             rerun()
 
-    # ---- 4-point coords
     if st.session_state.support_system == "4_point":
         st.markdown("---")
         st.markdown("**4-Point Positions**")
@@ -873,7 +740,6 @@ with col_controls:
 
     st.markdown("---")
 
-    # ---- Span, Rise, LAA only relevant for non-leaf
     if st.session_state.support_system != "leaf":
         col_span, col_rise = st.columns(2)
         with col_span:
@@ -887,12 +753,7 @@ with col_controls:
                 st.session_state.rise = rise
                 rerun()
 
-        laa = st.number_input(
-            "Apex-to-Apex (LAA) m",
-            2.0, 30.0,
-            st.session_state.laa,
-            0.5,
-        )
+        laa = st.number_input("Apex-to-Apex (LAA) m", 2.0, 30.0, st.session_state.laa, 0.5)
         if laa != st.session_state.laa:
             st.session_state.laa = laa
             rerun()
@@ -929,5 +790,5 @@ with col_controls:
 # =============================================================================
 
 st.markdown("---")
-st.caption("FDS - 3D Viewer Prototype v3 | Rigid in Principle. Fluid in Application.")
-st.caption("Now supports: Standard Saddle, 4-Point Hypar, Cantilever Leaf.")
+st.caption("FDS - 3D Viewer Prototype v3.1 | Rigid in Principle. Fluid in Application.")
+st.caption("Leaf v2: pointed both ends, widest in middle, progressive rib tilt.")
