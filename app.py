@@ -1616,7 +1616,33 @@ def render_top_nav():
 # =============================================================================
 # MAIN ROUTING
 # =============================================================================
+# =============================================================================
+# TEMPORARY - Membrane Engine Test Page
+# Remove this block once engine/membrane.py is verified.
+# =============================================================================
 
+_show_test = st.query_params.get("test", None)
+if _show_test == "membrane":
+    from engine.membrane import _verify_mesh_handling
+    st.title("Membrane Engine - Message 1 Verification")
+    st.caption("Runs _verify_mesh_handling() from engine/membrane.py")
+    _res = _verify_mesh_handling()
+    st.write("Edge length test: " + str(_res["edge_length_3_4_5"]))
+    st.write("Edge length OK: " + str(_res["edge_length_ok"]))
+    st.write("Unit vector OK: " + str(_res["unit_vector_ok"]))
+    st.write("Grid nodes: " + str(_res["grid_nodes"]) + " (expected 9)")
+    st.write("Grid edges: " + str(_res["grid_edges"]) + " (expected 12)")
+    st.write("Free nodes: " + str(_res["grid_free_count"]) + " (expected 1)")
+    st.write("Fixed nodes: " + str(_res["grid_fixed_count"]) + " (expected 8)")
+    st.write("Interior neighbours: " + str(_res["interior_neighbours"]) + " (expected 4)")
+    st.write("Uniform edge lengths: " + str(_res["uniform_edge_lengths"]))
+    st.subheader("Raw result")
+    st.json(_res)
+    if _res["pass"]:
+        st.success("MESSAGE 1 GATE: PASS")
+    else:
+        st.error("MESSAGE 1 GATE: FAIL")
+    st.stop()
 render_top_nav()
 
 page = st.session_state.get("page", "dashboard")
