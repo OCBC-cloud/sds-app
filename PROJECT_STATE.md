@@ -143,3 +143,44 @@ New chat should reply with a 3-line summary confirming:
 3. Phase: [whatever you're starting]
 
 Then wait for Chief's instruction.
+
+---
+
+## Session Update - 2026-09-11 (evening)
+
+### Done today
+- Phase 1 modular rebuild COMPLETE and verified on modular-v10
+- Engine architecture decided: Five Systems (A-E) + Recipes
+- Saddle Span spec written: engine/SPEC_saddle_span.md
+- Saddle Span has 3 sub-types: Standard, Cantilever, Leaf
+- Chief's 10m x 10m leaf prototype recorded as reference case
+- Silent slope rules adopted (18 deg / 23 deg, never shown to user)
+- Country-code safety factor table adopted
+- MS EN 1990 gamma_Q = 1.5 adopted for MY
+- Membrane-to-frame options A/B/C all supported
+- Torsion identified as governing action for leaf sub-type
+- FDS standalone 3D viewer identified (viewer_app.py on main)
+- FDS viewer v3.1 with leaf support written (not yet committed)
+
+### In progress
+- Leaf shape iteration in FDS viewer
+- Shape still needs refinement: currently looks like feather fan,
+  should look like a graceful leaf
+
+### Next actions
+1. Commit and test FDS viewer v3.1
+2. Iterate leaf shape until it looks right
+3. Then write remaining 6 structure specs
+   (Tensile Sails, Framed Tensile, Uni-Pole, Canopy,
+    Frame Tent, Portal Frame)
+4. Then begin Phase 2 (split UI into ui/ folder)
+
+### Branch status
+- modular-v10: 16+ commits ahead of main, safe
+- main: production SDSe untouched, FDS viewer being updated
+
+### Files to know about
+- PROJECT_STATE.md (this file) - handoff doc
+- engine/SPEC_saddle_span.md - saddle span spec
+- viewer_app.py (on main) - FDS standalone viewer
+- app.py (on modular-v10) - main SDSe modular rebuild
