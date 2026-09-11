@@ -1,5 +1,5 @@
 # =============================================================================
-# FDS - 3D Viewer Prototype v3.1
+# FDS - 3D Viewer Prototype v3.2
 # =============================================================================
 # Standalone 3D viewer for prototyping SDSe structural shapes without touching
 # the main app. Supports Standard Saddle, 4-Point Hypar, and Cantilever Leaf.
