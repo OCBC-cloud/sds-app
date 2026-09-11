@@ -10,6 +10,7 @@
 import streamlit as st
 import plotly.graph_objects as go
 import numpy as np
+from dxf_export import build_dxf_from_leaf_session, get_dxf_filename, EZDXF_AVAILABLE
 
 # =============================================================================
 # PAGE CONFIG
@@ -758,6 +759,31 @@ with col_controls:
             st.session_state.laa = laa
             rerun()
 
+    # ---- DXF Export
+    st.markdown("---")
+    st.markdown("**Export to DXF**")
+
+    if not EZDXF_AVAILABLE:
+        st.warning("ezdxf not installed. Add 'ezdxf' to requirements.txt.")
+    else:
+        if st.button("Prepare DXF Export", use_container_width=True, type="primary"):
+            try:
+                dxf_bytes = build_dxf_from_leaf_session(st.session_state)
+                fname = get_dxf_filename("sdse_leaf")
+                st.session_state["_dxf_bytes"] = dxf_bytes
+                st.session_state["_dxf_fname"] = fname
+                st.success("DXF ready. Tap download below.")
+            except Exception as e:
+                st.error("Export failed: " + str(e))
+
+        if "_dxf_bytes" in st.session_state and st.session_state["_dxf_bytes"]:
+            st.download_button(
+                label="Download DXF file",
+                data=st.session_state["_dxf_bytes"],
+                file_name=st.session_state.get("_dxf_fname", "sdse_leaf.dxf"),
+                mime="application/dxf",
+                use_container_width=True,
+            )
     st.markdown("---")
     st.markdown("**Quick Presets**")
     col1, col2 = st.columns(2)
