@@ -1,0 +1,41 @@
+# =============================================================================
+# SDSe - Automated Tests
+# =============================================================================
+# Runs engine tests automatically on every push.
+# Results visible in the GitHub Actions tab.
+# =============================================================================
+
+name: Engine Tests
+
+on:
+  push:
+    branches:
+      - main
+      - modular-v10
+  pull_request:
+    branches:
+      - main
+      - modular-v10
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy
+
+      - name: Run engine tests
+        run: |
+          python run_tests.py
