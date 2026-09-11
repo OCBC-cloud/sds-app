@@ -1,3 +1,6 @@
+import importlib
+import sys
+
 # =============================================================================
 # FDS - 3D Viewer Prototype v3.2
 # =============================================================================
@@ -5,6 +8,7 @@
 # the main app. Supports Standard Saddle, 4-Point Hypar, and Cantilever Leaf.
 # v3.1: corrected leaf geometry - pointed both ends, widest in middle, ribs
 #       tilt progressively from max at middle to zero at both ends.
+# v3.2: DXF export with forced module reload to bypass Streamlit cache.
 # =============================================================================
 
 import streamlit as st
@@ -12,12 +16,19 @@ import plotly.graph_objects as go
 import numpy as np
 from dxf_export import build_dxf_from_leaf_session, get_dxf_filename, EZDXF_AVAILABLE
 
+# Force reload of the dxf_export module to bypass Streamlit's module cache.
+try:
+    importlib.reload(sys.modules['dxf_export'])
+    from dxf_export import build_dxf_from_leaf_session, get_dxf_filename, EZDXF_AVAILABLE
+except Exception:
+    pass
+
 # =============================================================================
 # PAGE CONFIG
 # =============================================================================
 
 st.set_page_config(
-    page_title="FDS - 3D Viewer Prototype v3.1",
+    page_title="FDS - 3D Viewer Prototype v3.2",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -153,7 +164,6 @@ if "supports" not in st.session_state:
         "D": {"x": 5.0, "y": -3.0},
     }
 
-# Leaf-specific state
 if "leaf_column_height" not in st.session_state:
     st.session_state.leaf_column_height = 6.0
 if "leaf_outreach" not in st.session_state:
@@ -285,9 +295,9 @@ def generate_four_point_3d(supports, rise):
 
 def generate_leaf_3d(pretension):
     """
-    Cantilever leaf v2 - pointed both ends, widest in middle,
-    ribs tilt upward (max at middle, zero at ends), perimeter
-    cable connects rib tips in segments.
+    Cantilever leaf - pointed both ends, widest in middle, ribs tilt
+    upward (max at middle, zero at ends), perimeter cable connects
+    rib tips in segments.
     """
     fig = go.Figure()
 
@@ -298,7 +308,6 @@ def generate_leaf_3d(pretension):
     arc_r = st.session_state.leaf_beam_arc_radius
     sag_pct = st.session_state.leaf_membrane_sag_pct / 100.0
 
-    # ---- Column
     if st.session_state.leaf_show_column:
         fig.add_trace(go.Scatter3d(
             x=[0, 0], y=[0, 0], z=[0, col_h],
@@ -309,7 +318,6 @@ def generate_leaf_3d(pretension):
             marker=dict(color="#2ecc71", size=10, symbol="square"), name="Baseplate",
         ))
 
-    # ---- Main beam (arc from column top curving up and outward)
     n_beam = 80
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
@@ -321,17 +329,13 @@ def generate_leaf_3d(pretension):
         mode="lines", line=dict(color="#FF6B6B", width=8), name="Main Beam",
     ))
 
-    # ---- Leaf envelope: half-width as function of position along beam
     def leaf_half_width(t):
         return outreach * 0.42 * (np.sin(np.pi * t) ** 0.7)
-
-    # ---- Rib positioning
-    n_ribs = ribs_per_side
-    rib_ts = np.linspace(0.08, 0.92, n_ribs)
 
     def rib_tilt_at(t):
         return np.radians(rib_tilt_deg) * (np.sin(np.pi * t) ** 0.7)
 
+    rib_ts = np.linspace(0.08, 0.92, ribs_per_side)
     rib_tip_x = {"L": [], "R": []}
     rib_tip_y = {"L": [], "R": []}
     rib_tip_z = {"L": [], "R": []}
@@ -343,17 +347,13 @@ def generate_leaf_3d(pretension):
                 a_x = beam_x[idx]
                 a_y = beam_y[idx]
                 a_z = beam_z[idx]
-
                 half_w = leaf_half_width(t)
                 tilt = rib_tilt_at(t)
-
                 tip_y = side_sign * half_w
                 tip_z = a_z + half_w * np.tan(tilt)
-
                 rib_tip_x[side_key].append(a_x)
                 rib_tip_y[side_key].append(tip_y)
                 rib_tip_z[side_key].append(tip_z)
-
                 fig.add_trace(go.Scatter3d(
                     x=[a_x, a_x], y=[a_y, tip_y], z=[a_z, tip_z],
                     mode="lines", line=dict(color="#3498db", width=4), showlegend=False,
@@ -363,7 +363,6 @@ def generate_leaf_3d(pretension):
                     marker=dict(color="#3498db", size=3), showlegend=False,
                 ))
 
-    # ---- Perimeter cable segments
     if st.session_state.leaf_show_cables:
         for side_key in ("L", "R"):
             if len(rib_tip_x[side_key]) > 1:
@@ -373,21 +372,18 @@ def generate_leaf_3d(pretension):
                     name="Perimeter " + side_key,
                 ))
 
-    # ---- Membrane
     if st.session_state.leaf_show_membrane:
         n_u = 40
         n_v = 40
         X_surf = np.zeros((n_u, n_v))
         Y_surf = np.zeros((n_u, n_v))
         Z_surf = np.zeros((n_u, n_v))
-
         for i, t in enumerate(np.linspace(0.02, 0.98, n_u)):
             idx = int(t * (n_beam - 1))
             b_x = beam_x[idx]
             b_z = beam_z[idx]
             half_w = leaf_half_width(t)
             tilt = rib_tilt_at(t)
-
             for j, v in enumerate(np.linspace(-1, 1, n_v)):
                 X_surf[i, j] = b_x
                 Y_surf[i, j] = v * half_w
@@ -395,14 +391,12 @@ def generate_leaf_3d(pretension):
                 z_edge = b_z * (1 - abs(v)) + tip_z_at_t * abs(v)
                 sag_amount = sag_pct * half_w * (1 - (2 * abs(v) - 1) ** 2)
                 Z_surf[i, j] = z_edge - sag_amount
-
         fig.add_trace(go.Surface(
             x=X_surf, y=Y_surf, z=Z_surf,
             colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
             opacity=0.6, showscale=False, name="Membrane",
         ))
 
-    # ---- Curved strut from 1/3 of main beam down to column
     if st.session_state.leaf_show_strut:
         idx_third = int(0.33 * (n_beam - 1))
         px = beam_x[idx_third]
@@ -417,7 +411,6 @@ def generate_leaf_3d(pretension):
             mode="lines", line=dict(color="#e67e22", width=4), name="Curved strut",
         ))
 
-    # ---- Optional central opening
     if st.session_state.leaf_show_opening:
         r_op = st.session_state.leaf_opening_radius
         c_x = outreach * 0.5
@@ -431,7 +424,6 @@ def generate_leaf_3d(pretension):
             mode="lines", line=dict(color="#f1c40f", width=3), name="Ring cable",
         ))
 
-    # ---- Column node and tip node
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[col_h], mode="markers",
         marker=dict(color="#FFD93D", size=8, symbol="diamond"), name="Column node",
@@ -527,13 +519,14 @@ def get_anchor_force(pretension):
 # MAIN UI
 # =============================================================================
 
-st.title("FDS - 3D Viewer Prototype v3.1")
+st.title("FDS - 3D Viewer Prototype v3.2")
 st.caption("Test pretension, support systems, shapes, LAA, and the cantilever leaf in real-time")
 
 st.markdown(
     '<span class="sdse-badge leaf">LEAF</span>'
     '<span class="sdse-badge column">COLUMN</span>'
-    '<span class="sdse-badge rib">RIBS</span>',
+    '<span class="sdse-badge rib">RIBS</span>'
+    '<span class="sdse-badge leaf">DXF EXPORT</span>',
     unsafe_allow_html=True,
 )
 st.markdown("---")
@@ -784,6 +777,7 @@ with col_controls:
                 mime="application/dxf",
                 use_container_width=True,
             )
+
     st.markdown("---")
     st.markdown("**Quick Presets**")
     col1, col2 = st.columns(2)
@@ -816,5 +810,5 @@ with col_controls:
 # =============================================================================
 
 st.markdown("---")
-st.caption("FDS - 3D Viewer Prototype v3.1 | Rigid in Principle. Fluid in Application.")
-st.caption("Leaf v2: pointed both ends, widest in middle, progressive rib tilt.")
+st.caption("FDS - 3D Viewer Prototype v3.2 | Rigid in Principle. Fluid in Application.")
+st.caption("Leaf v2 + DXF export. Cache-safe module reload.")
