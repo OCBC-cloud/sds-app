@@ -18,6 +18,7 @@
 #   - Note for user: geotechnical verification and reinforcement not provided
 #   - Section 5 covers fabric attachment AND perimeter cable
 #   - Cable diameter and baseplate sizing are automatic
+#   - Strut joint height auto-determined (60% of column) with user override
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
 # =============================================================================
@@ -125,6 +126,7 @@ def _init_defaults():
         # Section 3 - Column and Spine
         "ws_sl_column_type": "unipole",
         "ws_sl_column_preference": "auto",
+        "ws_sl_strut_joint_height": 6.0,
         # Section 4 - Ribs
         "ws_sl_rib_section_family": "CHS",
         "ws_sl_rib_preference": "auto",
@@ -381,6 +383,37 @@ def render_saddle_leaf():
             key="ws_sl_col_pref_radio",
         )
         st.session_state["ws_sl_column_preference"] = "auto" if col_pref == "Auto-select" else "manual"
+
+        # ---- Strut Joint Height (auto-determined with override)
+        col_h_val = float(st.session_state.get("ws_sl_column_height", 10.0))
+        auto_joint = round(col_h_val * 0.6, 2)
+        min_joint = round(col_h_val * 0.40, 2)
+        max_joint = round(col_h_val * 0.75, 2)
+
+        if "ws_sl_strut_joint_height" not in st.session_state:
+            st.session_state["ws_sl_strut_joint_height"] = auto_joint
+
+        strut_joint = st.number_input(
+            "Strut Joint Height on Column (m)",
+            min_value=min_joint,
+            max_value=max_joint,
+            value=float(st.session_state["ws_sl_strut_joint_height"]),
+            step=0.1,
+            key="ws_sl_strut_joint_input",
+            help="Height where the curved strut meets the column. Higher = smaller moment into the base.",
+        )
+        st.session_state["ws_sl_strut_joint_height"] = strut_joint
+
+        st.markdown(
+            '<div class="ws-preview-box">'
+            'Auto-determined: <span class="num">'
+            + ("%.2f m" % auto_joint)
+            + '</span> (60% of column height)<br>'
+            'Valid range: ' + ("%.2f m" % min_joint) + ' to ' + ("%.2f m" % max_joint) + '<br>'
+            'Higher joint reduces moment transfer to the baseplate.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
         st.markdown(
             '<div class="ws-preview-box">'
