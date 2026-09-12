@@ -470,5 +470,22 @@ Then wait for Chief's go-ahead.
   vision + architecture + state
 
 ---
+## Structure Type - Variant Mapping (Extended)
+
+### Saddle Span
+- Standard Saddle
+- Frame Supported Saddle
+- Cantilever Leaf
+- Cantilever Flower (future)
+
+### Canopy
+- Cantilever Flat Shade
+- Cantilever Bell Shade
+- Cantilever Pyramid Shade
+- Cantilever Cone Shade
+- Cable-Supported Cantilever Shade
+
+### [Other structure types - to be specified]
+
 
 End of project state.
