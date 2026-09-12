@@ -637,4 +637,48 @@ UI for this type will be table-based (list of anchors) with an
 auto-generated plan-view preview. Not canvas-based drawing on
 iPhone.
 
+### Tensile Sails Roof family (CORRECTED 2026-09-13)
+
+Variants:
+- A) Hypar Sail - 3 Anchors
+     Three anchor points at user-defined positions and heights.
+     Membrane forms a triangular hypar surface.
+- B) Hypar Sail - 4 Anchors
+     Four anchor points at user-defined positions and heights.
+     Two high, two low typically. Classic hypar sail.
+- C) Ridge Sail
+     Two membranes meeting at a ridge cable. Six anchor points.
+- D) Multiple Sails
+     Array of hypar sails side by side.
+- E) Wall Sail
+     Membrane anchored on two walls at different heights.
+- F) Column Sail
+     Membrane anchored to four columns at different heights.
+
+### Anchor Position Rule (CORRECTED 2026-09-13)
+
+For any Hypar Sail variant:
+- Anchors are at USER-DEFINED positions (x, y, z) - not fixed
+- Anchor count is 3 or 4 for Hypar Sail (not more)
+- Each anchor can be: column top, wall plate, or ground pedestal
+- Each anchor can be at a DIFFERENT height
+
+### VALIDITY RULE (CRITICAL)
+
+A Hypar Sail is INVALID if all anchors are at ground level.
+
+At least one anchor must be elevated above the others. Without
+height difference between anchors, the membrane cannot achieve
+double curvature - no saddle form - no anti-elastic shape.
+
+The engine must:
+- Validate that at least two anchors are elevated above the others
+- Enforce the golden slope rule (18 deg small / 23 deg large)
+- Warn if anchors are within 0.5m of each other in height
+- Block design if all anchors are at ground level
+
+Anything beyond 4 anchors is NOT a Hypar Sail. It becomes a
+Membrane Ribbon - a separate structure type (Phase 2, Structure
+Type 8, not in the current 7).
+
 End of project state.
