@@ -519,4 +519,96 @@ No design is complete without tie-down cables.
 
 This is a lock-in rule. Never bypass it.
 
+---
+
+## 20. Structure Type - Variant Mapping
+
+Decision made 2026-09-12.
+
+Structure types are named by what the user would naturally call them.
+Where a structure could belong to two families, it is placed where the
+user's intent fits best. The engine recipe underneath may be shared.
+
+### Saddle Span family
+
+- A) Standard Saddle
+     Two curved edge beams converging to two ground support points.
+     Membrane stretched between. The classic hypar form.
+     This is the archetype of the family.
+
+- B) Frame Supported Saddle
+     Standard Saddle with an additional rigid frame underneath for
+     larger spans and higher loads.
+
+- C) Cantilever Leaf
+     Uni-pole column. Curved spine (main beam). Radial ribs.
+     Leaf-shaped membrane canopy. Cantilevered.
+     Built and verified. DXF export works.
+
+- D) Cantilever Flower
+     Multi-leaf, layered spiral. Future vision. Not yet designed.
+
+### Canopy family
+
+Definition: cantilever and wall-attached shade structures.
+Not: post-supported flat canopies (those go to Frame Tent or
+Framed Tensile Roof), not centre-pole umbrellas (those go to
+Uni-Pole Tensile Roof).
+
+- A) Cantilever Flat Shade
+- B) Cantilever Bell Shade
+- C) Cantilever Pyramid Shade
+- D) Cantilever Cone Shade
+- E) Cable-Supported Cantilever
+- F) Wall-Mounted Shade
+- G) Tree Canopy (future)
+
+### Other structure types
+
+Variant lists to be defined when each structure type is designed.
+Not guessed in advance.
+
+### Classification Rule
+
+- Structure type = what the user would naturally call it.
+- Where two families overlap, place in the one matching user intent.
+- Same engine recipe can serve multiple structure types.
+- Do not force rigidity. Prefer clarity for the user.
+
+---
+
+## 21. Tie-down Cables - Lock-in Rule (Restated)
+
+Tie-down cables are mandatory structural elements for all Saddle Span
+family variants and for Canopy variants.
+
+They must appear in:
+- The Workshop input page (dedicated section)
+- The 3D viewer (always visible unless toggled off)
+- The engine (cable tension + anchor uplift checks)
+- The member schedule
+- The Bill of Quantities
+
+Inputs (all mandatory):
+- Number of Tie-down Intervals
+- Anchor Uplift Angle (default 45 deg)
+- Anchor Spread Angle (default 30 deg)
+- Cable Type (6x19 / locked coil / spiral)
+- Cable Material (galvanised / stainless)
+- Cable Diameter (auto or manual)
+- Ground Anchor Type (pinned / rigid)
+
+Checks:
+- Cable tension <= f_u,cable / gamma_M,cable
+- Anchor uplift resistance
+- Anchor base plate bearing
+- Cable anchorage at the beam node
+
+Missing tie-down inputs block the design from running.
+No design is complete without tie-down cables.
+
+Never bypass this rule.
+
+---
+
 End of project state.
