@@ -487,5 +487,36 @@ Then wait for Chief's go-ahead.
 
 ### [Other structure types - to be specified]
 
+## Tie-down Cables - Mandatory Design Element
+
+Tie-down cables are a mandatory structural element for all
+Saddle Span family variants and for Canopy variants.
+
+They must appear in:
+- The Workshop input page (dedicated section)
+- The 3D viewer (always visible unless toggled off)
+- The engine (cable tension + anchor uplift checks)
+- The member schedule
+- The Bill of Quantities
+
+Inputs (all mandatory):
+- Number of Tie-down Intervals
+- Anchor Uplift Angle (default 45 deg)
+- Anchor Spread Angle (default 30 deg)
+- Cable Type (6x19 / locked coil / spiral)
+- Cable Material (galvanised / stainless)
+- Cable Diameter (auto or manual)
+- Ground Anchor Type (pinned / rigid)
+
+Checks:
+- Cable tension <= f_u,cable / gamma_M,cable
+- Anchor uplift resistance
+- Anchor base plate bearing
+- Cable anchorage at the beam node
+
+Missing tie-down inputs block the design from running.
+No design is complete without tie-down cables.
+
+This is a lock-in rule. Never bypass it.
 
 End of project state.
