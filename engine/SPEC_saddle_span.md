@@ -265,6 +265,63 @@ The engine must compute all six consequences for the chosen option.
 
 ---
 
+## 6A. Strut Geometry (Leaf Variant)
+
+The Cantilever Leaf has a curved strut that runs from a point at
+approximately 1/3 along the main beam down to the uni-pole column.
+This strut provides a second support point for the beam and
+triangulates the beam-column junction, significantly reducing the
+moment transferred to the column base.
+
+### 6A.1 Strut-column joint height
+
+The height at which the strut meets the column is auto-determined
+by the system, with user override allowed.
+
+Default rule:
+- Joint height = 60 percent of column height
+- Valid range: 40 percent to 75 percent of column height
+- User can override in the workshop within this range
+
+### 6A.2 Effect of joint height (engineering rationale)
+
+Higher strut-column joint:
+- Shorter strut length -> less bending in the strut
+- Steeper strut angle -> more of the load in axial compression
+- Less eccentricity -> smaller moment transferred to the column
+- Smaller baseplate moment -> smaller foundation footprint
+
+Trade-off: if the joint rises too close to the column top, the
+strut becomes nearly vertical and loses its bracing role. Hence
+the 75 percent upper bound.
+
+### 6A.3 Minimum for adequate bracing
+
+Below 40 percent of column height, the strut angle becomes too
+shallow and the bending penalty outweighs the benefit. Designs
+below this threshold are flagged.
+
+### 6A.4 Implementation notes
+
+- The workshop exposes "Strut Joint Height (m)" in the Column
+  and Spine section, pre-filled with 60 percent of column height.
+- The value is passed to the 3D viewer, which draws the strut to
+  the correct joint height.
+- The value is passed to the engine, which computes forces based
+  on the actual strut geometry.
+- The value affects the baseplate reaction, which affects the
+  preliminary foundation size.
+
+### 6A.5 Reference
+
+This is a design decision made 2026-09-13. It addresses a
+structural efficiency gain identified by Chief during review of
+the Cantilever Leaf variant. The higher strut joint reduces
+moment transfer to the baseplate and foundation, producing a
+more economical structure without compromising stability.
+
+---
+
 ## 7. Silent Rules (Internal Only)
 
 These rules govern engine behaviour. They are NEVER mentioned in the
