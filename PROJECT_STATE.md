@@ -611,4 +611,30 @@ Never bypass this rule.
 
 ---
 
+## 22. Membrane Ribbon - Structure Type 8 (Future Phase)
+
+A continuous sail structure following an irregular path (walkway,
+corridor, bus station). Anchored at 3 to unlimited points along
+the route, each at user-defined position (x, y, z) and type
+(column, wall, pedestal).
+
+Key differences from a single hypar sail:
+- Variable anchor count (3 to unlimited)
+- Irregular plan (not square or rectangle)
+- Irregular elevation (each anchor at different height)
+- Variable intervals between anchors
+- Path can curve, bend, or loop
+
+The engine treats this as a chain of connected hypar bays, each
+between two adjacent anchor pairs. The golden slope rule (18 deg /
+23 deg) applies at every bay. If any bay has insufficient slope,
+the design is flagged.
+
+This structure type is not in the initial 7. It is planned for
+Phase 2 addition after the initial 7 are shipped.
+
+UI for this type will be table-based (list of anchors) with an
+auto-generated plan-view preview. Not canvas-based drawing on
+iPhone.
+
 End of project state.
