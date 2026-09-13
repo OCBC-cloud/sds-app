@@ -1,4 +1,3 @@
-
 # =============================================================================
 # SDSe Fluid Design Studio - Navigation Router
 # =============================================================================
@@ -22,17 +21,8 @@
 import streamlit as st
 
 
-# =============================================================================
-# PAGE DEFAULTS
-# =============================================================================
-
 DEFAULT_PAGE = "landing"
 
-
-# =============================================================================
-# RENDERERS
-# =============================================================================
-# Import each renderer lazily to avoid circular imports and speed up startup.
 
 def _render_landing():
     from ui.landing import render_landing
@@ -60,7 +50,6 @@ def _render_results():
 
 
 def _render_guided():
-    """Placeholder for the Smart Guided Design wizard (not yet built)."""
     st.markdown(
         '<div style="background-color: #1a2a3a; border-left: 4px solid #f39c12; '
         'border-radius: 8px; padding: 1.5rem; margin: 2rem 0; text-align: center;">'
@@ -79,10 +68,6 @@ def _render_guided():
         st.rerun()
 
 
-# =============================================================================
-# ROUTER
-# =============================================================================
-
 PAGE_RENDERERS = {
     "landing": _render_landing,
     "studio": _render_studio,
@@ -94,73 +79,9 @@ PAGE_RENDERERS = {
 
 
 def render_current_page():
-    """
-    Read st.session_state.page and render the corresponding page.
-    Defaults to landing if the page is unset or unknown.
-    """
     page = st.session_state.get("page", DEFAULT_PAGE)
-
     renderer = PAGE_RENDERERS.get(page, None)
-
     if renderer is None:
-        # Unknown page - fall back to landing
         st.session_state.page = DEFAULT_PAGE
         renderer = PAGE_RENDERERS[DEFAULT_PAGE]
-
     renderer()
-
-
-# =============================================================================
-# NAVIGATION HELPERS
-# =============================================================================
-# Small helpers used by pages to move between screens and manage state.
-
-def goto_landing():
-    """Return to the landing page."""
-    st.session_state.page = "landing"
-    st.rerun()
-
-
-def goto_studio():
-    """
-    Return to the Studio.
-    Resets structure_key and variant_key so the user starts fresh.
-    """
-    if "structure_key" in st.session_state:
-        del st.session_state["structure_key"]
-    if "structure_name" in st.session_state:
-        del st.session_state["structure_name"]
-    if "variant_key" in st.session_state:
-        del st.session_state["variant_key"]
-    if "variant_name" in st.session_state:
-        del st.session_state["variant_name"]
-    st.session_state.page = "studio"
-    st.rerun()
-
-
-def goto_registration(structure_key, structure_name):
-    """Advance to Registration for a chosen structure type."""
-    st.session_state.structure_key = structure_key
-    st.session_state.structure_name = structure_name
-    st.session_state.page = "registration"
-    st.rerun()
-
-
-def goto_workshop(variant_key, variant_name):
-    """Advance to Workshop for a chosen variant."""
-    st.session_state.variant_key = variant_key
-    st.session_state.variant_name = variant_name
-    st.session_state.page = "workshop"
-    st.rerun()
-
-
-def goto_results():
-    """Advance to Results."""
-    st.session_state.page = "results"
-    st.rerun()
-
-
-def goto_guided():
-    """Start the Smart Guided Design wizard."""
-    st.session_state.page = "guided"
-    st.rerun()
