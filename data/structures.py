@@ -1,211 +1,193 @@
 # =============================================================================
 # SDSe - Structure Types Catalogue
 # =============================================================================
-# All structure types available in SDSe.
+# Canonical list of structure types and their variants.
 #
-# Each entry contains:
-#   name        - display name
-#   icon        - single character marker (ASCII-only for mobile safety)
-#   description - one-line description shown in the catalog
-#   category    - Tensile / Frame / Spatial / Specialized
-#
-# NOTE: This catalogue is the v9.1 baseline (27 structures). Phase 6 of the
-#       modular rebuild trims this list down to the final 7 structures:
-#       1. Saddle Span
-#       2. Tensile Sails Roof
-#       3. Framed Tensile Roof
-#       4. Uni-Pole Tensile Roof
-#       5. Canopy
-#       6. Frame Tent
-#       7. Portal Frame
+# STRUCTURE_TYPES    - main structure types (8 in Phase 1)
+# STRUCTURE_VARIANTS - sub-types under each main type
 #
 # Usage:
-#   from data.structures import STRUCTURE_TYPES
+#   from data.structures import STRUCTURE_TYPES, STRUCTURE_VARIANTS
+#
+# History:
+#   2026-09-13 - Reduced from 27 legacy types to 8 final mains.
+#                Cantilever promoted to a main type.
+#                Leaf and Flower moved out of Saddle Span.
 # =============================================================================
 
 STRUCTURE_TYPES = {
-    # ===== Curved Beams (featured) =====
-    "parabolic_beam": {
-        "name": "Parabolic Curved Beam",
-        "icon": "P",
-        "description": "Parabolic arch beam with single or truss members",
-        "category": "Frame",
-    },
-    "circular_beam": {
-        "name": "Circular Curved Beam",
-        "icon": "C",
-        "description": "Circular arch beam with single or truss members",
-        "category": "Frame",
-    },
-
-    # ===== Tensile =====
     "saddle_span": {
         "name": "Saddle Span",
         "icon": "S",
         "description": "Curved saddle-shaped tensile structure",
         "category": "Tensile",
     },
-    "clear_span_tent": {
-        "name": "Clear-Span Tent",
-        "icon": "T",
-        "description": "Column-free tensile tent structure",
+    "cantilever": {
+        "name": "Cantilever",
+        "icon": "L",
+        "description": "Single column with arm and membrane",
         "category": "Tensile",
     },
-    "tensile_membrane": {
-        "name": "Tensile Membrane",
-        "icon": "M",
-        "description": "Tensioned fabric membrane structure",
-        "category": "Tensile",
-    },
-    "cable_net": {
-        "name": "Cable Net",
-        "icon": "N",
-        "description": "Interconnected cable grid structure",
-        "category": "Tensile",
-    },
-    "cable_stayed": {
-        "name": "Cable-Stayed",
-        "icon": "K",
-        "description": "Cable-supported tensile structure",
-        "category": "Tensile",
-    },
-    "mast_supported": {
-        "name": "Mast Supported",
+    "unipole_tensile": {
+        "name": "Uni-Pole Tensile Roof",
         "icon": "U",
-        "description": "Central mast with tensioned membrane",
+        "description": "Mast with radial membrane",
         "category": "Tensile",
     },
-    "stress_ribbon": {
-        "name": "Stress Ribbon",
+    "tensile_sails": {
+        "name": "Tensile Sails Roof",
+        "icon": "T",
+        "description": "Hypar sails spanning between anchors",
+        "category": "Tensile",
+    },
+    "framed_tensile": {
+        "name": "Framed Tensile Roof",
         "icon": "R",
-        "description": "Tensioned ribbon bridge structure",
+        "description": "Fabric on rigid frame",
         "category": "Tensile",
     },
-    "inflatable_structure": {
-        "name": "Inflatable Structure",
-        "icon": "I",
-        "description": "Air-supported membrane structure",
+    "canopy": {
+        "name": "Canopy",
+        "icon": "C",
+        "description": "Wall-mounted, cable-supported, or tree shade",
         "category": "Tensile",
     },
-
-    # ===== Frame =====
+    "frame_tent": {
+        "name": "Frame Tent",
+        "icon": "F",
+        "description": "Framed tent structure",
+        "category": "Frame",
+    },
     "portal_frame": {
         "name": "Portal Frame",
-        "icon": "F",
+        "icon": "P",
         "description": "Rigid steel frame structure",
         "category": "Frame",
-    },
-    "arch_structure": {
-        "name": "Arch Structure",
-        "icon": "A",
-        "description": "Curved arch supporting structure",
-        "category": "Frame",
-    },
-    "frame_system": {
-        "name": "Frame System",
-        "icon": "f",
-        "description": "Traditional frame structure",
-        "category": "Frame",
-    },
-    "fabricated_beam": {
-        "name": "Fabricated Beam",
-        "icon": "B",
-        "description": "Custom fabricated beam structure",
-        "category": "Frame",
-    },
-    "shell_structure": {
-        "name": "Shell Structure",
-        "icon": "H",
-        "description": "Thin shell structural surface",
-        "category": "Frame",
-    },
-    "folded_plate": {
-        "name": "Folded Plate",
-        "icon": "D",
-        "description": "Folded structural surface",
-        "category": "Frame",
-    },
-
-    # ===== Spatial =====
-    "geodesic_dome": {
-        "name": "Geodesic Dome",
-        "icon": "G",
-        "description": "Spherical lattice shell structure",
-        "category": "Spatial",
-    },
-    "space_frame": {
-        "name": "Space Frame",
-        "icon": "X",
-        "description": "3D truss network structure",
-        "category": "Spatial",
-    },
-    "grid_shell": {
-        "name": "Grid Shell",
-        "icon": "Y",
-        "description": "Grid-based shell structure",
-        "category": "Spatial",
-    },
-    "tensegrity": {
-        "name": "Tensegrity",
-        "icon": "Q",
-        "description": "Tension-integrity structure",
-        "category": "Spatial",
-    },
-    "hybrid_system": {
-        "name": "Hybrid System",
-        "icon": "Z",
-        "description": "Combined structural systems",
-        "category": "Spatial",
-    },
-
-    # ===== Specialized =====
-    "retractable_roof": {
-        "name": "Retractable Roof",
-        "icon": "V",
-        "description": "Opening and closing roof system",
-        "category": "Specialized",
-    },
-    "suspension_bridge": {
-        "name": "Suspension Bridge",
-        "icon": "b",
-        "description": "Cable-suspended bridge structure",
-        "category": "Specialized",
-    },
-    "truss_system": {
-        "name": "Truss System",
-        "icon": "t",
-        "description": "Triangulated truss structure",
-        "category": "Specialized",
-    },
-    "roof_system": {
-        "name": "Roof System",
-        "icon": "r",
-        "description": "Comprehensive roof structure",
-        "category": "Specialized",
-    },
-    "shade_structure": {
-        "name": "Shade Structure",
-        "icon": "h",
-        "description": "Architectural shading system",
-        "category": "Specialized",
-    },
-    "bridge_viaduct": {
-        "name": "Bridge/Viaduct",
-        "icon": "w",
-        "description": "Structural bridge system",
-        "category": "Specialized",
     },
 }
 
 
-def get_structure(name):
-    """Return the structure dict for a given name, or None."""
-    return STRUCTURE_TYPES.get(name)
+STRUCTURE_VARIANTS = {
+    "saddle_span": [
+        {"key": "standard_saddle", "name": "Standard Saddle",
+         "description": "Tie-down supported. Beam in bending.",
+         "available": True},
+        {"key": "frame_supported_saddle", "name": "Frame Supported Saddle",
+         "description": "Rigid frame support. Purlin, strut, and cable.",
+         "available": True},
+    ],
+    "cantilever": [
+        {"key": "cantilever_leaf", "name": "Cantilever Leaf",
+         "description": "Curved spine and radial ribs. Leaf shape.",
+         "available": True},
+        {"key": "cantilever_flower", "name": "Cantilever Flower",
+         "description": "Multi-leaf layered spiral.",
+         "available": False},
+        {"key": "cantilever_cone", "name": "Cantilever Cone",
+         "description": "Column with arm and cone membrane.",
+         "available": True},
+        {"key": "cantilever_pyramid", "name": "Cantilever Pyramid",
+         "description": "Column with arm and pyramid membrane.",
+         "available": True},
+        {"key": "cantilever_bell", "name": "Cantilever Bell",
+         "description": "Column with arm and bell-shaped membrane.",
+         "available": True},
+        {"key": "cantilever_sail", "name": "Cantilever Sail",
+         "description": "Column with arm and sail membrane.",
+         "available": True},
+        {"key": "cantilever_hypar", "name": "Cantilever Hypar",
+         "description": "Column with arm and hypar membrane.",
+         "available": True},
+    ],
+    "unipole_tensile": [
+        {"key": "single_cone", "name": "Single Cone",
+         "description": "Radial symmetry. One mast with cone fabric.",
+         "available": True},
+        {"key": "multi_cone_cluster", "name": "Multi-Cone Cluster",
+         "description": "Multiple cone units in a cluster.",
+         "available": True},
+        {"key": "umbrella", "name": "Umbrella",
+         "description": "Single mast with visible ribs and fabric.",
+         "available": True},
+    ],
+    "tensile_sails": [
+        {"key": "hypar_sail_3", "name": "Hypar Sail - 3 Anchors",
+         "description": "Triangular hypar between three anchor points.",
+         "available": True},
+        {"key": "hypar_sail_4", "name": "Hypar Sail - 4 Anchors",
+         "description": "Quad hypar between four anchor points.",
+         "available": True},
+        {"key": "multiple_wall_sails", "name": "Multiple Wall-Anchored Sails",
+         "description": "Array of sails anchored to walls.",
+         "available": True},
+        {"key": "multiple_column_sails", "name": "Multiple Column-Mounted Sails",
+         "description": "Array of sails anchored to columns.",
+         "available": True},
+    ],
+    "framed_tensile": [
+        {"key": "simple_frame", "name": "Simple Frame + Fabric",
+         "description": "Straight frame members with fabric on top.",
+         "available": True},
+        {"key": "arched_frame", "name": "Arched Frame + Fabric",
+         "description": "Curved arch members with fabric on top.",
+         "available": True},
+        {"key": "trussed_frame", "name": "Trussed Frame + Fabric",
+         "description": "Triangulated truss frame with fabric on top.",
+         "available": True},
+    ],
+    "canopy": [
+        {"key": "wall_mounted_shade", "name": "Wall-Mounted Shade",
+         "description": "Attached to wall and cantilevered out.",
+         "available": True},
+        {"key": "cable_supported_shade", "name": "Cable-Supported Shade",
+         "description": "Mast with cables and shade surface.",
+         "available": True},
+        {"key": "tree_canopy", "name": "Tree Canopy",
+         "description": "Trunk with branching arms and shade.",
+         "available": False},
+    ],
+    "frame_tent": [
+        {"key": "pyramid_tent", "name": "Pyramid Tent",
+         "description": "Four-sided pyramid. Central pole.",
+         "available": True},
+        {"key": "modular_tent", "name": "Modular Tent",
+         "description": "Modular frame units joined together.",
+         "available": True},
+        {"key": "cone_tent", "name": "Cone Tent",
+         "description": "Circular cone tent with centre pole.",
+         "available": True},
+        {"key": "a_frame_tent", "name": "A-Frame Tent",
+         "description": "Classic A-frame profile.",
+         "available": True},
+        {"key": "arch_tent", "name": "Arch Tent",
+         "description": "Curved arch frame tent.",
+         "available": True},
+    ],
+    "portal_frame": [
+        {"key": "simple_portal", "name": "Simple Portal",
+         "description": "Single span. Two columns and one rafter.",
+         "available": True},
+        {"key": "portal_with_mezzanine", "name": "With Mezzanine",
+         "description": "Portal with an intermediate mezzanine floor.",
+         "available": True},
+        {"key": "portal_with_crane", "name": "With Crane",
+         "description": "Portal with crane gantry beams.",
+         "available": True},
+        {"key": "multi_bay_portal", "name": "Multi-Bay Portal",
+         "description": "Multiple bays side by side.",
+         "available": True},
+    ],
+}
 
 
-def get_structures_by_category(category):
-    """Return list of (key, structure) tuples filtered by category."""
-    return [(k, v) for k, v in STRUCTURE_TYPES.items() if v.get("category") == category]
+def get_structure(key):
+    """Return the structure dict for a given key, or None."""
+    return STRUCTURE_TYPES.get(key)
+
+
+def get_variants(key):
+    """Return the list of variants for a given structure key."""
+    return STRUCTURE_VARIANTS.get(key, [])
 
 
 def get_all_categories():
