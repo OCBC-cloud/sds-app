@@ -12,6 +12,11 @@
 #   Attach points distributed across the outer 70% of the span
 #   (t_min=0.15, t_max=0.85) so they clear the beam peak and the
 #   very ends for any number of intervals N.
+#
+# Dispatch (updated 2026-09-13):
+#   The public entry point dispatches on variant_key alone.
+#   Variant keys are globally unique, so the viewer does not need
+#   to know which main structure type the variant sits under.
 # =============================================================================
 
 import math
@@ -286,7 +291,7 @@ def generate_cantilever_leaf_figure():
         return outreach * 0.42 * (np.sin(np.pi * t) ** 0.7)
 
     def rib_tilt_at(t):
-        return math.radians(tilt_deg) * (math.sin(math.pi * t) ** 0.7)
+        return math.radians(tilt_deg) * (math.sin(np.pi * t) ** 0.7)
 
     rib_ts = np.linspace(0.08, 0.92, ribs_per_side)
     rib_tip_left = []
@@ -407,11 +412,13 @@ def generate_cantilever_leaf_figure():
 # =============================================================================
 # PUBLIC ENTRY POINT
 # =============================================================================
+# Dispatch on variant_key alone. Variant keys are globally unique,
+# so the viewer does not need to know the main structure type.
 
 def generate_results_figure(structure_key, variant_key):
-    if structure_key == "saddle_span" and variant_key == "standard_saddle":
+    if variant_key == "standard_saddle":
         return generate_standard_saddle_figure()
-    elif structure_key == "saddle_span" and variant_key == "cantilever_leaf":
+    elif variant_key == "cantilever_leaf":
         return generate_cantilever_leaf_figure()
     else:
         fig = go.Figure()
