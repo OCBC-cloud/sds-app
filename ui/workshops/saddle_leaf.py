@@ -1,29 +1,25 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Cantilever Leaf Workshop
 # =============================================================================
-# Input page for the Cantilever Leaf variant of the Saddle Span family.
+# Input page for the Cantilever Leaf variant.
 #
 # Per engine/SPEC_saddle_span.md, this variant is:
 #   Uni-pole column with curved spine (main beam) and radial ribs.
 #   Leaf-shaped membrane canopy. Cantilevered.
 #   Baseplate anchor resists torsion - footing must be designed separately.
 #
-# Design decisions (agreed 2026-09-13):
+# Design decisions (agreed 2026-09-14):
 #   - Collapsible sections
 #   - Mixed widgets
 #   - Custom-styled section headers
 #   - No tie-down cables (this is a cantilever, not an uplift structure)
 #   - Section 6 is Baseplate + Preliminary Foundation Sizing
-#   - Preliminary foundation = reaction / soil bearing capacity
-#   - Note for user: geotechnical verification and reinforcement not provided
 #   - Section 5 covers fabric attachment AND perimeter cable
 #   - Cable diameter and baseplate sizing are automatic
-#   - Strut joint height auto-determined (60% of column) with user override
+#   - Strut joint height FIXED at 75% of column height (no user input)
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
 # =============================================================================
-
-import math
 
 import streamlit as st
 
@@ -126,7 +122,6 @@ def _init_defaults():
         # Section 3 - Column and Spine
         "ws_sl_column_type": "unipole",
         "ws_sl_column_preference": "auto",
-        "ws_sl_strut_joint_height": 6.0,
         # Section 4 - Ribs
         "ws_sl_rib_section_family": "CHS",
         "ws_sl_rib_preference": "auto",
@@ -196,7 +191,7 @@ def render_saddle_leaf():
     st.markdown(
         '<div class="ws-breadcrumb">'
         'SDSe Fluid Design Studio / '
-        '<span class="crumb">Saddle Span</span>'
+        '<span class="crumb">Cantilever</span>'
         ' / '
         '<span class="crumb">Cantilever Leaf</span>'
         '</div>',
@@ -335,8 +330,8 @@ def render_saddle_leaf():
         col3, col4 = st.columns(2)
         with col3:
             fabric_types = list(FABRIC_PROPERTIES.keys())
-            ft_idx = fabric_types.index(st.session_state["ws_sl_fabric_type"]) if st.session_state["ws_sl_fabric_type"] in fabric_types else 0
-            fabric_type = st.selectbox(
+           .session ft_idx = fabric_types.index(st.session_state_state["ws_sl_fabric_type"]) if st[".session_state["ws_sl_fabric_type"] in fabric_typesws else _s0
+            fabric_type =l st.selectbox(
                 "Fabric Type",
                 fabric_types,
                 index=ft_idx,
@@ -384,33 +379,17 @@ def render_saddle_leaf():
         )
         st.session_state["ws_sl_column_preference"] = "auto" if col_pref == "Auto-select" else "manual"
 
-        # ---- Strut Joint Height (auto-determined with override)
+        # ---- Strut Joint Height (FIXED at 75% of column height)
         col_h_val = float(st.session_state.get("ws_sl_column_height", 10.0))
-        auto_joint = round(col_h_val * 0.6, 2)
-        min_joint = round(col_h_val * 0.40, 2)
-        max_joint = round(col_h_val * 0.75, 2)
-
-        if "ws_sl_strut_joint_height" not in st.session_state:
-            st.session_state["ws_sl_strut_joint_height"] = auto_joint
-
-        strut_joint = st.number_input(
-            "Strut Joint Height on Column (m)",
-            min_value=min_joint,
-            max_value=max_joint,
-            value=float(st.session_state["ws_sl_strut_joint_height"]),
-            step=0.1,
-            key="ws_sl_strut_joint_input",
-            help="Height where the curved strut meets the column. Higher = smaller moment into the base.",
-        )
-        st.session_state["ws_sl_strut_joint_height"] = strut_joint
+        strut_joint = round(col_h_val * 0.75, 2)
+        st_strut_joint_height"] = strut_joint
 
         st.markdown(
             '<div class="ws-preview-box">'
-            'Auto-determined: <span class="num">'
-            + ("%.2f m" % auto_joint)
-            + '</span> (60% of column height)<br>'
-            'Valid range: ' + ("%.2f m" % min_joint) + ' to ' + ("%.2f m" % max_joint) + '<br>'
-            'Higher joint reduces moment transfer to the baseplate.'
+            'Strut joint height: <span class="num">'
+            + ("%.2f m" % strut_joint)
+            + '</span> (75% of column height)<br>'
+            'Fixed by the engine. Higher joint reduces moment transfer to the baseplate.'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -499,7 +478,7 @@ def render_saddle_leaf():
         # Perimeter cable (auto diameter, user picks type and material)
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
-            '<strong>Perimeter Cable</strong> — runs between the tips of the ribs to form the leaf outline.'
+            '<strong>Perimeter Cable</strong> - runs between the tips of the ribs to form the leaf outline.'
             '</div>',
             unsafe_allow_html=True,
         )
