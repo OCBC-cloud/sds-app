@@ -166,18 +166,6 @@ RESULTS_CSS = """
         color: #c8d4e0;
         line-height: 1.5;
     }
-
-    .res-coming-soon {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 10px;
-        font-size: 0.7rem;
-        font-weight: 600;
-        background-color: #f39c1233;
-        color: #f39c12;
-        border: 1px solid #f39c12;
-        margin-left: 6px;
-    }
     </style>
 """
 
@@ -518,12 +506,7 @@ def _build_member_schedule(structure_key, variant_key):
         members.append({"role": "Edge beam L", "section": "auto", "length": arc, "weight": arc * 20.0, "utilisation": "--"})
         members.append({"role": "Edge beam R", "section": "auto", "length": arc, "weight": arc * 20.0, "utilisation": "--"})
         members.append({"role": "Membrane", "section": "fabric", "length": apex, "weight": span * apex * 0.9 / 1000.0, "utilisation": "--"})
-
-        n_ties = intervals * 2  # both sides
-        tie_len = 0.0
-        if arc > 0:
-            tie_len = intervals and (span / (intervals + 1))
-        members.append({"role": "Tie-down cables", "section": "auto", "length": float(n_ties) * 2.5, "weight": 0.0, "utilisation": "--"})
+        members.append({"role": "Tie-down cables", "section": "auto", "length": float(intervals * 2) * 2.5, "weight": 0.0, "utilisation": "--"})
 
     elif structure_key == "saddle_span" and variant_key == "cantilever_leaf":
         col_h = float(st.session_state.get("ws_sl_column_height", 10.0))
@@ -534,7 +517,8 @@ def _build_member_schedule(structure_key, variant_key):
         members.append({"role": "Column", "section": "auto", "length": col_h, "weight": col_h * 64.9, "utilisation": "--"})
         members.append({"role": "Main beam (spine)", "section": "auto", "length": outreach * 1.05, "weight": outreach * 1.05 * 28.3, "utilisation": "--"})
         members.append({"role": "Ribs (" + str(ribs) + " per side)", "section": "auto", "length": outreach * 0.6 * 2 * ribs, "weight": outreach * 0.6 * 2 * ribs * 15.0, "utilisation": "--"})
-        members.append({"role": "Curved strut", "section": "auto", "length": math.sqrt((outreach * 0.33) ** 2 + (col_h - strut_j) ** 2), "weight": 0.0, "utilisation": "--"})
+        strut_len = math.sqrt((outreach * 0.33) ** 2 + (col_h - strut_j) ** 2)
+        members.append({"role": "Curved strut", "section": "auto", "length": strut_len, "weight": 0.0, "utilisation": "--"})
 
     return members
 
@@ -562,7 +546,7 @@ def _build_quantities(structure_key, variant_key):
 
         qty["steel_kg"] = col_h * 64.9 + outreach * 28.3 + ribs * 2 * outreach * 0.6 * 15.0
         qty["fabric_m2"] = outreach * outreach * 0.5 * 0.8
-        qty["cable_m"] = outreach * 2 * 0.9  # perimeter cables approx
+        qty["cable_m"] = outreach * 2 * 0.9
 
     return qty
 
