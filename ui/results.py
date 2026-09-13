@@ -1,4 +1,4 @@
-# Results page - with Section Used panel
+# Results page - with Section Used and Analysis Readings
 import streamlit as st
 from viewers.results_viewer import generate_results_figure
 
@@ -78,6 +78,52 @@ def render_results():
         'margin-top: 0.4rem; font-style: italic;">'
         'Placeholder. Engine will auto-select the optimal section.'
         '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div style="color: #f39c12; font-weight: 700; '
+        'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">Analysis Readings</div>',
+        unsafe_allow_html=True,
+    )
+
+    def metric_card(label, value, unit):
+        return (
+            '<div style="background: #0d1620; border: 1px solid #1e2a3a; '
+            'border-radius: 8px; padding: 0.8rem; text-align: center;">'
+            '<div style="color: #a8b8c8; font-size: 0.72rem; '
+            'text-transform: uppercase; letter-spacing: 0.5px;">'
+            + label + '</div>'
+            '<div style="color: #ffffff; font-size: 1.15rem; font-weight: 700; '
+            'margin-top: 0.3rem; font-family: monospace;">'
+            + value + '<span style="color: #a8b8c8; font-size: 0.75rem; '
+            'margin-left: 3px;">' + unit + '</span></div>'
+            '</div>'
+        )
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(metric_card("N_Ed", "--", "kN"), unsafe_allow_html=True)
+    with c2:
+        st.markdown(metric_card("M_Ed", "--", "kNm"), unsafe_allow_html=True)
+    with c3:
+        st.markdown(metric_card("V_Ed", "--", "kN"), unsafe_allow_html=True)
+
+    c4, c5, c6 = st.columns(3)
+    with c4:
+        st.markdown(metric_card("Wind pressure", "--", "kPa"), unsafe_allow_html=True)
+    with c5:
+        st.markdown(metric_card("Uplift", "--", "kPa"), unsafe_allow_html=True)
+    with c6:
+        st.markdown(metric_card("Deflection", "--", "mm"), unsafe_allow_html=True)
+
+    st.markdown(
+        '<div style="background: #0d1620; border-left: 3px solid #4a7a9c; '
+        'padding: 0.7rem 0.9rem; border-radius: 4px; margin: 0.5rem 0; '
+        'font-size: 0.82rem; color: #c8d4e0; line-height: 1.5;">'
+        'Readings populate when the engine is connected. '
+        'The 3D view above is generated from the geometry you provided.'
         '</div>',
         unsafe_allow_html=True,
     )
