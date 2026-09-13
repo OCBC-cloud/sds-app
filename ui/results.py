@@ -1,23 +1,7 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Results Page
 # =============================================================================
-# The final page in the app flow. Appears after the user taps
-# "Intelligent Design Computing" on any workshop.
-#
-# Design decisions (agreed 2026-09-13):
-#   - 3D viewer driven by the workshop inputs (real geometry)
-#   - Health score: placeholder until engine is connected
-#   - Section used: placeholder until engine is connected
-#   - Analysis readings: placeholder with notes
-#   - Member schedule: geometric data real; sections/utilisation shown
-#     as "auto" once engine is connected
-#   - Quantities: geometric values (fabric area, member lengths)
-#   - Preliminary foundation panel for the leaf
-#   - Anchor reactions panel for the standard saddle (placeholder)
-#   - Export: DXF and JSON only (PDF later)
-#   - Save design: disabled "coming soon"
-#   - Back to Workshop (inputs preserved)
-#   - Home (return to Studio)
+# The final page in the app flow.
 # =============================================================================
 
 import json
@@ -28,10 +12,6 @@ import streamlit as st
 
 from viewers.results_viewer import generate_results_figure
 
-
-# =============================================================================
-# CSS
-# =============================================================================
 
 RESULTS_CSS = """
     <style>
@@ -63,7 +43,6 @@ RESULTS_CSS = """
         font-size: 0.85rem;
         line-height: 1.4;
     }
-
     .res-section-title {
         color: #f39c12;
         font-size: 1.05rem;
@@ -73,7 +52,6 @@ RESULTS_CSS = """
         border-bottom: 1px solid #1e2a3a;
         letter-spacing: 0.3px;
     }
-
     .health-card {
         background-color: #1a3a2a;
         border: 2px solid #2ecc71;
@@ -101,7 +79,6 @@ RESULTS_CSS = """
         margin-top: 0.6rem;
         font-style: italic;
     }
-
     .res-info-card {
         background-color: #121e2e;
         border: 1px solid #1e2a3a;
@@ -129,7 +106,6 @@ RESULTS_CSS = """
         margin-top: 0.4rem;
         font-style: italic;
     }
-
     .res-metric {
         background-color: #0d1620;
         border: 1px solid #1e2a3a;
@@ -155,7 +131,6 @@ RESULTS_CSS = """
         font-size: 0.75rem;
         margin-left: 3px;
     }
-
     .res-placeholder {
         background-color: #0d1620;
         border-left: 3px solid #4a7a9c;
@@ -170,12 +145,7 @@ RESULTS_CSS = """
 """
 
 
-# =============================================================================
-# HELPERS
-# =============================================================================
-
 def _beam_arc_length_approx(span, rise, curve_type):
-    """Approximate arc length of one beam for quantity calc."""
     if span <= 0:
         return 0.0
     ratio = rise / span
@@ -201,12 +171,7 @@ def _format_number(v, digits=2):
         return str(v)
 
 
-# =============================================================================
-# PUBLIC FUNCTION
-# =============================================================================
-
 def render_results():
-    """Render the Results page."""
     st.markdown(RESULTS_CSS, unsafe_allow_html=True)
 
     structure_key = st.session_state.get("structure_key", "saddle_span")
@@ -219,7 +184,6 @@ def render_results():
     client_name = info.get("client", "") or "Unknown Client"
     reference = info.get("reference", "") or "-"
 
-    # ---- Breadcrumb
     st.markdown(
         '<div class="res-breadcrumb">'
         'SDSe Fluid Design Studio / '
@@ -232,7 +196,6 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    # ---- Project header
     st.markdown(
         '<div class="res-header">'
         '<div class="project">' + project_name + '</div>'
@@ -245,7 +208,6 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    # ---- 3D Viewer
     st.markdown('<div class="res-section-title">3D View</div>', unsafe_allow_html=True)
 
     try:
@@ -254,7 +216,6 @@ def render_results():
     except Exception as e:
         st.error("3D view failed: " + str(e))
 
-    # ---- Health Indicator (placeholder)
     st.markdown('<div class="res-section-title">Health Score</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="health-card">'
@@ -267,7 +228,6 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    # ---- Section Used (placeholder)
     st.markdown('<div class="res-section-title">Section Used</div>', unsafe_allow_html=True)
 
     fallback_section = "CHS 168.3x7.1"
@@ -285,7 +245,6 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    # ---- Analysis Readings (placeholder)
     st.markdown('<div class="res-section-title">Analysis Readings</div>', unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
@@ -348,7 +307,6 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    # ---- Member Schedule
     st.markdown('<div class="res-section-title">Member Schedule</div>', unsafe_allow_html=True)
 
     members = _build_member_schedule(structure_key, variant_key)
@@ -370,7 +328,6 @@ def render_results():
     else:
         st.info("Member schedule will appear once the workshop inputs are complete.")
 
-    # ---- Quantities
     st.markdown('<div class="res-section-title">Quantities</div>', unsafe_allow_html=True)
 
     qty = _build_quantities(structure_key, variant_key)
@@ -409,7 +366,6 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    # ---- Preliminary Foundation (leaf) or Anchor Reactions (standard saddle)
     if structure_key == "saddle_span" and variant_key == "cantilever_leaf":
         st.markdown('<div class="res-section-title">Preliminary Foundation</div>', unsafe_allow_html=True)
         bearing = float(st.session_state.get("ws_sl_soil_bearing", 150.0))
@@ -439,7 +395,6 @@ def render_results():
             unsafe_allow_html=True,
         )
 
-    # ---- Export
     st.markdown('<div class="res-section-title">Export</div>', unsafe_allow_html=True)
 
     col_dxf, col_json = st.columns(2)
@@ -465,7 +420,6 @@ def render_results():
                 key="res_json_download",
             )
 
-    # ---- Save design (coming soon)
     st.markdown('<div style="height: 0.6rem;"></div>', unsafe_allow_html=True)
     st.button(
         "Save Design (coming soon)",
@@ -474,7 +428,6 @@ def render_results():
         disabled=True,
     )
 
-    # ---- Navigation
     st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
     col_back, col_home = st.columns(2)
     with col_back:
@@ -487,12 +440,7 @@ def render_results():
             st.rerun()
 
 
-# =============================================================================
-# HELPERS - SCHEDULE, QUANTITIES, INPUT COLLECTION
-# =============================================================================
-
 def _build_member_schedule(structure_key, variant_key):
-    """Build a member list from inputs. Lengths real; sections auto."""
     members = []
 
     if structure_key == "saddle_span" and variant_key == "standard_saddle":
@@ -524,7 +472,6 @@ def _build_member_schedule(structure_key, variant_key):
 
 
 def _build_quantities(structure_key, variant_key):
-    """Compute geometric quantities from inputs."""
     qty = {"steel_kg": 0.0, "cable_m": 0.0, "fabric_m2": 0.0}
 
     if structure_key == "saddle_span" and variant_key == "standard_saddle":
@@ -552,7 +499,6 @@ def _build_quantities(structure_key, variant_key):
 
 
 def _collect_inputs(structure_key, variant_key):
-    """Collect workshop inputs from session state for JSON export."""
     keys_prefix = ""
     if structure_key == "saddle_span" and variant_key == "standard_saddle":
         keys_prefix = "ws_ss_"
