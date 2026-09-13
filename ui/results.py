@@ -42,7 +42,9 @@ def render_results():
         fig = generate_results_figure(sk, vk)
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
+        import traceback
         st.error("3D view failed: " + str(e))
+        st.code(traceback.format_exc())
 
     st.markdown(
         '<div style="background: #1a3a2a; border: 2px solid #2ecc71; '
@@ -62,7 +64,7 @@ def render_results():
     )
 
     fallback_section = "CHS 168.3x7.1"
-    if sk == "saddle_span" and vk == "cantilever_leaf":
+    if vk == "cantilever_leaf":
         fallback_section = "CHS 323.8x8.0 / CHS 168.3x7.1"
 
     st.markdown(
