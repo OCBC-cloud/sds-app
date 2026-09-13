@@ -3,126 +3,14 @@
 # =============================================================================
 # Project meta inputs + variant selection.
 # Date is captured automatically on first visit and never overwritten.
+# Variants are read from data/structures.py (single source of truth).
 # =============================================================================
 
 from datetime import datetime
 
 import streamlit as st
 
-
-VARIANTS_FALLBACK = {
-    "saddle_span": [
-        {"key": "standard_saddle", "name": "Standard Saddle",
-         "description": "Two curved edge beams converging to two ground support points. Classic hypar form.",
-         "available": True},
-        {"key": "frame_supported_saddle", "name": "Frame Supported Saddle",
-         "description": "Standard saddle with additional rigid frame underneath for larger spans.",
-         "available": True},
-        {"key": "cantilever_leaf", "name": "Cantilever Leaf",
-         "description": "Uni-pole column with curved spine and radial ribs. Leaf-shaped membrane. Cantilevered.",
-         "available": True},
-        {"key": "cantilever_flower", "name": "Cantilever Flower",
-         "description": "Multi-leaf layered spiral. Future vision.",
-         "available": False},
-    ],
-    "tensile_true_sails": [
-        {"key": "hypar_sail_3", "name": "Hypar Sail - 3 Anchors",
-         "description": "Triangular hypar. Three anchor points at user-defined positions and heights.",
-         "available": True},
-        {"key": "hypar_sail_4", "name": "Hypar Sail - 4 Anchors",
-         "description": "Classic quad hypar. Four anchor points at user-defined positions and heights.",
-         "available": True},
-        {"key": "ridge_sail", "name": "Ridge Sail",
-         "description": "Two membranes meeting at a ridge cable. Six anchor points.",
-         "available": True},
-        {"key": "multiple_sails", "name": "Multiple Sails",
-         "description": "Array of hypar sails side by side.",
-         "available": True},
-        {"key": "wall_sail", "name": "Wall Sail",
-         "description": "Membrane anchored on two walls at different heights.",
-         "available": True},
-        {"key": "column_sail", "name": "Column Sail",
-         "description": "Membrane anchored to four columns at different heights.",
-         "available": True},
-    ],
-    "framed_tensile": [
-        {"key": "simple_frame", "name": "Simple Frame + Fabric",
-         "description": "Straight frame members with fabric on top.",
-         "available": True},
-        {"key": "arched_frame", "name": "Arched Frame + Fabric",
-         "description": "Curved arch members with fabric on top.",
-         "available": True},
-        {"key": "trussed_frame", "name": "Trussed Frame + Fabric",
-         "description": "Triangulated truss frame with fabric on top. Larger spans.",
-         "available": True},
-    ],
-    "unipole_tensile": [
-        {"key": "single_cone", "name": "Single Cone",
-         "description": "Radial symmetry. One mast with cone fabric and ring cable.",
-         "available": True},
-        {"key": "multi_cone_cluster", "name": "Multi-Cone Cluster",
-         "description": "Multiple cone units in a cluster.",
-         "available": True},
-        {"key": "umbrella", "name": "Umbrella",
-         "description": "Single mast with radial ribs and fabric. Umbrella form.",
-         "available": True},
-    ],
-    "canopy": [
-        {"key": "cantilever_flat", "name": "Cantilever Flat Shade",
-         "description": "Uni-pole with straight arm and flat shade surface.",
-         "available": True},
-        {"key": "cantilever_bell", "name": "Cantilever Bell Shade",
-         "description": "Uni-pole with curved arm and bell-shaped shade surface.",
-         "available": True},
-        {"key": "cantilever_pyramid", "name": "Cantilever Pyramid Shade",
-         "description": "Uni-pole with straight arm and pyramid shade surface.",
-         "available": True},
-        {"key": "cantilever_cone", "name": "Cantilever Cone Shade",
-         "description": "Uni-pole with cone fabric draped from top.",
-         "available": True},
-        {"key": "cable_supported", "name": "Cable-Supported Cantilever",
-         "description": "Mast with cables and shade surface.",
-         "available": True},
-        {"key": "wall_mounted", "name": "Wall Mounted Shade",
-         "description": "Attached to a wall and cantilevered out.",
-         "available": True},
-        {"key": "tree_canopy", "name": "Tree Canopy",
-         "description": "Trunk with branching arms and shade. Future vision.",
-         "available": False},
-    ],
-    "frame_tent": [
-        {"key": "pyramid_tent", "name": "Pyramid Tent",
-         "description": "Four-sided pyramid. Central pole. Classic event tent.",
-         "available": True},
-        {"key": "gable_tent", "name": "Gable Tent",
-         "description": "Rectangular plan with a ridge line. Gable ends.",
-         "available": True},
-        {"key": "hip_tent", "name": "Hip Tent",
-         "description": "Four-sided with a short ridge. Hip ends.",
-         "available": True},
-        {"key": "sail_tent", "name": "Sail Tent",
-         "description": "Asymmetric sail-like tent. Free-form.",
-         "available": True},
-    ],
-    "portal_frame": [
-        {"key": "simple_portal", "name": "Simple Portal",
-         "description": "Single span. Two columns and one rafter.",
-         "available": True},
-        {"key": "portal_with_mezzanine", "name": "With Mezzanine",
-         "description": "Portal with an intermediate mezzanine floor.",
-         "available": True},
-        {"key": "portal_with_crane", "name": "With Crane",
-         "description": "Portal with crane gantry beams.",
-         "available": True},
-        {"key": "multi_bay_portal", "name": "Multi-Bay Portal",
-         "description": "Portal frame with multiple bays side by side.",
-         "available": True},
-    ],
-}
-
-
-def _get_variants(structure_key):
-    return VARIANTS_FALLBACK.get(structure_key, [])
+from data.structures import STRUCTURE_VARIANTS
 
 
 def render_registration():
@@ -179,10 +67,14 @@ def render_registration():
         unsafe_allow_html=True,
     )
 
-    variants = _get_variants(structure_key)
+    variants = STRUCTURE_VARIANTS.get(structure_key, [])
 
     if not variants:
         st.info("Variants for this structure type are coming soon.")
+        st.markdown('<div style="height: 1.5rem;"></div>', unsafe_allow_html=True)
+        if st.button("Back to Studio", key="reg_back_empty", use_container_width=True):
+            st.session_state.page = "studio"
+            st.rerun()
         return
 
     for variant in variants:
