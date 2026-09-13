@@ -4,8 +4,8 @@
 # The structure type selection page. Appears after the user taps
 # "Enter The Studio" on the landing page.
 #
-# Design (agreed 2026-09-12):
-#   - 7 structure type tiles (one per row, full width)
+# Design (agreed 2026-09-13):
+#   - 8 structure type tiles across 2 sections
 #   - "Smart Guided Design" tile at the top
 #   - Small SDSe wordmark top-left
 #   - Section header "Choose Your Structure Type"
@@ -21,16 +21,20 @@ from data.structures import STRUCTURE_TYPES
 
 
 # =============================================================================
-# THE SEVEN FINAL STRUCTURE TYPES
+# THE EIGHT FINAL STRUCTURE TYPES - IN TWO SECTIONS
 # =============================================================================
 # Only these are shown on the Studio page. Others exist in the data
 # but are not yet exposed.
 
-STUDIO_STRUCTURE_KEYS = [
+STUDIO_SECTION_A = [
     "saddle_span",
+    "cantilever",
+    "unipole_tensile",
     "tensile_sails",
     "framed_tensile",
-    "unipole_tensile",
+]
+
+STUDIO_SECTION_B = [
     "canopy",
     "frame_tent",
     "portal_frame",
@@ -47,37 +51,42 @@ STUDIO_FALLBACK = {
     "saddle_span": {
         "name": "Saddle Span",
         "icon": "S",
-        "description": "Two curved edge beams with a tensioned membrane between. Classic hypar form. Includes Leaf and Flower variants.",
+        "description": "Curved saddle-shaped tensile structure",
     },
-    "tensile_sails": {
-        "name": "Tensile Sails Roof",
-        "icon": "T",
-        "description": "Cable and membrane structure. Ridge and valley cables support the fabric.",
-    },
-    "framed_tensile": {
-        "name": "Framed Tensile Roof",
-        "icon": "R",
-        "description": "Rigid frame with tensioned membrane on top. Column-free interior.",
+    "cantilever": {
+        "name": "Cantilever",
+        "icon": "L",
+        "description": "Single column with arm and membrane",
     },
     "unipole_tensile": {
         "name": "Uni-Pole Tensile Roof",
         "icon": "U",
-        "description": "Single central mast with radial cables and tensioned membrane. Umbrella form.",
+        "description": "Mast with radial membrane",
+    },
+    "tensile_sails": {
+        "name": "Tensile Sails Roof",
+        "icon": "T",
+        "description": "Hypar sails spanning between anchors",
+    },
+    "framed_tensile": {
+        "name": "Framed Tensile Roof",
+        "icon": "R",
+        "description": "Fabric on rigid frame",
     },
     "canopy": {
         "name": "Canopy",
         "icon": "C",
-        "description": "Cantilever and wall-attached shade structures. Flat, bell, pyramid, or cone.",
+        "description": "Wall-mounted, cable-supported, or tree shade",
     },
     "frame_tent": {
         "name": "Frame Tent",
         "icon": "F",
-        "description": "Rigid frame structure clad with fabric. Classic tent geometry.",
+        "description": "Framed tent structure",
     },
     "portal_frame": {
         "name": "Portal Frame",
         "icon": "P",
-        "description": "Rigid steel portal frame. Rafters and columns. No membrane.",
+        "description": "Rigid steel frame structure",
     },
 }
 
@@ -113,6 +122,16 @@ STUDIO_CSS = """
         font-size: 0.9rem;
         color: #a8b8c8;
         margin-bottom: 1.5rem;
+    }
+    .studio-subsection-header {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #f39c12;
+        margin: 1.6rem 0 0.8rem 0;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        border-bottom: 1px solid #1e2a3a;
+        padding-bottom: 0.5rem;
     }
 
     /* Structure type tiles */
@@ -177,12 +196,13 @@ STUDIO_CSS = """
     }
     .guided-tile:hover {
         transform: translateX(4px);
-        box-shadow: 0 6px 24px rgba(243, 156, 18, 0.35);
-    }
-    .guided-tile-icon {
-        width: 52px;
-        height: 52px;
-        min-width: 52px;
+        box-shadow: 0 6px 24px rgba(243, 156, 18,rem 0.35);
+   ;
+ }
+    .guided-tile       -icon {
+        width:  font52px;
+-weight        height: 52px;
+:        min-width: 52px;
         border-radius: 50%;
         background-color: rgba(10, 14, 23, 0.2);
         display: flex;
@@ -197,8 +217,7 @@ STUDIO_CSS = """
         text-align: left;
     }
     .guided-tile-name {
-        font-size: 1.1rem;
-        font-weight: 700;
+        font-size: 1.1 700;
         color: #0a0e17;
         margin: 0 0 0.2rem 0;
     }
@@ -209,13 +228,41 @@ STUDIO_CSS = """
         line-height: 1.35;
         opacity: 0.85;
     }
-
-    /* Make the full tile clickable via the invisible button underneath */
-    .studio-tile-button-anchor {
-        margin-top: -0.7rem;
-    }
     </style>
 """
+
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+def _render_structure_tile(key):
+    """Render one structure tile plus its Select button."""
+    entry = STRUCTURE_TYPES.get(key, {})
+    fallback = STUDIO_FALLBACK.get(key, {})
+
+    name = entry.get("name", fallback.get("name", key))
+    icon = entry.get("icon", fallback.get("icon", "?"))
+    description = entry.get("description", fallback.get("description", ""))
+
+    tile_html = (
+        '<div class="studio-tile">'
+        '<div class="studio-tile-icon">' + icon + '</div>'
+        '<div class="studio-tile-body">'
+        '<div class="studio-tile-name">' + name + '</div>'
+        '<div class="studio-tile-desc">' + description + '</div>'
+        '</div>'
+        '</div>'
+    )
+    st.markdown(tile_html, unsafe_allow_html=True)
+
+    if st.button("Select " + name, key="studio_select_" + key, use_container_width=True):
+        st.session_state.structure_key = key
+        st.session_state.structure_name = name
+        st.session_state.page = "registration"
+        st.rerun()
+
+    st.markdown('<div style="height: 0.2rem;"></div>', unsafe_allow_html=True)
 
 
 # =============================================================================
@@ -238,7 +285,7 @@ def render_studio():
         unsafe_allow_html=True,
     )
 
-    # ---- Section header
+    # ---- Main section header
     st.markdown(
         '<div class="studio-section-header">Choose Your Structure Type</div>',
         unsafe_allow_html=True,
@@ -251,7 +298,7 @@ def render_studio():
         unsafe_allow_html=True,
     )
 
-    # ---- Guided Design tile (at top)
+    # ---- Guided Design tile
     guided_html = (
         '<div class="guided-tile">'
         '<div class="guided-tile-icon">?</div>'
@@ -269,32 +316,20 @@ def render_studio():
         st.session_state.page = "guided"
         st.rerun()
 
-    st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
+    st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
 
-    # ---- Structure type tiles
-    for key in STUDIO_STRUCTURE_KEYS:
-        entry = STRUCTURE_TYPES.get(key, {})
-        fallback = STUDIO_FALLBACK.get(key, {})
+    # ---- Section A: Tensile and Membrane
+    st.markdown(
+        '<div class="studio-subsection-header">Tensile and Membrane</div>',
+        unsafe_allow_html=True,
+    )
+    for key in STUDIO_SECTION_A:
+        _render_structure_tile(key)
 
-        name = entry.get("name", fallback.get("name", key))
-        icon = entry.get("icon", fallback.get("icon", "?"))
-        description = entry.get("description", fallback.get("description", ""))
-
-        tile_html = (
-            '<div class="studio-tile">'
-            '<div class="studio-tile-icon">' + icon + '</div>'
-            '<div class="studio-tile-body">'
-            '<div class="studio-tile-name">' + name + '</div>'
-            '<div class="studio-tile-desc">' + description + '</div>'
-            '</div>'
-            '</div>'
-        )
-        st.markdown(tile_html, unsafe_allow_html=True)
-
-        if st.button("Select " + name, key="studio_select_" + key, use_container_width=True):
-            st.session_state.structure_key = key
-            st.session_state.structure_name = name
-            st.session_state.page = "registration"
-            st.rerun()
-
-        st.markdown('<div style="height: 0.2rem;"></div>', unsafe_allow_html=True)
+    # ---- Section B: Canopy and Frame
+    st.markdown(
+        '<div class="studio-subsection-header">Canopy and Frame</div>',
+        unsafe_allow_html=True,
+    )
+    for key in STUDIO_SECTION_B:
+        _render_structure_tile(key)
