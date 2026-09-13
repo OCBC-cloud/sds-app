@@ -7,27 +7,28 @@
 #   Two curved edge beams converging to two ground support points.
 #   Membrane stretched between. Classic hypar form.
 #
-# Design decisions (agreed 2026-09-13):
-#   - Collapsible sections (geometry, materials, members, supports,
-#     tie-downs, loads, membrane attachment)
-#   - Mixed widgets: numbers for dimensions, sliders for angles,
-#     selectboxes for discrete choices
+# Design decisions (agreed 2026-09-14):
+#   - Collapsible sections (8 sections)
+#   - Mixed widgets: numbers, sliders, selectboxes, radios
 #   - Custom-styled section headers (accent orange)
 #   - Cable diameter is always automatic
-#   - Section 7 renamed "Membrane-to-Beam Attachment"
-#   - Two options: Kader Guider (continuous) or Segmented Edge Cables
-#   - Live preview of segmented cable spacing
-#   - Inline validation with warnings
+#   - Foundation section standardised to match Cantilever Leaf
+#   - Pretension inputs define TARGET STRESS STATE for form-finding
+#   - No fixed segment spacing on edge cables - engine places them
+#     where the membrane geometry demands (industry practice)
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
+#
+# Form-finding note (per industry practice - Easy, RFEM, RhinoMembrane):
+#   Geometry is NOT drawn by the user. It emerges from equilibrium.
+#   The user sets target membrane stress and target cable tension.
+#   The solver (Phase C engine) finds the shape that satisfies both.
 # =============================================================================
-
-import math
 
 import streamlit as st
 
 from data.materials import STEEL_MATERIALS, FABRIC_PROPERTIES
-from data.constants import WIND_SPEEDS, PARTIAL_FACTORS
+from data.constants import WIND_SPEEDS
 
 
 # =============================================================================
@@ -66,10 +67,6 @@ WORKSHOP_CSS = """
         margin: 0 0 0.8rem 0;
         line-height: 1.35;
     }
-    .ws-required-marker {
-        color: #e74c3c;
-        font-weight: 600;
-    }
     .ws-preview-box {
         background-color: #0d1620;
         border-left: 3px solid #3498db;
@@ -92,6 +89,16 @@ WORKSHOP_CSS = """
         margin-top: 0.5rem;
         font-size: 0.85rem;
         color: #f0f4fa;
+    }
+    .ws-info-box {
+        background-color: #1a2a3a;
+        border-left: 3px solid #4a7a9c;
+        padding: 0.7rem 0.9rem;
+        border-radius: 4px;
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        color: #c8d4e0;
+        line-height: 1.5;
     }
     </style>
 """
@@ -120,19 +127,25 @@ def _init_defaults():
         # Section 4 - Supports
         "ws_ss_support_type_start": "pinned",
         "ws_ss_support_type_end": "pinned",
-        # Section 5 - Tie-down cables
+        # Section 5 - Tie-down cables + pretension
         "ws_ss_tiedown_intervals": 3,
         "ws_ss_uplift_angle": 45,
         "ws_ss_spread_angle": 30,
         "ws_ss_cable_type": "6x19",
         "ws_ss_cable_material": "galvanised",
         "ws_ss_anchor_type": "pinned",
-        # Section 6 - Loads
+        "ws_ss_membrane_pretension": 2.0,
+        "ws_ss_cable_pretension": 5.0,
+        # Section 6 - Baseplate and Foundation
+        "ws_ss_soil_bearing": 150.0,
+        "ws_ss_soil_type": "sand",
+        "ws_ss_water_table": 3.0,
+        "ws_ss_foundation_type": "pad",
+        # Section 7 - Loads
         "ws_ss_live_load": 0.5,
         "ws_ss_design_standard": "MY",
-        # Section 7 - Attachment
+        # Section 8 - Attachment
         "ws_ss_attachment_type": "kader",
-        "ws_ss_segment_spacing": 2.5,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -142,34 +155,6 @@ def _init_defaults():
 # =============================================================================
 # HELPERS
 # =============================================================================
-
-def _beam_arc_length(span, rise, curve_type):
-    """
-    Approximate arc length of one curved edge beam.
-    Used for the segmented cable preview.
-    """
-    if span <= 0:
-        return 0.0
-    if curve_type == "parabolic":
-        # Parabolic arc length approximation
-        # For y = rise * (1 - (2x/span)^2), arc length ≈ span * (1 + (8/3)*(rise/span)^2)
-        ratio = rise / span
-        return span * (1.0 + (8.0 / 3.0) * ratio * ratio)
-    elif curve_type == "circular":
-        # Circular arc length
-        if rise <= 0:
-            return span
-        R = (span ** 2 + 4 * rise ** 2) / (8 * rise)
-        if R <= span / 2:
-            return span
-        half_angle = math.asin(span / (2 * R))
-        return 2 * R * half_angle
-    elif curve_type == "catenary":
-        # Catenary arc length approximation
-        ratio = rise / span
-        return span * (1.0 + 2.5 * ratio * ratio)
-    return span
-
 
 def _validate_geometry(span, apex, rise):
     """Return list of warning messages for geometry issues."""
@@ -191,9 +176,7 @@ def _validate_geometry(span, apex, rise):
 
 def _section_header(title, help_text=""):
     """Render a section header with custom styling."""
-    html = (
-        '<div class="ws-section-title">' + title + '</div>'
-    )
+    html = '<div class="ws-section-title">' + title + '</div>'
     if help_text:
         html += '<div class="ws-section-help">' + help_text + '</div>'
     st.markdown(html, unsafe_allow_html=True)
@@ -285,7 +268,6 @@ def render_saddle_standard():
             )
             st.session_state["ws_ss_curve_type"] = curve_options[curve_labels.index(curve_choice)]
 
-        # Inline validation
         warns = _validate_geometry(span, apex, rise)
         for w in warns:
             st.markdown(
@@ -426,11 +408,11 @@ def render_saddle_standard():
             )
 
     # =========================================================================
-    # SECTION 5 - TIE-DOWN CABLES (MANDATORY)
+    # SECTION 5 - TIE-DOWN CABLES AND PRETENSION
     # =========================================================================
-    with st.expander("5. Tie-down Cables", expanded=False):
+    with st.expander("5. Tie-down Cables and Pretension", expanded=False):
         _section_header(
-            "Tie-down Cables",
+            "Tie-down Cables and Pretension",
             "Structural cables from each beam down to ground anchors. "
             "They resist wind uplift and stabilise the structure."
         )
@@ -501,18 +483,126 @@ def render_saddle_standard():
         )
         st.session_state["ws_ss_anchor_type"] = anchor_options[anchor_labels.index(anchor_choice)]
 
+        # ---- Pretension
+        st.markdown(
+            '<div class="ws-section-help" style="margin-top:1rem;">'
+            '<strong>Pretension (Target Stress State)</strong> - '
+            'These values define the target stress state for the form-finding '
+            'engine. The engine will solve for the geometry that is in '
+            'equilibrium with these target values.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        col5, col6 = st.columns(2)
+        with col5:
+            mem_pre = st.slider(
+                "Membrane Pretension (kN/m)",
+                min_value=0.5, max_value=8.0,
+                value=float(st.session_state["ws_ss_membrane_pretension"]),
+                step=0.1,
+                key="ws_ss_mem_pre_slider",
+                help="Target membrane stress. Typical range: 1.0 to 4.0 kN/m.",
+            )
+            st.session_state["ws_ss_membrane_pretension"] = mem_pre
+        with col6:
+            cab_pre = st.slider(
+                "Cable Pretension (kN)",
+                min_value=0.5, max_value=50.0,
+                value=float(st.session_state["ws_ss_cable_pretension"]),
+                step=0.5,
+                key="ws_ss_cab_pre_slider",
+                help="Target cable tension. Typical range: 5 to 20 kN for 6x19 galvanised.",
+            )
+            st.session_state["ws_ss_cable_pretension"] = cab_pre
+
         st.markdown(
             '<div class="ws-preview-box">'
             'Cable diameter is selected automatically by the engine '
-            'based on the computed tension.'
+            'based on the computed tension under the target stress state.'
             '</div>',
             unsafe_allow_html=True,
         )
 
     # =========================================================================
-    # SECTION 6 - LOADS AND STANDARD
+    # SECTION 6 - BASEPLATE AND PRELIMINARY FOUNDATION
     # =========================================================================
-    with st.expander("6. Loads and Standard", expanded=False):
+    with st.expander("6. Baseplate and Preliminary Foundation", expanded=False):
+        _section_header(
+            "Baseplate and Preliminary Foundation",
+            "The beam-to-ground supports transfer load to the ground. "
+            "Preliminary foundation sizing depends on the soil at the site."
+        )
+
+        st.markdown(
+            '<div class="ws-info-box">'
+            '<strong>Support Base and Anchors</strong><br>'
+            'Support baseplate dimensions and anchor bolt size and count are '
+            'auto-selected by the engine based on the support reaction '
+            '(axial + shear + moment). No input required.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            bearing = st.number_input(
+                "Assumed Soil Bearing Capacity (kN/m2)",
+                min_value=50.0, max_value=1000.0,
+                value=float(st.session_state["ws_ss_soil_bearing"]),
+                step=10.0,
+                key="ws_ss_soil_bearing_input",
+                help="From geotechnical investigation. Typical: sand 150, clay 100, rock 500.",
+            )
+            st.session_state["ws_ss_soil_bearing"] = bearing
+        with col2:
+            water = st.number_input(
+                "Water Table Depth (m)",
+                min_value=0.5, max_value=20.0,
+                value=float(st.session_state["ws_ss_water_table"]),
+                step=0.5,
+                key="ws_ss_water_table_input",
+            )
+            st.session_state["ws_ss_water_table"] = water
+
+        soil_options = ["sand", "clay", "rock", "filled"]
+        soil_labels = ["Sand", "Clay", "Rock", "Filled / Made Ground"]
+        s_idx = soil_options.index(st.session_state["ws_ss_soil_type"])
+        soil_choice = st.selectbox(
+            "Soil Type",
+            soil_labels,
+            index=s_idx,
+            key="ws_ss_soil_type_select",
+        )
+        st.session_state["ws_ss_soil_type"] = soil_options[soil_labels.index(soil_choice)]
+
+        found_options = ["pad", "pile", "raft"]
+        found_labels = ["Pad Footing", "Pile Group", "Raft"]
+        f_idx = found_options.index(st.session_state["ws_ss_foundation_type"])
+        found_choice = st.selectbox(
+            "Foundation Type",
+            found_labels,
+            index=f_idx,
+            key="ws_ss_found_type_select",
+        )
+        st.session_state["ws_ss_foundation_type"] = found_options[found_labels.index(found_choice)]
+
+        st.markdown(
+            '<div class="ws-warning-box">'
+            '<strong>Note:</strong> Preliminary foundation sizing only. '
+            'Geotechnical verification required. Footing reinforcement and '
+            'detailing are not provided by this app. Engage a geotechnical '
+            'engineer to confirm.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    # =========================================================================
+    # SECTION 7 - LOADS AND STANDARD
+    # =========================================================================
+    with st.expander("7. Loads and Design Standard", expanded=False):
         _section_header(
             "Loads and Design Standard",
             "Live load on the beam. Design code for safety factors."
@@ -537,32 +627,29 @@ def render_saddle_standard():
         )
         st.session_state["ws_ss_design_standard"] = std
 
-        std_labels = {
-            "EU": "Eurocode (EN 1990 / 1991 / 1993)",
-            "MY": "Malaysia (MS EN 1990 / 1991 / 1993)",
-            "UK": "United Kingdom (BS EN)",
-            "CN": "China (GB 50009)",
-            "US": "United States (ASCE 7)",
-        }
         st.markdown(
             '<div class="ws-preview-box">'
-            'Wind speed basis: <span class="num">' + str(WIND_SPEEDS.get(std, 30.0)) + ' m/s</span><br>'
-            'Standard: <span class="num">' + std_labels.get(std, std) + '</span>'
+            'Wind speed basis: <span class="num">'
+            + str(WIND_SPEEDS.get(std, 30.0))
+            + ' m/s</span>'
             '</div>',
             unsafe_allow_html=True,
         )
 
     # =========================================================================
-    # SECTION 7 - MEMBRANE-TO-BEAM ATTACHMENT
+    # SECTION 8 - MEMBRANE-TO-BEAM ATTACHMENT
     # =========================================================================
-    with st.expander("7. Membrane-to-Beam Attachment", expanded=False):
+    with st.expander("8. Membrane-to-Beam Attachment", expanded=False):
         _section_header(
             "Membrane-to-Beam Attachment",
             "How the fabric edge is attached to the curved beams."
         )
 
         attach_options = ["kader", "segmented"]
-        attach_labels = ["Kader Guider (continuous attachment)", "Segmented Edge Cables (discrete attachment)"]
+        attach_labels = [
+            "Kader Guider (continuous attachment)",
+            "Segmented Edge (discrete attachment)",
+        ]
         at_idx = attach_options.index(st.session_state["ws_ss_attachment_type"])
         at_choice = st.radio(
             "Attachment Method",
@@ -582,36 +669,16 @@ def render_saddle_standard():
                 unsafe_allow_html=True,
             )
         else:
-            desired_spacing = st.number_input(
-                "Desired Segment Spacing (m)",
-                min_value=0.5, max_value=10.0,
-                value=float(st.session_state["ws_ss_segment_spacing"]),
-                step=0.1,
-                key="ws_ss_segment_spacing_input",
+            st.markdown(
+                '<div class="ws-info-box">'
+                '<strong>Segmented Edge Attachment</strong><br>'
+                'Segment boundaries and edge cable geometry are determined by '
+                'the form-finding engine, following the membrane natural edge. '
+                'This matches industry practice (Easy, RFEM, RhinoMembrane). '
+                'No fixed spacing input required.'
+                '</div>',
+                unsafe_allow_html=True,
             )
-            st.session_state["ws_ss_segment_spacing"] = desired_spacing
-
-            # Live preview
-            arc_len = _beam_arc_length(span, rise, st.session_state["ws_ss_curve_type"])
-            if desired_spacing > 0:
-                raw_segments = arc_len / desired_spacing
-                n_segments = max(2, int(round(raw_segments)))
-                actual_spacing = arc_len / n_segments if n_segments > 0 else 0
-                total_cable = arc_len * 2  # both beams
-
-                st.markdown(
-                    '<div class="ws-preview-box">'
-                    'Beam arc length (one beam): <span class="num">'
-                    + ("%.2f m" % arc_len) + '</span><br>'
-                    'Actual equal spacing: <span class="num">'
-                    + ("%.2f m" % actual_spacing) + '</span><br>'
-                    'Number of segments per beam: <span class="num">'
-                    + str(n_segments) + '</span><br>'
-                    'Total edge cable length (both beams): <span class="num">'
-                    + ("%.2f m" % total_cable) + '</span>'
-                    '</div>',
-                    unsafe_allow_html=True,
-                )
 
     # =========================================================================
     # ACTIONS
