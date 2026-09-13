@@ -9,7 +9,9 @@
 #   Each cable runs from a beam attach point DOWN and OUTWARD.
 #   Anchor is offset in BOTH x and y from the beam attach point.
 #   Symmetric pattern about the centre of the span.
-#   Cables form a fence perimeter effect around the structure.
+#   Attach points distributed across the outer 70% of the span
+#   (t_min=0.15, t_max=0.85) so they clear the beam peak and the
+#   very ends for any number of intervals N.
 # =============================================================================
 
 import math
@@ -88,10 +90,7 @@ def _beam_curve(x, span, rise, curve_type):
 # =============================================================================
 
 def generate_standard_saddle_figure():
-    """
-    Standard Saddle for the Results page.
-    Two curved beams, membrane, tie-down cables, ground anchors.
-    """
+    """Standard Saddle: two curved beams, membrane, tie-downs, anchors."""
     span = float(st.session_state.get("ws_ss_span", 20.0))
     apex = float(st.session_state.get("ws_ss_apex", 12.0))
     rise = float(st.session_state.get("ws_ss_rise", 2.5))
@@ -112,14 +111,13 @@ def generate_standard_saddle_figure():
     x = np.linspace(-span / 2.0, span / 2.0, n_pts)
     z_beam = _beam_curve(x, span, rise, curve_type)
 
-    # Two beams separated by width, converging at ends
     base_width = apex * 0.5
     y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
     y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
 
     fig = go.Figure()
 
-    # ---- Beams
+    # Beams
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode="lines",
@@ -133,7 +131,7 @@ def generate_standard_saddle_figure():
         name="Beam R",
     ))
 
-    # ---- Membrane surface (sags below the beams)
+    # Membrane
     n_u = 30
     n_v = 30
     X_surf = np.zeros((n_u, n_v))
@@ -164,12 +162,13 @@ def generate_standard_saddle_figure():
         name="Membrane",
     ))
 
-    # ---- Tie-down cables and anchors
-    # Each cable runs from a beam attach point DOWN and OUTWARD.
-    # Anchor is offset in BOTH x and y (fence perimeter pattern).
-    # Symmetric about the centre of the span.
+    # Tie-down cables and anchors
+    # Attach points distributed across outer 70% of span.
     for k in range(n_intervals):
-        t = (k + 1) / (n_intervals + 1)
+        t_min = 0.15
+        t_max = 0.85
+        t = t_min + (k + 1) / (n_intervals + 1) * (t_max - t_min)
+
         x_tie = -span / 2.0 + t * span
         idx = int(t * (n_pts - 1))
         idx = max(0, min(n_pts - 1, idx))
@@ -181,12 +180,8 @@ def generate_standard_saddle_figure():
             if drop <= 0:
                 drop = 0.5
 
-            # Horizontal component of the cable
             horizontal = drop / math.tan(math.radians(uplift)) if uplift > 0 else drop
 
-            # Split horizontal into x offset and y offset
-            # The x offset pushes the anchor OUTWARD along the span (away from centre)
-            # The y offset pushes the anchor OUTWARD from the beam
             x_offset = horizontal * 0.5
             y_offset = horizontal * 0.5 * math.tan(math.radians(spread))
 
@@ -199,7 +194,6 @@ def generate_standard_saddle_figure():
 
             anchor_y = y_beam + side * y_offset
 
-            # Cable from beam node to anchor
             fig.add_trace(go.Scatter3d(
                 x=[x_tie, anchor_x],
                 y=[y_beam, anchor_y],
@@ -210,7 +204,6 @@ def generate_standard_saddle_figure():
                 hoverinfo="skip",
             ))
 
-            # Anchor marker
             fig.add_trace(go.Scatter3d(
                 x=[anchor_x], y=[anchor_y], z=[0],
                 mode="markers",
@@ -219,7 +212,7 @@ def generate_standard_saddle_figure():
                 hoverinfo="skip",
             ))
 
-    # ---- Ground support points (beam ends)
+    # Ground supports
     fig.add_trace(go.Scatter3d(
         x=[-span / 2.0, span / 2.0],
         y=[0, 0],
@@ -229,7 +222,7 @@ def generate_standard_saddle_figure():
         name="Ground supports",
     ))
 
-    # Legend entry for tie-downs
+    # Legend dummy for tie-downs
     fig.add_trace(go.Scatter3d(
         x=[None], y=[None], z=[None],
         mode="lines",
@@ -245,11 +238,7 @@ def generate_standard_saddle_figure():
 # =============================================================================
 
 def generate_cantilever_leaf_figure():
-    """
-    Cantilever Leaf for the Results page.
-    Column, main beam, radial ribs, perimeter cables, membrane,
-    curved strut (at correct joint height), baseplate.
-    """
+    """Cantilever Leaf: column, spine, ribs, perimeter cables, membrane, strut."""
     col_h = float(st.session_state.get("ws_sl_column_height", 10.0))
     outreach = float(st.session_state.get("ws_sl_outreach", 10.0))
     ribs_per_side = int(st.session_state.get("ws_sl_ribs_per_side", 7))
@@ -267,15 +256,12 @@ def generate_cantilever_leaf_figure():
 
     fig = go.Figure()
 
-    # Column
     fig.add_trace(go.Scatter3d(
         x=[0, 0], y=[0, 0], z=[0, col_h],
         mode="lines",
         line=dict(color="#2ecc71", width=10),
         name="Column",
     ))
-
-    # Baseplate
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[0],
         mode="markers",
@@ -283,7 +269,6 @@ def generate_cantilever_leaf_figure():
         name="Baseplate",
     ))
 
-    # Main beam (spine)
     n_beam = 80
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
@@ -303,7 +288,6 @@ def generate_cantilever_leaf_figure():
     def rib_tilt_at(t):
         return math.radians(tilt_deg) * (math.sin(math.pi * t) ** 0.7)
 
-    # Ribs
     rib_ts = np.linspace(0.08, 0.92, ribs_per_side)
     rib_tip_left = []
     rib_tip_right = []
@@ -334,7 +318,6 @@ def generate_cantilever_leaf_figure():
         ))
         rib_tip_right.append((a_x, +half_w, tip_z))
 
-    # Perimeter cables
     if len(rib_tip_left) > 1:
         fig.add_trace(go.Scatter3d(
             x=[p[0] for p in rib_tip_left],
@@ -353,7 +336,6 @@ def generate_cantilever_leaf_figure():
             name="Perimeter R",
         ))
 
-    # Membrane
     n_u = 30
     n_v = 30
     X_surf = np.zeros((n_u, n_v))
@@ -383,7 +365,6 @@ def generate_cantilever_leaf_figure():
         name="Membrane",
     ))
 
-    # Curved strut
     idx_third = int(0.33 * (n_beam - 1))
     px = beam_x[idx_third]
     pz = beam_z[idx_third]
@@ -400,7 +381,6 @@ def generate_cantilever_leaf_figure():
         name="Curved strut",
     ))
 
-    # Strut joint node
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[strut_joint],
         mode="markers",
@@ -408,7 +388,6 @@ def generate_cantilever_leaf_figure():
         name="Strut joint",
     ))
 
-    # Column and leaf tip markers
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[col_h],
         mode="markers",
@@ -430,9 +409,6 @@ def generate_cantilever_leaf_figure():
 # =============================================================================
 
 def generate_results_figure(structure_key, variant_key):
-    """
-    Return the correct figure for the given structure + variant.
-    """
     if structure_key == "saddle_span" and variant_key == "standard_saddle":
         return generate_standard_saddle_figure()
     elif structure_key == "saddle_span" and variant_key == "cantilever_leaf":
