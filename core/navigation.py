@@ -1,22 +1,6 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Navigation Router
 # =============================================================================
-# Reads st.session_state.page and dispatches to the correct render function.
-#
-# Pages:
-#   landing      -> ui.landing.render_landing()
-#   studio       -> ui.studio.render_studio()
-#   registration -> ui.registration.render_registration()
-#   workshop     -> ui.workshop.render_workshop()
-#   results      -> ui.results.render_results()
-#   guided       -> placeholder (Smart Guided Design wizard, not yet built)
-#
-# Design decisions (agreed 2026-09-13):
-#   - Landing is the default page if none is set
-#   - Landing is a one-way door - Home always returns to Studio
-#   - Returning to Studio resets structure_key and variant_key
-#   - Unknown pages fall back to landing
-# =============================================================================
 
 import streamlit as st
 
@@ -56,13 +40,11 @@ def _render_guided():
         '<div style="color: #f39c12; font-size: 1.2rem; font-weight: 700; '
         'margin-bottom: 0.5rem;">Smart Guided Design</div>'
         '<div style="color: #c8d4e0; font-size: 0.95rem; line-height: 1.5;">'
-        'The guided design wizard is being built. '
-        'Please return to the Studio and choose a structure type directly.'
+        'Coming soon. Please return to Studio and pick a structure directly.'
         '</div>'
         '</div>',
         unsafe_allow_html=True,
     )
-    st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
     if st.button("Back to Studio", key="guided_back", use_container_width=True):
         st.session_state.page = "studio"
         st.rerun()
