@@ -2,17 +2,14 @@
 # SDSe Fluid Design Studio - Results Viewer
 # =============================================================================
 # Production 3D viewer for the Results page.
+# Reads inputs from st.session_state (workshop inputs).
+# Returns Plotly figures for st.plotly_chart().
 #
-# Takes inputs as parameters - no sidebar controls.
-# Returns a Plotly figure ready for st.plotly_chart().
-#
-# Design decisions (agreed 2026-09-13):
-#   - One viewer function per structure type
-#   - Reads workshop inputs from session state
-#   - Correct strut joint height for the leaf (60% of column)
-#   - Standard saddle includes tie-down cables and anchors
-#   - Leaf includes baseplate, anchors, and correct strut geometry
-#   - Member colouring by utilisation added later (Phase C)
+# Tie-down geometry (updated 2026-09-13):
+#   Each cable runs from a beam attach point DOWN and OUTWARD.
+#   Anchor is offset in BOTH x and y from the beam attach point.
+#   Symmetric pattern about the centre of the span.
+#   Cables form a fence perimeter effect around the structure.
 # =============================================================================
 
 import math
@@ -27,12 +24,9 @@ import streamlit as st
 # SHARED HELPERS
 # =============================================================================
 
-def _apply_common_layout(fig, rise_ref, extra_notes=None):
+def _apply_common_layout(fig, rise_ref):
     """Apply shared Plotly layout to any figure."""
     z_max = max(10, rise_ref * 1.5)
-    title_text = ""
-    if extra_notes:
-        title_text = extra_notes
 
     fig.update_layout(
         scene=dict(
@@ -89,35 +83,14 @@ def _beam_curve(x, span, rise, curve_type):
     return rise * (1.0 - x_norm ** 2)
 
 
-def _beam_arc_length(span, rise, curve_type):
-    """Approximate arc length of one beam."""
-    if span <= 0:
-        return 0.0
-    ratio = rise / span
-    if curve_type == "parabolic":
-        return span * (1.0 + (8.0 / 3.0) * ratio * ratio)
-    elif curve_type == "circular":
-        if rise <= 0:
-            return span
-        R = (span ** 2 + 4 * rise ** 2) / (8 * rise)
-        if R <= span / 2:
-            return span
-        half_angle = math.asin(span / (2 * R))
-        return 2 * R * half_angle
-    elif curve_type == "catenary":
-        return span * (1.0 + 2.5 * ratio * ratio)
-    return span
-
-
 # =============================================================================
 # STANDARD SADDLE FIGURE
 # =============================================================================
 
 def generate_standard_saddle_figure():
     """
-    Render the Standard Saddle for the Results page.
-    Reads inputs from st.session_state (workshop inputs).
-    Includes: two curved beams, membrane, tie-down cables, ground anchors.
+    Standard Saddle for the Results page.
+    Two curved beams, membrane, tie-down cables, ground anchors.
     """
     span = float(st.session_state.get("ws_ss_span", 20.0))
     apex = float(st.session_state.get("ws_ss_apex", 12.0))
@@ -192,9 +165,10 @@ def generate_standard_saddle_figure():
     ))
 
     # ---- Tie-down cables and anchors
-    # One tie-down at each interval, on each beam
+    # Each cable runs from a beam attach point DOWN and OUTWARD.
+    # Anchor is offset in BOTH x and y (fence perimeter pattern).
+    # Symmetric about the centre of the span.
     for k in range(n_intervals):
-        # Position along beam (interior spacing)
         t = (k + 1) / (n_intervals + 1)
         x_tie = -span / 2.0 + t * span
         idx = int(t * (n_pts - 1))
@@ -202,17 +176,28 @@ def generate_standard_saddle_figure():
 
         beam_z = z_beam[idx]
 
-        # Each tie-down anchors on both sides of the structure
         for side, y_beam in ((-1, y1[idx]), (+1, y2[idx])):
-            # Anchor offset from beam based on angles
             drop = beam_z
             if drop <= 0:
                 drop = 0.5
-            horizontal = drop / math.tan(math.radians(uplift)) if uplift > 0 else drop
-            lateral = horizontal * math.tan(math.radians(spread))
 
-            anchor_y = y_beam + side * lateral
-            anchor_x = x_tie
+            # Horizontal component of the cable
+            horizontal = drop / math.tan(math.radians(uplift)) if uplift > 0 else drop
+
+            # Split horizontal into x offset and y offset
+            # The x offset pushes the anchor OUTWARD along the span (away from centre)
+            # The y offset pushes the anchor OUTWARD from the beam
+            x_offset = horizontal * 0.5
+            y_offset = horizontal * 0.5 * math.tan(math.radians(spread))
+
+            if x_tie < 0:
+                anchor_x = x_tie - x_offset
+            elif x_tie > 0:
+                anchor_x = x_tie + x_offset
+            else:
+                anchor_x = x_tie + x_offset
+
+            anchor_y = y_beam + side * y_offset
 
             # Cable from beam node to anchor
             fig.add_trace(go.Scatter3d(
@@ -244,7 +229,7 @@ def generate_standard_saddle_figure():
         name="Ground supports",
     ))
 
-    # Legend dummy entries for tie-downs
+    # Legend entry for tie-downs
     fig.add_trace(go.Scatter3d(
         x=[None], y=[None], z=[None],
         mode="lines",
@@ -261,17 +246,15 @@ def generate_standard_saddle_figure():
 
 def generate_cantilever_leaf_figure():
     """
-    Render the Cantilever Leaf for the Results page.
-    Reads inputs from st.session_state (workshop inputs).
-    Includes: column, main beam, radial ribs, perimeter cables,
-    membrane, curved strut (at correct joint height), baseplate.
+    Cantilever Leaf for the Results page.
+    Column, main beam, radial ribs, perimeter cables, membrane,
+    curved strut (at correct joint height), baseplate.
     """
     col_h = float(st.session_state.get("ws_sl_column_height", 10.0))
     outreach = float(st.session_state.get("ws_sl_outreach", 10.0))
     ribs_per_side = int(st.session_state.get("ws_sl_ribs_per_side", 7))
     tilt_deg = float(st.session_state.get("ws_sl_rib_tilt", 20))
     arc_r = float(st.session_state.get("ws_sl_arc_radius", 5.0))
-    curve_type = st.session_state.get("ws_sl_curve_type", "parabolic")
     strut_joint = float(st.session_state.get("ws_sl_strut_joint_height", col_h * 0.6))
 
     if col_h <= 0 or outreach <= 0:
@@ -284,7 +267,7 @@ def generate_cantilever_leaf_figure():
 
     fig = go.Figure()
 
-    # ---- Column
+    # Column
     fig.add_trace(go.Scatter3d(
         x=[0, 0], y=[0, 0], z=[0, col_h],
         mode="lines",
@@ -292,7 +275,7 @@ def generate_cantilever_leaf_figure():
         name="Column",
     ))
 
-    # ---- Baseplate
+    # Baseplate
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[0],
         mode="markers",
@@ -300,7 +283,7 @@ def generate_cantilever_leaf_figure():
         name="Baseplate",
     ))
 
-    # ---- Main beam (curved spine from column top outward)
+    # Main beam (spine)
     n_beam = 80
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
@@ -314,14 +297,13 @@ def generate_cantilever_leaf_figure():
         name="Main beam",
     ))
 
-    # ---- Leaf envelope
     def leaf_half_width(t):
         return outreach * 0.42 * (np.sin(np.pi * t) ** 0.7)
 
     def rib_tilt_at(t):
         return math.radians(tilt_deg) * (math.sin(math.pi * t) ** 0.7)
 
-    # ---- Ribs
+    # Ribs
     rib_ts = np.linspace(0.08, 0.92, ribs_per_side)
     rib_tip_left = []
     rib_tip_right = []
@@ -334,7 +316,6 @@ def generate_cantilever_leaf_figure():
         tilt = rib_tilt_at(t)
         tip_z = a_z + half_w * math.tan(tilt)
 
-        # Left rib
         fig.add_trace(go.Scatter3d(
             x=[a_x, a_x], y=[0, -half_w], z=[a_z, tip_z],
             mode="lines",
@@ -344,7 +325,6 @@ def generate_cantilever_leaf_figure():
         ))
         rib_tip_left.append((a_x, -half_w, tip_z))
 
-        # Right rib
         fig.add_trace(go.Scatter3d(
             x=[a_x, a_x], y=[0, +half_w], z=[a_z, tip_z],
             mode="lines",
@@ -354,7 +334,7 @@ def generate_cantilever_leaf_figure():
         ))
         rib_tip_right.append((a_x, +half_w, tip_z))
 
-    # ---- Perimeter cables (segments between rib tips)
+    # Perimeter cables
     if len(rib_tip_left) > 1:
         fig.add_trace(go.Scatter3d(
             x=[p[0] for p in rib_tip_left],
@@ -373,7 +353,7 @@ def generate_cantilever_leaf_figure():
             name="Perimeter R",
         ))
 
-    # ---- Membrane
+    # Membrane
     n_u = 30
     n_v = 30
     X_surf = np.zeros((n_u, n_v))
@@ -403,16 +383,14 @@ def generate_cantilever_leaf_figure():
         name="Membrane",
     ))
 
-    # ---- Curved strut (from 1/3 of main beam to column at strut_joint height)
+    # Curved strut
     idx_third = int(0.33 * (n_beam - 1))
     px = beam_x[idx_third]
     pz = beam_z[idx_third]
 
-    # Curve path from strut start to column joint
     t_s = np.linspace(0, 1, 25)
     sx = px * (1 - t_s)
     sz_base = pz + (strut_joint - pz) * t_s
-    # Small arch to give it a curved appearance
     sz = sz_base + 0.1 * math.sin(math.pi * t_s) * (pz - strut_joint) * 0.5
 
     fig.add_trace(go.Scatter3d(
@@ -422,7 +400,7 @@ def generate_cantilever_leaf_figure():
         name="Curved strut",
     ))
 
-    # ---- Column joint node (where strut meets column)
+    # Strut joint node
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[strut_joint],
         mode="markers",
@@ -430,7 +408,7 @@ def generate_cantilever_leaf_figure():
         name="Strut joint",
     ))
 
-    # ---- Column node and leaf tip markers
+    # Column and leaf tip markers
     fig.add_trace(go.Scatter3d(
         x=[0], y=[0], z=[col_h],
         mode="markers",
@@ -454,7 +432,6 @@ def generate_cantilever_leaf_figure():
 def generate_results_figure(structure_key, variant_key):
     """
     Return the correct figure for the given structure + variant.
-    Falls back to an empty figure with a note if not yet supported.
     """
     if structure_key == "saddle_span" and variant_key == "standard_saddle":
         return generate_standard_saddle_figure()
