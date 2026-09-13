@@ -17,6 +17,10 @@
 #   The public entry point dispatches on variant_key alone.
 #   Variant keys are globally unique, so the viewer does not need
 #   to know which main structure type the variant sits under.
+#
+# Strut geometry fix (2026-09-14):
+#   math.sin replaced with np.sin where the argument is a NumPy
+#   array. Python's math module only accepts scalars.
 # =============================================================================
 
 import math
@@ -291,7 +295,7 @@ def generate_cantilever_leaf_figure():
         return outreach * 0.42 * (np.sin(np.pi * t) ** 0.7)
 
     def rib_tilt_at(t):
-        return math.radians(tilt_deg) * (math.sin(np.pi * t) ** 0.7)
+        return math.radians(tilt_deg) * (math.sin(math.pi * t) ** 0.7)
 
     rib_ts = np.linspace(0.08, 0.92, ribs_per_side)
     rib_tip_left = []
@@ -377,7 +381,7 @@ def generate_cantilever_leaf_figure():
     t_s = np.linspace(0, 1, 25)
     sx = px * (1 - t_s)
     sz_base = pz + (strut_joint - pz) * t_s
-    sz = sz_base + 0.1 * math.sin(math.pi * t_s) * (pz - strut_joint) * 0.5
+    sz = sz_base + 0.1 * np.sin(np.pi * t_s) * (pz - strut_joint) * 0.5
 
     fig.add_trace(go.Scatter3d(
         x=sx, y=np.zeros_like(sx), z=sz,
