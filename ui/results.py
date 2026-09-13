@@ -1,4 +1,4 @@
-# Results page - simplified for 3D view testing
+# Results page - with Section Used panel
 import streamlit as st
 from viewers.results_viewer import generate_results_figure
 
@@ -51,6 +51,33 @@ def render_results():
         '<div style="font-size: 3rem; font-weight: 800; color: #2ecc71;">100</div>'
         '<div style="color: #d0dff0; font-size: 0.9rem; margin-top: 0.5rem; '
         'letter-spacing: 1.5px; text-transform: uppercase;">Design Healthy</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div style="color: #f39c12; font-weight: 700; '
+        'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">Section Used</div>',
+        unsafe_allow_html=True,
+    )
+
+    fallback_section = "CHS 168.3x7.1"
+    if sk == "saddle_span" and vk == "cantilever_leaf":
+        fallback_section = "CHS 323.8x8.0 / CHS 168.3x7.1"
+
+    st.markdown(
+        '<div style="background: #121e2e; border: 1px solid #1e2a3a; '
+        'border-left: 4px solid #f39c12; border-radius: 8px; '
+        'padding: 1rem 1.2rem; margin-bottom: 0.8rem;">'
+        '<div style="color: #a8b8c8; font-size: 0.78rem; '
+        'text-transform: uppercase; letter-spacing: 0.5px; '
+        'margin-bottom: 0.3rem;">Primary member section</div>'
+        '<div style="color: #ffffff; font-size: 1.15rem; font-weight: 700; '
+        'font-family: monospace;">' + fallback_section + '</div>'
+        '<div style="color: #a8b8c8; font-size: 0.72rem; '
+        'margin-top: 0.4rem; font-style: italic;">'
+        'Placeholder. Engine will auto-select the optimal section.'
+        '</div>'
         '</div>',
         unsafe_allow_html=True,
     )
