@@ -25,10 +25,9 @@ VARIANTS_FALLBACK = {
          "description": "Multi-leaf layered spiral. Future vision.",
          "available": False},
     ],
-    "tensile True_sails": [
-        {"key":},
- "hypar_sail_3",        "name": "Hypar {" Sail - 3 Anchors",
-key         "description": "Triangular hy":par. Three anchor points at user-defined positions and heights.",
+    "tensile_true_sails": [
+        {"key": "hypar_sail_3", "name": "Hypar Sail - 3 Anchors",
+         "description": "Triangular hypar. Three anchor points at user-defined positions and heights.",
          "available": True},
         {"key": "hypar_sail_4", "name": "Hypar Sail - 4 Anchors",
          "description": "Classic quad hypar. Four anchor points at user-defined positions and heights.",
@@ -60,7 +59,8 @@ key         "description": "Triangular hy":par. Three anchor points at user-defi
     "unipole_tensile": [
         {"key": "single_cone", "name": "Single Cone",
          "description": "Radial symmetry. One mast with cone fabric and ring cable.",
-         "available": "multi_cone_cluster", "name": "Multi-Cone Cluster",
+         "available": True},
+        {"key": "multi_cone_cluster", "name": "Multi-Cone Cluster",
          "description": "Multiple cone units in a cluster.",
          "available": True},
         {"key": "umbrella", "name": "Umbrella",
