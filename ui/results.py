@@ -1,4 +1,4 @@
-# Results page - with Section Used and Analysis Readings
+# Results page - with Section Used, Analysis Readings, and Quantities
 import streamlit as st
 from viewers.results_viewer import generate_results_figure
 
@@ -124,6 +124,45 @@ def render_results():
         'font-size: 0.82rem; color: #c8d4e0; line-height: 1.5;">'
         'Readings populate when the engine is connected. '
         'The 3D view above is generated from the geometry you provided.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div style="color: #f39c12; font-weight: 700; '
+        'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">Quantities</div>',
+        unsafe_allow_html=True,
+    )
+
+    def qty_card(label, value, unit):
+        return (
+            '<div style="background: #121e2e; border: 1px solid #1e2a3a; '
+            'border-left: 4px solid #f39c12; border-radius: 8px; '
+            'padding: 0.9rem 1rem;">'
+            '<div style="color: #a8b8c8; font-size: 0.72rem; '
+            'text-transform: uppercase; letter-spacing: 0.5px;">'
+            + label + '</div>'
+            '<div style="color: #ffffff; font-size: 1.25rem; font-weight: 700; '
+            'margin-top: 0.35rem; font-family: monospace;">'
+            + value + '<span style="color: #a8b8c8; font-size: 0.78rem; '
+            'margin-left: 4px;">' + unit + '</span></div>'
+            '</div>'
+        )
+
+    q1, q2, q3 = st.columns(3)
+    with q1:
+        st.markdown(qty_card("Steel Weight", "--", "kg"), unsafe_allow_html=True)
+    with q2:
+        st.markdown(qty_card("Cable Length", "--", "m"), unsafe_allow_html=True)
+    with q3:
+        st.markdown(qty_card("Fabric Area", "--", "m2"), unsafe_allow_html=True)
+
+    st.markdown(
+        '<div style="background: #0d1620; border-left: 3px solid #4a7a9c; '
+        'padding: 0.7rem 0.9rem; border-radius: 4px; margin: 0.5rem 0; '
+        'font-size: 0.82rem; color: #c8d4e0; line-height: 1.5;">'
+        'Quantities populate when the engine is connected. '
+        'Values shown here will reflect the final optimised design.'
         '</div>',
         unsafe_allow_html=True,
     )
