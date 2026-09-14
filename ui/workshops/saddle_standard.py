@@ -14,8 +14,7 @@
 #   - Foundation section with a small "Default" button above the inputs
 #   - Pretension inputs define TARGET STRESS STATE for form-finding
 #   - No fixed segment spacing on edge cables
-#   - "Add. Pay Load" for user-supplied equipment loads (stage, sound,
-#     lighting). Self weight and wind are applied silently by the engine.
+#   - "Add. Pay Load" for user-supplied equipment loads
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
 #
@@ -118,6 +117,13 @@ def _validate_geometry(span, apex, rise):
         elif ratio > 0.5:
             warnings.append("Rise / Span ratio is very high. Check anchor capacity.")
     return warnings
+
+
+
+
+
+
+
 
 
 # =============================================================================
@@ -281,6 +287,14 @@ def render_saddle_standard():
                 "Engine will auto-select a unified section for chords and webs."
             )
 
+
+
+
+
+
+
+
+
     # =========================================================================
     # SECTION 4 - GROUND SUPPORTS
     # =========================================================================
@@ -431,6 +445,14 @@ def render_saddle_standard():
             "based on the computed tension under the target stress state."
         )
 
+
+
+
+
+
+
+
+
     # =========================================================================
     # SECTION 6 - BASEPLATE AND PRELIMINARY FOUNDATION
     # =========================================================================
@@ -473,12 +495,12 @@ def render_saddle_standard():
                 key="ws_ss_soil_bearing_input_" + str(gen),
                 help="From geotechnical investigation. Typical: sand 150, clay 100, rock 500.",
             )
-            st.session_state["ws_ss_soil._bearing"] = bearing
-       0 with col2:
-           ,
- water = st.number_input(
-                "               Water Table Depth (m)",
-                min_value=0. value5, max_value=20=float(st.session_state["ws_ss_water_table"]),
+            st.session_state["ws_ss_soil_bearing"] = bearing
+        with col2:
+            water = st.number_input(
+                "Water Table Depth (m)",
+                min_value=0.5, max_value=20.0,
+                value=float(st.session_state["ws_ss_water_table"]),
                 step=0.5,
                 key="ws_ss_water_table_input_" + str(gen),
             )
