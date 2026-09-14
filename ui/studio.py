@@ -4,7 +4,7 @@
 # The structure type selection page. Appears after the user taps
 # "Enter The Studio" on the landing page.
 #
-# Design (agreed 2026-09-13):
+# Design (agreed 2026-09-13, tightened 2026-09-14):
 #   - 8 structure type tiles across 2 sections
 #   - "Smart Guided Design" tile at the top
 #   - Small SDSe wordmark top-left
@@ -13,6 +13,7 @@
 #   - Each tile: icon + name + one-line description
 #   - Tapping a structure type advances to Registration
 #   - Tapping Guided Design starts the wizard (placeholder for now)
+#   - Top gap trimmed to match landing page tightness
 # =============================================================================
 
 import streamlit as st
@@ -23,8 +24,6 @@ from data.structures import STRUCTURE_TYPES
 # =============================================================================
 # THE EIGHT FINAL STRUCTURE TYPES - IN TWO SECTIONS
 # =============================================================================
-# Only these are shown on the Studio page. Others exist in the data
-# but are not yet exposed.
 
 STUDIO_SECTION_A = [
     "saddle_span",
@@ -44,8 +43,6 @@ STUDIO_SECTION_B = [
 # =============================================================================
 # FALLBACK NAMES AND DESCRIPTIONS
 # =============================================================================
-# In case data/structures.py does not yet contain entries with these keys,
-# we provide defaults here.
 
 STUDIO_FALLBACK = {
     "saddle_span": {
@@ -97,13 +94,21 @@ STUDIO_FALLBACK = {
 
 STUDIO_CSS = """
     <style>
+    /* Trim Streamlit's default top gap on the studio page */
+    .stApp > header { display: none !important; }
+    .block-container {
+        padding-top: 1.2rem !important;
+        padding-bottom: 2rem !important;
+        max-width: 640px;
+    }
+
     .studio-topbar {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 0.5rem 0 1rem 0;
+        padding: 0 0 0.6rem 0;
         border-bottom: 1px solid #1e2a3a;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.2rem;
     }
     .studio-wordmark {
         font-size: 1.1rem;
@@ -115,19 +120,19 @@ STUDIO_CSS = """
         font-size: 1.6rem;
         font-weight: 700;
         color: #ffffff;
-        margin: 1rem 0 0.3rem 0;
+        margin: 0.4rem 0 0.3rem 0;
         letter-spacing: 0.5px;
     }
     .studio-section-sub {
         font-size: 0.9rem;
         color: #a8b8c8;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.2rem;
     }
     .studio-subsection-header {
         font-size: 1.05rem;
         font-weight: 700;
         color: #f39c12;
-        margin: 1.6rem 0 0.8rem 0;
+        margin: 1.4rem 0 0.7rem 0;
         letter-spacing: 0.8px;
         text-transform: uppercase;
         border-bottom: 1px solid #1e2a3a;
@@ -190,19 +195,18 @@ STUDIO_CSS = """
         background: linear-gradient(90deg, #f39c12 0%, #f1c40f 100%);
         border-radius: 12px;
         padding: 1.2rem 1.2rem;
-        margin-bottom: 1.6rem;
+        margin-bottom: 1.4rem;
         transition: all 0.25s ease;
         border: none;
     }
     .guided-tile:hover {
         transform: translateX(4px);
-        box-shadow: 0 6px 24px rgba(243, 156, 18,rem 0.35);
-   ;
- }
-    .guided-tile       -icon {
-        width:  font52px;
--weight        height: 52px;
-:        min-width: 52px;
+        box-shadow: 0 6px 24px rgba(243, 156, 18, 0.35);
+    }
+    .guided-tile-icon {
+        width: 52px;
+        height: 52px;
+        min-width: 52px;
         border-radius: 50%;
         background-color: rgba(10, 14, 23, 0.2);
         display: flex;
@@ -217,7 +221,8 @@ STUDIO_CSS = """
         text-align: left;
     }
     .guided-tile-name {
-        font-size: 1.1 700;
+        font-size: 1.1rem;
+        font-weight: 700;
         color: #0a0e17;
         margin: 0 0 0.2rem 0;
     }
