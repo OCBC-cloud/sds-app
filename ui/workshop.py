@@ -32,14 +32,14 @@ VARIANT_REGISTRY = {
         "module": "ui.workshops.saddle_standard",
         "function": "render_saddle_standard",
     },
+    "frame_supported_saddle": {
+        "module": "ui.workshops.saddle_frame",
+        "function": "render_saddle_frame",
+    },
+    # Cantilever family
     "cantilever_leaf": {
         "module": "ui.workshops.saddle_leaf",
         "function": "render_saddle_leaf",
-    },
-    # Frame Supported Saddle - not yet built
-    "frame_supported_saddle": {
-        "module": None,
-        "function": None,
     },
     # Cantilever Flower - not yet built
     "cantilever_flower": {
@@ -49,10 +49,8 @@ VARIANT_REGISTRY = {
     # Tensile Sails family - not yet built
     "hypar_sail_3": {"module": None, "function": None},
     "hypar_sail_4": {"module": None, "function": None},
-    "ridge_sail": {"module": None, "function": None},
-    "multiple_sails": {"module": None, "function": None},
-    "wall_sail": {"module": None, "function": None},
-    "column_sail": {"module": None, "function": None},
+    "multiple_wall_sails": {"module": None, "function": None},
+    "multiple_column_sails": {"module": None, "function": None},
     # Framed Tensile family - not yet built
     "simple_frame": {"module": None, "function": None},
     "arched_frame": {"module": None, "function": None},
@@ -61,19 +59,22 @@ VARIANT_REGISTRY = {
     "single_cone": {"module": None, "function": None},
     "multi_cone_cluster": {"module": None, "function": None},
     "umbrella": {"module": None, "function": None},
-    # Canopy family - not yet built
-    "cantilever_flat": {"module": None, "function": None},
-    "cantilever_bell": {"module": None, "function": None},
-    "cantilever_pyramid": {"module": None, "function": None},
+    # Cantilever family - not yet built
     "cantilever_cone": {"module": None, "function": None},
-    "cable_supported": {"module": None, "function": None},
-    "wall_mounted": {"module": None, "function": None},
+    "cantilever_pyramid": {"module": None, "function": None},
+    "cantilever_bell": {"module": None, "function": None},
+    "cantilever_sail": {"module": None, "function": None},
+    "cantilever_hypar": {"module": None, "function": None},
+    # Canopy family - not yet built
+    "wall_mounted_shade": {"module": None, "function": None},
+    "cable_supported_shade": {"module": None, "function": None},
     "tree_canopy": {"module": None, "function": None},
     # Frame Tent family - not yet built
     "pyramid_tent": {"module": None, "function": None},
-    "gable_tent": {"module": None, "function": None},
-    "hip_tent": {"module": None, "function": None},
-    "sail_tent": {"module": None, "function": None},
+    "modular_tent": {"module": None, "function": None},
+    "cone_tent": {"module": None, "function": None},
+    "a_frame_tent": {"module": None, "function": None},
+    "arch_tent": {"module": None, "function": None},
     # Portal Frame family - not yet built
     "simple_portal": {"module": None, "function": None},
     "portal_with_mezzanine": {"module": None, "function": None},
@@ -162,8 +163,7 @@ def render_workshop():
             variant_name,
             reason=(
                 "The design workshop for this variant is being built. "
-                "Check back soon. Only Standard Saddle and Cantilever Leaf "
-                "have workshops available at this stage."
+                "Check back soon."
             ),
         )
         _render_back_button()
@@ -228,3 +228,10 @@ def _render_back_button():
     if st.button("Back to Registration", key="ws_back", use_container_width=True):
         st.session_state.page = "registration"
         st.rerun()
+
+
+
+
+
+
+
