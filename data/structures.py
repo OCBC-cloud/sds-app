@@ -1,18 +1,24 @@
 # =============================================================================
 # SDSe - Structure Types Catalogue
 # =============================================================================
-# Canonical list of structure types and their variants.
+# Canonical list of structure types, their variants, and the members
+# that appear in each.
 #
 # STRUCTURE_TYPES    - main structure types (8 in Phase 1)
 # STRUCTURE_VARIANTS - sub-types under each main type
+# MEMBER_SCHEMA      - members present in each structure + variant
 #
 # Usage:
-#   from data.structures import STRUCTURE_TYPES, STRUCTURE_VARIANTS
+#   from data.structures import (
+#       STRUCTURE_TYPES, STRUCTURE_VARIANTS, MEMBER_SCHEMA
+#   )
 #
 # History:
 #   2026-09-13 - Reduced from 27 legacy types to 8 final mains.
 #                Cantilever promoted to a main type.
-#                Leaf and Flower moved out of Saddle Span.
+#   2026-09-14 - Added MEMBER_SCHEMA for Member Schedule display.
+#                Planar truss (4 members) distinguished from
+#                3D/space truss (5 members).
 # =============================================================================
 
 STRUCTURE_TYPES = {
@@ -180,6 +186,128 @@ STRUCTURE_VARIANTS = {
 }
 
 
+# =============================================================================
+# MEMBER SCHEMA
+# =============================================================================
+# Maps (structure_key, variant_key) to the list of members that appear
+# in the Member Schedule for that structure.
+#
+# For structures with a truss option on the beam, the schema uses a
+# special marker for the beam type. The Results page reads the current
+# beam construction type from session state and expands it into the
+# correct chord rows.
+#
+# Member row format: a dict with
+#   key       - internal key for the row
+#   label     - display name
+#   section   - placeholder section label (engine fills in later)
+#   note      - optional note shown under the label
+#
+# Truss expansions:
+#   PLANAR_TRUSS = top, bottom, vertical, diagonal
+#   SPACE_TRUSS  = top, bottom, vertical, horizontal, diagonal
+#
+# IMPORTANT: planar truss is 2D. It has NO horizontal chord.
+# =============================================================================
+
+# Reusable truss member row templates
+_PLANAR_TRUSS_ROWS = [
+    {"key": "truss_top", "label": "Top Chord",
+     "section": "CHS --", "note": ""},
+    {"key": "truss_bot", "label": "Bottom Chord",
+     "section": "CHS --", "note": ""},
+    {"key": "truss_vert", "label": "Vertical Chord",
+     "section": "CHS --", "note": ""},
+    {"key": "truss_diag", "label": "Diagonal Chord",
+     "section": "CHS --", "note": ""},
+]
+
+_SPACE_TRUSS_ROWS = [
+    {"key": "truss_top", "label": "Top Chord",
+     "section": "CHS --", "note": ""},
+    {"key": "truss_bot", "label": "Bottom Chord",
+     "section": "CHS --", "note": ""},
+    {"key": "truss_vert", "label": "Vertical Chord",
+     "section": "CHS --", "note": ""},
+    {"key": "truss_horiz", "label": "Horizontal Chord",
+     "section": "CHS --", "note": ""},
+    {"key": "truss_diag", "label": "Diagonal Chord",
+     "section": "CHS --", "note": ""},
+]
+
+
+MEMBER_SCHEMA = {
+    # ---- Saddle Span - Standard Saddle
+    # Members: membrane + beam + cable
+    # Beam expands by construction type
+    ("saddle_span", "standard_saddle"): {
+        "membrane_first": True,
+        "beam_expandable": True,
+        "beam_label_single": "Main Beam",
+        "cables_last": [
+            {"key": "tiedown_cable", "label": "Tie-down Cables",
+             "section": "SS 6x19 --", "note": "Uplift resistance"},
+        ],
+    },
+
+    # ---- Saddle Span - Frame Supported Saddle
+    # Members: membrane + beam + purlins + strut + cable
+    ("saddle_span", "frame_supported_saddle"): {
+        "membrane_first": True,
+        "beam_expandable": True,
+        "beam_label_single": "Main Beam",
+        "purlins_expandable": True,
+        "extra_rows_before_cables": [
+            {"key": "strut", "label": "Strut / Rigid Support",
+             "section": "CHS --", "note": "Replaces tie-down uplift action"},
+        ],
+        "cables_last": [
+            {"key": "tiedown_cable", "label": "Tie-down Cables",
+             "section": "SS 6x19 --", "note": "Uplift resistance"},
+        ],
+    },
+
+    # ---- Cantilever - Cantilever Leaf
+    # Members: membrane + column + ribs + perimeter cable
+    ("cantilever", "cantilever_leaf"): {
+        "membrane_first": True,
+        "fixed_middle": [
+            {"key": "column", "label": "Column (Uni-Pole)",
+             "section": "CHS --", "note": "Base fixed"},
+            {"key": "spine", "label": "Curved Spine",
+             "section": "CHS --", "note": "Main beam"},
+            {"key": "ribs", "label": "Radial Ribs",
+             "section": "CHS --", "note": "Both sides"},
+        ],
+        "cables_last": [
+            {"key": "perimeter_cable", "label": "Perimeter Cable",
+             "section": "SS 6x19 --", "note": "Follows membrane edge"},
+        ],
+    },
+}
+
+
+def expand_beam_rows(construction_type):
+    """
+    Return the list of member rows for a beam of the given
+    construction type.
+
+    construction_type:
+      "single_beam"  -> one row
+      "planar_truss" -> 4 rows (top, bottom, vertical, diagonal)
+      "space_truss"  -> 5 rows (top, bottom, vertical, horizontal, diagonal)
+    """
+    if construction_type == "planar_truss":
+        return [dict(r) for r in _PLANAR_TRUSS_ROWS]
+    if construction_type == "space_truss":
+        return [dict(r) for r in _SPACE_TRUSS_ROWS]
+    # Default: single beam
+    return [
+        {"key": "main_beam", "label": "Main Beam",
+         "section": "CHS --", "note": ""},
+    ]
+
+
 def get_structure(key):
     """Return the structure dict for a given key, or None."""
     return STRUCTURE_TYPES.get(key)
@@ -188,6 +316,11 @@ def get_structure(key):
 def get_variants(key):
     """Return the list of variants for a given structure key."""
     return STRUCTURE_VARIANTS.get(key, [])
+
+
+def get_member_schema(structure_key, variant_key):
+    """Return the member schema for a structure+variant, or None."""
+    return MEMBER_SCHEMA.get((structure_key, variant_key))
 
 
 def get_all_categories():
