@@ -12,17 +12,11 @@
 #   - Mixed widgets: numbers, sliders, selectboxes, radios
 #   - Custom-styled section headers (accent orange)
 #   - Cable diameter is always automatic
-#   - Foundation section standardised to match Cantilever Leaf
+#   - Foundation section with local "Use typical suburban values" button
 #   - Pretension inputs define TARGET STRESS STATE for form-finding
 #   - No fixed segment spacing on edge cables - engine places them
-#     where the membrane geometry demands (industry practice)
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
-#
-# Form-finding note (per industry practice - Easy, RFEM, RhinoMembrane):
-#   Geometry is NOT drawn by the user. It emerges from equilibrium.
-#   The user sets target membrane stress and target cable tension.
-#   The solver (Phase C engine) finds the shape that satisfies both.
 # =============================================================================
 
 import streamlit as st
@@ -182,6 +176,17 @@ def _section_header(title, help_text=""):
     st.markdown(html, unsafe_allow_html=True)
 
 
+def _apply_typical_foundation_defaults(prefix):
+    """
+    Apply typical suburban soil/foundation values to session state.
+    Local default only - affects the four soil inputs, nothing else.
+    """
+    st.session_state[prefix + "_soil_bearing"] = 150.0
+    st.session_state[prefix + "_soil_type"] = "sand"
+    st.session_state[prefix + "_water_table"] = 3.0
+    st.session_state[prefix + "_foundation_type"] = "pad"
+
+
 # =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
@@ -223,7 +228,8 @@ def render_saddle_standard():
         _section_header(
             "Geometry",
             "Overall dimensions of the saddle span. "
-            "Span is the long dimension. Apex-to-Apex is the width. Rise is the vertical height of the beam apex."
+            "Span is the long dimension. Apex-to-Apex is the width. "
+            "Rise is the vertical height of the beam apex."
         )
 
         col1, col2 = st.columns(2)
@@ -598,6 +604,16 @@ def render_saddle_standard():
             '</div>',
             unsafe_allow_html=True,
         )
+
+        # ---- Local default button (affects only the four soil inputs)
+        st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
+        if st.button(
+            "Use typical suburban values",
+            key="ws_ss_found_default",
+            use_container_width=True,
+        ):
+            _apply_typical_foundation_defaults("ws_ss")
+            st.rerun()
 
     # =========================================================================
     # SECTION 7 - LOADS AND STANDARD
