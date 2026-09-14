@@ -17,6 +17,11 @@
 #   - No fixed segment spacing on edge cables - engine places them
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
+#
+# Local default button note (2026-09-14):
+#   Streamlit widget keys are separate from state keys. To make the
+#   button work, we must DELETE the widget keys so Streamlit recreates
+#   the widgets with the new state values on the next rerun.
 # =============================================================================
 
 import streamlit as st
@@ -179,12 +184,24 @@ def _section_header(title, help_text=""):
 def _apply_typical_foundation_defaults(prefix):
     """
     Apply typical suburban soil/foundation values to session state.
-    Local default only - affects the four soil inputs, nothing else.
+    Also clears the widget keys so Streamlit recreates the widgets
+    with the new values on the next rerun.
     """
     st.session_state[prefix + "_soil_bearing"] = 150.0
     st.session_state[prefix + "_soil_type"] = "sand"
     st.session_state[prefix + "_water_table"] = 3.0
     st.session_state[prefix + "_foundation_type"] = "pad"
+
+    # Clear widget keys so Streamlit recreates them from the state values
+    widget_keys = [
+        prefix + "_soil_bearing_input",
+        prefix + "_water_table_input",
+        prefix + "_soil_type_select",
+        prefix + "_found_type_select",
+    ]
+    for k in widget_keys:
+        if k in st.session_state:
+            del st.session_state[k]
 
 
 # =============================================================================
@@ -654,11 +671,11 @@ def render_saddle_standard():
 
     # =========================================================================
     # SECTION 8 - MEMBRANE-TO-BEAM ATTACHMENT
-    # =========================================================================
-    with st.expander("8. Membrane-to-Beam Attachment", expanded=False):
-        _section_header(
-            "Membrane-to-Beam Attachment",
-            "How the fabric edge is attached to the curved beams."
+    # ========================================================================= =
+    with st.expander("8. Membrane-to attach-Beam Attachment", expanded=False):
+_options        _section_header(
+            "Membrane-to-Beam Attachment[",
+            "How the fabric edge is attached to the curvedattach beams."
         )
 
         attach_options = ["kader", "segmented"]
@@ -673,7 +690,7 @@ def render_saddle_standard():
             index=at_idx,
             key="ws_ss_attachment_radio",
         )
-        st.session_state["ws_ss_attachment_type"] = attach_options[attach_labels.index(at_choice)]
+        st.session_state["ws_ss_attachment_type"]_labels.index(at_choice)]
 
         if st.session_state["ws_ss_attachment_type"] == "kader":
             st.markdown(
