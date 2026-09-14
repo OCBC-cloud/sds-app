@@ -13,10 +13,14 @@
 #   - Cable diameter is always automatic
 #   - Foundation section with a small "Default" button above the inputs
 #   - Pretension inputs define TARGET STRESS STATE for form-finding
-#   - No fixed segment spacing on edge cables
+#   - Tie-down cables: radio (4 cables / 8 cables)
 #   - "Add. Pay Load" for user-supplied equipment loads
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
+#
+# Tie-down positions (arc-length fraction per beam, from nearest support):
+#   4 cables total -> 0.175, 0.825
+#   8 cables total -> 0.175, 0.225, 0.775, 0.825
 #
 # Silent load rules (engine applies, Phase C):
 #   Self weight       gamma_G = 1.2
@@ -71,7 +75,7 @@ def _init_defaults():
         "ws_ss_support_type_start": "pinned",
         "ws_ss_support_type_end": "pinned",
         # Section 5 - Tie-down cables + pretension
-        "ws_ss_tiedown_intervals": 3,
+        "ws_ss_tiedown_intervals": 4,
         "ws_ss_uplift_angle": 45,
         "ws_ss_spread_angle": 30,
         "ws_ss_cable_type": "6x19",
@@ -119,13 +123,6 @@ def _validate_geometry(span, apex, rise):
     return warnings
 
 
-
-
-
-
-
-
-
 # =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
@@ -136,7 +133,6 @@ def render_saddle_standard():
     _init_defaults()
 
     # Generation counter drives widget keys in Section 6.
-    # Bumped whenever the Default button is pressed.
     gen = int(st.session_state.get("ws_ss_found_widget_generation", 0))
 
     project_name = st.session_state.get("project_info", {}).get("name", "") or "Untitled Project"
@@ -256,6 +252,14 @@ def render_saddle_standard():
             )
             st.session_state["ws_ss_fabric_grade"] = grade
 
+
+
+
+
+
+
+
+
     # =========================================================================
     # SECTION 3 - MEMBERS
     # =========================================================================
@@ -286,14 +290,6 @@ def render_saddle_standard():
                 "Member will be a triangulated truss. "
                 "Engine will auto-select a unified section for chords and webs."
             )
-
-
-
-
-
-
-
-
 
     # =========================================================================
     # SECTION 4 - GROUND SUPPORTS
@@ -342,15 +338,19 @@ def render_saddle_standard():
             "They resist wind uplift and stabilise the structure."
         )
 
-        intervals = st.number_input(
-            "Number of Tie-down Intervals *",
-            min_value=1, max_value=20,
-            value=int(st.session_state["ws_ss_tiedown_intervals"]),
-            step=1,
-            key="ws_ss_tiedown_intervals_input",
-            help="How many tie-down points along each beam. One anchor per tie-down.",
+        # ---- Tie-down count: radio, 4 cables or 8 cables
+        td_options = [4, 8]
+        td_labels = ["4 cables", "8 cables"]
+        current_td = int(st.session_state.get("ws_ss_tiedown_intervals", 4))
+        td_idx = td_options.index(current_td) if current_td in td_options else 0
+        td_choice = st.radio(
+            "Number of Tie-down Cables *",
+            td_labels,
+            index=td_idx,
+            key="ws_ss_tiedown_radio",
+            help="Total tie-down cables for the structure. 4 = 2 per side, 8 = 4 per side.",
         )
-        st.session_state["ws_ss_tiedown_intervals"] = intervals
+        st.session_state["ws_ss_tiedown_intervals"] = td_options[td_labels.index(td_choice)]
 
         col1, col2 = st.columns(2)
         with col1:
