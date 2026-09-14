@@ -6,7 +6,7 @@
 # Purpose: impact page. Introduce the app. One button in. No scrolling.
 # Sets the design tone for the whole app.
 #
-# Design (agreed 2026-09-12):
+# Design (agreed 2026-09-12, tightened 2026-09-14):
 #   - Dark base #0a0e17
 #   - Accent orange #f39c12
 #   - Large title "SDSe"
@@ -14,7 +14,8 @@
 #   - Brand line "SDSe Fluid Design Studio"
 #   - Single button "Enter The Studio"
 #   - Footer "All Major EN Code"
-#   - Icon/emblem placeholder (to be added later)
+#   - Icon/emblem placeholder (to be replaced later)
+#   - Everything fits on one phone screen, no scrolling
 # =============================================================================
 
 import streamlit as st
@@ -26,34 +27,38 @@ import streamlit as st
 
 LANDING_CSS = """
     <style>
-    /* Full-height landing container, vertically centred */
+    /* Kill Streamlit's default top gap on the landing page */
+    .stApp > header { display: none !important; }
+    .block-container { padding-top: 0 !important; }
+
+    /* Landing container, vertically centred, sized to fit one screen */
     .landing-wrap {
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
         text-align: center;
-        min-height: 85vh;
-        padding: 2rem 1rem;
+        min-height: 70vh;
+        padding: 0.5rem 1rem;
     }
 
     .landing-logo-placeholder {
-        width: 90px;
-        height: 90px;
+        width: 80px;
+        height: 80px;
         border: 2px solid #f39c12;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.2rem;
         color: #f39c12;
-        font-size: 0.75rem;
+        font-size: 0.72rem;
         font-weight: 600;
         letter-spacing: 1px;
     }
 
     .landing-title {
-        font-size: 3.4rem;
+        font-size: 3.2rem;
         font-weight: 800;
         color: #ffffff;
         letter-spacing: 2px;
@@ -62,56 +67,47 @@ LANDING_CSS = """
     }
 
     .landing-subtitle {
-        font-size: 1.05rem;
+        font-size: 1rem;
         color: #c8d4e0;
         letter-spacing: 1.5px;
-        margin-top: 0.9rem;
+        margin-top: 0.8rem;
         margin-bottom: 0.15rem;
         font-weight: 400;
     }
 
     .landing-subtitle-2 {
-        font-size: 1.05rem;
+        font-size: 1rem;
         color: #c8d4e0;
         letter-spacing: 1.5px;
         margin-top: 0;
-        margin-bottom: 1.6rem;
+        margin-bottom: 1.2rem;
         font-weight: 400;
-    }
-
-    .landing-brand {
-        font-size: 0.95rem;
-        color: #f39c12;
-        letter-spacing: 2px;
-        text-transform: uppercase;
-        font-weight: 600;
-        margin-bottom: 2.5rem;
     }
 
     .landing-divider {
         width: 60px;
         height: 2px;
         background-color: #f39c12;
-        margin: 0 auto 2.5rem auto;
+        margin: 0 auto 1.5rem auto;
         border: none;
         border-radius: 1px;
     }
 
-    .landing-footer {
-        font-size: 0.8rem;
-        color: #a8b8c8;
-        letter-spacing: 1px;
-        margin-top: 3rem;
+    .landing-brand {
+        font-size: 0.9rem;
+        color: #f39c12;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        font-weight: 600;
+        margin-bottom: 2rem;
     }
 
-    /* Hide the default Streamlit elements on the landing page */
-    .stApp > header { display: none !important; }
-
-    /* The ENTER button, full-width up to a max */
-    .landing-btn-wrap {
-        width: 100%;
-        max-width: 320px;
-        margin: 0 auto;
+    .landing-footer {
+        font-size: 0.78rem;
+        color: #a8b8c8;
+        letter-spacing: 1px;
+        margin-top: 1.5rem;
+        text-align: center;
     }
     </style>
 """
@@ -128,7 +124,7 @@ def render_landing():
     """
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    # Everything inside a centred wrapper
+    # Everything inside a centred wrapper (including the button)
     st.markdown('<div class="landing-wrap">', unsafe_allow_html=True)
 
     # Logo placeholder (circle with initials) - to be replaced with a real emblem later
@@ -161,7 +157,12 @@ def render_landing():
     # Button in a narrow column, centred
     col_left, col_mid, col_right = st.columns([1, 2, 1])
     with col_mid:
-        if st.button("Enter The Studio", key="landing_enter", use_container_width=True, type="primary"):
+        if st.button(
+            "Enter The Studio",
+            key="landing_enter",
+            use_container_width=True,
+            type="primary",
+        ):
             st.session_state.page = "studio"
             st.rerun()
 
