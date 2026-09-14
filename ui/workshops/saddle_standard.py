@@ -14,8 +14,16 @@
 #   - Foundation section with a small "Default" button above the inputs
 #   - Pretension inputs define TARGET STRESS STATE for form-finding
 #   - No fixed segment spacing on edge cables
+#   - "Add. Pay Load" for user-supplied equipment loads (stage, sound,
+#     lighting). Self weight and wind are applied silently by the engine.
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
+#
+# Silent load rules (engine applies, Phase C):
+#   Self weight       gamma_G = 1.2
+#   Wind uplift       gamma_Q = -1.4
+#   Wind downward     gamma_Q = +1.4
+#   Add. Pay Load     gamma_Q = 1.5 (per country standard)
 #
 # Widget reset technique (2026-09-14):
 #   Streamlit caches widget values under the widget key and refuses
@@ -48,9 +56,9 @@ def _init_defaults():
     """Initialise workshop state on first entry."""
     defaults = {
         # Section 1 - Geometry
-        "ws_ss_span": 20.0,
-        "ws_ss_apex": 12.0,
-        "ws_ss_rise": 2.5,
+        "ws_ss_span": 10.0,
+        "ws_ss_apex": 15.0,
+        "ws_ss_rise": 6.2,
         "ws_ss_curve_type": "parabolic",
         # Section 2 - Materials
         "ws_ss_steel_grade": "S355",
@@ -80,7 +88,7 @@ def _init_defaults():
         # Widget key generation counter (bumped by the Default button)
         "ws_ss_found_widget_generation": 0,
         # Section 7 - Loads
-        "ws_ss_live_load": 0.5,
+        "ws_ss_add_payload": 0.0,
         "ws_ss_design_standard": "MY",
         # Section 8 - Attachment
         "ws_ss_attachment_type": "kader",
@@ -465,12 +473,12 @@ def render_saddle_standard():
                 key="ws_ss_soil_bearing_input_" + str(gen),
                 help="From geotechnical investigation. Typical: sand 150, clay 100, rock 500.",
             )
-            st.session_state["ws_ss_soil_bearing"] = bearing
-        with col2:
-            water = st.number_input(
-                "Water Table Depth (m)",
-                min_value=0.5, max_value=20.0,
-                value=float(st.session_state["ws_ss_water_table"]),
+            st.session_state["ws_ss_soil._bearing"] = bearing
+       0 with col2:
+           ,
+ water = st.number_input(
+                "               Water Table Depth (m)",
+                min_value=0. value5, max_value=20=float(st.session_state["ws_ss_water_table"]),
                 step=0.5,
                 key="ws_ss_water_table_input_" + str(gen),
             )
@@ -511,17 +519,18 @@ def render_saddle_standard():
     with st.expander("7. Loads and Design Standard", expanded=False):
         section_header(
             "Loads and Design Standard",
-            "Live load on the beam. Design code for safety factors."
+            "User-added loads on the beam. Design code for safety factors."
         )
 
-        live = st.number_input(
-            "Live Load on Beam (kg/m)",
+        payload = st.number_input(
+            "Add. Pay Load (kg/m)",
             min_value=0.0, max_value=500.0,
-            value=float(st.session_state["ws_ss_live_load"]),
+            value=float(st.session_state["ws_ss_add_payload"]),
             step=5.0,
-            key="ws_ss_live_load_input",
+            key="ws_ss_add_payload_input",
+            help="Additional user load from equipment, stage rigging, sound, or lighting systems.",
         )
-        st.session_state["ws_ss_live_load"] = live
+        st.session_state["ws_ss_add_payload"] = payload
 
         std_options = ["EU", "MY", "UK", "CN", "US"]
         std_idx = std_options.index(st.session_state["ws_ss_design_standard"])
