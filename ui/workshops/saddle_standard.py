@@ -8,99 +8,31 @@
 #   Membrane stretched between. Classic hypar form.
 #
 # Design decisions (agreed 2026-09-14):
-#   - Collapsible sections (8 sections)
-#   - Mixed widgets: numbers, sliders, selectboxes, radios
-#   - Custom-styled section headers (accent orange)
+#   - 8 collapsible sections
+#   - Shared CSS and helpers from ui/workshops/_shared.py
 #   - Cable diameter is always automatic
 #   - Foundation section with local "Use typical suburban values" button
 #   - Pretension inputs define TARGET STRESS STATE for form-finding
-#   - No fixed segment spacing on edge cables - engine places them
+#   - No fixed segment spacing on edge cables
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
-#
-# Local default button note (2026-09-14):
-#   Streamlit widget keys are separate from state keys. To make the
-#   button work, we must DELETE the widget keys so Streamlit recreates
-#   the widgets with the new state values on the next rerun.
 # =============================================================================
 
 import streamlit as st
 
-from data.materials import STEEL_MATERIALS, FABRIC_PROPERTIES
+from data.materials import FABRIC_PROPERTIES
 from data.constants import WIND_SPEEDS
 
-
-# =============================================================================
-# CSS
-# =============================================================================
-
-WORKSHOP_CSS = """
-    <style>
-    .ws-breadcrumb {
-        font-size: 0.85rem;
-        color: #a8b8c8;
-        margin-bottom: 1.2rem;
-        letter-spacing: 0.3px;
-    }
-    .ws-breadcrumb .crumb {
-        color: #f39c12;
-        font-weight: 600;
-    }
-    .ws-section {
-        background-color: #121e2e;
-        border: 1px solid #1e2a3a;
-        border-radius: 10px;
-        padding: 1rem 1.2rem;
-        margin-bottom: 0.9rem;
-    }
-    .ws-section-title {
-        color: #f39c12;
-        font-size: 1.05rem;
-        font-weight: 700;
-        margin: 0 0 0.2rem 0;
-        letter-spacing: 0.3px;
-    }
-    .ws-section-help {
-        color: #a8b8c8;
-        font-size: 0.82rem;
-        margin: 0 0 0.8rem 0;
-        line-height: 1.35;
-    }
-    .ws-preview-box {
-        background-color: #0d1620;
-        border-left: 3px solid #3498db;
-        padding: 0.6rem 0.8rem;
-        border-radius: 4px;
-        margin-top: 0.5rem;
-        font-size: 0.85rem;
-        color: #c8d4e0;
-        line-height: 1.5;
-    }
-    .ws-preview-box .num {
-        color: #ffffff;
-        font-weight: 600;
-    }
-    .ws-warning-box {
-        background-color: #4a3a1a;
-        border-left: 3px solid #f39c12;
-        padding: 0.6rem 0.8rem;
-        border-radius: 4px;
-        margin-top: 0.5rem;
-        font-size: 0.85rem;
-        color: #f0f4fa;
-    }
-    .ws-info-box {
-        background-color: #1a2a3a;
-        border-left: 3px solid #4a7a9c;
-        padding: 0.7rem 0.9rem;
-        border-radius: 4px;
-        margin-top: 0.5rem;
-        font-size: 0.85rem;
-        color: #c8d4e0;
-        line-height: 1.5;
-    }
-    </style>
-"""
+from ui.workshops._shared import (
+    WORKSHOP_CSS,
+    section_header,
+    render_breadcrumb,
+    render_project_header,
+    info_box,
+    preview_box,
+    warning_box,
+    apply_typical_foundation_defaults,
+)
 
 
 # =============================================================================
@@ -173,37 +105,6 @@ def _validate_geometry(span, apex, rise):
     return warnings
 
 
-def _section_header(title, help_text=""):
-    """Render a section header with custom styling."""
-    html = '<div class="ws-section-title">' + title + '</div>'
-    if help_text:
-        html += '<div class="ws-section-help">' + help_text + '</div>'
-    st.markdown(html, unsafe_allow_html=True)
-
-
-def _apply_typical_foundation_defaults(prefix):
-    """
-    Apply typical suburban soil/foundation values to session state.
-    Also clears the widget keys so Streamlit recreates the widgets
-    with the new values on the next rerun.
-    """
-    st.session_state[prefix + "_soil_bearing"] = 150.0
-    st.session_state[prefix + "_soil_type"] = "sand"
-    st.session_state[prefix + "_water_table"] = 3.0
-    st.session_state[prefix + "_foundation_type"] = "pad"
-
-    # Clear widget keys so Streamlit recreates them from the state values
-    widget_keys = [
-        prefix + "_soil_bearing_input",
-        prefix + "_water_table_input",
-        prefix + "_soil_type_select",
-        prefix + "_found_type_select",
-    ]
-    for k in widget_keys:
-        if k in st.session_state:
-            del st.session_state[k]
-
-
 # =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
@@ -216,37 +117,17 @@ def render_saddle_standard():
     project_name = st.session_state.get("project_info", {}).get("name", "") or "Untitled Project"
     client_name = st.session_state.get("project_info", {}).get("client", "") or "Unknown Client"
 
-    # ---- Breadcrumb
-    st.markdown(
-        '<div class="ws-breadcrumb">'
-        'SDSe Fluid Design Studio / '
-        '<span class="crumb">Saddle Span</span>'
-        ' / '
-        '<span class="crumb">Standard Saddle</span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ---- Project header
-    st.markdown(
-        '<div class="ws-section">'
-        '<div class="ws-section-title">' + project_name + '</div>'
-        '<div class="ws-section-help">'
-        'Client: ' + client_name + '  |  Structure: Standard Saddle Span'
-        '</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    render_breadcrumb("Saddle Span", "Standard Saddle")
+    render_project_header(project_name, client_name, "Standard Saddle Span")
 
     # =========================================================================
     # SECTION 1 - GEOMETRY
     # =========================================================================
     with st.expander("1. Geometry", expanded=True):
-        _section_header(
+        section_header(
             "Geometry",
-            "Overall dimensions of the saddle span. "
-            "Span is the long dimension. Apex-to-Apex is the width. "
-            "Rise is the vertical height of the beam apex."
+            "Overall dimensions of the saddle span. Span is the long dimension. "
+            "Apex-to-Apex is the width. Rise is the vertical height of the beam apex."
         )
 
         col1, col2 = st.columns(2)
@@ -293,16 +174,13 @@ def render_saddle_standard():
 
         warns = _validate_geometry(span, apex, rise)
         for w in warns:
-            st.markdown(
-                '<div class="ws-warning-box">' + w + '</div>',
-                unsafe_allow_html=True,
-            )
+            warning_box(w)
 
     # =========================================================================
     # SECTION 2 - MATERIALS
     # =========================================================================
     with st.expander("2. Materials", expanded=False):
-        _section_header(
+        section_header(
             "Materials",
             "Steel grade for beams and cables. Fabric type and grade for the membrane."
         )
@@ -357,7 +235,7 @@ def render_saddle_standard():
     # SECTION 3 - MEMBERS
     # =========================================================================
     with st.expander("3. Member Construction", expanded=False):
-        _section_header(
+        section_header(
             "Member Construction",
             "Single beam is a solid CHS. Planar truss and space truss are triangulated assemblies."
         )
@@ -374,27 +252,21 @@ def render_saddle_standard():
         st.session_state["ws_ss_member_construction"] = member_options[member_labels.index(member)]
 
         if st.session_state["ws_ss_member_construction"] == "single_beam":
-            st.markdown(
-                '<div class="ws-preview-box">'
-                'Member will be a single CHS, SHS, RHS, or I-Beam section. '
-                'Engine will auto-select the optimal size.'
-                '</div>',
-                unsafe_allow_html=True,
+            preview_box(
+                "Member will be a single CHS, SHS, RHS, or I-Beam section. "
+                "Engine will auto-select the optimal size."
             )
         else:
-            st.markdown(
-                '<div class="ws-preview-box">'
-                'Member will be a triangulated truss. '
-                'Engine will auto-select a unified section for chords and webs.'
-                '</div>',
-                unsafe_allow_html=True,
+            preview_box(
+                "Member will be a triangulated truss. "
+                "Engine will auto-select a unified section for chords and webs."
             )
 
     # =========================================================================
     # SECTION 4 - GROUND SUPPORTS
     # =========================================================================
     with st.expander("4. Ground Supports", expanded=False):
-        _section_header(
+        section_header(
             "Ground Supports",
             "Support condition at each of the two ground points where the beams converge."
         )
@@ -422,19 +294,16 @@ def render_saddle_standard():
             st.session_state["ws_ss_support_type_end"] = support_options[support_labels.index(e_choice)]
 
         if st.session_state["ws_ss_support_type_start"] == "rigid" or st.session_state["ws_ss_support_type_end"] == "rigid":
-            st.markdown(
-                '<div class="ws-warning-box">'
-                'Rigid supports introduce moment into the beams. '
-                'The engine will apply the appropriate interaction check.'
-                '</div>',
-                unsafe_allow_html=True,
+            warning_box(
+                "Rigid supports introduce moment into the beams. "
+                "The engine will apply the appropriate interaction check."
             )
 
     # =========================================================================
     # SECTION 5 - TIE-DOWN CABLES AND PRETENSION
     # =========================================================================
     with st.expander("5. Tie-down Cables and Pretension", expanded=False):
-        _section_header(
+        section_header(
             "Tie-down Cables and Pretension",
             "Structural cables from each beam down to ground anchors. "
             "They resist wind uplift and stabilise the structure."
@@ -506,7 +375,6 @@ def render_saddle_standard():
         )
         st.session_state["ws_ss_anchor_type"] = anchor_options[anchor_labels.index(anchor_choice)]
 
-        # ---- Pretension
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
             '<strong>Pretension (Target Stress State)</strong> - '
@@ -539,32 +407,26 @@ def render_saddle_standard():
             )
             st.session_state["ws_ss_cable_pretension"] = cab_pre
 
-        st.markdown(
-            '<div class="ws-preview-box">'
-            'Cable diameter is selected automatically by the engine '
-            'based on the computed tension under the target stress state.'
-            '</div>',
-            unsafe_allow_html=True,
+        preview_box(
+            "Cable diameter is selected automatically by the engine "
+            "based on the computed tension under the target stress state."
         )
 
     # =========================================================================
     # SECTION 6 - BASEPLATE AND PRELIMINARY FOUNDATION
     # =========================================================================
     with st.expander("6. Baseplate and Preliminary Foundation", expanded=False):
-        _section_header(
+        section_header(
             "Baseplate and Preliminary Foundation",
             "The beam-to-ground supports transfer load to the ground. "
             "Preliminary foundation sizing depends on the soil at the site."
         )
 
-        st.markdown(
-            '<div class="ws-info-box">'
-            '<strong>Support Base and Anchors</strong><br>'
-            'Support baseplate dimensions and anchor bolt size and count are '
-            'auto-selected by the engine based on the support reaction '
-            '(axial + shear + moment). No input required.'
-            '</div>',
-            unsafe_allow_html=True,
+        info_box(
+            "<strong>Support Base and Anchors</strong><br>"
+            "Support baseplate dimensions and anchor bolt size and count are "
+            "auto-selected by the engine based on the support reaction "
+            "(axial + shear + moment). No input required."
         )
 
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
@@ -612,31 +474,27 @@ def render_saddle_standard():
         )
         st.session_state["ws_ss_foundation_type"] = found_options[found_labels.index(found_choice)]
 
-        st.markdown(
-            '<div class="ws-warning-box">'
-            '<strong>Note:</strong> Preliminary foundation sizing only. '
-            'Geotechnical verification required. Footing reinforcement and '
-            'detailing are not provided by this app. Engage a geotechnical '
-            'engineer to confirm.'
-            '</div>',
-            unsafe_allow_html=True,
+        warning_box(
+            "<strong>Note:</strong> Preliminary foundation sizing only. "
+            "Geotechnical verification required. Footing reinforcement and "
+            "detailing are not provided by this app. Engage a geotechnical "
+            "engineer to confirm."
         )
 
-        # ---- Local default button (affects only the four soil inputs)
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
         if st.button(
             "Use typical suburban values",
             key="ws_ss_found_default",
             use_container_width=True,
         ):
-            _apply_typical_foundation_defaults("ws_ss")
+            apply_typical_foundation_defaults("ws_ss")
             st.rerun()
 
     # =========================================================================
     # SECTION 7 - LOADS AND STANDARD
     # =========================================================================
     with st.expander("7. Loads and Design Standard", expanded=False):
-        _section_header(
+        section_header(
             "Loads and Design Standard",
             "Live load on the beam. Design code for safety factors."
         )
@@ -660,22 +518,19 @@ def render_saddle_standard():
         )
         st.session_state["ws_ss_design_standard"] = std
 
-        st.markdown(
-            '<div class="ws-preview-box">'
+        preview_box(
             'Wind speed basis: <span class="num">'
             + str(WIND_SPEEDS.get(std, 30.0))
             + ' m/s</span>'
-            '</div>',
-            unsafe_allow_html=True,
         )
 
     # =========================================================================
     # SECTION 8 - MEMBRANE-TO-BEAM ATTACHMENT
-    # ========================================================================= =
-    with st.expander("8. Membrane-to attach-Beam Attachment", expanded=False):
-_options        _section_header(
-            "Membrane-to-Beam Attachment[",
-            "How the fabric edge is attached to the curvedattach beams."
+    # =========================================================================
+    with st.expander("8. Membrane-to-Beam Attachment", expanded=False):
+        section_header(
+            "Membrane-to-Beam Attachment",
+            "How the fabric edge is attached to the curved beams."
         )
 
         attach_options = ["kader", "segmented"]
@@ -690,27 +545,21 @@ _options        _section_header(
             index=at_idx,
             key="ws_ss_attachment_radio",
         )
-        st.session_state["ws_ss_attachment_type"]_labels.index(at_choice)]
+        st.session_state["ws_ss_attachment_type"] = attach_options[attach_labels.index(at_choice)]
 
         if st.session_state["ws_ss_attachment_type"] == "kader":
-            st.markdown(
-                '<div class="ws-preview-box">'
-                'The fabric edge is continuously held in a track (keder) along the beam. '
-                'Tension is distributed evenly along the beam length. '
-                'No further inputs required.'
-                '</div>',
-                unsafe_allow_html=True,
+            preview_box(
+                "The fabric edge is continuously held in a track (keder) along the beam. "
+                "Tension is distributed evenly along the beam length. "
+                "No further inputs required."
             )
         else:
-            st.markdown(
-                '<div class="ws-info-box">'
-                '<strong>Segmented Edge Attachment</strong><br>'
-                'Segment boundaries and edge cable geometry are determined by '
-                'the form-finding engine, following the membrane natural edge. '
-                'This matches industry practice (Easy, RFEM, RhinoMembrane). '
-                'No fixed spacing input required.'
-                '</div>',
-                unsafe_allow_html=True,
+            info_box(
+                "<strong>Segmented Edge Attachment</strong><br>"
+                "Segment boundaries and edge cable geometry are determined by "
+                "the form-finding engine, following the membrane natural edge. "
+                "This matches industry practice (Easy, RFEM, RhinoMembrane). "
+                "No fixed spacing input required."
             )
 
     # =========================================================================
