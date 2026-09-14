@@ -5,13 +5,18 @@
 # Reads inputs from st.session_state (workshop inputs).
 # Returns Plotly figures for st.plotly_chart().
 #
-# Tie-down geometry (updated 2026-09-13):
-#   Each cable runs from a beam attach point DOWN and OUTWARD.
-#   Anchor is offset in BOTH x and y from the beam attach point.
-#   Symmetric pattern about the centre of the span.
-#   Attach points distributed across the outer 70% of the span
-#   (t_min=0.15, t_max=0.85) so they clear the beam peak and the
-#   very ends for any number of intervals N.
+# Tie-down geometry (updated 2026-09-14):
+#   Attach points are positioned by ARC-LENGTH fraction along each beam,
+#   measured from the nearest support. The user picks 4 or 8 cables total
+#   (2 or 4 per side).
+#
+#   Rule:
+#     4 cables total  ->  positions per beam: 0.175, 0.825
+#     8 cables total  ->  positions per beam: 0.175, 0.225, 0.775, 0.825
+#
+#   Each position is symmetric about the span centreline. Anchor is
+#   offset in BOTH x and y from the beam attach point, computed from
+#   the user's uplift angle and spread angle.
 #
 # Dispatch (updated 2026-09-13):
 #   The public entry point dispatches on variant_key alone.
@@ -94,17 +99,48 @@ def _beam_curve(x, span, rise, curve_type):
     return rise * (1.0 - x_norm ** 2)
 
 
+def _arclength_parametrisation(x, z):
+    """
+    Given arrays of x and z points along a curve, return:
+      - s: cumulative arc length from the start
+      - total: total arc length
+    Used to find a point at a given arc-length fraction.
+    """
+    dx = np.diff(x)
+    dz = np.diff(z)
+    seg = np.sqrt(dx * dx + dz * dz)
+    s = np.concatenate(([0.0], np.cumsum(seg)))
+    total = s[-1] if len(s) > 0 else 0.0
+    return s, total
+
+
+def _find_index_at_arclength_fraction(s, total, fraction):
+    """Return the index of the point closest to arc-length fraction * total."""
+    if total <= 0:
+        return 0
+    target = fraction * total
+    idx = int(np.argmin(np.abs(s - target)))
+    return idx
+
+
+
+
+
+
+
+
+
 # =============================================================================
 # STANDARD SADDLE FIGURE
 # =============================================================================
 
 def generate_standard_saddle_figure():
     """Standard Saddle: two curved beams, membrane, tie-downs, anchors."""
-    span = float(st.session_state.get("ws_ss_span", 20.0))
-    apex = float(st.session_state.get("ws_ss_apex", 12.0))
-    rise = float(st.session_state.get("ws_ss_rise", 2.5))
+    span = float(st.session_state.get("ws_ss_span", 10.0))
+    apex = float(st.session_state.get("ws_ss_apex", 15.0))
+    rise = float(st.session_state.get("ws_ss_rise", 6.2))
     curve_type = st.session_state.get("ws_ss_curve_type", "parabolic")
-    n_intervals = int(st.session_state.get("ws_ss_tiedown_intervals", 3))
+    n_intervals = int(st.session_state.get("ws_ss_tiedown_intervals", 2))
     uplift = float(st.session_state.get("ws_ss_uplift_angle", 45))
     spread = float(st.session_state.get("ws_ss_spread_angle", 30))
 
@@ -116,9 +152,12 @@ def generate_standard_saddle_figure():
                            font=dict(color="#f39c12", size=16))
         return _apply_common_layout(fig, 10.0)
 
-    n_pts = 60
+    n_pts = 200
     x = np.linspace(-span / 2.0, span / 2.0, n_pts)
     z_beam = _beam_curve(x, span, rise, curve_type)
+
+    # Arc-length parametrisation for cable attach positioning
+    s, total = _arclength_parametrisation(x, z_beam)
 
     base_width = apex * 0.5
     y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
@@ -171,17 +210,19 @@ def generate_standard_saddle_figure():
         name="Membrane",
     ))
 
-    # Tie-down cables and anchors
-    # Attach points distributed across outer 70% of span.
-    for k in range(n_intervals):
-        t_min = 0.15
-        t_max = 0.85
-        t = t_min + (k + 1) / (n_intervals + 1) * (t_max - t_min)
+    # ---- Tie-down cables -------------------------------------------------
+    # User's input ws_ss_tiedown_intervals is interpreted as cables PER SIDE:
+    #   value 2 -> positions 0.175, 0.825 on each beam  (4 cables total)
+    #   value 4 -> positions 0.175, 0.225, 0.775, 0.825 (8 cables total)
+    # Anything else defaults to 2 per side.
+    if n_intervals == 4:
+        per_beam_fractions = [0.175, 0.225, 0.775, 0.825]
+    else:
+        per_beam_fractions = [0.175, 0.825]
 
-        x_tie = -span / 2.0 + t * span
-        idx = int(t * (n_pts - 1))
-        idx = max(0, min(n_pts - 1, idx))
-
+    for frac in per_beam_fractions:
+        idx = _find_index_at_arclength_fraction(s, total, frac)
+        x_tie = x[idx]
         beam_z = z_beam[idx]
 
         for side, y_beam in ((-1, y1[idx]), (+1, y2[idx])):
@@ -242,6 +283,13 @@ def generate_standard_saddle_figure():
     return _apply_common_layout(fig, rise)
 
 
+
+
+
+
+
+
+
 # =============================================================================
 # CANTILEVER LEAF FIGURE
 # =============================================================================
@@ -253,7 +301,7 @@ def generate_cantilever_leaf_figure():
     ribs_per_side = int(st.session_state.get("ws_sl_ribs_per_side", 7))
     tilt_deg = float(st.session_state.get("ws_sl_rib_tilt", 20))
     arc_r = float(st.session_state.get("ws_sl_arc_radius", 5.0))
-    strut_joint = float(st.session_state.get("ws_sl_strut_joint_height", col_h * 0.6))
+    strut_joint = float(st.session_state.get("ws_sl_strut_joint_height", col_h * 0.75))
 
     if col_h <= 0 or outreach <= 0:
         fig = go.Figure()
