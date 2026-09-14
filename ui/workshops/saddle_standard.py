@@ -11,11 +11,17 @@
 #   - 8 collapsible sections
 #   - Shared CSS and helpers from ui/workshops/_shared.py
 #   - Cable diameter is always automatic
-#   - Foundation section with local "Use typical suburban values" button
+#   - Foundation section with a small "Default" button above the inputs
 #   - Pretension inputs define TARGET STRESS STATE for form-finding
 #   - No fixed segment spacing on edge cables
 #   - Back to Registration at bottom
 #   - "Intelligent Design Computing" advances to Results
+#
+# Widget reset technique (2026-09-14):
+#   Streamlit caches widget values under the widget key and refuses
+#   to let us reset a widget in place. The workaround is to change
+#   the widget KEY each time we want a fresh render. A counter in
+#   session state drives this. The user sees only the values change.
 # =============================================================================
 
 import streamlit as st
@@ -31,7 +37,6 @@ from ui.workshops._shared import (
     info_box,
     preview_box,
     warning_box,
-    apply_typical_foundation_defaults,
 )
 
 
@@ -72,6 +77,8 @@ def _init_defaults():
         "ws_ss_soil_type": "sand",
         "ws_ss_water_table": 3.0,
         "ws_ss_foundation_type": "pad",
+        # Widget key generation counter (bumped by the Default button)
+        "ws_ss_found_widget_generation": 0,
         # Section 7 - Loads
         "ws_ss_live_load": 0.5,
         "ws_ss_design_standard": "MY",
@@ -113,6 +120,10 @@ def render_saddle_standard():
     """Render the Standard Saddle workshop."""
     st.markdown(WORKSHOP_CSS, unsafe_allow_html=True)
     _init_defaults()
+
+    # Generation counter drives widget keys in Section 6.
+    # Bumped whenever the Default button is pressed.
+    gen = int(st.session_state.get("ws_ss_found_widget_generation", 0))
 
     project_name = st.session_state.get("project_info", {}).get("name", "") or "Untitled Project"
     client_name = st.session_state.get("project_info", {}).get("client", "") or "Unknown Client"
@@ -431,6 +442,19 @@ def render_saddle_standard():
 
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
 
+        # ---- Small "Default" button, right above the soil inputs
+        if st.button(
+            "Default",
+            key="ws_ss_found_default",
+        ):
+            st.session_state["ws_ss_soil_bearing"] = 150.0
+            st.session_state["ws_ss_soil_type"] = "sand"
+            st.session_state["ws_ss_water_table"] = 3.0
+            st.session_state["ws_ss_foundation_type"] = "pad"
+            st.session_state["ws_ss_found_widget_generation"] = gen + 1
+            st.rerun()
+
+        # ---- Soil inputs (keys carry the generation counter)
         col1, col2 = st.columns(2)
         with col1:
             bearing = st.number_input(
@@ -438,7 +462,7 @@ def render_saddle_standard():
                 min_value=50.0, max_value=1000.0,
                 value=float(st.session_state["ws_ss_soil_bearing"]),
                 step=10.0,
-                key="ws_ss_soil_bearing_input",
+                key="ws_ss_soil_bearing_input_" + str(gen),
                 help="From geotechnical investigation. Typical: sand 150, clay 100, rock 500.",
             )
             st.session_state["ws_ss_soil_bearing"] = bearing
@@ -448,7 +472,7 @@ def render_saddle_standard():
                 min_value=0.5, max_value=20.0,
                 value=float(st.session_state["ws_ss_water_table"]),
                 step=0.5,
-                key="ws_ss_water_table_input",
+                key="ws_ss_water_table_input_" + str(gen),
             )
             st.session_state["ws_ss_water_table"] = water
 
@@ -459,7 +483,7 @@ def render_saddle_standard():
             "Soil Type",
             soil_labels,
             index=s_idx,
-            key="ws_ss_soil_type_select",
+            key="ws_ss_soil_type_select_" + str(gen),
         )
         st.session_state["ws_ss_soil_type"] = soil_options[soil_labels.index(soil_choice)]
 
@@ -470,7 +494,7 @@ def render_saddle_standard():
             "Foundation Type",
             found_labels,
             index=f_idx,
-            key="ws_ss_found_type_select",
+            key="ws_ss_found_type_select_" + str(gen),
         )
         st.session_state["ws_ss_foundation_type"] = found_options[found_labels.index(found_choice)]
 
@@ -480,15 +504,6 @@ def render_saddle_standard():
             "detailing are not provided by this app. Engage a geotechnical "
             "engineer to confirm."
         )
-
-        st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
-        if st.button(
-            "Use typical suburban values",
-            key="ws_ss_found_default",
-            use_container_width=True,
-        ):
-            apply_typical_foundation_defaults("ws_ss")
-            st.rerun()
 
     # =========================================================================
     # SECTION 7 - LOADS AND STANDARD
