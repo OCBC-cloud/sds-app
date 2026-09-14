@@ -3,19 +3,17 @@
 # =============================================================================
 # The first page a user sees.
 #
-# Purpose: impact page. Introduce the app. One button in. No scrolling.
+# Purpose: impact page. Introduce the app. One button in.
 # Sets the design tone for the whole app.
 #
-# Design (agreed 2026-09-12, tightened 2026-09-14):
+# Design (agreed 2026-09-12, simplified 2026-09-14):
 #   - Dark base #0a0e17
 #   - Accent orange #f39c12
-#   - Large title "SDSe"
-#   - Subtitle "Intelligent Fluid Design Workplace"
-#   - Brand line "SDSe Fluid Design Studio"
-#   - Single button "Enter The Studio"
-#   - Footer "All Major EN Code"
-#   - Icon/emblem placeholder (to be replaced later)
-#   - Everything fits on one phone screen, no scrolling
+#   - Logo badge, title, subtitle, brand, button, footer
+#   - Single HTML block to avoid Streamlit's block padding
+#   - Button is the only Streamlit widget on the page
+#   - No flexbox, no vh units, no min-height
+#   - Layout adapts to any phone screen naturally
 # =============================================================================
 
 import streamlit as st
@@ -29,28 +27,26 @@ LANDING_CSS = """
     <style>
     /* Kill Streamlit's default top gap on the landing page */
     .stApp > header { display: none !important; }
-    .block-container { padding-top: 0 !important; }
-
-    /* Landing container, vertically centred, sized to fit one screen */
-    .landing-wrap {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-        min-height: 70vh;
-        padding: 0.5rem 1rem;
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 0 !important;
+        max-width: 420px;
     }
 
-    .landing-logo-placeholder {
-        width: 80px;
-        height: 80px;
+    .landing-block {
+        text-align: center;
+        padding: 1rem 0.5rem 0 0.5rem;
+    }
+
+    .landing-logo {
+        width: 84px;
+        height: 84px;
         border: 2px solid #f39c12;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 1.2rem;
+        margin: 0 auto 1.2rem auto;
         color: #f39c12;
         font-size: 0.72rem;
         font-weight: 600;
@@ -66,21 +62,13 @@ LANDING_CSS = """
         line-height: 1;
     }
 
-    .landing-subtitle {
+    .landing-sub {
         font-size: 1rem;
         color: #c8d4e0;
         letter-spacing: 1.5px;
-        margin-top: 0.8rem;
-        margin-bottom: 0.15rem;
-        font-weight: 400;
-    }
-
-    .landing-subtitle-2 {
-        font-size: 1rem;
-        color: #c8d4e0;
-        letter-spacing: 1.5px;
-        margin-top: 0;
-        margin-bottom: 1.2rem;
+        margin-top: 0.9rem;
+        margin-bottom: 0;
+        line-height: 1.5;
         font-weight: 400;
     }
 
@@ -88,7 +76,7 @@ LANDING_CSS = """
         width: 60px;
         height: 2px;
         background-color: #f39c12;
-        margin: 0 auto 1.5rem auto;
+        margin: 1.6rem auto 1.6rem auto;
         border: none;
         border-radius: 1px;
     }
@@ -99,15 +87,15 @@ LANDING_CSS = """
         letter-spacing: 2px;
         text-transform: uppercase;
         font-weight: 600;
-        margin-bottom: 2rem;
+        margin: 0 0 2rem 0;
     }
 
     .landing-footer {
         font-size: 0.78rem;
         color: #a8b8c8;
         letter-spacing: 1px;
-        margin-top: 1.5rem;
         text-align: center;
+        margin-top: 1rem;
     }
     </style>
 """
@@ -124,49 +112,29 @@ def render_landing():
     """
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    # Everything inside a centred wrapper (including the button)
-    st.markdown('<div class="landing-wrap">', unsafe_allow_html=True)
-
-    # Logo placeholder (circle with initials) - to be replaced with a real emblem later
-    st.markdown(
-        '<div class="landing-logo-placeholder">SDSe</div>',
-        unsafe_allow_html=True,
+    # ---- One single HTML block for everything except the button
+    landing_html = (
+        '<div class="landing-block">'
+        '<div class="landing-logo">SDSe</div>'
+        '<div class="landing-title">SDSe</div>'
+        '<div class="landing-sub">Intelligent Fluid Design<br>Workplace</div>'
+        '<hr class="landing-divider">'
+        '<div class="landing-brand">SDSe Fluid Design Studio</div>'
+        '</div>'
     )
+    st.markdown(landing_html, unsafe_allow_html=True)
 
-    # Main title
-    st.markdown('<div class="landing-title">SDSe</div>', unsafe_allow_html=True)
+    # ---- The one and only button on this page
+    if st.button(
+        "Enter The Studio",
+        key="landing_enter",
+        use_container_width=True,
+        type="primary",
+    ):
+        st.session_state.page = "studio"
+        st.rerun()
 
-    # Subtitle - two lines
-    st.markdown(
-        '<div class="landing-subtitle">Intelligent Fluid Design</div>'
-        '<div class="landing-subtitle-2">Workplace</div>',
-        unsafe_allow_html=True,
-    )
-
-    # Accent divider
-    st.markdown('<hr class="landing-divider">', unsafe_allow_html=True)
-
-    # Brand line
-    st.markdown(
-        '<div class="landing-brand">SDSe Fluid Design Studio</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Button in a narrow column, centred
-    col_left, col_mid, col_right = st.columns([1, 2, 1])
-    with col_mid:
-        if st.button(
-            "Enter The Studio",
-            key="landing_enter",
-            use_container_width=True,
-            type="primary",
-        ):
-            st.session_state.page = "studio"
-            st.rerun()
-
-    # Footer
+    # ---- Footer
     st.markdown(
         '<div class="landing-footer">All Major EN Code</div>',
         unsafe_allow_html=True,
