@@ -4,10 +4,16 @@
 # Input page for the Beam Supported Saddle variant.
 # Members: membrane + main beam + purlins + secondary beams.
 #
-# Secondary beam rule (silent):
-#   Baseline 2 per beam. Max unsupported 15 m.
+# Secondary beam rule (silent, code-compliant):
+#   Baseline 2 per beam.
+#   Middle section (0.65 x arc) divided into equal sub-sections <= 15 m
+#   (CECS158:2004 and general membrane practice).
+#   Result rounded UP to nearest EVEN number for both-axis symmetry.
+#
 # Purlin rule (silent):
 #   One at apex, then every 2.5 m outward.
+#
+# Arc length: numerical integration over 100 segments.
 # =============================================================================
 
 import math
@@ -114,20 +120,26 @@ def _arc_length_parabola(span, rise):
 
 def _compute_secondary_count(arc_length):
     """
-    Return secondary beams PER BEAM.
-    Baseline 2. Middle section (0.65 x arc) divided into
-    equal sub-sections each <= 15 m.
+    Return secondary beams PER BEAM as an EVEN number.
+    Code rule: max 15 m unsupported section (CECS158:2004).
+    Symmetry rule: even count required for both-axis symmetry.
     """
     MAX_UNSUPPORTED = 15.0
     middle = 0.650 * arc_length
+
     if middle <= MAX_UNSUPPORTED:
-        base = 2
-    else:
-        n_subsections = int(math.ceil(middle / MAX_UNSUPPORTED))
-        base = 1 + n_subsections
-    if base < 2:
-        base = 2
-    return base
+        return 2
+
+    n_subsections = int(math.ceil(middle / MAX_UNSUPPORTED))
+    support_points = 1 + n_subsections
+
+    if support_points % 2 != 0:
+        support_points += 1
+
+    if support_points < 2:
+        support_points = 2
+
+    return support_points
 
 
 def _compute_secondary_positions(per_beam_count):
@@ -397,17 +409,17 @@ def render_saddle_frame():
         st.session_state["ws_bs_secondary_count_override"] = (accept_default == "No - override")
 
         if st.session_state["ws_bs_secondary_count_override"]:
-            per_beam_options = [2, 3, 4, 5, 6, 8, 10, 12]
-            per_beam_options = [n for n in per_beam_options if n >= recommended]
-            if not per_beam_options:
-                per_beam_options = [recommended]
+            even_options = [2, 4, 6, 8, 10, 12, 16, 20]
+            even_options = [n for n in even_options if n >= recommended]
+            if not even_options:
+                even_options = [recommended]
             current_val = int(st.session_state.get("ws_bs_secondary_count", recommended))
-            if current_val not in per_beam_options:
-                current_val = per_beam_options[0]
+            if current_val not in even_options:
+                current_val = even_options[0]
             choice = st.selectbox(
                 "Number of secondary beams per main beam",
-                per_beam_options,
-                index=per_beam_options.index(current_val),
+                even_options,
+                index=even_options.index(current_val),
                 key="ws_bs_secondary_count_select",
             )
             st.session_state["ws_bs_secondary_count"] = choice
@@ -710,10 +722,3 @@ def render_saddle_frame():
         ):
             st.session_state.page = "results"
             st.rerun()
-
-
-
-
-
-
-
