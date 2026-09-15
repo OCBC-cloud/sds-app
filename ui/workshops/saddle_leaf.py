@@ -4,12 +4,15 @@
 # Input page for the Cantilever Leaf variant.
 #
 # Design decisions (agreed 2026-09-15):
-#   - Object Shape selector at top (Leaf active, others coming)
+#   - Object Shape selector at top
 #   - "Adjust Rib Lengths" opens ui/rooms/leaf_room.py
+#   - Rib lengths computed from geometry (stored in session state)
 #   - Strut joint height FIXED at 75% of column height
-#   - Arrangement section at bottom (Single / Double / Multiple / Trees)
+#   - Arrangement section at bottom
 #   - 9 collapsible sections total
 # =============================================================================
+
+import math
 
 import streamlit as st
 
@@ -109,9 +112,7 @@ FABRIC_INFO = {
 
 def _init_defaults():
     defaults = {
-        # Object shape
         "ws_sl_object_shape": "leaf",
-        # Geometry
         "ws_sl_column_height": 10.0,
         "ws_sl_outreach": 10.0,
         "ws_sl_ribs_per_side": 7,
@@ -119,33 +120,26 @@ def _init_defaults():
         "ws_sl_rib_spacing": 45,
         "ws_sl_arc_radius": 5.0,
         "ws_sl_curve_type": "parabolic",
-        # Materials
         "ws_sl_steel_grade": "S355",
         "ws_sl_section_family": "CHS",
         "ws_sl_fabric_type": "PVDF",
         "ws_sl_fabric_grade": "Type III",
-        # Column and spine
         "ws_sl_column_type": "unipole",
         "ws_sl_column_preference": "auto",
-        # Ribs
         "ws_sl_rib_section_family": "CHS",
         "ws_sl_rib_preference": "auto",
         "ws_sl_rib_connection": "bolted",
-        # Attachment
         "ws_sl_attachment_type": "kader",
         "ws_sl_perimeter_cable_type": "6x19",
         "ws_sl_perimeter_cable_material": "stainless",
         "ws_sl_membrane_pretension": 2.0,
-        # Foundation
         "ws_sl_soil_bearing": 150.0,
         "ws_sl_soil_type": "sand",
         "ws_sl_water_table": 3.0,
         "ws_sl_foundation_type": "pad",
         "ws_sl_found_widget_generation": 0,
-        # Loads
         "ws_sl_add_payload": 0.0,
         "ws_sl_design_standard": "MY",
-        # Arrangement
         "ws_sl_arrangement": "single",
         "ws_sl_arrangement_count": 4,
         "ws_sl_arrangement_tiers": 3,
@@ -159,6 +153,47 @@ def _init_defaults():
 # HELPERS
 # =============================================================================
 
+def _compute_rib_lengths(outreach, tilt_deg, n_ribs):
+    """
+    Return a list of computed rib lengths (in metres).
+    Ribs ordered inner-to-outer.
+    t values evenly spaced from 0.08 to 0.92.
+    """
+    lengths = []
+    if n_ribs < 1:
+        return lengths
+    if n_ribs == 1:
+        ts = [0.5]
+    else:
+        ts = []
+        for i in range(n_ribs):
+            t = 0.08 + (0.92 - 0.08) * i / (n_ribs - 1)
+            ts.append(t)
+    for t in ts:
+        half_w = outreach * 0.42 * (math.sin(math.pi * t) ** 0.7)
+        tilt_local = tilt_deg * (math.sin(math.pi * t) ** 0.7)
+        z_rise = half_w * math.tan(math.radians(tilt_local))
+        length = math.sqrt(half_w * half_w + z_rise * z_rise)
+        lengths.append(round(length, 2))
+    return lengths
+
+
+def _rib_position_label(i, n):
+    """Return a position word for rib index i of n."""
+    if n <= 1:
+        return "centre"
+    if i == 0:
+        return "near column"
+    if i == n - 1:
+        return "near tip"
+    mid = (n - 1) / 2.0
+    if abs(i - mid) < 0.5:
+        return "centre"
+    if i < mid:
+        return "inner"
+    return "outer"
+
+
 def _validate_leaf_geometry(col_h, outreach, ribs, tilt):
     warnings = []
     if col_h <= 0:
@@ -167,8 +202,8 @@ def _validate_leaf_geometry(col_h, outreach, ribs, tilt):
         warnings.append("Leaf outreach must be greater than 0.")
     if ribs < 5:
         warnings.append("Minimum 5 ribs per side for a proper leaf shape.")
-    if ribs > 15:
-        warnings.append("More than 15 ribs per side is excessive.")
+    if ribs > 7:
+        warnings.append("Maximum 7 ribs per side for Leaf.")
     if tilt < 10:
         warnings.append("Rib tilt below 10 degrees may not drain properly.")
     if tilt > 40:
@@ -228,7 +263,6 @@ def render_saddle_leaf():
     project_name = st.session_state.get("project_info", {}).get("name", "") or "Untitled Project"
     client_name = st.session_state.get("project_info", {}).get("client", "") or "Unknown Client"
 
-    # ---- Breadcrumb
     st.markdown(
         '<div class="ws-breadcrumb">'
         'SDSe Fluid Design Studio / '
@@ -239,7 +273,6 @@ def render_saddle_leaf():
         unsafe_allow_html=True,
     )
 
-    # ---- Project header
     st.markdown(
         '<div class="ws-section">'
         '<div class="ws-section-title">' + project_name + '</div>'
@@ -256,8 +289,7 @@ def render_saddle_leaf():
     with st.expander("1. Object Shape", expanded=True):
         _section_header(
             "Object Shape",
-            "Choose the base object. Leaf is active now. "
-            "Flower, Bell and Hypar are coming soon."
+            "Choose the base object. Leaf is active now."
         )
 
         shape_options = ["leaf", "flower", "bell", "hypar"]
@@ -274,15 +306,11 @@ def render_saddle_leaf():
             index=shape_idx,
             key="ws_sl_shape_radio",
         )
-        if shape_choice == "Leaf":
-            st.session_state["ws_sl_object_shape"] = "leaf"
-        else:
-            st.session_state["ws_sl_object_shape"] = "leaf"
+        st.session_state["ws_sl_object_shape"] = "leaf"
 
-        # ---- Rib length summary + Adjust button
-        rib_base = st.session_state.get("ws_sl_rib_base_lengths", [])
         n_ribs = int(st.session_state.get("ws_sl_ribs_per_side", 7))
         rib_override = st.session_state.get("ws_sl_rib_lengths_override", [])
+        rib_base = st.session_state.get("ws_sl_rib_base_lengths", [])
         is_sym = st.session_state.get("ws_sl_rib_symmetric", True)
 
         if rib_override:
@@ -291,14 +319,22 @@ def render_saddle_leaf():
             rib_summary = (
                 "Ribs: <strong>" + str(n_ribs) + "</strong> pairs, "
                 "<strong>" + ("Symmetric" if is_sym else "Individual") + "</strong><br>"
-                "Current lengths: <strong>" + ("%.2f" % min_l)
+                "User-adjusted lengths: <strong>" + ("%.2f" % min_l)
+                + " m</strong> to <strong>" + ("%.2f" % max_l) + " m</strong>"
+            )
+        elif rib_base:
+            min_l = min(rib_base)
+            max_l = max(rib_base)
+            rib_summary = (
+                "Ribs: <strong>" + str(n_ribs) + "</strong> pairs, "
+                "<strong>System computed</strong><br>"
+                "Lengths: <strong>" + ("%.2f" % min_l)
                 + " m</strong> to <strong>" + ("%.2f" % max_l) + " m</strong>"
             )
         else:
             rib_summary = (
-                "Ribs: <strong>" + str(n_ribs) + "</strong> pairs, "
-                "<strong>System default</strong><br>"
-                "Lengths not yet adjusted by user."
+                "Ribs: <strong>" + str(n_ribs) + "</strong> pairs<br>"
+                "Lengths will appear once geometry is set."
             )
 
         _preview_box(rib_summary)
@@ -311,9 +347,7 @@ def render_saddle_leaf():
             st.session_state.page = "leaf_room"
             st.rerun()
 
-        _info_box(
-            "Opens a dedicated room for individual rib adjustment."
-        )
+        _info_box("Opens a dedicated room for individual rib adjustment.")
 
     # =========================================================================
     # SECTION 2 - GEOMETRY
@@ -337,7 +371,7 @@ def render_saddle_leaf():
         with col2:
             outreach = st.number_input(
                 "Leaf Outreach (m) *",
-                min_value=2.0, max_value=30.0,
+                min_value=2.0, max_value=12.0,
                 value=float(st.session_state["ws_sl_outreach"]),
                 step=0.5,
                 key="ws_sl_outreach_input",
@@ -394,6 +428,23 @@ def render_saddle_leaf():
             key="ws_sl_curve_select",
         )
         st.session_state["ws_sl_curve_type"] = curve_options[curve_labels.index(curve_choice)]
+
+        # ---- Compute rib base lengths from geometry
+        computed_lengths = _compute_rib_lengths(outreach, tilt, ribs)
+        st.session_state["ws_sl_rib_base_lengths"] = computed_lengths
+
+        # ---- Preview of computed lengths
+        length_strs = []
+        for i, L in enumerate(computed_lengths):
+            pos = _rib_position_label(i, len(computed_lengths))
+            length_strs.append(
+                "Rib " + str(i + 1) + " (" + pos + "): "
+                "<strong>" + ("%.2f" % L) + " m</strong>"
+            )
+        preview_html = "<br>".join(length_strs)
+        _preview_box(
+            "<strong>Computed rib lengths</strong><br>" + preview_html
+        )
 
         warns = _validate_leaf_geometry(col_h, outreach, ribs, tilt)
         for w in warns:
