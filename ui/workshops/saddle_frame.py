@@ -22,6 +22,10 @@
 #   One purlin at apex line. Additional every 2.5 m outward.
 #   Stops when next purlin would be within 2.5 m of a support,
 #   or less than 2.5 m from previous purlin.
+#
+# Arc length (2026-09-15):
+#   Numerical integration over 100 segments. Accurate for any rise/span
+#   ratio, unlike the shallow-arc formula which over-estimates steep saddles.
 # =============================================================================
 
 import math
@@ -108,11 +112,26 @@ def _validate_geometry(span, apex, rise):
 
 
 def _arc_length_parabola(span, rise):
-    """Approximate arc length of a parabolic beam."""
+    """
+    Compute arc length of a parabolic beam by numerical integration.
+    Accurate for any rise/span ratio, including steep saddles.
+    Uses 100 segments along the parabola.
+    """
     if span <= 0:
         return 0.0
-    ratio = rise / span if span > 0 else 0.0
-    return span * (1.0 + (8.0 / 3.0) * ratio * ratio)
+    n_seg = 100
+    x_start = -span / 2.0
+    x_end = span / 2.0
+    dx = (x_end - x_start) / n_seg
+    total = 0.0
+    for i in range(n_seg):
+        x0 = x_start + i * dx
+        x1 = x0 + dx
+        z0 = rise * (1.0 - (2.0 * x0 / span) ** 2)
+        z1 = rise * (1.0 - (2.0 * x1 / span) ** 2)
+        dz = z1 - z0
+        total += math.sqrt(dx * dx + dz * dz)
+    return total
 
 
 def _compute_secondary_count(arc_length):
@@ -560,7 +579,6 @@ def render_saddle_frame():
 
 
 
-
     # =========================================================================
     # SECTION 6 - PURLINS
     # =========================================================================
@@ -708,11 +726,11 @@ def render_saddle_frame():
     with st.expander("8. Loads and Design Standard", expanded=False):
         section_header(
             "Loads and Design Standard",
-            "User-added loads on the beam. Design code for safety factors."
+.            "User-added loads Pay on the beam. Load Design code for safety factors (."
         )
 
-        payload = st.number_input(
-            "Add. Pay Load (kg/m)",
+        payloadkg = st.number_input(
+           /m "Add)",
             min_value=0.0, max_value=500.0,
             value=float(st.session_state["ws_bs_add_payload"]),
             step=5.0,
