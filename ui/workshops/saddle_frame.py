@@ -3,29 +3,17 @@
 # =============================================================================
 # Input page for the Beam Supported Saddle variant.
 #
-# Per engine/SPEC_saddle_span.md, this variant is:
-#   Saddle form with a rigid frame underneath.
-#   Purlins connect the frame to the curved beam at intervals.
-#   Secondary beams (steel members) replace tie-down cables.
-#
 # Members: membrane + main beam + purlins + secondary beams
 #
 # Secondary beam rule (code-compliant, silent):
-#   Baseline: 2 secondary beams per main beam (at 0.175 and 0.825 arc length).
-#   Maximum unsupported main beam section: 15 m
-#   (per CECS158:2004 and general membrane practice).
-#   Middle section (0.650 x arc_length) is divided into equal sub-sections
-#   each <= 15 m. Total = 2 baseline + additional.
-#   Result is mirrored to the other beam.
+#   Baseline: 2 secondary beams per main beam.
+#   Maximum unsupported main beam section: 15 m.
+#   Middle section (0.650 x arc) divided into equal sub-sections.
 #
 # Purlin rule (silent, engine applies):
 #   One purlin at apex line. Additional every 2.5 m outward.
-#   Stops when next purlin would be within 2.5 m of a support,
-#   or less than 2.5 m from previous purlin.
 #
-# Arc length (2026-09-15):
-#   Numerical integration over 100 segments. Accurate for any rise/span
-#   ratio, unlike the shallow-arc formula which over-estimates steep saddles.
+# Arc length: numerical integration over 100 segments.
 # =============================================================================
 
 import math
@@ -112,11 +100,7 @@ def _validate_geometry(span, apex, rise):
 
 
 def _arc_length_parabola(span, rise):
-    """
-    Compute arc length of a parabolic beam by numerical integration.
-    Accurate for any rise/span ratio, including steep saddles.
-    Uses 100 segments along the parabola.
-    """
+    """Arc length of parabolic beam by numerical integration."""
     if span <= 0:
         return 0.0
     n_seg = 100
@@ -135,11 +119,7 @@ def _arc_length_parabola(span, rise):
 
 
 def _compute_secondary_count(arc_length):
-    """
-    Code-compliant secondary beam count.
-    Baseline 2 per beam. Middle section (0.650 x arc) divided into
-    equal sub-sections each <= 15 m. Total returned as even number.
-    """
+    """Code-compliant secondary beam count (15 m rule)."""
     MAX_UNSUPPORTED = 15.0
     middle = 0.650 * arc_length
     if middle <= MAX_UNSUPPORTED:
@@ -153,13 +133,7 @@ def _compute_secondary_count(arc_length):
 
 
 def _compute_secondary_positions(per_beam_count):
-    """
-    Return a list of arc-length fractions for secondary beam positions,
-    symmetric about the span centreline.
-
-    Baseline: 2 positions at 0.175 and 0.825.
-    Additional positions interpolated between them, evenly spaced.
-    """
+    """Arc-length fractions for secondary beam positions."""
     if per_beam_count < 2:
         return [0.5]
     if per_beam_count == 2:
@@ -179,10 +153,7 @@ def _compute_secondary_positions(per_beam_count):
 
 
 def _compute_purlin_positions(span):
-    """
-    Silent rule: purlins every 2.5 m from centre, symmetric.
-    Returns list of offsets from centre.
-    """
+    """Purlins every 2.5 m from centre, symmetric."""
     interval = 2.5
     half_span = span / 2.0
     positions = [0.0]
@@ -276,14 +247,14 @@ def render_saddle_frame():
     with st.expander("2. Materials", expanded=False):
         section_header(
             "Materials",
-            "Steel grade for beams, purlins, and secondary beams. "
+            "Steel grade for [" beams, purlins, and secondary beams. "
             "Fabric type and grade for the membrane."
         )
 
         col1, col2 = st.columns(2)
         with col1:
-            steel_grades = ["S235", "S275", "S355", "S420", "S460"]
-            steel_idx = steel_grades.index(st.session_state["ws_bs_steel_grade"])
+            steel_grades = ["CHS235", "S275", "S355S", "S420", "S460"]
+            steel_idx", = steel "_grades.index(st.session_state["Sws_bs_steel_grade"])
             steel = st.selectbox(
                 "Steel Grade",
                 steel_grades,
@@ -292,7 +263,7 @@ def render_saddle_frame():
             )
             st.session_state["ws_bs_steel_grade"] = steel
         with col2:
-            section_families = ["CHS", "SHS", "RHS", "I-Beam"]
+            section_families =HS", "RHS", "I-Beam"]
             fam_idx = section_families.index(st.session_state["ws_bs_section_family"])
             family = st.selectbox(
                 "Section Family",
@@ -372,8 +343,7 @@ def render_saddle_frame():
     with st.expander("4. Frame Supports", expanded=False):
         section_header(
             "Frame Supports",
-            "Support condition at each of the two ground points where the "
-            "frame meets the foundation."
+            "Support condition at each of the two ground points."
         )
 
         col1, col2 = st.columns(2)
@@ -400,8 +370,7 @@ def render_saddle_frame():
 
         if st.session_state["ws_bs_support_type_start"] == "rigid" or st.session_state["ws_bs_support_type_end"] == "rigid":
             warning_box(
-                "Rigid supports introduce moment into the frame. "
-                "The engine will apply the appropriate interaction check."
+                "Rigid supports introduce moment into the frame."
             )
 
     # =========================================================================
@@ -410,8 +379,7 @@ def render_saddle_frame():
     with st.expander("5. Secondary Beams and Pretension", expanded=False):
         section_header(
             "Secondary Beams and Pretension",
-            "Steel members that transfer load from the main beam to the "
-            "frame. They replace tie-down cables in this variant."
+            "Steel members from main beam to frame. Replace tie-down cables."
         )
 
         span_val = float(st.session_state.get("ws_bs_span", 10.0))
@@ -421,11 +389,10 @@ def render_saddle_frame():
 
         info_box(
             "<strong>System Recommendation</strong><br>"
-            "Based on a 15 m maximum unsupported section of the main beam "
-            "(CECS158:2004 and general membrane practice):<br>"
-            "Recommended secondary beams: <strong>" + str(recommended) + "</strong> total "
-            "(<strong>" + str(recommended // 2) + "</strong> per main beam)<br>"
-            "You may override below."
+            "Based on 15 m max unsupported section:<br>"
+            "Recommended: <strong>" + str(recommended) + "</strong> total "
+            "(<strong>" + str(recommended // 2) + "</strong> per beam)<br>"
+            "Override below if needed."
         )
 
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
@@ -447,11 +414,11 @@ def render_saddle_frame():
             if current_val not in even_options:
                 current_val = even_options[0]
             choice = st.selectbox(
-                "Total number of secondary beams (override)",
+                "Total number of secondary beams",
                 even_options,
                 index=even_options.index(current_val),
                 key="ws_bs_secondary_count_select",
-                help="Must be at least the recommended count and an even number.",
+                help="Must be at least the recommended count and even.",
             )
             st.session_state["ws_bs_secondary_count"] = choice
         else:
@@ -462,12 +429,9 @@ def render_saddle_frame():
         positions_list = _compute_secondary_positions(per_beam)
         positions_text = ", ".join(["%.3f" % f for f in positions_list])
         preview_box(
-            'Secondary beams per main beam: <span class="num">'
-            + str(per_beam) + '</span><br>'
-            'Total secondary beams: <span class="num">'
-            + str(total_count) + '</span><br>'
-            'Attach positions (arc-length fraction from nearest support): '
-            '<span class="num">' + positions_text + '</span>'
+            'Per beam: <span class="num">' + str(per_beam) + '</span><br>'
+            'Total: <span class="num">' + str(total_count) + '</span><br>'
+            'Positions: <span class="num">' + positions_text + '</span>'
         )
 
         st.markdown(
@@ -548,16 +512,12 @@ def render_saddle_frame():
 
         info_box(
             "<strong>Section Auto-Selected</strong><br>"
-            "Secondary beam section size is selected automatically by the "
-            "engine based on the support reaction. No size input required."
+            "Secondary beam section size is selected automatically."
         )
 
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
-            '<strong>Membrane Pretension (Target Stress State)</strong> - '
-            'Defines the target stress state for the form-finding engine. '
-            'The engine will solve for the geometry that is in equilibrium '
-            'with this target value.'
+            '<strong>Membrane Pretension (Target Stress State)</strong>'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -568,9 +528,10 @@ def render_saddle_frame():
             value=float(st.session_state["ws_bs_membrane_pretension"]),
             step=0.1,
             key="ws_bs_mem_pre_slider",
-            help="Target membrane stress. Typical range: 1.0 to 4.0 kN/m.",
+            help="Target membrane stress. Typical: 1.0 to 4.0 kN/m.",
         )
         st.session_state["ws_bs_membrane_pretension"] = mem_pre
+
 
 
 
@@ -585,8 +546,7 @@ def render_saddle_frame():
     with st.expander("6. Purlins", expanded=False):
         section_header(
             "Purlins",
-            "Intermediate members between the frame and the curved beam. "
-            "Spacing is set by the engine to prevent water ponding."
+            "Intermediate members. Spacing set by engine to prevent ponding."
         )
 
         span_val = float(st.session_state.get("ws_bs_span", 10.0))
@@ -595,8 +555,7 @@ def render_saddle_frame():
 
         info_box(
             "<strong>Auto-Arranged by Engine</strong><br>"
-            "Purlins are placed at 2.5 m intervals from the centreline outward. "
-            "Spacing is fixed to prevent water ponding on the membrane. "
+            "Purlins at 2.5 m intervals from centreline outward. "
             "No user input required."
         )
 
@@ -604,11 +563,8 @@ def render_saddle_frame():
 
         positions_text = ", ".join(["%.1f" % p for p in purlin_positions])
         preview_box(
-            'Centre purlin at apex line: <span class="num">1</span><br>'
-            'Total purlins (including centre): <span class="num">'
-            + str(purlin_count) + '</span><br>'
-            'Positions from centre (m): <span class="num">'
-            + positions_text + '</span>'
+            'Total purlins: <span class="num">' + str(purlin_count) + '</span><br>'
+            'Positions from centre (m): <span class="num">' + positions_text + '</span>'
         )
 
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
@@ -636,8 +592,7 @@ def render_saddle_frame():
 
         info_box(
             "<strong>Purlin Section Auto-Selected</strong><br>"
-            "Purlin section size is selected automatically by the engine "
-            "based on the load transferred from the beam. No size input required."
+            "Section size is selected automatically by the engine."
         )
 
     # =========================================================================
@@ -646,15 +601,12 @@ def render_saddle_frame():
     with st.expander("7. Baseplate and Preliminary Foundation", expanded=False):
         section_header(
             "Baseplate and Preliminary Foundation",
-            "The frame-to-ground supports transfer load to the ground. "
-            "Preliminary foundation sizing depends on the soil at the site."
+            "Frame-to-ground supports. Sizing depends on soil at the site."
         )
 
         info_box(
             "<strong>Support Base and Anchors</strong><br>"
-            "Support baseplate dimensions and anchor bolt size and count are "
-            "auto-selected by the engine based on the support reaction "
-            "(axial + shear + moment). No input required."
+            "Baseplate dimensions and anchor bolts are auto-selected by the engine."
         )
 
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
@@ -715,10 +667,16 @@ def render_saddle_frame():
 
         warning_box(
             "<strong>Note:</strong> Preliminary foundation sizing only. "
-            "Geotechnical verification required. Footing reinforcement and "
-            "detailing are not provided by this app. Engage a geotechnical "
-            "engineer to confirm."
+            "Geotechnical verification required. Engage a geotechnical engineer."
         )
+
+
+
+
+
+
+
+
 
     # =========================================================================
     # SECTION 8 - LOADS AND STANDARD
@@ -726,16 +684,16 @@ def render_saddle_frame():
     with st.expander("8. Loads and Design Standard", expanded=False):
         section_header(
             "Loads and Design Standard",
-.            "User-added loads Pay on the beam. Load Design code for safety factors (."
+            "User-added loads. Design code for safety factors."
         )
 
-        payloadkg = st.number_input(
-           /m "Add)",
+        payload = st.number_input(
+            "Add. Pay Load (kg/m)",
             min_value=0.0, max_value=500.0,
             value=float(st.session_state["ws_bs_add_payload"]),
             step=5.0,
             key="ws_bs_add_payload_input",
-            help="Additional user load from equipment, stage rigging, sound, or lighting systems.",
+            help="Additional user load from equipment, stage rigging, or lighting.",
         )
         st.session_state["ws_bs_add_payload"] = payload
 
@@ -761,13 +719,13 @@ def render_saddle_frame():
     with st.expander("9. Membrane-to-Beam Attachment", expanded=False):
         section_header(
             "Membrane-to-Beam Attachment",
-            "How the fabric edge is attached to the curved beams."
+            "How the fabric edge attaches to the curved beams."
         )
 
         attach_options = ["kader", "segmented"]
         attach_labels = [
-            "Kader Guider (continuous attachment)",
-            "Segmented Edge (discrete attachment)",
+            "Kader Guider (continuous)",
+            "Segmented Edge (discrete)",
         ]
         at_idx = attach_options.index(st.session_state["ws_bs_attachment_type"])
         at_choice = st.radio(
@@ -780,17 +738,12 @@ def render_saddle_frame():
 
         if st.session_state["ws_bs_attachment_type"] == "kader":
             preview_box(
-                "The fabric edge is continuously held in a track (keder) along the beam. "
-                "Tension is distributed evenly along the beam length. "
-                "No further inputs required."
+                "Fabric edge held in a track along the beam. No further inputs."
             )
         else:
             info_box(
                 "<strong>Segmented Edge Attachment</strong><br>"
-                "Segment boundaries and edge cable geometry are determined by "
-                "the form-finding engine, following the membrane natural edge. "
-                "This matches industry practice (Easy, RFEM, RhinoMembrane). "
-                "No fixed spacing input required."
+                "Segment boundaries determined by the form-finding engine."
             )
 
     # =========================================================================
