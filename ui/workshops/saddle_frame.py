@@ -22,23 +22,6 @@
 #   One purlin at apex line. Additional every 2.5 m outward.
 #   Stops when next purlin would be within 2.5 m of a support,
 #   or less than 2.5 m from previous purlin.
-#
-# Design decisions (agreed 2026-09-15):
-#   - 9 collapsible sections
-#   - Shared CSS and helpers from ui/workshops/_shared.py
-#   - Foundation section with small "Default" button above inputs
-#   - Membrane pretension is TARGET STRESS STATE for form-finding
-#   - Secondary beam count is system-recommended, user can override
-#   - Secondary beams: single / planar truss / 3D truss
-#   - Add. Pay Load for user-supplied equipment loads
-#   - Back to Registration at bottom
-#   - "Intelligent Design Computing" advances to Results
-#
-# Silent load rules (engine applies, Phase C):
-#   Self weight       gamma_G = 1.2
-#   Wind uplift       gamma_Q = -1.4
-#   Wind downward     gamma_Q = +1.4
-#   Add. Pay Load     gamma_Q = 1.5 (per country standard)
 # =============================================================================
 
 import math
@@ -66,23 +49,18 @@ from ui.workshops._shared import (
 def _init_defaults():
     """Initialise workshop state on first entry."""
     defaults = {
-        # Section 1 - Geometry
         "ws_bs_span": 10.0,
         "ws_bs_apex": 15.0,
         "ws_bs_rise": 6.2,
         "ws_bs_curve_type": "parabolic",
-        # Section 2 - Materials
         "ws_bs_steel_grade": "S355",
         "ws_bs_section_family": "CHS",
         "ws_bs_fabric_type": "PVDF",
         "ws_bs_fabric_grade": "Type III",
-        # Section 3 - Members
         "ws_bs_member_construction": "single_beam",
         "ws_bs_section_preference": "auto",
-        # Section 4 - Frame supports and struts
         "ws_bs_support_type_start": "pinned",
         "ws_bs_support_type_end": "pinned",
-        # Section 5 - Secondary beams
         "ws_bs_secondary_count": 4,
         "ws_bs_secondary_count_override": False,
         "ws_bs_secondary_construction": "single_beam",
@@ -91,19 +69,15 @@ def _init_defaults():
         "ws_bs_uplift_angle": 45,
         "ws_bs_spread_angle": 30,
         "ws_bs_membrane_pretension": 2.0,
-        # Section 6 - Purlins
         "ws_bs_purlin_construction": "single_beam",
         "ws_bs_purlin_section_family": "CHS",
-        # Section 7 - Baseplate and Foundation
         "ws_bs_soil_bearing": 150.0,
         "ws_bs_soil_type": "sand",
         "ws_bs_water_table": 3.0,
         "ws_bs_foundation_type": "pad",
         "ws_bs_found_widget_generation": 0,
-        # Section 8 - Loads
         "ws_bs_add_payload": 0.0,
         "ws_bs_design_standard": "MY",
-        # Section 9 - Attachment
         "ws_bs_attachment_type": "kader",
     }
     for k, v in defaults.items():
@@ -134,10 +108,7 @@ def _validate_geometry(span, apex, rise):
 
 
 def _arc_length_parabola(span, rise):
-    """
-    Approximate arc length of a parabolic beam over the given span
-    and rise. Used for secondary beam and purlin positioning.
-    """
+    """Approximate arc length of a parabolic beam."""
     if span <= 0:
         return 0.0
     ratio = rise / span if span > 0 else 0.0
@@ -162,11 +133,35 @@ def _compute_secondary_count(arc_length):
     return max(2, base)
 
 
+def _compute_secondary_positions(per_beam_count):
+    """
+    Return a list of arc-length fractions for secondary beam positions,
+    symmetric about the span centreline.
+
+    Baseline: 2 positions at 0.175 and 0.825.
+    Additional positions interpolated between them, evenly spaced.
+    """
+    if per_beam_count < 2:
+        return [0.5]
+    if per_beam_count == 2:
+        return [0.175, 0.825]
+
+    n_middle = per_beam_count - 2
+    middle_start = 0.175
+    middle_end = 0.825
+    middle_span = middle_end - middle_start
+    step = middle_span / (n_middle + 1)
+
+    fractions = [middle_start]
+    for i in range(1, n_middle + 1):
+        fractions.append(middle_start + i * step)
+    fractions.append(middle_end)
+    return fractions
+
+
 def _compute_purlin_positions(span):
     """
     Silent rule: purlins every 2.5 m from centre, symmetric.
-    Stops when next purlin would be within 2.5 m of the ground support,
-    or less than 2.5 m from previous purlin.
     Returns list of offsets from centre.
     """
     interval = 2.5
@@ -390,14 +385,6 @@ def render_saddle_frame():
                 "The engine will apply the appropriate interaction check."
             )
 
-
-
-
-
-
-
-
-
     # =========================================================================
     # SECTION 5 - SECONDARY BEAMS AND PRETENSION
     # =========================================================================
@@ -408,13 +395,11 @@ def render_saddle_frame():
             "frame. They replace tie-down cables in this variant."
         )
 
-        # ---- Compute recommended count from geometry
         span_val = float(st.session_state.get("ws_bs_span", 10.0))
         rise_val = float(st.session_state.get("ws_bs_rise", 6.2))
         arc = _arc_length_parabola(span_val, rise_val)
         recommended = _compute_secondary_count(arc)
 
-        # ---- Show recommendation as info box
         info_box(
             "<strong>System Recommendation</strong><br>"
             "Based on a 15 m maximum unsupported section of the main beam "
@@ -426,7 +411,6 @@ def render_saddle_frame():
 
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
 
-        # ---- Override option: user picks accept or override
         accept_default = st.radio(
             "Use system recommendation?",
             ["Yes - use recommendation", "No - override"],
@@ -435,7 +419,6 @@ def render_saddle_frame():
         )
         st.session_state["ws_bs_secondary_count_override"] = (accept_default == "No - override")
 
-        # ---- If override, show dropdown of even numbers
         if st.session_state["ws_bs_secondary_count_override"]:
             even_options = [4, 6, 8, 10, 12, 16, 20, 24, 32, 40]
             even_options = [n for n in even_options if n >= recommended]
@@ -455,10 +438,10 @@ def render_saddle_frame():
         else:
             st.session_state["ws_bs_secondary_count"] = recommended
 
-        # ---- Show computed attach positions
         total_count = int(st.session_state["ws_bs_secondary_count"])
         per_beam = total_count // 2
-        positions_text = ", ".join(["%.3f" % f for f in _compute_secondary_positions(per_beam)])
+        positions_list = _compute_secondary_positions(per_beam)
+        positions_text = ", ".join(["%.3f" % f for f in positions_list])
         preview_box(
             'Secondary beams per main beam: <span class="num">'
             + str(per_beam) + '</span><br>'
@@ -468,7 +451,6 @@ def render_saddle_frame():
             '<span class="num">' + positions_text + '</span>'
         )
 
-        # ---- Toggle angles with system-recommended caption
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
             '<strong>Secondary Beam Toggle Angles</strong>'
@@ -504,7 +486,6 @@ def render_saddle_frame():
             unsafe_allow_html=True,
         )
 
-        # ---- Secondary beam construction type
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
             '<strong>Secondary Beam Construction</strong>'
@@ -552,7 +533,6 @@ def render_saddle_frame():
             "engine based on the support reaction. No size input required."
         )
 
-        # ---- Membrane pretension
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
             '<strong>Membrane Pretension (Target Stress State)</strong> - '
