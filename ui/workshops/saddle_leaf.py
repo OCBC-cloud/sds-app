@@ -6,9 +6,10 @@
 # Design decisions (agreed 2026-09-15):
 #   - Object Shape selector at top
 #   - "Adjust Rib Lengths" opens ui/rooms/leaf_room.py
-#   - Rib lengths computed from geometry (stored in session state)
+#   - Rib lengths computed from geometry
 #   - Strut joint height FIXED at 75% of column height
-#   - Arrangement section at bottom
+#   - Arrangement section: Single / Double / Multiple / Tree Stack / Tree Spiral
+#   - Tree Stack: 1-3 tiers, scale factor 0.75 fixed
 #   - 9 collapsible sections total
 # =============================================================================
 
@@ -142,7 +143,8 @@ def _init_defaults():
         "ws_sl_design_standard": "MY",
         "ws_sl_arrangement": "single",
         "ws_sl_arrangement_count": 4,
-        "ws_sl_arrangement_tiers": 3,
+        "ws_sl_arrangement_tiers": 1,
+        "ws_sl_arrangement_spiral_count": 8,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -154,11 +156,7 @@ def _init_defaults():
 # =============================================================================
 
 def _compute_rib_lengths(outreach, tilt_deg, n_ribs):
-    """
-    Return a list of computed rib lengths (in metres).
-    Ribs ordered inner-to-outer.
-    t values evenly spaced from 0.08 to 0.92.
-    """
+    """Return a list of computed rib lengths (in metres)."""
     lengths = []
     if n_ribs < 1:
         return lengths
@@ -429,11 +427,9 @@ def render_saddle_leaf():
         )
         st.session_state["ws_sl_curve_type"] = curve_options[curve_labels.index(curve_choice)]
 
-        # ---- Compute rib base lengths from geometry
         computed_lengths = _compute_rib_lengths(outreach, tilt, ribs)
         st.session_state["ws_sl_rib_base_lengths"] = computed_lengths
 
-        # ---- Preview of computed lengths
         length_strs = []
         for i, L in enumerate(computed_lengths):
             pos = _rib_position_label(i, len(computed_lengths))
@@ -819,10 +815,10 @@ def render_saddle_leaf():
             )
             st.session_state["ws_sl_arrangement_count"] = n_leaves
 
-        elif st.session_state["ws_sl_arrangement"] in ("tree_stack", "tree_spiral"):
+        elif st.session_state["ws_sl_arrangement"] == "tree_stack":
             n_tiers = st.slider(
                 "Number of tiers",
-                min_value=2, max_value=6,
+                min_value=1, max_value=3,
                 value=int(st.session_state["ws_sl_arrangement_tiers"]),
                 step=1,
                 key="ws_sl_arr_tiers_slider",
@@ -830,8 +826,23 @@ def render_saddle_leaf():
             st.session_state["ws_sl_arrangement_tiers"] = n_tiers
 
             _preview_box(
-                "Tier scale and rotation are fixed by the engine. "
-                "The user only designs the mother object."
+                "Tier scale factor 0.75. Rotation fixed by engine. "
+                "User only designs the mother object."
+            )
+
+        elif st.session_state["ws_sl_arrangement"] == "tree_spiral":
+            n_spiral = st.slider(
+                "Number of leaves in spiral",
+                min_value=3, max_value=15,
+                value=int(st.session_state["ws_sl_arrangement_spiral_count"]),
+                step=1,
+                key="ws_sl_arr_spiral_slider",
+            )
+            st.session_state["ws_sl_arrangement_spiral_count"] = n_spiral
+
+            _preview_box(
+                "Spiral rise, rotation, and scale are fixed by the engine. "
+                "User only designs the mother object."
             )
 
         _info_box(
