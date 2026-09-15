@@ -1,6 +1,11 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Navigation Router
 # =============================================================================
+# Routes the current page to its render function.
+#
+# Updated 2026-09-15:
+#   - Added leaf_room route for Rib Length Adjustment room
+# =============================================================================
 
 import streamlit as st
 
@@ -33,6 +38,11 @@ def _render_results():
     render_results()
 
 
+def _render_leaf_room():
+    from ui.rooms.leaf_room import render_leaf_room
+    render_leaf_room()
+
+
 def _render_guided():
     st.markdown(
         '<div style="background-color: #1a2a3a; border-left: 4px solid #f39c12; '
@@ -56,6 +66,7 @@ PAGE_RENDERERS = {
     "registration": _render_registration,
     "workshop": _render_workshop,
     "results": _render_results,
+    "leaf_room": _render_leaf_room,
     "guided": _render_guided,
 }
 
