@@ -47,7 +47,7 @@ def _init_defaults():
         "ws_bs_section_preference": "auto",
         "ws_bs_support_type_start": "pinned",
         "ws_bs_support_type_end": "pinned",
-        "ws_bs_secondary_count": 4,
+        "ws_bs_secondary_count": 2,
         "ws_bs_secondary_count_override": False,
         "ws_bs_secondary_construction": "single_beam",
         "ws_bs_secondary_section_family": "CHS",
@@ -113,7 +113,11 @@ def _arc_length_parabola(span, rise):
 
 
 def _compute_secondary_count(arc_length):
-    """Code-compliant secondary beam count (15 m rule)."""
+    """
+    Return secondary beams PER BEAM.
+    Baseline 2. Middle section (0.65 x arc) divided into
+    equal sub-sections each <= 15 m.
+    """
     MAX_UNSUPPORTED = 15.0
     middle = 0.650 * arc_length
     if middle <= MAX_UNSUPPORTED:
@@ -121,9 +125,9 @@ def _compute_secondary_count(arc_length):
     else:
         n_subsections = int(math.ceil(middle / MAX_UNSUPPORTED))
         base = 1 + n_subsections
-    if base % 2 != 0:
-        base = base + 1
-    return max(2, base)
+    if base < 2:
+        base = 2
+    return base
 
 
 def _compute_secondary_positions(per_beam_count):
@@ -160,6 +164,14 @@ def _compute_purlin_positions(span):
         positions.append(-offset)
         k += 1
     return sorted(positions)
+
+
+
+
+
+
+
+
 
 
 # =============================================================================
@@ -233,15 +245,6 @@ def render_saddle_frame():
         warns = _validate_geometry(span, apex, rise)
         for w in warns:
             warning_box(w)
-
-
-
-
-
-
-
-
-
 
     # =========================================================================
     # SECTION 2 - MATERIALS
@@ -327,9 +330,7 @@ def render_saddle_frame():
         )
         st.session_state["ws_bs_member_construction"] = member_options[member_labels.index(member)]
 
-        preview_box(
-            "Engine will auto-select the optimal section size."
-        )
+        preview_box("Engine will auto-select the optimal section size.")
 
     # =========================================================================
     # SECTION 4 - FRAME SUPPORTS
@@ -382,8 +383,7 @@ def render_saddle_frame():
         info_box(
             "<strong>System Recommendation</strong><br>"
             "15 m max unsupported section:<br>"
-            "Recommended: <strong>" + str(recommended) + "</strong> total "
-            "(<strong>" + str(recommended // 2) + "</strong> per beam)"
+            "Recommended: <strong>" + str(recommended) + "</strong> per beam"
         )
 
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
@@ -397,31 +397,29 @@ def render_saddle_frame():
         st.session_state["ws_bs_secondary_count_override"] = (accept_default == "No - override")
 
         if st.session_state["ws_bs_secondary_count_override"]:
-            even_options = [4, 6, 8, 10, 12, 16, 20, 24, 32, 40]
-            even_options = [n for n in even_options if n >= recommended]
-            if not even_options:
-                even_options = [recommended] if recommended % 2 == 0 else [recommended + 1]
+            per_beam_options = [2, 3, 4, 5, 6, 8, 10, 12]
+            per_beam_options = [n for n in per_beam_options if n >= recommended]
+            if not per_beam_options:
+                per_beam_options = [recommended]
             current_val = int(st.session_state.get("ws_bs_secondary_count", recommended))
-            if current_val not in even_options:
-                current_val = even_options[0]
+            if current_val not in per_beam_options:
+                current_val = per_beam_options[0]
             choice = st.selectbox(
-                "Total number of secondary beams",
-                even_options,
-                index=even_options.index(current_val),
+                "Number of secondary beams per main beam",
+                per_beam_options,
+                index=per_beam_options.index(current_val),
                 key="ws_bs_secondary_count_select",
             )
             st.session_state["ws_bs_secondary_count"] = choice
         else:
             st.session_state["ws_bs_secondary_count"] = recommended
 
-        total_count = int(st.session_state["ws_bs_secondary_count"])
-        per_beam = total_count // 2
+        per_beam = int(st.session_state["ws_bs_secondary_count"])
         positions_list = _compute_secondary_positions(per_beam)
         positions_text = ", ".join(["%.3f" % f for f in positions_list])
         preview_box(
-            'Per beam: <span class="num">' + str(per_beam) + '</span><br>'
-            'Total: <span class="num">' + str(total_count) + '</span><br>'
-            'Positions: <span class="num">' + positions_text + '</span>'
+            'Secondary beams per main beam: <span class="num">' + str(per_beam) + '</span><br>'
+            'Attach positions (arc-length fraction): <span class="num">' + positions_text + '</span>'
         )
 
         st.markdown(
@@ -629,9 +627,7 @@ def render_saddle_frame():
         )
         st.session_state["ws_bs_foundation_type"] = found_options[found_labels.index(found_choice)]
 
-        warning_box(
-            "Preliminary sizing only. Geotechnical verification required."
-        )
+        warning_box("Preliminary sizing only. Geotechnical verification required.")
 
     # =========================================================================
     # SECTION 8 - LOADS AND STANDARD
@@ -714,3 +710,10 @@ def render_saddle_frame():
         ):
             st.session_state.page = "results"
             st.rerun()
+
+
+
+
+
+
+
