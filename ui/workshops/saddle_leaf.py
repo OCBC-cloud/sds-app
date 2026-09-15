@@ -3,22 +3,17 @@
 # =============================================================================
 # Input page for the Cantilever Leaf variant.
 #
-# Per engine/SPEC_saddle_span.md, this variant is:
-#   Uni-pole column with curved spine (main beam) and radial ribs.
-#   Leaf-shaped membrane canopy. Cantilevered.
-#   Baseplate anchor resists torsion - footing must be designed separately.
+# Uni-pole column with curved spine and radial ribs.
+# Leaf-shaped membrane canopy. Cantilevered.
 #
-# Design decisions (agreed 2026-09-14):
-#   - Collapsible sections
-#   - Mixed widgets
-#   - Custom-styled section headers
-#   - No tie-down cables (this is a cantilever, not an uplift structure)
-#   - Section 6 is Baseplate + Preliminary Foundation Sizing
-#   - Section 5 covers fabric attachment AND perimeter cable
-#   - Cable diameter and baseplate sizing are automatic
-#   - Strut joint height FIXED at 75% of column height (no user input)
-#   - Back to Registration at bottom
-#   - "Intelligent Design Computing" advances to Results
+# Design decisions (agreed 2026-09-15):
+#   - 7 collapsible sections
+#   - Strut joint height FIXED at 75% of column height
+#   - No tie-down cables (this is a cantilever)
+#   - Perimeter cable follows the membrane natural edge
+#   - Add. Pay Load for user-supplied loads
+#   - Foundation with Default button
+#   - Fabric type shows classification info
 # =============================================================================
 
 import streamlit as st
@@ -101,12 +96,25 @@ WORKSHOP_CSS = """
 
 
 # =============================================================================
+# FABRIC CLASSIFICATION INFO
+# =============================================================================
+# Reference data shown to the user when a fabric type is chosen.
+
+FABRIC_INFO = {
+    "Type I": "700-800 g/m2. Light tensile structures, tents, shade sails.",
+    "Type II": "900-1000 g/m2. Medium tensile structures.",
+    "Type III": "1050-1200 g/m2. Mid-to-large tensile structures.",
+    "Type IV": "1300-1400 g/m2. Large-span structures, stadiums.",
+    "Type V": "1450-2000 g/m2. Maximum span, air-supported roofs.",
+}
+
+
+# =============================================================================
 # DEFAULTS
 # =============================================================================
 
 def _init_defaults():
     defaults = {
-        # Section 1 - Geometry
         "ws_sl_column_height": 10.0,
         "ws_sl_outreach": 10.0,
         "ws_sl_ribs_per_side": 7,
@@ -114,30 +122,25 @@ def _init_defaults():
         "ws_sl_rib_spacing": 45,
         "ws_sl_arc_radius": 5.0,
         "ws_sl_curve_type": "parabolic",
-        # Section 2 - Materials
         "ws_sl_steel_grade": "S355",
         "ws_sl_section_family": "CHS",
         "ws_sl_fabric_type": "PVDF",
         "ws_sl_fabric_grade": "Type III",
-        # Section 3 - Column and Spine
         "ws_sl_column_type": "unipole",
         "ws_sl_column_preference": "auto",
-        # Section 4 - Ribs
         "ws_sl_rib_section_family": "CHS",
         "ws_sl_rib_preference": "auto",
         "ws_sl_rib_connection": "bolted",
-        # Section 5 - Attachment + Perimeter Cable
         "ws_sl_attachment_type": "kader",
-        "ws_sl_segment_spacing": 2.5,
         "ws_sl_perimeter_cable_type": "6x19",
         "ws_sl_perimeter_cable_material": "stainless",
-        # Section 6 - Baseplate and Foundation
+        "ws_sl_membrane_pretension": 2.0,
         "ws_sl_soil_bearing": 150.0,
         "ws_sl_soil_type": "sand",
         "ws_sl_water_table": 3.0,
         "ws_sl_foundation_type": "pad",
-        # Section 7 - Loads
-        "ws_sl_live_load": 0.5,
+        "ws_sl_found_widget_generation": 0,
+        "ws_sl_add_payload": 0.0,
         "ws_sl_design_standard": "MY",
     }
     for k, v in defaults.items():
@@ -158,13 +161,13 @@ def _validate_leaf_geometry(col_h, outreach, ribs, tilt):
     if ribs < 5:
         warnings.append("Minimum 5 ribs per side for a proper leaf shape.")
     if ribs > 15:
-        warnings.append("More than 15 ribs per side is architecturally excessive.")
+        warnings.append("More than 15 ribs per side is excessive.")
     if tilt < 10:
         warnings.append("Rib tilt below 10 degrees may not drain properly.")
     if tilt > 40:
         warnings.append("Rib tilt above 40 degrees loses the leaf silhouette.")
     if outreach > 12 and col_h < outreach:
-        warnings.append("Tall outreach relative to column height. Torsion will govern.")
+        warnings.append("Tall outreach relative to column height.")
     return warnings
 
 
@@ -175,6 +178,35 @@ def _section_header(title, help_text=""):
     st.markdown(html, unsafe_allow_html=True)
 
 
+def _info_box(text):
+    st.markdown(
+        '<div class="ws-info-box">' + text + '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _preview_box(text):
+    st.markdown(
+        '<div class="ws-preview-box">' + text + '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _warning_box(text):
+    st.markdown(
+        '<div class="ws-warning-box">' + text + '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+
+
+
+
+
+
+
+
 # =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
@@ -183,6 +215,8 @@ def render_saddle_leaf():
     """Render the Cantilever Leaf workshop."""
     st.markdown(WORKSHOP_CSS, unsafe_allow_html=True)
     _init_defaults()
+
+    gen = int(st.session_state.get("ws_sl_found_widget_generation", 0))
 
     project_name = st.session_state.get("project_info", {}).get("name", "") or "Untitled Project"
     client_name = st.session_state.get("project_info", {}).get("client", "") or "Unknown Client"
@@ -215,7 +249,7 @@ def render_saddle_leaf():
     with st.expander("1. Geometry", expanded=True):
         _section_header(
             "Geometry",
-            "Overall layout of the leaf. Column rises from ground. Leaf extends outward with radial ribs."
+            "Overall layout of the leaf."
         )
 
         col1, col2 = st.columns(2)
@@ -291,10 +325,7 @@ def render_saddle_leaf():
 
         warns = _validate_leaf_geometry(col_h, outreach, ribs, tilt)
         for w in warns:
-            st.markdown(
-                '<div class="ws-warning-box">' + w + '</div>',
-                unsafe_allow_html=True,
-            )
+            _warning_box(w)
 
     # =========================================================================
     # SECTION 2 - MATERIALS
@@ -302,7 +333,7 @@ def render_saddle_leaf():
     with st.expander("2. Materials", expanded=False):
         _section_header(
             "Materials",
-            "Steel grade for the structure. Fabric type and grade for the membrane."
+            "Steel grade, section family, and fabric."
         )
 
         col1, col2 = st.columns(2)
@@ -330,8 +361,8 @@ def render_saddle_leaf():
         col3, col4 = st.columns(2)
         with col3:
             fabric_types = list(FABRIC_PROPERTIES.keys())
-           .session ft_idx = fabric_types.index(st.session_state_state["ws_sl_fabric_type"]) if st[".session_state["ws_sl_fabric_type"] in fabric_typesws else _s0
-            fabric_type =l st.selectbox(
+            ft_idx = fabric_types.index(st.session_state["ws_sl_fabric_type"]) if st.session_state["ws_sl_fabric_type"] in fabric_types else 0
+            fabric_type = st.selectbox(
                 "Fabric Type",
                 fabric_types,
                 index=ft_idx,
@@ -351,13 +382,32 @@ def render_saddle_leaf():
             )
             st.session_state["ws_sl_fabric_grade"] = grade
 
+        # ---- Fabric classification info box
+        info_text = FABRIC_INFO.get(
+            st.session_state["ws_sl_fabric_grade"],
+            "Refer to manufacturer datasheet.",
+        )
+        _info_box(
+            "<strong>" + st.session_state["ws_sl_fabric_grade"]
+            + " Fabric</strong><br>" + info_text
+        )
+
+
+
+
+
+
+
+
+
+
     # =========================================================================
     # SECTION 3 - COLUMN AND SPINE
     # =========================================================================
     with st.expander("3. Column and Spine", expanded=False):
         _section_header(
             "Column and Spine",
-            "The uni-pole column and the curved spine (main beam) at the top."
+            "The uni-pole column and the curved spine."
         )
 
         col_types = ["unipole", "truss"]
@@ -379,27 +429,20 @@ def render_saddle_leaf():
         )
         st.session_state["ws_sl_column_preference"] = "auto" if col_pref == "Auto-select" else "manual"
 
-        # ---- Strut Joint Height (FIXED at 75% of column height)
         col_h_val = float(st.session_state.get("ws_sl_column_height", 10.0))
         strut_joint = round(col_h_val * 0.75, 2)
-        st_strut_joint_height"] = strut_joint
+        st.session_state["ws_sl_strut_joint_height"] = strut_joint
 
-        st.markdown(
-            '<div class="ws-preview-box">'
+        _preview_box(
             'Strut joint height: <span class="num">'
             + ("%.2f m" % strut_joint)
             + '</span> (75% of column height)<br>'
-            'Fixed by the engine. Higher joint reduces moment transfer to the baseplate.'
-            '</div>',
-            unsafe_allow_html=True,
+            'Fixed by the engine.'
         )
 
-        st.markdown(
-            '<div class="ws-preview-box">'
-            'Column base is a rigid baseplate. Torsion and moment '
-            'are resisted by the baseplate and its anchors.'
-            '</div>',
-            unsafe_allow_html=True,
+        _preview_box(
+            "Column base is a rigid baseplate. "
+            "Torsion and moment are resisted by the baseplate."
         )
 
     # =========================================================================
@@ -408,7 +451,7 @@ def render_saddle_leaf():
     with st.expander("4. Ribs", expanded=False):
         _section_header(
             "Ribs",
-            "Radial ribs extending outward and upward from the spine."
+            "Radial ribs extending outward from the spine."
         )
 
         col1, col2 = st.columns(2)
@@ -443,18 +486,18 @@ def render_saddle_leaf():
         st.session_state["ws_sl_rib_connection"] = conn_options[conn_labels.index(conn_choice)]
 
     # =========================================================================
-    # SECTION 5 - MEMBRANE-TO-RIB ATTACHMENT AND PERIMETER CABLE
+    # SECTION 5 - MEMBRANE ATTACHMENT AND PERIMETER CABLE
     # =========================================================================
     with st.expander("5. Membrane Attachment and Perimeter Cable", expanded=False):
         _section_header(
             "Membrane Attachment and Perimeter Cable",
-            "How the fabric is attached to the ribs, and how the perimeter cable runs between rib tips."
+            "How the fabric is attached, and how the perimeter cable runs."
         )
 
         attach_options = ["kader", "segmented"]
         attach_labels = [
-            "Kader Guider (continuous attachment)",
-            "Segmented Edge Cables (discrete attachment)",
+            "Kader Guider (continuous)",
+            "Segmented Edge (discrete)",
         ]
         at_idx = attach_options.index(st.session_state["ws_sl_attachment_type"])
         at_choice = st.radio(
@@ -465,22 +508,10 @@ def render_saddle_leaf():
         )
         st.session_state["ws_sl_attachment_type"] = attach_options[attach_labels.index(at_choice)]
 
-        if st.session_state["ws_sl_attachment_type"] == "segmented":
-            desired = st.number_input(
-                "Desired Segment Spacing (m)",
-                min_value=0.5, max_value=10.0,
-                value=float(st.session_state["ws_sl_segment_spacing"]),
-                step=0.1,
-                key="ws_sl_seg_spacing_input",
-            )
-            st.session_state["ws_sl_segment_spacing"] = desired
-
-        # Perimeter cable (auto diameter, user picks type and material)
-        st.markdown(
-            '<div class="ws-section-help" style="margin-top:1rem;">'
-            '<strong>Perimeter Cable</strong> - runs between the tips of the ribs to form the leaf outline.'
-            '</div>',
-            unsafe_allow_html=True,
+        _info_box(
+            "<strong>Perimeter Cable Path</strong><br>"
+            "Follows the membrane natural edge. Ends attach to the "
+            "outermost rib tips. Curve is a result of form-finding."
         )
 
         col1, col2 = st.columns(2)
@@ -506,45 +537,56 @@ def render_saddle_leaf():
             )
             st.session_state["ws_sl_perimeter_cable_material"] = pc_mats[pc_mat_labels.index(pc_mat)]
 
-        st.markdown(
-            '<div class="ws-preview-box">'
-            'Perimeter cable diameter is selected automatically by the engine '
-            'based on the computed tension.'
-            '</div>',
-            unsafe_allow_html=True,
+        _preview_box(
+            "Perimeter cable diameter is selected automatically by the engine."
         )
 
+        mem_pre = st.slider(
+            "Membrane Pretension (kN/m)",
+            min_value=0.5, max_value=8.0,
+            value=float(st.session_state["ws_sl_membrane_pretension"]),
+            step=0.1,
+            key="ws_sl_mem_pre_slider",
+        )
+        st.session_state["ws_sl_membrane_pretension"] = mem_pre
+
+
+
+
+
+
+
+
+
+
     # =========================================================================
-    # SECTION 6 - BASEPLATE AND FOUNDATION
+    # SECTION 6 - BASEPLATE AND PRELIMINARY FOUNDATION
     # =========================================================================
     with st.expander("6. Baseplate and Preliminary Foundation", expanded=False):
         _section_header(
             "Baseplate and Preliminary Foundation",
-            "The column baseplate anchors the leaf to the ground. "
-            "Preliminary foundation sizing depends on the soil at the site."
+            "Sizing depends on soil at the site."
         )
 
-        st.markdown(
-            '<div class="ws-info-box">'
-            '<strong>Baseplate and Anchors</strong><br>'
-            'Baseplate dimensions and anchor bolt size and count are '
-            'auto-selected by the engine based on the column reaction '
-            '(axial + moment + torsion). No input required.'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
+        if st.button(
+            "Default",
+            key="ws_sl_found_default",
+        ):
+            st.session_state["ws_sl_soil_bearing"] = 150.0
+            st.session_state["ws_sl_soil_type"] = "sand"
+            st.session_state["ws_sl_water_table"] = 3.0
+            st.session_state["ws_sl_foundation_type"] = "pad"
+            st.session_state["ws_sl_found_widget_generation"] = gen + 1
+            st.rerun()
 
         col1, col2 = st.columns(2)
         with col1:
             bearing = st.number_input(
-                "Assumed Soil Bearing Capacity (kN/m2)",
+                "Soil Bearing Capacity (kN/m2)",
                 min_value=50.0, max_value=1000.0,
                 value=float(st.session_state["ws_sl_soil_bearing"]),
                 step=10.0,
-                key="ws_sl_soil_bearing_input",
-                help="From geotechnical investigation. Typical: sand 150, clay 100, rock 500.",
+                key="ws_sl_soil_bearing_input_" + str(gen),
             )
             st.session_state["ws_sl_soil_bearing"] = bearing
         with col2:
@@ -553,18 +595,18 @@ def render_saddle_leaf():
                 min_value=0.5, max_value=20.0,
                 value=float(st.session_state["ws_sl_water_table"]),
                 step=0.5,
-                key="ws_sl_water_table_input",
+                key="ws_sl_water_table_input_" + str(gen),
             )
             st.session_state["ws_sl_water_table"] = water
 
         soil_options = ["sand", "clay", "rock", "filled"]
-        soil_labels = ["Sand", "Clay", "Rock", "Filled / Made Ground"]
+        soil_labels = ["Sand", "Clay", "Rock", "Filled"]
         s_idx = soil_options.index(st.session_state["ws_sl_soil_type"])
         soil_choice = st.selectbox(
             "Soil Type",
             soil_labels,
             index=s_idx,
-            key="ws_sl_soil_type_select",
+            key="ws_sl_soil_type_select_" + str(gen),
         )
         st.session_state["ws_sl_soil_type"] = soil_options[soil_labels.index(soil_choice)]
 
@@ -575,18 +617,12 @@ def render_saddle_leaf():
             "Foundation Type",
             found_labels,
             index=f_idx,
-            key="ws_sl_found_type_select",
+            key="ws_sl_found_type_select_" + str(gen),
         )
         st.session_state["ws_sl_foundation_type"] = found_options[found_labels.index(found_choice)]
 
-        st.markdown(
-            '<div class="ws-warning-box">'
-            '<strong>Note:</strong> Preliminary foundation sizing only. '
-            'Geotechnical verification required. Footing reinforcement and '
-            'detailing are not provided by this app. Engage a geotechnical '
-            'engineer to confirm.'
-            '</div>',
-            unsafe_allow_html=True,
+        _warning_box(
+            "Preliminary sizing only. Geotechnical verification required."
         )
 
     # =========================================================================
@@ -595,17 +631,17 @@ def render_saddle_leaf():
     with st.expander("7. Loads and Design Standard", expanded=False):
         _section_header(
             "Loads and Design Standard",
-            "Live load on the ribs and the design code for safety factors."
+            "User-added loads. Design code for safety factors."
         )
 
-        live = st.number_input(
-            "Live Load on Ribs (kg/m)",
+        payload = st.number_input(
+            "Add. Pay Load (kg/m)",
             min_value=0.0, max_value=500.0,
-            value=float(st.session_state["ws_sl_live_load"]),
+            value=float(st.session_state["ws_sl_add_payload"]),
             step=5.0,
-            key="ws_sl_live_input",
+            key="ws_sl_add_payload_input",
         )
-        st.session_state["ws_sl_live_load"] = live
+        st.session_state["ws_sl_add_payload"] = payload
 
         std_options = ["EU", "MY", "UK", "CN", "US"]
         std_idx = std_options.index(st.session_state["ws_sl_design_standard"])
@@ -617,13 +653,10 @@ def render_saddle_leaf():
         )
         st.session_state["ws_sl_design_standard"] = std
 
-        st.markdown(
-            '<div class="ws-preview-box">'
+        _preview_box(
             'Wind speed basis: <span class="num">'
             + str(WIND_SPEEDS.get(std, 30.0))
             + ' m/s</span>'
-            '</div>',
-            unsafe_allow_html=True,
         )
 
     # =========================================================================
