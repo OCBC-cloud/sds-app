@@ -3,17 +3,12 @@
 # =============================================================================
 # Input page for the Cantilever Leaf variant.
 #
-# Uni-pole column with curved spine and radial ribs.
-# Leaf-shaped membrane canopy. Cantilevered.
-#
 # Design decisions (agreed 2026-09-15):
-#   - 7 collapsible sections
+#   - Object Shape selector at top (Leaf active, others coming)
+#   - "Adjust Rib Lengths" opens ui/rooms/leaf_room.py
 #   - Strut joint height FIXED at 75% of column height
-#   - No tie-down cables (this is a cantilever)
-#   - Perimeter cable follows the membrane natural edge
-#   - Add. Pay Load for user-supplied loads
-#   - Foundation with Default button
-#   - Fabric type shows classification info
+#   - Arrangement section at bottom (Single / Double / Multiple / Trees)
+#   - 9 collapsible sections total
 # =============================================================================
 
 import streamlit as st
@@ -98,7 +93,6 @@ WORKSHOP_CSS = """
 # =============================================================================
 # FABRIC CLASSIFICATION INFO
 # =============================================================================
-# Reference data shown to the user when a fabric type is chosen.
 
 FABRIC_INFO = {
     "Type I": "700-800 g/m2. Light tensile structures, tents, shade sails.",
@@ -115,6 +109,9 @@ FABRIC_INFO = {
 
 def _init_defaults():
     defaults = {
+        # Object shape
+        "ws_sl_object_shape": "leaf",
+        # Geometry
         "ws_sl_column_height": 10.0,
         "ws_sl_outreach": 10.0,
         "ws_sl_ribs_per_side": 7,
@@ -122,26 +119,36 @@ def _init_defaults():
         "ws_sl_rib_spacing": 45,
         "ws_sl_arc_radius": 5.0,
         "ws_sl_curve_type": "parabolic",
+        # Materials
         "ws_sl_steel_grade": "S355",
         "ws_sl_section_family": "CHS",
         "ws_sl_fabric_type": "PVDF",
         "ws_sl_fabric_grade": "Type III",
+        # Column and spine
         "ws_sl_column_type": "unipole",
         "ws_sl_column_preference": "auto",
+        # Ribs
         "ws_sl_rib_section_family": "CHS",
         "ws_sl_rib_preference": "auto",
         "ws_sl_rib_connection": "bolted",
+        # Attachment
         "ws_sl_attachment_type": "kader",
         "ws_sl_perimeter_cable_type": "6x19",
         "ws_sl_perimeter_cable_material": "stainless",
         "ws_sl_membrane_pretension": 2.0,
+        # Foundation
         "ws_sl_soil_bearing": 150.0,
         "ws_sl_soil_type": "sand",
         "ws_sl_water_table": 3.0,
         "ws_sl_foundation_type": "pad",
         "ws_sl_found_widget_generation": 0,
+        # Loads
         "ws_sl_add_payload": 0.0,
         "ws_sl_design_standard": "MY",
+        # Arrangement
+        "ws_sl_arrangement": "single",
+        "ws_sl_arrangement_count": 4,
+        "ws_sl_arrangement_tiers": 3,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -244,9 +251,74 @@ def render_saddle_leaf():
     )
 
     # =========================================================================
-    # SECTION 1 - GEOMETRY
+    # SECTION 1 - OBJECT SHAPE
     # =========================================================================
-    with st.expander("1. Geometry", expanded=True):
+    with st.expander("1. Object Shape", expanded=True):
+        _section_header(
+            "Object Shape",
+            "Choose the base object. Leaf is active now. "
+            "Flower, Bell and Hypar are coming soon."
+        )
+
+        shape_options = ["leaf", "flower", "bell", "hypar"]
+        shape_labels = [
+            "Leaf",
+            "Flower (coming soon)",
+            "Bell (coming soon)",
+            "Hypar (coming soon)",
+        ]
+        shape_idx = shape_options.index(st.session_state["ws_sl_object_shape"])
+        shape_choice = st.radio(
+            "Base Object",
+            shape_labels,
+            index=shape_idx,
+            key="ws_sl_shape_radio",
+        )
+        if shape_choice == "Leaf":
+            st.session_state["ws_sl_object_shape"] = "leaf"
+        else:
+            st.session_state["ws_sl_object_shape"] = "leaf"
+
+        # ---- Rib length summary + Adjust button
+        rib_base = st.session_state.get("ws_sl_rib_base_lengths", [])
+        n_ribs = int(st.session_state.get("ws_sl_ribs_per_side", 7))
+        rib_override = st.session_state.get("ws_sl_rib_lengths_override", [])
+        is_sym = st.session_state.get("ws_sl_rib_symmetric", True)
+
+        if rib_override:
+            min_l = min(rib_override)
+            max_l = max(rib_override)
+            rib_summary = (
+                "Ribs: <strong>" + str(n_ribs) + "</strong> pairs, "
+                "<strong>" + ("Symmetric" if is_sym else "Individual") + "</strong><br>"
+                "Current lengths: <strong>" + ("%.2f" % min_l)
+                + " m</strong> to <strong>" + ("%.2f" % max_l) + " m</strong>"
+            )
+        else:
+            rib_summary = (
+                "Ribs: <strong>" + str(n_ribs) + "</strong> pairs, "
+                "<strong>System default</strong><br>"
+                "Lengths not yet adjusted by user."
+            )
+
+        _preview_box(rib_summary)
+
+        if st.button(
+            "Adjust Rib Lengths",
+            key="ws_sl_open_rib_room",
+            use_container_width=True,
+        ):
+            st.session_state.page = "leaf_room"
+            st.rerun()
+
+        _info_box(
+            "Opens a dedicated room for individual rib adjustment."
+        )
+
+    # =========================================================================
+    # SECTION 2 - GEOMETRY
+    # =========================================================================
+    with st.expander("2. Geometry", expanded=False):
         _section_header(
             "Geometry",
             "Overall layout of the leaf."
@@ -275,8 +347,8 @@ def render_saddle_leaf():
         col3, col4 = st.columns(2)
         with col3:
             ribs = st.number_input(
-                "Ribs per Side (min 5) *",
-                min_value=5, max_value=15,
+                "Ribs per Side (min 5, max 7) *",
+                min_value=5, max_value=7,
                 value=int(st.session_state["ws_sl_ribs_per_side"]),
                 step=1,
                 key="ws_sl_ribs_input",
@@ -327,10 +399,19 @@ def render_saddle_leaf():
         for w in warns:
             _warning_box(w)
 
+
+
+
+
+
+
+
+
+
     # =========================================================================
-    # SECTION 2 - MATERIALS
+    # SECTION 3 - MATERIALS
     # =========================================================================
-    with st.expander("2. Materials", expanded=False):
+    with st.expander("3. Materials", expanded=False):
         _section_header(
             "Materials",
             "Steel grade, section family, and fabric."
@@ -382,7 +463,6 @@ def render_saddle_leaf():
             )
             st.session_state["ws_sl_fabric_grade"] = grade
 
-        # ---- Fabric classification info box
         info_text = FABRIC_INFO.get(
             st.session_state["ws_sl_fabric_grade"],
             "Refer to manufacturer datasheet.",
@@ -392,19 +472,10 @@ def render_saddle_leaf():
             + " Fabric</strong><br>" + info_text
         )
 
-
-
-
-
-
-
-
-
-
     # =========================================================================
-    # SECTION 3 - COLUMN AND SPINE
+    # SECTION 4 - COLUMN AND SPINE
     # =========================================================================
-    with st.expander("3. Column and Spine", expanded=False):
+    with st.expander("4. Column and Spine", expanded=False):
         _section_header(
             "Column and Spine",
             "The uni-pole column and the curved spine."
@@ -446,9 +517,9 @@ def render_saddle_leaf():
         )
 
     # =========================================================================
-    # SECTION 4 - RIBS
+    # SECTION 5 - RIBS
     # =========================================================================
-    with st.expander("4. Ribs", expanded=False):
+    with st.expander("5. Ribs", expanded=False):
         _section_header(
             "Ribs",
             "Radial ribs extending outward from the spine."
@@ -485,10 +556,19 @@ def render_saddle_leaf():
         )
         st.session_state["ws_sl_rib_connection"] = conn_options[conn_labels.index(conn_choice)]
 
+
+
+
+
+
+
+
+
+
     # =========================================================================
-    # SECTION 5 - MEMBRANE ATTACHMENT AND PERIMETER CABLE
+    # SECTION 6 - MEMBRANE ATTACHMENT AND PERIMETER CABLE
     # =========================================================================
-    with st.expander("5. Membrane Attachment and Perimeter Cable", expanded=False):
+    with st.expander("6. Membrane Attachment and Perimeter Cable", expanded=False):
         _section_header(
             "Membrane Attachment and Perimeter Cable",
             "How the fabric is attached, and how the perimeter cable runs."
@@ -550,19 +630,10 @@ def render_saddle_leaf():
         )
         st.session_state["ws_sl_membrane_pretension"] = mem_pre
 
-
-
-
-
-
-
-
-
-
     # =========================================================================
-    # SECTION 6 - BASEPLATE AND PRELIMINARY FOUNDATION
+    # SECTION 7 - BASEPLATE AND PRELIMINARY FOUNDATION
     # =========================================================================
-    with st.expander("6. Baseplate and Preliminary Foundation", expanded=False):
+    with st.expander("7. Baseplate and Preliminary Foundation", expanded=False):
         _section_header(
             "Baseplate and Preliminary Foundation",
             "Sizing depends on soil at the site."
@@ -626,9 +697,9 @@ def render_saddle_leaf():
         )
 
     # =========================================================================
-    # SECTION 7 - LOADS AND STANDARD
+    # SECTION 8 - LOADS AND STANDARD
     # =========================================================================
-    with st.expander("7. Loads and Design Standard", expanded=False):
+    with st.expander("8. Loads and Design Standard", expanded=False):
         _section_header(
             "Loads and Design Standard",
             "User-added loads. Design code for safety factors."
@@ -657,6 +728,64 @@ def render_saddle_leaf():
             'Wind speed basis: <span class="num">'
             + str(WIND_SPEEDS.get(std, 30.0))
             + ' m/s</span>'
+        )
+
+    # =========================================================================
+    # SECTION 9 - ARRANGEMENT
+    # =========================================================================
+    with st.expander("9. Arrangement", expanded=False):
+        _section_header(
+            "Arrangement",
+            "How the mother object is arranged around the column."
+        )
+
+        arrangement_options = [
+            "single", "double", "multiple", "tree_stack", "tree_spiral"
+        ]
+        arrangement_labels = [
+            "Single",
+            "Double (mirror)",
+            "Multiple (radial)",
+            "Tree (stacked tiers)",
+            "Tree (spiral)",
+        ]
+        arr_idx = arrangement_options.index(st.session_state["ws_sl_arrangement"])
+        arr_choice = st.radio(
+            "Arrangement",
+            arrangement_labels,
+            index=arr_idx,
+            key="ws_sl_arrangement_radio",
+        )
+        st.session_state["ws_sl_arrangement"] = arrangement_options[arrangement_labels.index(arr_choice)]
+
+        if st.session_state["ws_sl_arrangement"] == "multiple":
+            n_leaves = st.slider(
+                "Number of objects around column",
+                min_value=2, max_value=8,
+                value=int(st.session_state["ws_sl_arrangement_count"]),
+                step=1,
+                key="ws_sl_arr_n_slider",
+            )
+            st.session_state["ws_sl_arrangement_count"] = n_leaves
+
+        elif st.session_state["ws_sl_arrangement"] in ("tree_stack", "tree_spiral"):
+            n_tiers = st.slider(
+                "Number of tiers",
+                min_value=2, max_value=6,
+                value=int(st.session_state["ws_sl_arrangement_tiers"]),
+                step=1,
+                key="ws_sl_arr_tiers_slider",
+            )
+            st.session_state["ws_sl_arrangement_tiers"] = n_tiers
+
+            _preview_box(
+                "Tier scale and rotation are fixed by the engine. "
+                "The user only designs the mother object."
+            )
+
+        _info_box(
+            "Arrangement multiplies the mother object around the "
+            "column. Mother geometry is not changed by arrangement."
         )
 
     # =========================================================================
