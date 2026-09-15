@@ -19,6 +19,10 @@
 #   2026-09-14 - Added MEMBER_SCHEMA for Member Schedule display.
 #                Planar truss (4 members) distinguished from
 #                3D/space truss (5 members).
+#   2026-09-15 - Renamed display names for Saddle Span sub-types:
+#                Standard Saddle  -> Cable Supported Saddle
+#                Frame Supported  -> Beam Supported Saddle
+#                Variant keys unchanged.
 # =============================================================================
 
 STRUCTURE_TYPES = {
@@ -75,11 +79,13 @@ STRUCTURE_TYPES = {
 
 STRUCTURE_VARIANTS = {
     "saddle_span": [
-        {"key": "standard_saddle", "name": "Standard Saddle",
-         "description": "Tie-down supported. Beam in bending.",
+        {"key": "standard_saddle",
+         "name": "Cable Supported Saddle",
+         "description": "Tie-down cables resist uplift. Suitable for spans up to about 20 m.",
          "available": True},
-        {"key": "frame_supported_saddle", "name": "Frame Supported Saddle",
-         "description": "Rigid frame support. Purlin, strut, and cable.",
+        {"key": "frame_supported_saddle",
+         "name": "Beam Supported Saddle",
+         "description": "Secondary beams and a rigid frame resist uplift. Suitable for larger spans.",
          "available": True},
     ],
     "cantilever": [
@@ -189,19 +195,8 @@ STRUCTURE_VARIANTS = {
 # =============================================================================
 # MEMBER SCHEMA
 # =============================================================================
-# Maps (structure_key, variant_key) to the list of members that appear
+# Maps (structure_key, variant_key) to the members that appear
 # in the Member Schedule for that structure.
-#
-# For structures with a truss option on the beam, the schema uses a
-# special marker for the beam type. The Results page reads the current
-# beam construction type from session state and expands it into the
-# correct chord rows.
-#
-# Member row format: a dict with
-#   key       - internal key for the row
-#   label     - display name
-#   section   - placeholder section label (engine fills in later)
-#   note      - optional note shown under the label
 #
 # Truss expansions:
 #   PLANAR_TRUSS = top, bottom, vertical, diagonal
@@ -210,7 +205,6 @@ STRUCTURE_VARIANTS = {
 # IMPORTANT: planar truss is 2D. It has NO horizontal chord.
 # =============================================================================
 
-# Reusable truss member row templates
 _PLANAR_TRUSS_ROWS = [
     {"key": "truss_top", "label": "Top Chord",
      "section": "CHS --", "note": ""},
@@ -237,9 +231,6 @@ _SPACE_TRUSS_ROWS = [
 
 
 MEMBER_SCHEMA = {
-    # ---- Saddle Span - Standard Saddle
-    # Members: membrane + beam + cable
-    # Beam expands by construction type
     ("saddle_span", "standard_saddle"): {
         "membrane_first": True,
         "beam_expandable": True,
@@ -249,26 +240,16 @@ MEMBER_SCHEMA = {
              "section": "SS 6x19 --", "note": "Uplift resistance"},
         ],
     },
-
-    # ---- Saddle Span - Frame Supported Saddle
-    # Members: membrane + beam + purlins + strut + cable
     ("saddle_span", "frame_supported_saddle"): {
         "membrane_first": True,
         "beam_expandable": True,
         "beam_label_single": "Main Beam",
         "purlins_expandable": True,
         "extra_rows_before_cables": [
-            {"key": "strut", "label": "Strut / Rigid Support",
+            {"key": "secondary_beam", "label": "Secondary Beams",
              "section": "CHS --", "note": "Replaces tie-down uplift action"},
         ],
-        "cables_last": [
-            {"key": "tiedown_cable", "label": "Tie-down Cables",
-             "section": "SS 6x19 --", "note": "Uplift resistance"},
-        ],
     },
-
-    # ---- Cantilever - Cantilever Leaf
-    # Members: membrane + column + ribs + perimeter cable
     ("cantilever", "cantilever_leaf"): {
         "membrane_first": True,
         "fixed_middle": [
@@ -291,17 +272,11 @@ def expand_beam_rows(construction_type):
     """
     Return the list of member rows for a beam of the given
     construction type.
-
-    construction_type:
-      "single_beam"  -> one row
-      "planar_truss" -> 4 rows (top, bottom, vertical, diagonal)
-      "space_truss"  -> 5 rows (top, bottom, vertical, horizontal, diagonal)
     """
     if construction_type == "planar_truss":
         return [dict(r) for r in _PLANAR_TRUSS_ROWS]
     if construction_type == "space_truss":
         return [dict(r) for r in _SPACE_TRUSS_ROWS]
-    # Default: single beam
     return [
         {"key": "main_beam", "label": "Main Beam",
          "section": "CHS --", "note": ""},
@@ -326,3 +301,10 @@ def get_member_schema(structure_key, variant_key):
 def get_all_categories():
     """Return sorted list of unique categories."""
     return sorted(set(v.get("category", "") for v in STRUCTURE_TYPES.values()))
+
+
+
+
+
+
+
