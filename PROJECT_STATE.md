@@ -1203,4 +1203,45 @@ Before any new design, engine, or idea:
 
 Research assists every decision that follows.
 
+# 📋 Project State: Tiered Canopy Generator
+
+**Project:** Streamlit 3D Structural Canopy Generator
+**Current Status:** Functional 3D rendering with distinct structural components (Column, Baseplate, Main Beam, Curved Strut).
+**Current Bottleneck:** Visual geometry looks like a "spider/flower." The beams originate from a single point, causing floating joints and unrealistic mechanics. The structure lacks tiered/spiral logic and proper truss mechanics.
+
+---
+
+## 🎯 IMMEDIATE NEXT STEPS (The "Refinement" Phase)
+*When we resume, we will attack these three specific math/mechanics issues:*
+
+1. **The "Crown Ring" (Fixing the Joints):** 
+   *   *Problem:* All beams connect to the exact same `(0,0,Z)` point on the column.
+   *   *Solution:* Create a "capital" or crown ring. Beams will attach to points on this ring, not a single point. This distributes the load.
+
+2. **Tiered/Spiral Logic (The Z-Offset):**
+   *   *Problem:* Tiers aren't offset correctly in the current math.
+   *   *Solution:* Implement a parametric loop with a **Phase Shift** ($\phi$) and **Height Delta** ($\Delta Z$). 
+   *   *Formula:* `Z_tier = H_column + (tier_index * tier_height_gap)` and `Angle = Base_Angle + (tier_index * phase_shift)`.
+
+3. **Truss Mechanics (The Curved Struts):**
+   *   *Problem:* Struts currently go from the base directly to the beam tip, causing them to float.
+   *   *Solution:* Attach the strut to the **midpoint** of the main beam (using Vector Math: `Column_Top + 0.5 * (Beam_Node - Column_Top)`). 
+
+---
+
+## 🧠 TECHNICAL NOTES FOR NEXT SESSION
+*   **Code Refactor:** Move away from `create_beam(angle, radius)` to a **Parametric Node Generator** (`nodes = {}` dictionary).
+*   **Node Snapping:** Ensure `Main Beam` starts *exactly* at `Column_Top` coordinate.
+*   **Ring Beams:** Add circular connecting rings (hoops) between the outer tips of Tier 1 and the start of Tier 2 to turn it into a rigid space frame.
+
+---
+
+## 🛌 REST PROTOCOL
+*   **Status:** App is saved. Logic is documented. 
+*   **Action:** Close the laptop. Grab a cold drink. Let your brain process the vectors while you sleep.
+
+**End of Day Report:** Great work today, Chief. We have a solid foundation. We'll turn this spider into a stadium roof next session. 
+
+**Signing off.** 💤🛠️
+
 End of project state.
