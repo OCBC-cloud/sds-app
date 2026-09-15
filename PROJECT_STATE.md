@@ -3,7 +3,7 @@
 Handoff document. Read this first in any new chat session.
 SINGLE SOURCE OF TRUTH for the project.
 
-Last updated: 2026-09-14 (evening session - major update)
+Last updated: 2026-09-15 (afternoon session)
 
 ---
 
@@ -77,194 +77,114 @@ This has caused MANY false alarms. Always reboot before diagnosing.
 
 ---
 
-## 5. THE CHUNKED PASTE METHOD (NEW - 2026-09-14)
+## 5. THE CHUNKED PASTE METHOD
 
-This is now the ONLY safe way to deliver code changes on iPhone.
+This is the ONLY safe way to deliver code changes on iPhone.
+Proven across many files.
 
-### The Problem We Solved
+### The Problem
 
-iOS Safari mangles long pastes. Even with Auto-Correction and Smart
-Punctuation turned OFF, pasting a file over ~250 lines into GitHub
-reliably corrupts it. We saw four separate corruptions in one day:
+iOS Safari mangles long pastes. Even with Auto-Correction and
+Smart Punctuation OFF, pasting a file over ~250 lines into the
+GitHub editor reliably corrupts it.
 
-  - Stray tokens injected mid-string (e.g. `{"` appearing in text)
+Observed corruption patterns:
+  - Stray characters injected mid-string (e.g. `{"` in text)
   - Missing closing quotes on long lines
   - Indent shifts on nested code blocks
   - Numbers split (e.g. `0.5` becomes `0. value5`)
-  - Identifiers broken (e.g. `ws_ss_soil_bearing` becomes
-    `ws_ss_soil._bearing`)
-  - Entire lines reordered or duplicated
+  - Identifiers broken (e.g. `ws_bs_soil_bearing` becomes
+    `ws_bs_soil._bearing`)
+  - Lines merged across chunk boundaries
+  - Long strings get chopped or garbled
 
 ### The Solution
 
-Split every long file into CHUNKS of roughly 150 lines each.
-Paste one chunk at a time. Include trailing blank lines in each
-chunk so the next paste has a clean landing zone.
+Split every file into 4 CHUNKS of roughly 100-150 lines each.
+Paste one chunk at a time. Bake trailing blank lines into each
+chunk. Keep strings short. Confirm each chunk before pasting
+the next.
 
-### The Exact Procedure
+### Exact Procedure
 
   1. Clear the GitHub editor (Select All -> Cut)
   2. Paste CHUNK 1 (already contains trailing blank lines)
   3. Report back: confirm it landed clean
-  4. Paste CHUNK 2 into the blank lines
+  4. Paste CHUNK 2 into the blank lines at the bottom
   5. Report back: confirm it landed clean
-  6. Paste CHUNK 3, and so on
+  6. Paste CHUNK 3, then CHUNK 4
   7. Commit at the end
   8. Reboot the app
 
 ### Rules For The Assistant
 
-  - NEVER ask the user to add blank lines. iPhone editing is painful.
-  - ALWAYS bake 6 trailing blank lines into each chunk.
-  - ALWAYS split files over ~200 lines into chunks.
-  - ALWAYS send one chunk at a time and wait for confirmation.
-  - NEVER send a file over 250 lines as a single paste.
+  - NEVER ask the user to add blank lines
+  - ALWAYS bake 5-6 trailing blank lines into each chunk
+  - ALWAYS split files over ~200 lines into 4 chunks
+  - ALWAYS send one chunk at a time and wait for confirmation
+  - ALWAYS keep strings under ~60 chars where possible
+  - NEVER send a file over 250 lines as a single paste
+  - NEVER use surgical edits on iPhone
+  - NEVER forget the buffer lines between chunks
 
 ### Rules For The User
 
   - Paste one chunk. Confirm it landed. Paste the next.
   - Do not edit between chunks.
   - Report any corruption immediately with a screenshot.
+  - Prefer full-file chunks over surgical edits.
 
 ### Why This Works
 
-Short pastes are safe. The blank line buffer means the next paste
-has whitespace to land in. One chunk at a time means a corruption
-is caught immediately, and only that chunk needs re-pasting.
+Short pastes are safe. Blank line buffers give the next paste a
+clean landing zone. One chunk at a time catches corruption
+immediately. The 4-chunk pattern has been proven on:
+  - viewers/results_viewer.py (via figures/ split)
+  - ui/workshops/saddle_standard.py
+  - ui/workshops/saddle_frame.py
+  - data/structures.py
+  - PROJECT_STATE.md itself
+
+### Known Vulnerability
+
+Buffers between chunks MUST be preserved. When two chunks
+touch without blank line separation, iOS merges them and
+corrupts the first strings it touches. This was observed
+at the Section 1 / Section 2 boundary in saddle_frame.py.
+
+Always verify buffer count after each chunk paste.
 
 ---
 
-## 6. iOS Paste Warning
+## 6. THE RESEARCH-FIRST PRINCIPLE
 
-Required device settings (already applied):
-  Settings > General > Keyboard:
-    - Auto-Correction: OFF
-    - Smart Punctuation: OFF
+Before any design or shape or type of structure, before writing
+any engineering engine, before any maths, before adopting any
+idea, and before citing any building code:
 
-GitHub editor settings (already applied):
-  - Spaces: 4
-  - No wrap
+DO THOROUGH RESEARCH ON THE SUBJECT FIRST.
 
-Even with these settings, long pastes still corrupt. See Section 5
-for the chunked paste method, which is the actual solution.
+Research assists every decision that follows. Whether it is:
+  - How major tensile membrane software works (Easy, RFEM,
+    RhinoMembrane, ixCube)
+  - What code governs a particular structural behaviour
+    (CECS158:2004 for membrane, EN 1990 / 1993 for Eurocode,
+    MS EN 1990 for Malaysia)
+  - How comparable real structures have been built
+    (stadiums, velodromes, membrane roofs)
+  - What the industry's standard practice is
+  - What "the right answer" looks like before deciding our own
 
----
+Every time we skipped this, we had to walk back and redo work.
+Every time we did it, the design held up.
 
-## 7. File Structure (branch modular-v10)
+The most recent example: the purlin/secondary beam spacing rule.
+We proposed 20 m as a guess. Research on membrane codes found
+15 m as the correct maximum. That single research step changed
+the design from "reasonable guess" to "code-compliant rule".
 
-Root:
-  app.py                     thin entry - 42 lines
-  PROJECT_STATE.md           this file
-  README.md
-  README_MODULAR.md
-  physics_engine.py          Phase A catenary (not wired)
-  requirements.txt
-  run_tests.py               test runner for GitHub Actions
-  test_membrane.py           redundant - to be deleted
-  viewer_app.py              only on main branch, not modular-v10
-
-.github/workflows/:
-  test.yml                   GitHub Actions CI - WORKING
-
-core/:
-  __init__.py
-  theme.py                   readability-focused CSS
-  state.py                   session state init
-  navigation.py              router
-
-data/:
-  __init__.py
-  sections.py
-  materials.py
-  structures.py              8 mains + variants + MEMBER_SCHEMA
-  constants.py
-
-engine/:
-  __init__.py
-  membrane.py                Message 1 done - mesh foundation
-  SPEC_saddle_span.md        updated with Section 6A strut geometry
-
-ui/:
-  __init__.py
-  landing.py                 Landing page - one screen, no scroll
-  studio.py                  2 sections, 8 tiles
-  registration.py            reads variants from data/structures.py
-  workshop.py                router for variant workshops
-  results.py                 3D view, health, section, readings, quantities
-  workshops/
-    __init__.py
-    _shared.py               shared CSS + helpers for all workshops
-    saddle_standard.py       8 sections, Default button, Add. Pay Load
-    saddle_leaf.py           7 sections, pretension inputs
-
-viewers/:
-  __init__.py
-  results_viewer.py          dispatches on variant_key alone
-
-.streamlit/:
-  config.toml
-
----
-
-## 8. Current Working State
-
-Confirmed working end-to-end:
-
-  Landing page:
-    - One screen, no scroll
-    - SDSe badge, title, subtitle, divider, brand
-    - Enter The Studio button
-    - Footer
-
-  Studio page:
-    - Content starts near top (gap trimmed)
-    - SDSe wordmark, "Choose Your Structure Type"
-    - Smart Guided Design tile
-    - Section A - Tensile and Membrane (5 tiles)
-    - Section B - Canopy and Frame (3 tiles)
-
-  Registration page:
-    - Reads variants from data/structures.py
-    - Auto-date captured on first visit
-    - Variant selection with Coming Soon badges
-
-  Workshop - Standard Saddle:
-    - 8 collapsible sections
-    - Geometry defaults: 10 / 15 / 6.2
-    - Foundation section with Default button above soil inputs
-    - Add. Pay Load (kg/m) with 0.00 default
-    - Pretension sliders (membrane kN/m, cable kN)
-    - All inputs persist
-
-  Workshop - Cantilever Leaf:
-    - 7 collapsible sections
-    - Strut joint height fixed at 75% of column height
-    - Pretension sliders
-    - Foundation section
-
-  Results page:
-    - 3D viewer dispatches on variant_key
-    - Standard Saddle and Cantilever Leaf both render
-    - Health Score card (100)
-    - Section Used card
-    - Analysis Readings (6 metric cards, all --)
-    - Quantities (3 cards, all --)
-
-Not yet restored on Results:
-  - Member Schedule table
-  - Anchor Reactions / Preliminary Foundation panel
-  - Export DXF button
-  - Export JSON button
-  - Save Design button
-
-Not yet built:
-  - Save Design to JSON file
-  - Load Design from JSON file
-  - BQ page
-  - Reports page
-  - Smart Guided Design wizard
-  - Foundation output panel on Results
-  - Workshops for the remaining 6 structure mains
+Research is not optional. Research is the first step of every
+design decision.
 
 ---
 
@@ -274,23 +194,26 @@ Not yet built:
 
 
 
-## 9. Structure Types - FINAL 8 MAINS
+
+
+
+## 7. Structure Types - FINAL 8 MAINS
 
 Reduced from 27 legacy types to 8 final mains on 2026-09-13.
 Membrane Ribbon (Type 9) is Phase 2.
 
 ### Type 1: Saddle Span
-  - Standard Saddle (workshop built)
-  - Frame Supported Saddle (workshop not built)
+  - Cable Supported Saddle (key: standard_saddle)
+  - Beam Supported Saddle (key: frame_supported_saddle)
 
 ### Type 2: Cantilever
-  - Cantilever Leaf (workshop built)
+  - Cantilever Leaf
   - Cantilever Flower (coming soon)
-  - Cantilever Cone (workshop not built)
-  - Cantilever Pyramid (workshop not built)
-  - Cantilever Bell (workshop not built)
-  - Cantilever Sail (workshop not built)
-  - Cantilever Hypar (workshop not built)
+  - Cantilever Cone
+  - Cantilever Pyramid
+  - Cantilever Bell
+  - Cantilever Sail
+  - Cantilever Hypar
 
 ### Type 3: Uni-Pole Tensile Roof
   - Single Cone
@@ -332,15 +255,14 @@ Membrane Ribbon (Type 9) is Phase 2.
 Key decisions:
   - Cantilever is its own main type
   - Leaf and Flower moved out of Saddle Span into Cantilever
-  - Ridge Sail dropped
-  - Hip Tent dropped
+  - Saddle Span sub-types renamed to describe the structural system:
+    Cable Supported Saddle, Beam Supported Saddle
+  - Ridge Sail and Hip Tent dropped
   - Hypar appears under both Tensile Sails and Cantilever
-    (intentional - spanning-between-anchors vs single-column)
-  - Umbrella kept separate from Single Cone
 
 ---
 
-## 10. Studio Page Layout - 2 SECTIONS
+## 8. Studio Page Layout - 2 SECTIONS
 
 Smart Guided Design tile at top (orange gradient)
 
@@ -357,12 +279,10 @@ Smart Guided Design tile at top (orange gradient)
   8. Portal Frame
 
 Studio reads tiles from data/structures.py.
-Tiles are defined in STUDIO_SECTION_A and STUDIO_SECTION_B lists
-in ui/studio.py.
 
 ---
 
-## 11. Canonical Data - data/structures.py
+## 9. Canonical Data - data/structures.py
 
 Single source of truth for structure types, variants, and members.
 
@@ -372,81 +292,83 @@ Three dicts:
   MEMBER_SCHEMA      - members present in each structure+variant
 
 Helpers:
-  get_structure(key)          returns structure dict or None
-  get_variants(key)           returns list of variant dicts
-  get_member_schema(sk, vk)   returns member schema for structure+variant
-  expand_beam_rows(type)      returns chord rows for single/planar/space
-  get_all_categories()        returns sorted list of categories
+  get_structure(key)
+  get_variants(key)
+  get_member_schema(sk, vk)
+  expand_beam_rows(type)
+  get_all_categories()
 
 Variant dict format:
   {"key": "...", "name": "...", "description": "...",
    "available": True/False}
 
-"available": False shows the "Coming Soon" badge in Registration.
+Variant keys are INTERNAL and do NOT change (e.g. standard_saddle,
+frame_supported_saddle). Display names can change freely.
 
 MEMBER_SCHEMA per structure:
   ("saddle_span", "standard_saddle"):
     membrane + beam (expandable) + tie-down cables
   ("saddle_span", "frame_supported_saddle"):
-    membrane + beam (expandable) + purlins (expandable)
-    + strut + tie-down cables
+    membrane + beam (expandable) + purlins + secondary beams
   ("cantilever", "cantilever_leaf"):
     membrane + column + spine + ribs + perimeter cable
 
 Beam expansion rules:
   single_beam   -> 1 row (Main Beam)
   planar_truss  -> 4 rows: top, bottom, vertical, diagonal
-                   NO horizontal (planar is 2D)
-  space_truss   -> 5 rows: top, bottom, vertical, horizontal, diagonal
+  space_truss   -> 5 rows: top, bottom, vertical, horizontal,
+                   diagonal
+
+IMPORTANT: planar truss is 2D. It has NO horizontal chord.
 
 ---
 
-## 12. Workshop Section Standard
+## 10. Workshop Section Standard
 
 EVERY workshop must follow this pattern.
 
 Standard sections (in this order):
   1. Geometry
   2. Materials
-  3. Members / Column and Spine
-  4. Supports / Ribs
-  5. Ties / Attachment / Pretension
-  6. Baseplate and Preliminary Foundation
-  7. Loads and Design Standard
-  8. Attachment (if applicable)
+  3. Members / Beam Construction
+  4. Supports / Frame Supports
+  5. Ties / Secondary Beams / Pretension
+  6. Purlins (only for Beam Supported)
+  7. Baseplate and Preliminary Foundation
+  8. Loads and Design Standard
+  9. Attachment (if applicable)
 
 Rules:
-  - Section 6 (Foundation) is present in EVERY workshop
-  - Section 7 (Loads) is present in EVERY workshop
-  - Section count can vary from 7 to 9 depending on structure
-  - Headers use the amber accent style
+  - Foundation section is present in EVERY workshop
+  - Loads section is present in EVERY workshop
+  - Section count varies from 7 to 9 depending on structure
+  - Headers use amber accent style
   - Help text under each header explains the section
 
 Foundation section content (identical everywhere):
-  - Small "Default" button ABOVE the soil inputs (not below)
-  - Assumed Soil Bearing Capacity (kN/m2) - default 150
+  - Small "Default" button ABOVE the soil inputs
+  - Soil Bearing Capacity (kN/m2) - default 150
   - Water Table Depth (m) - default 3.0
-  - Soil Type (sand / clay / rock / filled) - default sand
-  - Foundation Type (pad / pile / raft) - default pad
+  - Soil Type - default sand
+  - Foundation Type - default pad
   - Warning: "Geotechnical verification required."
 
 Default button rules:
-  - Label is just "Default" (short, no lecture)
-  - Positioned above the inputs (invitation, not afterthought)
+  - Label is just "Default"
+  - Positioned above the inputs
   - Small, non-full-width
-  - Refreshes the four soil inputs to defaults
-  - Uses the generation counter technique (Section 13)
+  - Uses generation counter technique (Section 11)
 
 ---
 
-## 13. Streamlit Widget Reset - Generation Counter
+## 11. Streamlit Widget Reset - Generation Counter
 
 Problem:
   Streamlit caches widget values under the widget key. Attempting
   to change a widget's value in place does not work. The old value
   is restored on rerun.
 
-Failed approaches we tried (all unsuccessful):
+Failed approaches:
   - Setting st.session_state[key] = new_value then rerun
   - Deleting the widget key then rerun
   - Two-stage flag + delete (eliminated the crash but not the reset)
@@ -458,16 +380,16 @@ Working solution - generation counter:
       1. Set the four state values to defaults
       2. Bump the counter (gen = gen + 1)
       3. rerun
-  - On next run, widgets have NEW keys (e.g. ..._1) which Streamlit
-    treats as brand new. They render from the state values which
-    now hold the defaults.
-  - The user sees the values change. No cache fight.
+  - On next run, widgets have NEW keys which Streamlit treats as
+    brand new. They render from the state values which now hold
+    the defaults.
+  - User sees the values change. No cache fight.
 
-Apply this pattern to any future widget that needs to be reset.
+Apply this pattern to any future widget that must be reset.
 
 ---
 
-## 14. Silent Load Rules (engine applies, Phase C)
+## 12. Silent Load Rules (engine applies, Phase C)
 
 Not shown to the user. Applied automatically by the engine.
 
@@ -476,101 +398,90 @@ Not shown to the user. Applied automatically by the engine.
   Wind downward      gamma_Q = +1.4
   Add. Pay Load      gamma_Q = 1.5 (per country standard)
 
-The user's only input is "Add. Pay Load (kg/m)" - the additional
+User's only load input: "Add. Pay Load (kg/m)" - the additional
 load they know about (equipment, stage rigging, sound, lighting).
-Self weight and wind are the engine's job.
+Default 0.00.
 
-Default for Add. Pay Load is 0.00 - no extra user load.
+Self weight and wind are the engine's job. Never exposed to user.
 
 ---
 
-## 15. Form-Finding Workflow - Industry Practice
+## 13. Form-Finding Workflow - Industry Practice
 
 Researched 2026-09-14.
 
 Industry tools (Easy, RFEM with RF-FORM-FINDING, RhinoMembrane,
 ixCube) all work the same way:
 
-  1. User defines boundary conditions (support positions, etc.)
+  1. User defines boundary conditions (support positions)
   2. User defines TARGET membrane stress and cable tension
   3. Form-finding solver (Force Density Method or Dynamic
      Relaxation) finds the shape that is in equilibrium
-  4. The resulting geometry IS the design - the shape emerges
+  4. The resulting geometry IS the design
   5. Analysis is then run on the found shape
-  6. Patterning flattens the 3D shape into 2D cutting patterns
+  6. Patterning flattens 3D shape into 2D cutting patterns
 
 Key principle: pretension is NOT a shape control. It is a
 target stress state. The solver produces geometry as a result.
 
 Applied to SDSe:
-  - Workshop collects membrane pretension (kN/m) and cable
-    pretension (kN) as TARGET values
+  - Workshop collects membrane pretension (kN/m) as TARGET value
   - Engine (Phase C) will solve for the equilibrium shape
-  - No fixed segment spacing on edge cables - the solver places
-    segment boundaries where the membrane geometry demands
+  - No fixed segment spacing on edge cables
   - Perimeter cable follows the membrane natural edge
-  - Cable ends attach to the tips of the outermost ribs
+  - Cable ends attach to tips of outermost ribs
 
 Membrane pretension default: 2.0 kN/m, range 0.5 to 8.0
-Cable pretension default: 5.0 kN, range 0.5 to 50.0
 
 ---
 
-## 16. Saddle Span Specification
+
+
+
+
+
+
+
+
+
+## 14. Saddle Span Family Specification
 
 Written to engine/SPEC_saddle_span.md.
 
-### Standard Saddle - members
-  - Membrane
-  - Beam (single member OR planar truss OR 3D truss)
-  - Cable (tie-downs)
-  NO column. NO ribs. NO purlins.
+### Cable Supported Saddle - members
+  Membrane + Main Beam + Tie-down Cables
+  NO column. NO ribs. NO purlins. NO secondary beams.
 
-### Frame Supported Saddle - members
-  - Membrane
-  - Beam (single OR planar truss OR 3D truss)
-  - Purlins (single OR planar truss OR 3D truss)
-  - Strut (rigid support replaces tie-down action)
-  - Cable
-  NO column. NO ribs.
+### Beam Supported Saddle - members
+  Membrane + Main Beam + Purlins + Secondary Beams
+  NO tie-down cables (secondary beams replace them).
 
-### Cantilever Leaf / Flower - members
-  - Membrane
-  - Column (uni-pole mast)
-  - Ribs
-  - Cable (perimeter)
-  NO beam. NO purlins. NO strut.
-  (The column spine IS the beam)
+### Main Beam Construction Options
+  Single Beam      - one solid section
+  Planar Truss     - top, bottom, vertical, diagonal chords
+  3D (Space) Truss - top, bottom, vertical, horizontal, diagonal
 
 ### Truss member breakdown
-  Planar truss  = top chord + bottom chord + vertical chord
-                  + diagonal chord. NO horizontal (2D).
-  3D truss      = top chord + bottom chord + vertical chord
-                  + horizontal chord + diagonal chord.
+  Planar truss = top + bottom + vertical + diagonal
+                  NO horizontal (2D)
+  3D truss     = top + bottom + vertical + horizontal + diagonal
 
-### Reference case - 10m x 10m Leaf prototype
-  Column: CHS 323.8 x 8, height 10m
-  Outreach: 10m
-  Ribs per side: 7
-  Rib tilt: 20 deg
+### Reference case - 10m x 10m prototype
+  Column (Leaf): CHS 323.8 x 8, height 10m
+  Outreach (Leaf): 10m
+  Ribs per side (Leaf): 7
+  Rib tilt (Leaf): 20 deg
   Main beam: CHS 168.3
   Edge cables: SS 6x19, 8mm
   Fabric: PVC Ferrari S702
   Governing action: TORSION
   Critical member: small rib near column
 
-### Section 6A - strut joint height
-  FIXED at 75% of column height (agreed 2026-09-14)
-  No user input. Engine assigns automatically.
-  For a 10m column: strut joint = 7.50 m
-
 ### Silent rules (never shown to user)
-  1. Membrane slope minimum:
-     18 deg for small exposed surfaces (area <= 100 m2 or
-     dim <= 15m)
-     23 deg for large exposed surfaces
+  1. Membrane slope minimum: 18 deg small surfaces, 23 deg large
   2. Pre-tension retention
   3. Shape fidelity (min 5 ribs per side for leaf)
+  4. Max unsupported main beam section 15 m (CECS158:2004)
 
 ### Country safety factors
   Table for EU / MY / UK / CN / US.
@@ -578,13 +489,12 @@ Written to engine/SPEC_saddle_span.md.
 
 ---
 
-## 17. Tie-down Cables - Lock-in Rule
+## 15. Cable Supported Saddle - Tie-down Rule
 
-Tie-down cables are mandatory for Standard Saddle and Frame
-Supported Saddle. Not used on Cantilever Leaf (cantilever).
+Tie-down cables are mandatory for Cable Supported Saddle.
 
 Required inputs:
-  - Number of Tie-down Intervals
+  - Number of cables (radio: 4 cables or 8 cables total)
   - Anchor Uplift Angle (default 45 deg)
   - Anchor Spread Angle (default 30 deg)
   - Cable Type (6x19 / locked coil / spiral)
@@ -592,40 +502,108 @@ Required inputs:
   - Cable Diameter (always auto - engine selects)
   - Ground Anchor Type (pinned / rigid)
 
+Cable positions (arc-length fraction per beam from nearest support):
+  4 cables total -> positions 0.175 and 0.825
+  8 cables total -> positions 0.175, 0.225, 0.775, 0.825
+
 Anchor geometry:
-  - Attach points along the beam, distributed across outer 70%
-    of span (t_min=0.15, t_max=0.85)
-  - Anchor is offset in BOTH x and y from the beam attach point
-  - Pattern is symmetric about both axes
+  - Attach points along the beam at arc-length fractions
+  - Anchor offset in BOTH x and y from beam attach point
+  - Pattern symmetric about both axes
   - Visual effect: fence perimeter around the structure
 
-Engine will compute optimal attach points at form-finding time.
+Note: The 15 m rule will eventually apply here too. For now,
+Cable Supported Saddle keeps the fixed 4/8 radio. Revisit when
+the engine is built.
 
 ---
 
+## 16. Beam Supported Saddle - Secondary Beam Rule
 
+Secondary beams are steel members that replace tie-down cables.
+Code-compliant rule (silent, engine applies):
 
+  Maximum unsupported main beam section: 15 m
+  (per CECS158:2004 and general membrane practice)
 
+  Computation:
+    1. Baseline: 2 secondary beams per main beam
+    2. Middle section = 0.650 x arc_length
+    3. If middle <= 15 m: baseline of 2 per beam
+       If middle > 15 m: n_subsections = ceil(middle / 15)
+                         base = 1 + n_subsections
+    4. Result is PER BEAM count (not total)
+    5. User can override in the workshop
 
+Reported to user as "X per beam" consistently.
+Dropdown options when overriding: [2, 3, 4, 5, 6, 8, 10, 12]
 
+Attach positions (arc-length fraction per beam):
+  Baseline 2 -> 0.175, 0.825
+  Additional positions interpolated between these, evenly spaced
+
+### Arc length calculation
+  Numerical integration over 100 segments.
+  Function: _arc_length_parabola(span, rise)
+  Accurate for any rise/span ratio including steep saddles.
+  Do NOT use the shallow-arc approximation formula
+  span * (1 + (8/3) * (rise/span)^2) - it over-estimates.
+
+### Secondary beam inputs (user-facing)
+  - Toggle Uplift Angle (default 45 deg, range 20-75)
+  - Toggle Spread Angle (default 30 deg, range 0-60)
+  - Secondary Beam Construction (single / planar / 3D truss)
+  - Section Family (CHS / SHS / RHS / I-Beam)
+  - Base Connection (pinned / rigid)
+  - Membrane Pretension (target stress state)
+
+Caption under the angle sliders: "System recommendation. Adjust
+if needed."
+
+---
+
+## 17. Beam Supported Saddle - Purlin Rule
+
+Purlins are intermediate members between the frame and the
+curved beam. They prevent water ponding on the membrane.
+
+Silent rule (engine applies):
+  1. One purlin at the apex line (counts as 1 of total)
+  2. Additional purlins every 2.5 m outward from centre
+  3. Stop when: next purlin would be within 2.5 m of a ground
+     support, OR less than 2.5 m from previous purlin
+  4. End points do NOT count as purlins
+  5. User has no input
+
+Examples:
+  Span 10 m -> purlins at -2.5, 0.0, 2.5 (total 3)
+  Span 15 m -> purlins at -5.0, -2.5, 0.0, 2.5, 5.0 (total 5)
+  Span 20 m -> purlins at -7.5, -5.0, -2.5, 0.0, 2.5, 5.0, 7.5
+               (total 7)
+
+### Purlin inputs (user-facing)
+  - Purlin Construction Type (single / planar / 3D truss)
+  - Purlin Section Family (CHS / SHS / RHS / I-Beam)
+  - Section size auto-selected by engine
+
+---
 
 ## 18. Foundation - Preliminary Sizing
 
-Applies to ALL structures (Section 6 of every workshop).
+Applies to ALL structures (Section 6 or 7 of every workshop).
 
 Inputs:
-  - Assumed Soil Bearing Capacity (kN/m2) - default 150
-  - Soil Type (sand / clay / rock / filled) - default sand
+  - Soil Bearing Capacity (kN/m2) - default 150
   - Water Table Depth (m) - default 3.0
+  - Soil Type (sand / clay / rock / filled) - default sand
   - Foundation Type (pad / pile / raft) - default pad
 
-Default button ("Default") above the inputs resets the four values
-using the generation counter technique (Section 13).
+Default button above the inputs resets the four values using
+the generation counter technique (Section 11).
 
 Outputs (on Results page - not yet built):
   - Preliminary pad size = Reaction / Bearing capacity
-  - Note: "Subject to geotechnical verification. Reinforcement
-    and detailing not provided. Engage a geotechnical engineer."
+  - Note: "Subject to geotechnical verification."
 
 Full Foundation engine (System F) - later phase.
 
@@ -636,8 +614,7 @@ Full Foundation engine (System F) - later phase.
 1.  Plain Python dicts. No dataclasses. No type hints.
 2.  mm-based section units (A mm2, I mm4, W_el mm3, i mm)
 3.  HTML strings built as named variables with explicit +
-    on every line. Never mix implicit literal concatenation
-    with variable interpolation inside st.markdown().
+    on every line.
 4.  ASCII only in code. Use HTML entities for non-ASCII.
 5.  One file per chunk. One commit per file.
 6.  Verify each phase before moving to the next.
@@ -656,22 +633,35 @@ Full Foundation engine (System F) - later phase.
 15. All variants read from data/structures.py. No hardcoded
     VARIANTS_FALLBACK in ui/registration.py.
 
-### Rule 16 - THE CHUNKED PASTE RULE (NEW 2026-09-14)
+### Rule 16 - THE CHUNKED PASTE RULE
 
-16. NEVER send a file over ~200 lines as a single paste on iPhone.
-    Split it into chunks of ~150 lines each. Each chunk ends with
-    6 blank lines. Paste one chunk at a time, confirm it landed,
-    then paste the next. Never ask the user to add blank lines.
-    Never ask the user to do surgical edits on iPhone.
+16. NEVER send a file over ~200 lines as a single paste.
+    Split into 4 chunks. Each chunk ends with 5-6 blank lines.
+    One chunk at a time. Confirm before next. Never ask the
+    user to add blank lines. Never use surgical edits.
 
-### Rule 17 - NO PIXEL PERFECTION CHASING (NEW 2026-09-14)
+### Rule 17 - THE RESEARCH-FIRST RULE
 
-17. Streamlit cannot achieve pixel-perfect mobile layouts across
-    all phones and OSs. Do not chase perfection. Aim for: fits on
-    your phone, looks good on any phone, accept minor scroll on
-    odd devices. Future native shell is a Phase J discussion.
+17. Before any design, shape, structure, engine, maths, idea,
+    or building code: DO THOROUGH RESEARCH ON THE SUBJECT
+    FIRST. Research assists every decision that follows.
+
+### Rule 18 - NO PIXEL PERFECTION CHASING
+
+18. Streamlit cannot achieve pixel-perfect mobile layouts.
+    Aim for: fits on your phone, looks good on any phone,
+    accept minor scroll on odd devices.
 
 ---
+
+
+
+
+
+
+
+
+
 
 ## 20. CI Infrastructure
 
@@ -682,7 +672,6 @@ Runner: run_tests.py
 
 On every push to main or modular-v10, tests run.
 Green checkmark = pass. Red X = fail.
-Free. Private. No Streamlit needed.
 
 ---
 
@@ -690,7 +679,7 @@ Free. Private. No Streamlit needed.
 
 Verified by GitHub Actions 2026-09-12.
 
-What was built:
+Built:
   - Mesh data structure (create_mesh)
   - Geometry helpers (edge_length, edge_vector, count_neighbours)
   - Flat grid builder (build_flat_grid)
@@ -705,99 +694,101 @@ Next:
 
 ## 22. Refinements List (Running)
 
-R-01 - Registration page: remove placeholder text from Project
-        Name, Client Name, Project Reference, Engineer.
-        Keep placeholder on Location.
-        Status: not yet applied.
+R-01  Registration placeholder text cleanup
+      Status: not yet applied
 
-R-02 - Date field automatic (datetime.now()).
-        Status: APPLIED 2026-09-13.
+R-02  Auto-date in registration
+      Status: APPLIED 2026-09-13
 
-R-03 - App jumps to landing when tapping outside input fields.
-        Status: unresolved (may be iOS Safari behaviour).
+R-03  App jumps to landing on outside tap
+      Status: unresolved (may be iOS Safari)
 
-R-04 - Non-functional interactions (buttons).
-        Status: noted, may be by design.
+R-04  Non-functional interactions noted
+      Status: noted
 
-R-05 - Tie-down anchor geometry.
-        Status: APPLIED 2026-09-13.
+R-05  Tie-down anchor geometry
+      Status: APPLIED 2026-09-13
 
-R-06 - Fix math.sin crash in Leaf strut geometry.
-        Status: APPLIED 2026-09-14 (np.sin).
+R-06  math.sin crash in Leaf
+      Status: APPLIED 2026-09-14 (np.sin)
 
-R-07 - Fix Leaf workshop indent error.
-        Status: APPLIED 2026-09-14.
+R-07  Leaf workshop indent error
+      Status: APPLIED 2026-09-14
 
-R-08 - Lock strut joint at 75% of column height.
-        Status: APPLIED 2026-09-14.
+R-08  Strut joint at 75% of column
+      Status: APPLIED 2026-09-14
 
-R-09 - Add pretension inputs to Leaf and Standard Saddle.
-        Status: APPLIED 2026-09-14.
+R-09  Pretension inputs
+      Status: APPLIED 2026-09-14
 
-R-10 - Add Foundation section to Standard Saddle.
-        Status: APPLIED 2026-09-14.
+R-10  Foundation in Standard Saddle
+      Status: APPLIED 2026-09-14
 
-R-11 - Remove fixed segment spacing from edge cables.
-        Status: APPLIED 2026-09-14.
+R-11  Remove fixed segment spacing
+      Status: APPLIED 2026-09-14
 
-R-12 - Workshop section standard locked (8 sections).
-        Status: APPLIED 2026-09-14.
+R-12  Workshop section standard
+      Status: APPLIED 2026-09-14
 
-R-13 - Landing page: fit one screen, no scroll.
-        Status: APPLIED 2026-09-14.
+R-13  Landing page one screen
+      Status: APPLIED 2026-09-14
 
-R-14 - Studio page: trim top gap.
-        Status: APPLIED 2026-09-14.
+R-14  Studio top gap trim
+      Status: APPLIED 2026-09-14
 
-R-15 - Foundation Default button (small, above inputs).
-        Status: APPLIED 2026-09-14.
+R-15  Foundation Default button
+      Status: APPLIED 2026-09-14
 
-R-16 - Geometry defaults 10/15/6.2 for Standard Saddle.
-        Status: APPLIED 2026-09-14.
+R-16  Geometry defaults 10/15/6.2
+      Status: APPLIED 2026-09-14
 
-R-17 - "Add. Pay Load" replaces "Live Load on Beam".
-        Status: APPLIED 2026-09-14.
+R-17  Add. Pay Load replaces Live Load
+      Status: APPLIED 2026-09-14
 
-R-18 - Chunked paste method established.
-        Status: APPLIED 2026-09-14. See Section 5.
+R-18  Chunked paste method
+      Status: APPLIED 2026-09-14
+
+R-19  Saddle Span sub-types renamed
+      Status: APPLIED 2026-09-15
+
+R-20  Arc-length numerical integration
+      Status: APPLIED 2026-09-15
+
+R-21  Per-beam secondary beam count
+      Status: APPLIED 2026-09-15
+
+R-22  Research-first principle adopted
+      Status: APPLIED 2026-09-15
 
 ---
 
 ## 23. Next Actions (in order)
 
-1. Test the full flow: Landing -> Studio -> Saddle Span ->
-   Standard Saddle -> Workshop -> Results -> back to Workshop.
-   Confirm 3D view renders and Default button works.
+1. Build 3D viewer for Beam Supported Saddle.
+   New figure file: viewers/figures/beam_supported_saddle.py
+   Draws: membrane + main beam + purlins + secondary beams +
+   frame supports. Register in viewers/results_viewer.py.
 
-2. Apply the same treatments to ui/workshops/saddle_leaf.py:
-   - Rebuild using the chunked paste method
-   - Add Default button (above soil inputs)
-   - Rename load label to "Add. Pay Load (kg/m)"
-   - Consider updating Leaf geometry defaults if needed
-   - Keep 7 sections (Leaf has no separate "beam" section -
-     the column spine IS the beam)
+2. Fix Cantilever Leaf workshop (corrupted at line 333).
+   Use 4-chunk rebuild method.
 
-3. Restore the next Results page feature - Member Schedule.
-   Must show only the members relevant to that structure +
-   variant combination. Read from MEMBER_SCHEMA in
-   data/structures.py. Beam rows expand by construction type
-   (single/planar/space).
+3. Update PROJECT_STATE for any decisions made during 1 and 2.
 
-4. Restore Anchor Reactions / Preliminary Foundation panel
-   on Results page.
+4. Restore Member Schedule on Results page.
+   Read from MEMBER_SCHEMA in data/structures.py.
 
-5. Restore Export DXF and Export JSON buttons.
+5. Restore Anchor Reactions / Preliminary Foundation panel.
 
-6. Build Save Design (JSON download) and Load Design
+6. Restore Export DXF and Export JSON buttons.
+
+7. Build Save Design (JSON download) and Load Design
    (JSON upload). See Section 24.
 
-7. Build BQ page and Reports page.
+8. Build BQ page and Reports page.
 
-8. Continue engine build (membrane.py Message 2:
-   Force Density Method).
+9. Continue engine build (membrane.py Message 2).
 
-9. Build workshops for the remaining 6 structure mains,
-   each following the section standard.
+10. Build workshops for remaining 6 structure mains.
 
 ---
 
@@ -817,9 +808,7 @@ Load Design:
   - Restores all session state
   - Jumps to Results
 
-Applies to all structure types. Same file format.
-Implementation: ~50 lines. To be added to ui/results.py and
-either ui/landing.py or ui/studio.py.
+Same file format for all structure types.
 
 ---
 
@@ -854,23 +843,23 @@ Engine modules planned:
   recipes.py        dispatchers
   ec_checks.py      EN 1993 helpers
   output.py         schedules, health, alerts, BQ
-  formfind.py       Force Density Method solver (Phase C)
+  formfind.py       Force Density Method solver
 
 ---
 
-## 26. The Bigger Vision (for context, not for now)
+## 26. The Bigger Vision
 
-SDSe is not just a design tool. It is a demonstration that:
+SDSe is not just a design tool. It demonstrates that:
 
-  - A senior citizen, with no programming background, can build
-    a professional-grade engineering app on an iPhone.
+  - A senior engineer, with no programming background, can
+    build a professional-grade engineering app on an iPhone.
   - AI can be a collaborator, not a replacement.
   - The barrier to entry for digital work has collapsed.
   - The senior workforce is an untapped resource for the
     digital economy.
 
 The app is the exhibit. The story is the weapon.
-See Chief for the launch strategy when the time comes.
+See Chief for launch strategy when the time comes.
 
 This section is a reminder. Not an action item.
 
@@ -885,7 +874,6 @@ No terminal. No local Python environment.
 Needs step-by-step guidance with screenshots.
 Chunked paste method required (Section 5).
 Prefers full file replacement over surgical edits.
-Uses ASCII-only mindset on iOS.
 
 ---
 
@@ -907,21 +895,42 @@ Updated: 2026-09-14
   - Viewer dispatches on variant_key.
   - Fixed math.sin and indent crashes in Leaf.
   - Strut joint locked at 75%.
-  - Pretension inputs added to both workshops.
-  - Foundation section added to Standard Saddle.
-  - Both workshops follow the 8-section standard.
+  - Pretension inputs added.
+  - Foundation in Standard Saddle.
   - Landing page fits one screen.
   - Studio top gap trimmed.
-  - Foundation Default button (small, above inputs, generation
-    counter technique).
-  - Add. Pay Load replaces Live Load on Beam.
-  - Standard Saddle geometry defaults 10/15/6.2.
+  - Foundation Default button (generation counter).
+  - Add. Pay Load replaces Live Load.
+  - Standard Saddle defaults 10/15/6.2.
   - MEMBER_SCHEMA added to data/structures.py.
-  - THE CHUNKED PASTE METHOD established (Section 5). This
-    solves the recurring iOS paste mangling problem for good.
-  - Silent load rules documented (Section 14).
-  - The Bigger Vision added (Section 26).
+  - THE CHUNKED PASTE METHOD established.
+  - Silent load rules documented.
+  - The Bigger Vision added.
+
+Updated: 2026-09-15
+  Saddle Span family completed at workshop level.
+  - Cable Supported Saddle (renamed from Standard Saddle).
+  - Beam Supported Saddle (renamed from Frame Supported Saddle).
+  - 4-chunk paste pattern proven across multiple files.
+  - Research-first principle adopted (Section 6).
+  - Arc length via numerical integration.
+  - Secondary beam 15 m rule (code-compliant).
+  - Per-beam count language (not total).
+  - Purlin 2.5 m spacing rule locked.
+  - Buffer zone corruption identified and mitigated.
 
 ---
+
+## 29. End of Project State
+
+This file is the single source of truth for the SDSe project.
+Every new chat session should begin by pasting this file.
+Update it whenever a major decision is made.
+Keep it current. Keep it honest. Keep it useful.
+
+Before any new design, engine, or idea:
+  DO THOROUGH RESEARCH ON THE SUBJECT FIRST.
+
+Research assists every decision that follows.
 
 End of project state.
