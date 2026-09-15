@@ -2,15 +2,10 @@
 # SDSe Fluid Design Studio - Leaf Rib Length Room
 # =============================================================================
 # Dedicated canvas for adjusting rib lengths of a Cantilever Leaf object.
-# This is a "pull-away" room accessed from the workshop.
+# Accessed from the workshop.
 #
-# The user:
-#   - Chooses symmetric or individual mode
-#   - Adjusts rib lengths (7 values, or 14 in individual mode)
-#   - Taps Apply to commit changes and return to the workshop
-#
-# Reads the base rib lengths from session state (computed by the workshop).
-# Writes override values back to session state for the viewer to use.
+# Reads base rib lengths from ws_sl_rib_base_lengths (computed by the workshop).
+# Writes user overrides to ws_sl_rib_lengths_override.
 # =============================================================================
 
 import streamlit as st
@@ -29,13 +24,12 @@ MAX_RIB_PAIRS = 7
 
 def _ensure_rib_state():
     """
-    Ensure the session state has the rib override structures.
-    Base rib lengths are read from ws_sl_rib_base_lengths if set,
-    otherwise a default 5.0 m placeholder is used.
+    Ensure session state has the rib override structures.
+    Reads base lengths from ws_sl_rib_base_lengths (set by workshop).
+    Falls back to a safe default if the workshop has not run yet.
     """
     if "ws_sl_rib_base_lengths" not in st.session_state:
-        base = [5.0] * MAX_RIB_PAIRS
-        st.session_state["ws_sl_rib_base_lengths"] = base
+        st.session_state["ws_sl_rib_base_lengths"] = [5.0] * MAX_RIB_PAIRS
 
     if "ws_sl_rib_symmetric" not in st.session_state:
         st.session_state["ws_sl_rib_symmetric"] = True
@@ -46,8 +40,23 @@ def _ensure_rib_state():
         )
 
 
+def _rib_position_label(i, n):
+    """Return a position word for rib index i of n."""
+    if n <= 1:
+        return "centre"
+    if i == 0:
+        return "near column"
+    if i == n - 1:
+        return "near tip"
+    mid = (n - 1) / 2.0
+    if abs(i - mid) < 0.5:
+        return "centre"
+    if i < mid:
+        return "inner"
+    return "outer"
+
+
 def _header():
-    """Render the room header and breadcrumb."""
     st.markdown(
         '<div style="font-size: 0.85rem; color: #a8b8c8; '
         'margin-bottom: 1.2rem;">'
@@ -124,7 +133,7 @@ def render_leaf_room():
     _ensure_rib_state()
     _header()
 
-    # ---- Symmetric vs Individual mode
+    # ---- Adjustment mode
     _section_header("Adjustment Mode")
 
     sym_val = st.session_state.get("ws_sl_rib_symmetric", True)
@@ -142,23 +151,17 @@ def render_leaf_room():
     is_symmetric = st.session_state["ws_sl_rib_symmetric"]
 
     if is_symmetric:
-        _info_box(
-            "Symmetric mode. Each rib length applies to both "
-            "left and right sides."
-        )
+        _info_box("Symmetric mode. Each rib length applies to both sides.")
     else:
-        _info_box(
-            "Individual mode. Left and right rib lengths are "
-            "independent."
-        )
+        _info_box("Individual mode. Left and right rib lengths are independent.")
 
     # ---- Rib length inputs
     _section_header("Rib Lengths")
 
-    base_lengths = st.session_state["ws_sl_rib_base_lengths"]
+    base_lengths = list(st.session_state["ws_sl_rib_base_lengths"])
     current_overrides = list(st.session_state["ws_sl_rib_lengths_override"])
 
-    n_ribs = st.session_state.get("ws_sl_ribs_per_side", MAX_RIB_PAIRS)
+    n_ribs = int(st.session_state.get("ws_sl_ribs_per_side", MAX_RIB_PAIRS))
     if n_ribs > MAX_RIB_PAIRS:
         n_ribs = MAX_RIB_PAIRS
     if n_ribs < 1:
@@ -168,16 +171,17 @@ def render_leaf_room():
 
     if is_symmetric:
         for i in range(n_ribs):
+            pos = _rib_position_label(i, n_ribs)
             base_val = base_lengths[i] if i < len(base_lengths) else 5.0
             current_val = current_overrides[i] if i < len(current_overrides) else base_val
             new_val = st.number_input(
-                "Rib " + str(i + 1) + " length (m)",
+                "Rib " + str(i + 1) + " of " + str(n_ribs) + " - " + pos + " (m)",
                 min_value=0.5,
                 max_value=30.0,
                 value=float(current_val),
                 step=0.1,
                 key="ws_sl_rib_input_sym_" + str(i),
-                help="Base length: " + ("%.2f m" % base_val),
+                help="Base length (system computed): " + ("%.2f m" % base_val),
             )
             new_overrides.append(new_val)
     else:
@@ -190,15 +194,17 @@ def render_leaf_room():
             )
             left_vals = []
             for i in range(n_ribs):
+                pos = _rib_position_label(i, n_ribs)
                 base_val = base_lengths[i] if i < len(base_lengths) else 5.0
                 current_val = current_overrides[i] if i < len(current_overrides) else base_val
                 new_val = st.number_input(
-                    "Rib " + str(i + 1) + " (L) m",
+                    "Rib " + str(i + 1) + " L",
                     min_value=0.5,
                     max_value=30.0,
                     value=float(current_val),
                     step=0.1,
                     key="ws_sl_rib_input_L_" + str(i),
+                    help="Rib " + str(i + 1) + " of " + str(n_ribs) + " - " + pos,
                 )
                 left_vals.append(new_val)
         with col_right:
@@ -209,37 +215,42 @@ def render_leaf_room():
             )
             right_vals = []
             for i in range(n_ribs):
+                pos = _rib_position_label(i, n_ribs)
                 base_val = base_lengths[i] if i < len(base_lengths) else 5.0
                 current_val = current_overrides[i] if i < len(current_overrides) else base_val
                 new_val = st.number_input(
-                    "Rib " + str(i + 1) + " (R) m",
+                    "Rib " + str(i + 1) + " R",
                     min_value=0.5,
                     max_value=30.0,
                     value=float(current_val),
                     step=0.1,
                     key="ws_sl_rib_input_R_" + str(i),
+                    help="Rib " + str(i + 1) + " of " + str(n_ribs) + " - " + pos,
                 )
                 right_vals.append(new_val)
 
-        # Store the larger of L / R for the "primary" list
-        # Individual mode stores a single list as base for now
         for i in range(n_ribs):
             new_overrides.append(max(left_vals[i], right_vals[i]))
 
-    # ---- Summary box
-    n_pairs = len(new_overrides)
-    min_len = min(new_overrides) if new_overrides else 0.0
-    max_len = max(new_overrides) if new_overrides else 0.0
+    # ---- Summary
+    if new_overrides:
+        min_l = min(new_overrides)
+        max_l = max(new_overrides)
+        avg_l = sum(new_overrides) / len(new_overrides)
+        base_min = min(base_lengths[:len(new_overrides)]) if base_lengths else 0.0
+        base_max = max(base_lengths[:len(new_overrides)]) if base_lengths else 0.0
+        _preview_box(
+            'Rib pairs: <strong>' + str(len(new_overrides)) + '</strong><br>'
+            'Current range: <strong>' + ("%.2f" % min_l) + ' m</strong> to '
+            '<strong>' + ("%.2f" % max_l) + ' m</strong> '
+            '(avg <strong>' + ("%.2f" % avg_l) + ' m</strong>)<br>'
+            'System base range: <strong>' + ("%.2f" % base_min) + ' m</strong> to '
+            '<strong>' + ("%.2f" % base_max) + ' m</strong><br>'
+            'Mode: <strong>' + ("Symmetric" if is_symmetric else "Individual")
+            + '</strong>'
+        )
 
-    _preview_box(
-        'Rib pairs: <strong>' + str(n_pairs) + '</strong><br>'
-        'Length range: <strong>' + ("%.2f m" % min_len)
-        + '</strong> to <strong>' + ("%.2f m" % max_len) + '</strong><br>'
-        'Mode: <strong>' + ("Symmetric" if is_symmetric else "Individual")
-        + '</strong>'
-    )
-
-    # ---- Action buttons
+    # ---- Actions
     st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
 
     col_a, col_b = st.columns(2)
@@ -257,10 +268,3 @@ def render_leaf_room():
             st.session_state["ws_sl_rib_lengths_override"] = new_overrides
             st.session_state.page = "workshop"
             st.rerun()
-
-
-
-
-
-
-
