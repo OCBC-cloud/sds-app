@@ -1,9 +1,22 @@
-# Results page - with Section Used, Analysis Readings, and Quantities
+# =============================================================================
+# SDSe Fluid Design Studio - Results Page
+# =============================================================================
+# Displays the design results: 3D view, structure summary,
+# health score, section used, analysis readings, quantities.
+#
+# Updated 2026-09-15:
+#   - Structure summary block added below the 3D view
+#   - Summary reads from viewers/figures/_descriptions.py
+# =============================================================================
+
 import streamlit as st
+
 from viewers.results_viewer import generate_results_figure
+from viewers.figures._descriptions import get_structure_summary
 
 
 def render_results():
+    """Render the Results page."""
     sk = st.session_state.get("structure_key", "saddle_span")
     sn = st.session_state.get("structure_name", "Saddle Span")
     vk = st.session_state.get("variant_key", "")
@@ -12,6 +25,7 @@ def render_results():
     pname = info.get("name", "") or "Untitled Project"
     cname = info.get("client", "") or "Unknown Client"
 
+    # ---- Breadcrumb
     st.markdown(
         '<div style="font-size: 0.85rem; color: #a8b8c8; margin-bottom: 1rem;">'
         'SDSe Fluid Design Studio / '
@@ -21,6 +35,7 @@ def render_results():
         unsafe_allow_html=True,
     )
 
+    # ---- Project header card
     st.markdown(
         '<div style="background: #121e2e; border: 1px solid #1e2a3a; '
         'border-radius: 10px; padding: 1rem;">'
@@ -32,6 +47,7 @@ def render_results():
         unsafe_allow_html=True,
     )
 
+    # ---- 3D View
     st.markdown(
         '<div style="color: #f39c12; font-weight: 700; '
         'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">3D View</div>',
@@ -46,6 +62,12 @@ def render_results():
         st.error("3D view failed: " + str(e))
         st.code(traceback.format_exc())
 
+    # ---- Structure summary (below 3D view)
+    summary_html = get_structure_summary(vk)
+    if summary_html:
+        st.markdown(summary_html, unsafe_allow_html=True)
+
+    # ---- Health Score card
     st.markdown(
         '<div style="background: #1a3a2a; border: 2px solid #2ecc71; '
         'border-radius: 14px; padding: 1.5rem; text-align: center; '
@@ -57,6 +79,7 @@ def render_results():
         unsafe_allow_html=True,
     )
 
+    # ---- Section Used
     st.markdown(
         '<div style="color: #f39c12; font-weight: 700; '
         'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">Section Used</div>',
@@ -84,6 +107,7 @@ def render_results():
         unsafe_allow_html=True,
     )
 
+    # ---- Analysis Readings
     st.markdown(
         '<div style="color: #f39c12; font-weight: 700; '
         'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">Analysis Readings</div>',
@@ -124,12 +148,12 @@ def render_results():
         '<div style="background: #0d1620; border-left: 3px solid #4a7a9c; '
         'padding: 0.7rem 0.9rem; border-radius: 4px; margin: 0.5rem 0; '
         'font-size: 0.82rem; color: #c8d4e0; line-height: 1.5;">'
-        'Readings populate when the engine is connected. '
-        'The 3D view above is generated from the geometry you provided.'
+        'Readings populate when the engine is connected.'
         '</div>',
         unsafe_allow_html=True,
     )
 
+    # ---- Quantities
     st.markdown(
         '<div style="color: #f39c12; font-weight: 700; '
         'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">Quantities</div>',
@@ -163,12 +187,12 @@ def render_results():
         '<div style="background: #0d1620; border-left: 3px solid #4a7a9c; '
         'padding: 0.7rem 0.9rem; border-radius: 4px; margin: 0.5rem 0; '
         'font-size: 0.82rem; color: #c8d4e0; line-height: 1.5;">'
-        'Quantities populate when the engine is connected. '
-        'Values shown here will reflect the final optimised design.'
+        'Quantities populate when the engine is connected.'
         '</div>',
         unsafe_allow_html=True,
     )
 
+    # ---- Actions
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Back to Workshop", key="rb", use_container_width=True):
@@ -178,3 +202,10 @@ def render_results():
         if st.button("Home", key="hm", use_container_width=True, type="primary"):
             st.session_state.page = "studio"
             st.rerun()
+
+
+
+
+
+
+
