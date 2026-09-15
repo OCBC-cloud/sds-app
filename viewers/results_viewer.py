@@ -4,7 +4,7 @@
 # Looks up the correct figure builder for a given variant and calls it.
 # Each variant has its own builder file under viewers/figures/.
 #
-# Architecture (updated 2026-09-14):
+# Architecture (updated 2026-09-15):
 #   - This file is a small dispatcher only.
 #   - Every variant's figure lives in viewers/figures/<variant>.py
 #   - Shared helpers live in viewers/figures/_shared.py
@@ -13,6 +13,11 @@
 # Dispatch rule:
 #   Variant keys are globally unique. The dispatcher ignores
 #   structure_key entirely and routes on variant_key alone.
+#
+# Variant keys (internal, never changed):
+#   "standard_saddle"          -> Cable Supported Saddle
+#   "frame_supported_saddle"   -> Beam Supported Saddle
+#   "cantilever_leaf"          -> Cantilever Leaf
 # =============================================================================
 
 import plotly.graph_objects as go
@@ -20,6 +25,7 @@ import plotly.graph_objects as go
 from viewers.figures._shared import apply_common_layout
 from viewers.figures.standard_saddle import build_standard_saddle
 from viewers.figures.cantilever_leaf import build_cantilever_leaf
+from viewers.figures.beam_supported_saddle import build_beam_supported_saddle
 
 
 # =============================================================================
@@ -31,8 +37,8 @@ from viewers.figures.cantilever_leaf import build_cantilever_leaf
 FIGURE_REGISTRY = {
     "standard_saddle": build_standard_saddle,
     "cantilever_leaf": build_cantilever_leaf,
+    "frame_supported_saddle": build_beam_supported_saddle,
     # Future:
-    # "frame_supported_saddle": build_frame_supported_saddle,
     # "cantilever_cone": build_cantilever_cone,
     # "cantilever_pyramid": build_cantilever_pyramid,
     # and so on for every variant.
@@ -61,10 +67,3 @@ def generate_results_figure(structure_key, variant_key):
         font=dict(color="#f39c12", size=16),
     )
     return apply_common_layout(fig, 10.0)
-
-
-
-
-
-
-
