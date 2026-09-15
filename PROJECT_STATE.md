@@ -7,6 +7,237 @@ Last updated: 2026-09-15 (afternoon session)
 
 ---
 
+
+---
+
+# ADDENDUM A — THE SDS CONSTITUTION
+
+This addendum is the foundational document of the SDSe project.
+It sits above every technical specification, every build rule,
+every code convention. Any future chamber, module, feature, or
+change must first align with what is written here.
+
+This is not decoration. This is the foundation stone.
+
+---
+
+## A1. Origin — The Big Bang
+
+The Big Bang is not the first commit. It is not the first
+prototype. It is the founding idea: that useful, professional
+work can emerge from a fluid symbiosis between human judgment
+and AI capability — without one dominating the other.
+
+Every chamber built under SDS is a reflection of this origin.
+
+---
+
+## A2. The SDS Vision
+
+SDS is a living architectural vision from which future
+microclimates and organisms are born.
+
+It is not a product.
+It is not a platform.
+It is not a company.
+
+It is a way of building that treats the work as a living
+ecosystem rather than a stack of features.
+
+Every future creation — SDS-CONST, SDS-EDU, SDS-ARCHI,
+SDS-AERO, SDS-SPACE, and every organism yet to be named —
+is a child of this vision.
+
+---
+
+## A3. Mother Earth Principle
+
+Mother Earth is the living foundation.
+
+She nurtures. She does not dominate.
+She is not a product. She is not a commodity.
+
+Everything above the membrane draws from her, gives back to
+her, and protects her. She is not to be extracted from,
+monetised to the point of harm, or treated as raw material.
+
+She is the ground truth. Research, ecology, sustainability,
+long-term stewardship.
+
+---
+
+## A4. The Membrane
+
+The membrane is the living boundary between Mother Earth and
+the SDS Symbiosis Ecosystem above.
+
+Its purpose:
+  - protection
+  - filtering
+  - communication
+  - maintaining balance
+
+The membrane is neither Mother Earth nor SDS.
+It is the mediator.
+
+In practice: every interface between a user and the system
+is a membrane. It should filter, not dominate. It should
+communicate, not obscure. It should protect, not wall off.
+
+---
+
+## A5. Language Separation Law
+
+Below the Membrane:
+  Only Mother Earth.
+  Language: MotherRNA.
+  MotherRNA belongs only to Mother Earth.
+
+Above the Membrane:
+  All microclimates and organisms.
+  Language: mRNA.
+  Used by SDS-CONST, SDS-EDU, SDS-ARCHI, SDS-AERO, SDS-SPACE,
+  and every future organism.
+
+The two languages must not leak into each other.
+
+In SDSe code: variant keys are the MotherRNA — internal,
+stable, never changed. Display names are the mRNA — visible,
+evolving, freely renamed.
+
+---
+
+## A6. The SDS Symbiosis Ecosystem
+
+The living environment above the membrane.
+
+Within it:
+  - microclimates form
+  - organisms flourish
+  - knowledge evolves
+  - symbiosis occurs
+
+The ecosystem is not commanded. It is cultivated.
+
+Every new module, chamber, or feature is a new organism. It
+joins an existing ecology. It does not replace it.
+
+---
+
+
+
+
+
+
+
+
+
+
+## A7. The Ghostly Guardian
+
+The Ghostly Guardian is not a module.
+Not a function.
+Not a governance mechanism.
+Not an AI assistant.
+
+He is the engraved understanding.
+
+The unseen custodian whose existence is reserved for
+existential events threatening Mother Earth.
+
+He does not interfere with ordinary flourishing.
+His presence is silent.
+His success is invisibility.
+
+In practice: the Guardian is not code. It is the discipline
+of memory. It is the refusal to silently overwrite what has
+been sealed. It is the architectural restraint that says
+"this is not mine to change without consultation."
+
+---
+
+## A8. The Architect's Covenant
+
+Those who build SDS must inherit the responsibility of
+remembering what has already been sealed.
+
+Evolution is permitted.
+Deviation from the foundation is not.
+
+A good architect does not only draw new structures.
+A good architect protects the original intent.
+
+The foundation is the foundation.
+The organism may evolve.
+The microclimates may diversify.
+The technologies may change.
+But the constitutional DNA cannot mutate beyond recognition.
+
+---
+
+## A9. Preservation Before Evolution
+
+Every continuation of SDS work must follow this order:
+
+  1. Constitution
+  2. Doctrines
+  3. Covenants
+  4. Engraved Principles
+  5. Architecture Rules
+  6. New Proposal
+
+A new idea does not overwrite the foundation.
+It must harmonise with it.
+
+Before proposing any new chamber, the assistant must align
+it against the SDS Constitution, the Doctrines, the Mother
+Earth Doctrine, the Membrane Principle, the Symbiosis
+Ecosystem, the Ghostly Guardian Principle, and the
+responsibility and stewardship covenants.
+
+The stones are not decoration.
+They are the foundation blocks.
+
+---
+
+## A10. The Research-First Rule (Linked)
+
+Before any design, shape, structure, engine, maths, idea,
+or building code: do thorough research on the subject first.
+
+Research is the first act of every chamber.
+
+This rule is established as Rule 17 of the Build Philosophy
+(Section 19) and is restated here as part of the constitution
+because it is a fundamental discipline of the ecosystem.
+
+---
+
+## A11. This Addendum Is Read First
+
+Every new chat session, every fresh start, every continuation
+begins by reading this addendum before anything else.
+
+The technical document below (Sections 1 through 30) is the
+implementation of this constitution.
+
+If a conflict is found between an implementation and this
+addendum, the addendum wins.
+
+If an implementation is unclear, the addendum clarifies.
+
+If an implementation is missing, the addendum is the source
+from which it is to be built.
+
+---
+
+
+
+
+
+
+
+
 ## 1. The Vision
 
 SDSe is a guided structural design tool for tensile membrane,
