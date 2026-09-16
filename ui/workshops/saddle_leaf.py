@@ -10,7 +10,7 @@
 #   - Strut joint height FIXED at 75% of column height
 #   - Arrangement: Single / Double / Multiple / Tree Stack / Tiered Helix
 #   - Tree Stack: 1-3 tiers, scale factor 0.75 fixed
-#   - Tiered Helix: engine-driven, user controls all parameters
+#   - Tiered Helix: engine-driven, all values as input boxes
 #   - 9 collapsible sections total
 # =============================================================================
 
@@ -790,22 +790,22 @@ def render_saddle_leaf():
         st.session_state["ws_sl_arrangement"] = arrangement_options[arrangement_labels.index(arr_choice)]
 
         if st.session_state["ws_sl_arrangement"] == "multiple":
-            n_leaves = st.slider(
+            n_leaves = st.number_input(
                 "Number of objects around column",
                 min_value=2, max_value=8,
                 value=int(st.session_state["ws_sl_arrangement_count"]),
                 step=1,
-                key="ws_sl_arr_n_slider",
+                key="ws_sl_arr_n_input",
             )
             st.session_state["ws_sl_arrangement_count"] = n_leaves
 
         elif st.session_state["ws_sl_arrangement"] == "tree_stack":
-            n_tiers = st.slider(
+            n_tiers = st.number_input(
                 "Number of tiers",
                 min_value=1, max_value=3,
                 value=int(st.session_state["ws_sl_arrangement_tiers"]),
                 step=1,
-                key="ws_sl_arr_tiers_slider",
+                key="ws_sl_arr_tiers_input",
             )
             st.session_state["ws_sl_arrangement_tiers"] = n_tiers
 
@@ -833,12 +833,12 @@ def render_saddle_leaf():
             )
             st.session_state["ws_sl_leaf_zone_height"] = lz_h
 
-            n_lv = st.slider(
+            n_lv = st.number_input(
                 "Number of Leaves",
                 min_value=1, max_value=30,
                 value=int(st.session_state["ws_sl_num_leaves"]),
                 step=1,
-                key="ws_sl_num_leaves_slider",
+                key="ws_sl_num_leaves_input",
             )
             st.session_state["ws_sl_num_leaves"] = n_lv
 
@@ -851,14 +851,14 @@ def render_saddle_leaf():
             )
             st.session_state["ws_sl_column_radius"] = col_r
 
-            law = st.slider(
+            law = st.number_input(
                 "Leaf Angular Width (deg)",
-                min_value=10.0, max_value=180.0,
-                value=float(st.session_state["ws_sl_leaf_angular_width"]),
-                step=5.0,
-                key="ws_sl_law_slider",
+                min_value=10, max_value=180,
+                value=int(st.session_state["ws_sl_leaf_angular_width"]),
+                step=5,
+                key="ws_sl_law_input",
             )
-            st.session_state["ws_sl_leaf_angular_width"] = law
+            st.session_state["ws_sl_leaf_angular_width"] = float(law)
 
             taper_opts = ["full_scale", "taper_up", "taper_down"]
             taper_labels = ["Full Scale", "Taper Up (smaller at top)", "Taper Down (smaller at bottom)"]
@@ -872,12 +872,12 @@ def render_saddle_leaf():
             st.session_state["ws_sl_taper_mode"] = taper_opts[taper_labels.index(taper_choice)]
 
             if st.session_state["ws_sl_taper_mode"] != "full_scale":
-                tr = st.slider(
+                tr = st.number_input(
                     "Taper Ratio (per leaf)",
                     min_value=0.50, max_value=0.99,
                     value=float(st.session_state["ws_sl_taper_ratio"]),
                     step=0.01,
-                    key="ws_sl_taper_ratio_slider",
+                    key="ws_sl_taper_ratio_input",
                 )
                 st.session_state["ws_sl_taper_ratio"] = tr
 
