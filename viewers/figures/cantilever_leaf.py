@@ -11,7 +11,10 @@
 #   tree_stack   -> 1-3 tiers, scale factor 0.75, rotation fixed
 #   tiered_helix -> N leaves placed by engine/leaf_arrangement (helix)
 #
-# Column and baseplate drawn once. Leaf parts drawn per copy.
+# Column and baseplate drawn once. For tiered_helix, the column
+# extends up through the entire leaf zone so that every bud has a
+# supporting column behind it. Bud anchor nodes are drawn at each
+# bud's axis_attach to make the load path visually explicit.
 # =============================================================================
 
 import math
@@ -32,6 +35,19 @@ from engine.leaf_arrangement import place_leaves
 TIER_SCALE = 0.75
 TIER_ROTATION_DEG = 45.0
 TIER_RISE_FACTOR = 0.85
+
+
+# =============================================================================
+# COLUMN TOP RESOLVER
+# =============================================================================
+
+def _resolve_column_top_z(col_h, arrangement):
+    """Return the correct top of the column for this arrangement."""
+    if arrangement == "tiered_helix":
+        fl_h = float(st.session_state.get("ws_sl_first_leaf_height", 3.0))
+        lz_h = float(st.session_state.get("ws_sl_leaf_zone_height", 7.0))
+        return max(col_h, fl_h + lz_h)
+    return col_h
 
 
 # =============================================================================
@@ -246,7 +262,7 @@ def _add_tiered_helix(fig, parts):
 
     buds = result["buds"]
 
-    # ---- Bud stubs
+    # ---- Bud stubs (from column axis out to bud tip)
     for bud in buds:
         ax, ay, az = bud["axis_attach"]
         tx, ty, tz = bud["bud_tip"]
@@ -257,6 +273,18 @@ def _add_tiered_helix(fig, parts):
             showlegend=False,
             hoverinfo="skip",
         ))
+
+    # ---- Bud anchor nodes (marker where the bud meets the column)
+    anchor_x = [b["axis_attach"][0] for b in buds]
+    anchor_y = [b["axis_attach"][1] for b in buds]
+    anchor_z = [b["axis_attach"][2] for b in buds]
+    fig.add_trace(go.Scatter3d(
+        x=anchor_x, y=anchor_y, z=anchor_z,
+        mode="markers",
+        marker=dict(color="#f1c40f", size=5, symbol="circle"),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
 
     # ---- Each leaf at its bud
     for bud in buds:
@@ -305,9 +333,14 @@ def build_cantilever_leaf():
 
     fig = go.Figure()
 
-    # ---- Column (drawn once)
+    # ---- Read arrangement (needed for column top resolution)
+    arrangement = st.session_state.get("ws_sl_arrangement", "single")
+
+    # ---- Column (extends through the leaf zone when tiered_helix)
+    col_top_z = _resolve_column_top_z(col_h, arrangement)
+
     fig.add_trace(go.Scatter3d(
-        x=[0, 0], y=[0, 0], z=[0, col_h],
+        x=[0, 0], y=[0, 0], z=[0, col_top_z],
         mode="lines",
         line=dict(color="#2ecc71", width=10),
         name="Column",
@@ -318,9 +351,6 @@ def build_cantilever_leaf():
         marker=dict(color="#2ecc71", size=10, symbol="square"),
         name="Baseplate",
     ))
-
-    # ---- Read arrangement
-    arrangement = st.session_state.get("ws_sl_arrangement", "single")
 
     if arrangement == "single":
         _add_leaf(fig, parts, 0.0, 1.0, 0.0)
@@ -368,4 +398,4 @@ def build_cantilever_leaf():
         name="Curved strut",
     ))
 
-    return apply_common_layout(fig, col_h)
+    return apply_common_layout(fig, col_top_z)
