@@ -6,6 +6,7 @@
 #
 # Reads base rib lengths from ws_sl_rib_base_lengths (computed by the workshop).
 # Writes user overrides to ws_sl_rib_lengths_override.
+# Sets ws_sl_rib_override_active = True only on Apply.
 # =============================================================================
 
 import streamlit as st
@@ -27,6 +28,8 @@ def _ensure_rib_state():
     Ensure session state has the rib override structures.
     Reads base lengths from ws_sl_rib_base_lengths (set by workshop).
     Falls back to a safe default if the workshop has not run yet.
+    Does NOT auto-initialise the override. The override stays inactive
+    until the user explicitly presses Apply.
     """
     if "ws_sl_rib_base_lengths" not in st.session_state:
         st.session_state["ws_sl_rib_base_lengths"] = [5.0] * MAX_RIB_PAIRS
@@ -34,10 +37,11 @@ def _ensure_rib_state():
     if "ws_sl_rib_symmetric" not in st.session_state:
         st.session_state["ws_sl_rib_symmetric"] = True
 
+    if "ws_sl_rib_override_active" not in st.session_state:
+        st.session_state["ws_sl_rib_override_active"] = False
+
     if "ws_sl_rib_lengths_override" not in st.session_state:
-        st.session_state["ws_sl_rib_lengths_override"] = list(
-            st.session_state["ws_sl_rib_base_lengths"]
-        )
+        st.session_state["ws_sl_rib_lengths_override"] = []
 
 
 def _rib_position_label(i, n):
@@ -116,14 +120,6 @@ def _preview_box(text):
     )
 
 
-
-
-
-
-
-
-
-
 # =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
@@ -159,7 +155,8 @@ def render_leaf_room():
     _section_header("Rib Lengths")
 
     base_lengths = list(st.session_state["ws_sl_rib_base_lengths"])
-    current_overrides = list(st.session_state["ws_sl_rib_lengths_override"])
+    override_active = bool(st.session_state.get("ws_sl_rib_override_active", False))
+    current_overrides = list(st.session_state.get("ws_sl_rib_lengths_override", []))
 
     n_ribs = int(st.session_state.get("ws_sl_ribs_per_side", MAX_RIB_PAIRS))
     if n_ribs > MAX_RIB_PAIRS:
@@ -173,7 +170,10 @@ def render_leaf_room():
         for i in range(n_ribs):
             pos = _rib_position_label(i, n_ribs)
             base_val = base_lengths[i] if i < len(base_lengths) else 5.0
-            current_val = current_overrides[i] if i < len(current_overrides) else base_val
+            if override_active and i < len(current_overrides):
+                current_val = current_overrides[i]
+            else:
+                current_val = base_val
             new_val = st.number_input(
                 "Rib " + str(i + 1) + " of " + str(n_ribs) + " - " + pos + " (m)",
                 min_value=0.5,
@@ -196,7 +196,10 @@ def render_leaf_room():
             for i in range(n_ribs):
                 pos = _rib_position_label(i, n_ribs)
                 base_val = base_lengths[i] if i < len(base_lengths) else 5.0
-                current_val = current_overrides[i] if i < len(current_overrides) else base_val
+                if override_active and i < len(current_overrides):
+                    current_val = current_overrides[i]
+                else:
+                    current_val = base_val
                 new_val = st.number_input(
                     "Rib " + str(i + 1) + " L",
                     min_value=0.5,
@@ -217,7 +220,10 @@ def render_leaf_room():
             for i in range(n_ribs):
                 pos = _rib_position_label(i, n_ribs)
                 base_val = base_lengths[i] if i < len(base_lengths) else 5.0
-                current_val = current_overrides[i] if i < len(current_overrides) else base_val
+                if override_active and i < len(current_overrides):
+                    current_val = current_overrides[i]
+                else:
+                    current_val = base_val
                 new_val = st.number_input(
                     "Rib " + str(i + 1) + " R",
                     min_value=0.5,
@@ -266,5 +272,9 @@ def render_leaf_room():
             type="primary",
         ):
             st.session_state["ws_sl_rib_lengths_override"] = new_overrides
+            st.session_state["ws_sl_rib_override_active"] = True
             st.session_state.page = "workshop"
             st.rerun()
+
+
+
