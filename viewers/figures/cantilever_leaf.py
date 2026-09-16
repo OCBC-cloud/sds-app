@@ -9,7 +9,6 @@
 #   double       -> 2 leaves mirrored
 #   multiple     -> N leaves at equal rotation around column
 #   tree_stack   -> 1-3 tiers, scale factor 0.75, rotation fixed
-#   tree_spiral  -> N leaves spiralling up at golden angle
 #   tiered_helix -> N leaves placed by engine/leaf_arrangement (helix)
 #
 # Column and baseplate drawn once. Leaf parts drawn per copy.
@@ -33,9 +32,6 @@ from engine.leaf_arrangement import place_leaves
 TIER_SCALE = 0.75
 TIER_ROTATION_DEG = 45.0
 TIER_RISE_FACTOR = 0.85
-GOLDEN_ANGLE_DEG = 137.507764
-SPIRAL_SCALE = 0.97
-SPIRAL_RISE_FACTOR = 0.55
 
 
 # =============================================================================
@@ -225,28 +221,11 @@ def _add_leaf(fig, parts, rot_deg=0.0, scale=1.0, z_offset=0.0):
 
 
 # =============================================================================
-# TIERED HELIX ARRANGEMENT
+# TIERED HELIX ARRANGEMENT (engine-driven)
 # =============================================================================
 
 def _add_tiered_helix(fig, parts):
-    """
-    Place leaves along a helix using engine/leaf_arrangement.place_leaves().
-
-    Reads parameters from session state (with sensible defaults so the
-    app does not crash before the workshop sliders exist):
-
-        ws_sl_first_leaf_height   - m     (default 3.0)
-        ws_sl_leaf_zone_height    - m     (default 7.0)
-        ws_sl_num_leaves          - int   (default 8)
-        ws_sl_column_radius       - m     (default 0.15)
-        ws_sl_leaf_angular_width  - deg   (default 60.0)
-        ws_sl_taper_mode          - str   (default "taper_up")
-        ws_sl_taper_ratio         - float (default 0.88)
-
-    Each placed bud is drawn as a short radial "stub" line from the
-    column axis to the bud tip, and the leaf itself is added via
-    _add_leaf() at the bud's yaw and z position.
-    """
+    """Place leaves along a helix using engine/leaf_arrangement.place_leaves()."""
     first_leaf_height = float(st.session_state.get("ws_sl_first_leaf_height", 3.0))
     leaf_zone_height = float(st.session_state.get("ws_sl_leaf_zone_height", 7.0))
     num_leaves = int(st.session_state.get("ws_sl_num_leaves", 8))
@@ -267,7 +246,7 @@ def _add_tiered_helix(fig, parts):
 
     buds = result["buds"]
 
-    # ---- Draw bud stubs (short radial lines from axis to bud tip)
+    # ---- Bud stubs
     for bud in buds:
         ax, ay, az = bud["axis_attach"]
         tx, ty, tz = bud["bud_tip"]
@@ -279,7 +258,7 @@ def _add_tiered_helix(fig, parts):
             hoverinfo="skip",
         ))
 
-    # ---- Draw each leaf at its bud position, yaw, and scale
+    # ---- Each leaf at its bud
     for bud in buds:
         _add_leaf(
             fig,
@@ -289,7 +268,7 @@ def _add_tiered_helix(fig, parts):
             z_offset=bud["z_attach"] - parts["col_h"],
         )
 
-    # ---- Draw the virtual helix path (subtle reference curve)
+    # ---- Virtual helix reference curve
     if len(buds) >= 2:
         hx = [b["bud_tip"][0] for b in buds]
         hy = [b["bud_tip"][1] for b in buds]
@@ -367,17 +346,6 @@ def build_cantilever_leaf():
             scale = TIER_SCALE ** k
             z_off = rise * k
             rot = k * TIER_ROTATION_DEG
-            _add_leaf(fig, parts, rot, scale, z_off)
-
-    elif arrangement == "tree_spiral":
-        n_leaves = int(st.session_state.get("ws_sl_arrangement_spiral_count", 8))
-        if n_leaves < 3:
-            n_leaves = 3
-        rise = outreach * SPIRAL_RISE_FACTOR
-        for k in range(n_leaves):
-            scale = SPIRAL_SCALE ** k
-            z_off = rise * k
-            rot = k * GOLDEN_ANGLE_DEG
             _add_leaf(fig, parts, rot, scale, z_off)
 
     elif arrangement == "tiered_helix":
