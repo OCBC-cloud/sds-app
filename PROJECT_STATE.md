@@ -1244,4 +1244,64 @@ Research assists every decision that follows.
 
 **Signing off.** 💤🛠️
 
+# 📋 Project State: Tiered Spiral Canopy Generator
+
+**Project:** Streamlit 3D Structural Canopy Generator
+**Current Status:** Functional 3D rendering with distinct structural components. 
+**Current Bottleneck:** Visual geometry currently looks like a "spider/flower." Beams originate from a single point, causing floating joints. Lacks proper tiered/spiral mechanics and truss logic.
+
+---
+
+## 🚀 CURRENT MISSION: The "Spiral Rocket" Engine
+*Goal: Refactor the coordinate generation logic from radial angles to a **Parametric Node Dictionary**. We must build the nodes first, then connect them.*
+
+### 1. The "Crown Ring" (Fixing the Joints)
+*   **Problem:** All beams connect to the exact same `(0,0,Z)` point on the column.
+*   **Solution:** Create a "capital" or crown ring. Beams will attach to points on this ring, not a single point. This distributes the load.
+
+### 2. Tiered/Spiral Logic (The Z-Offset & Twist)
+*   **Problem:** Tiers aren't offset correctly in the current math.
+*   **Solution:** Implement a parametric loop with a **Phase Shift** ($\phi$) and **Height Delta** ($\Delta Z$). 
+*   **Math:** 
+    *   `Z_tier = H_column + (tier_index * tier_height_gap)`
+    *   `Angle = Base_Angle + (tier_index * phase_shift)`
+    *   `Radius = Base_Radius + (tier_index * radius_growth)`
+
+### 3. Truss Mechanics (The Curved Struts)
+*   **Problem:** Struts currently go from the base directly to the beam tip, causing them to float.
+*   **Solution:** Attach the strut to the **midpoint** of the main beam (using Vector Math: `Column_Top + 0.5 * (Beam_Node - Column_Top)`). 
+
+---
+
+## 🧠 TECHNICAL BLUEPRINT (Next Code Session)
+
+**Core Logic to Implement:**
+```python
+import numpy as np
+
+# --- PARAMETERS ---
+num_tiers = 3              # Levels up the sky
+num_radials = 4            # Beams per tier
+column_height = 4.0        
+tier_height_gap = 2.0      # Vertical distance between tiers
+base_radius = 4.0          
+radius_growth = 1.5        # Wider each tier gets
+phase_shift = np.pi / 4    # 45-degree twist per tier (The Spiral!)
+
+# --- NODE GENERATION ---
+nodes = {}
+nodes['baseplate'] = np.array([0, 0, 0])
+nodes['column_top'] = np.array([0, 0, column_height])
+
+for tier in range(num_tiers):
+    current_z = column_height + (tier * tier_height_gap)
+    current_radius = base_radius + (tier * radius_growth)
+    tier_angle_offset = tier * phase_shift
+    
+    for i in range(num_radials):
+        angle = (2 * np.pi * i / num_radials) + tier_angle_offset
+        x = current_radius * np.cos(angle)
+        y = current_radius * np.sin(angle)
+        nodes[f'tier_{tier}_node_{i}'] = np.array([x, y, current_z])
+
 End of project state.
