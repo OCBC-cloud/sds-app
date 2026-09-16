@@ -3,13 +3,14 @@
 # =============================================================================
 # Input page for the Cantilever Leaf variant.
 #
-# Design decisions (agreed 2026-09-15):
+# Design decisions (agreed 2026-09-15, revised 2026-09-16):
 #   - Object Shape selector at top
 #   - "Adjust Rib Lengths" opens ui/rooms/leaf_room.py
 #   - Rib lengths computed from geometry
 #   - Strut joint height FIXED at 75% of column height
-#   - Arrangement section: Single / Double / Multiple / Tree Stack / Tree Spiral
+#   - Arrangement: Single / Double / Multiple / Tree Stack / Tiered Helix
 #   - Tree Stack: 1-3 tiers, scale factor 0.75 fixed
+#   - Tiered Helix: engine-driven, user controls all parameters
 #   - 9 collapsible sections total
 # =============================================================================
 
@@ -144,7 +145,13 @@ def _init_defaults():
         "ws_sl_arrangement": "single",
         "ws_sl_arrangement_count": 4,
         "ws_sl_arrangement_tiers": 1,
-        "ws_sl_arrangement_spiral_count": 8,
+        "ws_sl_first_leaf_height": 3.0,
+        "ws_sl_leaf_zone_height": 7.0,
+        "ws_sl_num_leaves": 8,
+        "ws_sl_column_radius": 0.15,
+        "ws_sl_leaf_angular_width": 60.0,
+        "ws_sl_taper_mode": "taper_up",
+        "ws_sl_taper_ratio": 0.88,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -237,13 +244,6 @@ def _warning_box(text):
         '<div class="ws-warning-box">' + text + '</div>',
         unsafe_allow_html=True,
     )
-
-
-
-
-
-
-
 
 
 
@@ -446,15 +446,6 @@ def render_saddle_leaf():
         for w in warns:
             _warning_box(w)
 
-
-
-
-
-
-
-
-
-
     # =========================================================================
     # SECTION 3 - MATERIALS
     # =========================================================================
@@ -519,7 +510,9 @@ def render_saddle_leaf():
             + " Fabric</strong><br>" + info_text
         )
 
-    # =========================================================================
+
+
+# =========================================================================
     # SECTION 4 - COLUMN AND SPINE
     # =========================================================================
     with st.expander("4. Column and Spine", expanded=False):
@@ -602,15 +595,6 @@ def render_saddle_leaf():
             key="ws_sl_rib_conn_radio",
         )
         st.session_state["ws_sl_rib_connection"] = conn_options[conn_labels.index(conn_choice)]
-
-
-
-
-
-
-
-
-
 
     # =========================================================================
     # SECTION 6 - MEMBRANE ATTACHMENT AND PERIMETER CABLE
@@ -787,14 +771,14 @@ def render_saddle_leaf():
         )
 
         arrangement_options = [
-            "single", "double", "multiple", "tree_stack", "tree_spiral"
+            "single", "double", "multiple", "tree_stack", "tiered_helix"
         ]
         arrangement_labels = [
             "Single",
             "Double (mirror)",
             "Multiple (radial)",
             "Tree (stacked tiers)",
-            "Tree (spiral)",
+            "Tiered Helix (engine)",
         ]
         arr_idx = arrangement_options.index(st.session_state["ws_sl_arrangement"])
         arr_choice = st.radio(
@@ -830,19 +814,76 @@ def render_saddle_leaf():
                 "User only designs the mother object."
             )
 
-        elif st.session_state["ws_sl_arrangement"] == "tree_spiral":
-            n_spiral = st.slider(
-                "Number of leaves in spiral",
-                min_value=3, max_value=15,
-                value=int(st.session_state["ws_sl_arrangement_spiral_count"]),
-                step=1,
-                key="ws_sl_arr_spiral_slider",
+        elif st.session_state["ws_sl_arrangement"] == "tiered_helix":
+            fl_h = st.number_input(
+                "First Leaf Height (m)",
+                min_value=1.0, max_value=30.0,
+                value=float(st.session_state["ws_sl_first_leaf_height"]),
+                step=0.5,
+                key="ws_sl_flh_input",
             )
-            st.session_state["ws_sl_arrangement_spiral_count"] = n_spiral
+            st.session_state["ws_sl_first_leaf_height"] = fl_h
+
+            lz_h = st.number_input(
+                "Leaf Zone Height (m)",
+                min_value=0.5, max_value=30.0,
+                value=float(st.session_state["ws_sl_leaf_zone_height"]),
+                step=0.5,
+                key="ws_sl_lzh_input",
+            )
+            st.session_state["ws_sl_leaf_zone_height"] = lz_h
+
+            n_lv = st.slider(
+                "Number of Leaves",
+                min_value=1, max_value=30,
+                value=int(st.session_state["ws_sl_num_leaves"]),
+                step=1,
+                key="ws_sl_num_leaves_slider",
+            )
+            st.session_state["ws_sl_num_leaves"] = n_lv
+
+            col_r = st.number_input(
+                "Column Radius (m)",
+                min_value=0.05, max_value=1.00,
+                value=float(st.session_state["ws_sl_column_radius"]),
+                step=0.01,
+                key="ws_sl_col_r_input",
+            )
+            st.session_state["ws_sl_column_radius"] = col_r
+
+            law = st.slider(
+                "Leaf Angular Width (deg)",
+                min_value=10.0, max_value=180.0,
+                value=float(st.session_state["ws_sl_leaf_angular_width"]),
+                step=5.0,
+                key="ws_sl_law_slider",
+            )
+            st.session_state["ws_sl_leaf_angular_width"] = law
+
+            taper_opts = ["full_scale", "taper_up", "taper_down"]
+            taper_labels = ["Full Scale", "Taper Up (smaller at top)", "Taper Down (smaller at bottom)"]
+            t_idx = taper_opts.index(st.session_state["ws_sl_taper_mode"])
+            taper_choice = st.radio(
+                "Scale Mode",
+                taper_labels,
+                index=t_idx,
+                key="ws_sl_taper_mode_radio",
+            )
+            st.session_state["ws_sl_taper_mode"] = taper_opts[taper_labels.index(taper_choice)]
+
+            if st.session_state["ws_sl_taper_mode"] != "full_scale":
+                tr = st.slider(
+                    "Taper Ratio (per leaf)",
+                    min_value=0.50, max_value=0.99,
+                    value=float(st.session_state["ws_sl_taper_ratio"]),
+                    step=0.01,
+                    key="ws_sl_taper_ratio_slider",
+                )
+                st.session_state["ws_sl_taper_ratio"] = tr
 
             _preview_box(
-                "Spiral rise, rotation, and scale are fixed by the engine. "
-                "User only designs the mother object."
+                "Bud length = column radius + 0.45 m. "
+                "Helix turns computed by the engine."
             )
 
         _info_box(
@@ -869,3 +910,6 @@ def render_saddle_leaf():
         ):
             st.session_state.page = "results"
             st.rerun()
+
+
+
