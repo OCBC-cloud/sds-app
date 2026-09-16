@@ -5,11 +5,12 @@
 # Called by viewers/results_viewer.py dispatcher.
 #
 # Reads arrangement from session state:
-#   single      -> 1 leaf
-#   double      -> 2 leaves mirrored
-#   multiple    -> N leaves at equal rotation around column
-#   tree_stack  -> 1-3 tiers, scale factor 0.75, rotation fixed
-#   tree_spiral -> N leaves spiralling up at golden angle
+#   single       -> 1 leaf
+#   double       -> 2 leaves mirrored
+#   multiple     -> N leaves at equal rotation around column
+#   tree_stack   -> 1-3 tiers, scale factor 0.75, rotation fixed
+#   tree_spiral  -> N leaves spiralling up at golden angle
+#   tiered_helix -> N leaves placed by engine/leaf_arrangement (helix)
 #
 # Column and baseplate drawn once. Leaf parts drawn per copy.
 # =============================================================================
@@ -22,6 +23,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from viewers.figures._shared import apply_common_layout
+from engine.leaf_arrangement import place_leaves
 
 
 # =============================================================================
@@ -222,12 +224,85 @@ def _add_leaf(fig, parts, rot_deg=0.0, scale=1.0, z_offset=0.0):
     ))
 
 
+# =============================================================================
+# TIERED HELIX ARRANGEMENT
+# =============================================================================
 
+def _add_tiered_helix(fig, parts):
+    """
+    Place leaves along a helix using engine/leaf_arrangement.place_leaves().
 
+    Reads parameters from session state (with sensible defaults so the
+    app does not crash before the workshop sliders exist):
 
+        ws_sl_first_leaf_height   - m     (default 3.0)
+        ws_sl_leaf_zone_height    - m     (default 7.0)
+        ws_sl_num_leaves          - int   (default 8)
+        ws_sl_column_radius       - m     (default 0.15)
+        ws_sl_leaf_angular_width  - deg   (default 60.0)
+        ws_sl_taper_mode          - str   (default "taper_up")
+        ws_sl_taper_ratio         - float (default 0.88)
 
+    Each placed bud is drawn as a short radial "stub" line from the
+    column axis to the bud tip, and the leaf itself is added via
+    _add_leaf() at the bud's yaw and z position.
+    """
+    first_leaf_height = float(st.session_state.get("ws_sl_first_leaf_height", 3.0))
+    leaf_zone_height = float(st.session_state.get("ws_sl_leaf_zone_height", 7.0))
+    num_leaves = int(st.session_state.get("ws_sl_num_leaves", 8))
+    column_radius = float(st.session_state.get("ws_sl_column_radius", 0.15))
+    leaf_angular_width = float(st.session_state.get("ws_sl_leaf_angular_width", 60.0))
+    taper_mode = str(st.session_state.get("ws_sl_taper_mode", "taper_up"))
+    taper_ratio = float(st.session_state.get("ws_sl_taper_ratio", 0.88))
 
+    result = place_leaves(
+        first_leaf_height=first_leaf_height,
+        leaf_zone_height=leaf_zone_height,
+        num_leaves=num_leaves,
+        column_radius=column_radius,
+        leaf_angular_width=leaf_angular_width,
+        scale_mode=taper_mode,
+        taper_ratio=taper_ratio,
+    )
 
+    buds = result["buds"]
+
+    # ---- Draw bud stubs (short radial lines from axis to bud tip)
+    for bud in buds:
+        ax, ay, az = bud["axis_attach"]
+        tx, ty, tz = bud["bud_tip"]
+        fig.add_trace(go.Scatter3d(
+            x=[ax, tx], y=[ay, ty], z=[az, tz],
+            mode="lines",
+            line=dict(color="#f1c40f", width=4),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+    # ---- Draw each leaf at its bud position, yaw, and scale
+    for bud in buds:
+        _add_leaf(
+            fig,
+            parts,
+            rot_deg=bud["yaw_deg"],
+            scale=bud["scale"],
+            z_offset=bud["z_attach"] - parts["col_h"],
+        )
+
+    # ---- Draw the virtual helix path (subtle reference curve)
+    if len(buds) >= 2:
+        hx = [b["bud_tip"][0] for b in buds]
+        hy = [b["bud_tip"][1] for b in buds]
+        hz = [b["bud_tip"][2] for b in buds]
+        fig.add_trace(go.Scatter3d(
+            x=hx, y=hy, z=hz,
+            mode="lines",
+            line=dict(color="#9b59b6", width=2, dash="dot"),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+    return result["meta"]
 
 
 # =============================================================================
@@ -304,6 +379,9 @@ def build_cantilever_leaf():
             z_off = rise * k
             rot = k * GOLDEN_ANGLE_DEG
             _add_leaf(fig, parts, rot, scale, z_off)
+
+    elif arrangement == "tiered_helix":
+        _add_tiered_helix(fig, parts)
 
     else:
         _add_leaf(fig, parts, 0.0, 1.0, 0.0)
