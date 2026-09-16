@@ -161,6 +161,7 @@ def _add_leaf(fig, parts, rot_deg=0.0, scale=1.0, z_offset=0.0):
         ))
 
 
+
 # ---- Membrane
     n_u = 24
     n_v = 24
@@ -285,6 +286,7 @@ def _add_tiered_helix(fig, parts):
     return result["meta"]
 
 
+
 # =============================================================================
 # PUBLIC ENTRY POINT
 # =============================================================================
@@ -370,3 +372,6 @@ def build_cantilever_leaf():
     ))
 
     return apply_common_layout(fig, col_h)
+
+
+
