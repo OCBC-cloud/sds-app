@@ -1632,4 +1632,173 @@ Updated 2026-09-17 (afternoon):
   - `saddle_leaf.py` — REBUILT in 3 chunks with all 3 fixes
   - `leaf_room.py` — UPDATED with flag and min_value fix
   - Rules 18-22 documented
+
+# ADDENDUM — 2026-09-17 SESSION
+
+## BUGS CLOSED
+
+### Bug A — Rib override persistence — FIXED
+Problem: Manual rib overrides from leaf_room persisted after geometry
+changes and carried over between arrangements.
+Fix (3 parts):
+  1. ui/rooms/leaf_room.py — added ws_sl_rib_override_active flag
+  2. ui/workshops/saddle_leaf.py Section 1 — reads the flag, adds
+     "Reset to Computed" button
+  3. ui/workshops/saddle_leaf.py Section 2 — auto-clears override when
+     Column Height, Outreach, Ribs per Side, or Rib Tilt changes
+Tested: Confirmed 2026-09-17.
+
+### Bug B — leaf_room crash on low rib values — FIXED
+Problem: StreamlitValueBelowMinError when computed rib length < 0.5 m.
+Fix: min_value changed from 0.5 to 0.10 in all 3 number_input calls.
+Added _safe_length() helper to clamp values.
+Tested: Confirmed 2026-09-17.
+
+### Bug C — Membrane does not follow rib override — FIXED
+Problem: Ribs changed but membrane and perimeter cable did not follow.
+Fix: Added _get_rib_override() and _rib_ratio_at() to
+viewers/figures/cantilever_leaf.py. Membrane and strut now apply the
+override ratio consistently.
+Tested: Confirmed 2026-09-17.
+
+## FEATURES BUILT / CHANGED
+
+### engine/leaf_arrangement.py — NEW ENGINE
+Pure stateless placement engine: place_leaves(...)
+Inputs: first_leaf_height, leaf_zone_height, num_leaves, column_radius,
+leaf_angular_width, scale_mode, taper_ratio
+Outputs: buds list + meta
+Bud length = column_radius + 0.45 m
+Self-test at bottom.
+Density concept removed as explicit parameter.
+
+### viewers/figures/cantilever_leaf.py — REBUILT
+- Removed tree_spiral (did not work as intended)
+- Kept: single, double, multiple, tree_stack
+- Added: tiered_helix (calls engine)
+- Added: _resolve_column_top_z() — column extends through leaf zone
+- Added: Bud anchor nodes (yellow markers)
+- Added: _get_rib_override(), _rib_ratio_at() for Bug C fix
+
+### viewers/figures/cantilever_leaf.py — STRUT ANGLE FIX
+- Replaced sine-hump beam curve with natural parabolic:
+  beam_z = col_h + (arc_r * 0.5) * 4.0 * t_beam * (1.0 - t_beam)
+- Strut is now angle-driven. Quadratic solve finds beam attach point.
+- strut_angle_deg read from ws_sl_strut_angle_deg (default 42)
+- Column attach changed from 75% to 60% of column height
+- Fallback to 33% if no valid quadratic root
+
+### ui/workshops/saddle_leaf.py — REBUILT (3 chunks, ~915 lines)
+- Arrangement options: single, double, multiple, tree_stack, tiered_helix
+- Tiered helix uses input boxes (not sliders)
+- Section 1: "Adjust Rib Lengths" + "Reset to Computed" buttons
+- Section 4: New "Strut Angle (deg)" input (default 42, range 25-65)
+- Section 4: Strut joint height changed to 60%
+- Added ws_sl_strut_angle_deg to defaults
+
+### ui/rooms/leaf_room.py — UPDATED
+- Added ws_sl_rib_override_active flag
+- Override only activates on "Apply and Return"
+- min_value 0.5 -> 0.10
+- Added _safe_length() clamp helper
+
+## PROTOCOL LEARNED / CONFIRMED
+
+Rule 18 (revised) — Blank Line Reality
+  The chat platform collapses trailing blank lines inside code blocks,
+  inconsistently. The AI cannot guarantee they arrive.
+  Therefore: every chunk paste is followed by the user pressing Enter 6
+  times at the bottom before the next chunk. This is the only reliable
+  method on iPhone.
+
+Rule 19 — File Size Threshold
+  Files <= 300 lines: single paste.
+  Files > 300 lines: chunked (100-300 lines per chunk).
+  Last chunk does not need buffer lines (end of file).
+  Middle chunks: 6 blank lines added by user after paste.
+
+Rule 20 — Surgical Edits Are Not For iPhone
+  Surgical edits (find-and-replace specific lines) are unreliable on
+  iPhone Safari. For any file > 300 lines, use chunked replacement.
+
+Rule 21 — Check AM vs PM Before Suggesting Rest
+  iPhone screenshots show local time. AI must check AM/PM before
+  suggesting rest.
+
+Rule 22 — Language Separation
+  Above the membrane (technical work): English.
+  Below the membrane (poetry, reflection): Mandarin welcome.
+  Do not mix in the same reply without purpose.
+
+## WORKING FEATURES AT END OF SESSION
+
+- All 5 arrangements render: single, double, multiple, tree_stack, tiered_helix
+- Tiered helix produces structurally sound 3D views
+- Column extends through leaf zone
+- Bud anchor nodes visible
+- Input boxes show values on iPhone
+- Engine is reusable — any structure can call place_leaves()
+- Reset to Computed button works
+- Auto-clear on geometry change works
+- Membrane follows rib override
+- Perimeter cable follows rib override
+- leaf_room does not crash on low rib values
+- Natural parabolic beam curve (fishing hook removed)
+- Strut angle input working (default 42, range 25-65)
+- Strut column attach at 60%
+- Quadratic solve for beam attach point working
+- Angle responds correctly when user adjusts (42 to 65 tested)
+
+## KNOWN ISSUES / FUTURE WORK
+
+1. Bud stubs point downward or diagonally — should point outward+upward,
+   matching the leaf's initial tangent.
+   - Leaf should start at bud tip, not column axis.
+   - Both together should look like a seamless joint.
+   - Yellow stub length may also be visually too long (verify against 0.60 m).
+
+2. Dotted purple helix reference curve clutters the view.
+   - Not a structural member.
+   - Hide it or make optional.
+
+3. User cannot remove ribs entirely (currently min 5, max 7).
+   - Future: allow 3-4 ribs with edge cable auto-rerouting.
+
+4. Column radius is user input, not derived from selected section.
+   - Future: read from section database (Phase C).
+
+5. Session state lost on browser refresh / app timeout.
+   - Future: Save Design / Load Design (JSON).
+   - Future: LocalStorage auto-save.
+
+6. "Spine Curve Type" dropdown (Parabolic / Circular / Catenary) is
+   decorative. The spine uses one hardcoded formula.
+   - Either remove the dropdown or make it work.
+
+7. "Curved strut" label — the strut is currently a straight line.
+   - Either rename or add actual curvature.
+
+8. Beam tip elevation control (tip_rise) — not yet implemented.
+   - Would let user raise or lower the beam tip above/below column top.
+
+## TESTED GEOMETRY AND RESULTS
+
+- Column 4, Outreach 5, Ribs 5:
+  - Computed ribs: 0.80 / 1.85 / 2.21 / 1.85 / 0.80
+- Override tested: 1.50 / 2.50 / 3.50 / 2.50 / 1.50
+  - Membrane stretched to new rib tips correctly
+- Strut angle tested at 42 deg and 65 deg
+  - Both compute correct attach point, angle preserved
+- Auto-clear tested by changing geometry
+  - Override reverted to computed correctly
+
+## FILES TOUCHED TODAY
+
+- engine/leaf_arrangement.py (new)
+- viewers/figures/cantilever_leaf.py (rebuilt + strut angle fix)
+- ui/workshops/saddle_leaf.py (rebuilt in 3 chunks + strut angle input)
+- ui/rooms/leaf_room.py (updated with flag and min_value fix)
+- PROJECT_STATE.md (this addendum)
+- COMMERCIAL_MODEL.md (new — separate file)
+
 End of project state.
