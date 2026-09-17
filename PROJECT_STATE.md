@@ -1304,4 +1304,138 @@ for tier in range(num_tiers):
         y = current_radius * np.sin(angle)
         nodes[f'tier_{tier}_node_{i}'] = np.array([x, y, current_z])
 
+# ADDENDUM — 2026-09-16 / 2026-09-17 SESSION
+
+## What was built (2026-09-16)
+
+### 1. engine/leaf_arrangement.py — NEW ENGINE (committed)
+- Pure stateless placement engine: `place_leaves(...)`
+- Inputs: first_leaf_height, leaf_zone_height, num_leaves, column_radius,
+  leaf_angular_width, scale_mode, taper_ratio
+- Outputs: buds list (axis_attach, bud_tip, yaw_deg, scale, z_attach) + meta
+- Bud length = column_radius + 0.45 m (the +450mm standard)
+- Self-test at bottom (_verify_leaf_arrangement)
+- Density concept REMOVED as explicit parameter. Implied by num_leaves vs zone height.
+- Files rebuilt clean using chunked paste method with 6 blank lines per chunk.
+
+### 2. viewers/figures/cantilever_leaf.py — REBUILT (committed)
+- Removed: tree_spiral arrangement (did not work as intended)
+- Kept: single, double, multiple, tree_stack
+- Added: tiered_helix arrangement (calls engine/leaf_arrangement.place_leaves)
+- NEW: _resolve_column_top_z() — column extends through the entire leaf zone
+  for tiered_helix so every bud has a supporting column behind it (STRUCTURAL FIX)
+- NEW: Bud anchor nodes (yellow markers) at each bud's axis_attach to make the
+  load path visually explicit
+- Visual: column, bud stubs, bud anchors, leaves, virtual helix curve
+
+### 3. ui/workshops/saddle_leaf.py — REBUILT (committed)
+- Section 9 arrangement options: single, double, multiple, tree_stack, tiered_helix
+- Tiered helix uses input boxes (not sliders) for: First Leaf Height, Leaf Zone
+  Height, Number of Leaves, Column Radius, Leaf Angular Width, Scale Mode radio,
+  Taper Ratio
+- Other sliders (Rib Tilt Angle, Rib Plan Spacing, etc.) — still sliders, may
+  convert later
+
+### 4. ui/rooms/leaf_room.py — UPDATED (committed)
+- Added ws_sl_rib_override_active flag (default False)
+- Override only activates when user presses "Apply and Return"
+- No more auto-initialisation of override list
+
+---
+
+## Bugs identified (in progress)
+
+### Bug A — Rib override persistence (PARTIALLY FIXED)
+- Symptom: Manual rib overrides from leaf_room persist even after user changes
+  Column Height / Outreach / Rib Tilt. Also carries over between arrangements.
+- Root cause: leaf_room.py was auto-initialising override on every session
+- Fix status:
+  - ✅ Part A (leaf_room.py) — DONE
+  - ⏳ Part B (saddle_leaf.py) — PENDING
+    - Need to read ws_sl_rib_override_active flag
+    - Need "Reset to Computed" button
+    - Need auto-clear on geometry change
+
+### Bug B — leaf_room.py crashes with StreamlitValueBelowMinError (UNFIXED)
+- Error: "The value 0.48 is less than the min_value 0.5"
+- Cause: Computed rib lengths can dip below 0.5 m for certain geometries
+  (e.g. 10m column, 10m outreach, 7 ribs gives rib 1 = 0.48 m)
+- Fix: Change min_value from 0.5 to 0.10 in all number_input calls
+  (3 instances: symmetric, individual-left, individual-right)
+- Also: clamp default value with max(0.10, float(current_val))
+
+---
+
+## Design questions raised (for FUTURE sessions)
+
+### Q1 — Should the user be able to remove ribs entirely?
+- Currently limited to min 5 ribs, max 7
+- If user could set 3, 4, or fewer ribs:
+  - The edge cable must auto-reroute to close the loop between remaining ribs
+  - The membrane grid must rebuild with new support count
+  - Computed rib lengths must recalculate for new distribution
+  - Structural warnings may be needed
+- Recommendation: Good future feature. Design properly with edge cable logic.
+- Not in today's scope.
+
+### Q2 — Should column_radius be derived from selected section?
+- Currently: ws_sl_column_radius is a user input (default 0.15 m)
+- Better: derive from selected section (e.g. CHS 323.8 x 8 -> radius = 0.1619 m)
+- Then bud length = section_radius + 0.45 m (physically accurate)
+- Requires: section database linked to column_radius, auto-section-selection engine
+- Recommendation: Design B is the right architecture. Phase C engine work.
+- Not in today's scope.
+
+---
+
+## Working methods confirmed
+
+### Chunked Paste Method (PROVEN AGAIN)
+- Chunks of ~100-150 lines
+- 6 blank lines typed at the bottom of each chunk (by AI)
+- One chunk at a time. Confirm each before next.
+- Commit only after last chunk.
+- Reboot Streamlit app after commit.
+- Platform: chat sometimes strips blank lines — when it does, user adds them.
+- Working rule (Chief): Files > 300 lines split into chunks. Files <= 300 lines
+  sent as single paste.
+
+### Surgical Edits (discouraged)
+- Tried for saddle_leaf.py surgical edits
+- Failed because: file is ~900 lines, Safari Find not reliable on iPhone,
+  hard to locate exact lines
+- Lesson: For files > 500 lines, split into chunks. Do not attempt surgical
+  edits on iPhone.
+
+---
+
+## Current file sizes (approx)
+
+- engine/leaf_arrangement.py — ~230 lines
+- viewers/figures/cantilever_leaf.py — ~370 lines
+- ui/workshops/saddle_leaf.py — ~900 lines (large)
+- ui/rooms/leaf_room.py — ~240 lines
+
+---
+
+## What is working right now
+
+- All 5 arrangements render: single, double, multiple, tree_stack, tiered_helix
+- Tiered helix produces beautiful, structurally sound 3D views
+- Column extends through leaf zone
+- Bud anchor nodes visible
+- Input boxes show values clearly on iPhone
+- Engine is reusable — any future structure can call place_leaves()
+
+## What is NOT working
+
+- leaf_room.py crashes for certain geometries (Bug B) — CRITICAL
+- Rib override persistence (Bug A) — Part B not yet applied
+
+## Next session priority
+
+1. Fix Bug B (leaf_room.py min_value)
+2. Complete Bug A Part B (saddle_leaf.py)
+3. Then: revisit Q1 and Q2 as design projects.
+
 End of project state.
