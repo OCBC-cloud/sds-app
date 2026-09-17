@@ -11,10 +11,10 @@
 #   tree_stack   -> 1-3 tiers, scale factor 0.75, rotation fixed
 #   tiered_helix -> N leaves placed by engine/leaf_arrangement (helix)
 #
-# Column and baseplate drawn once. For tiered_helix, the column
-# extends up through the entire leaf zone so that every bud has a
-# supporting column behind it. Bud anchor nodes are drawn at each
-# bud's axis_attach to make the load path visually explicit.
+# Rib override support:
+#   If ws_sl_rib_override_active is True and ws_sl_rib_lengths_override
+#   contains values, the membrane and perimeter cable follow the new
+#   rib tips. The whole leaf reshapes coherently.
 # =============================================================================
 
 import math
@@ -51,6 +51,79 @@ def _resolve_column_top_z(col_h, arrangement):
 
 
 # =============================================================================
+# RIB OVERRIDE HELPERS
+# =============================================================================
+
+def _get_rib_override(n_ribs, base_lengths):
+    """
+    Return a normalised ratio list for rib overrides.
+
+    Returns None if no override is active. Otherwise returns a list
+    of length n_ribs where each entry is override[i] / base[i].
+    Ratios are clamped to a sane range to avoid extreme geometry.
+    """
+    override_active = bool(st.session_state.get("ws_sl_rib_override_active", False))
+    if not override_active:
+        return None
+
+    override = st.session_state.get("ws_sl_rib_lengths_override", [])
+    if not override:
+        return None
+
+    ratios = []
+    for i in range(n_ribs):
+        base = base_lengths[i] if i < len(base_lengths) else 1.0
+        ovr = override[i] if i < len(override) else base
+        if base <= 0.01:
+            base = 0.01
+        r = float(ovr) / base
+        # Clamp to keep geometry sane
+        if r < 0.25:
+            r = 0.25
+        if r > 4.0:
+            r = 4.0
+        ratios.append(r)
+    return ratios
+
+
+def _rib_ratio_at(t, ratios):
+    """
+    Return the interpolated override ratio at parameter t in [0, 1].
+
+    t maps to rib index positions consistent with _compute_leaf_parts:
+    ribs sit at ts = linspace(0.08, 0.92, n_ribs).
+    """
+    if not ratios:
+        return 1.0
+
+    n = len(ratios)
+    if n == 1:
+        return ratios[0]
+
+    # Rib positions
+    ts = [0.08 + (0.92 - 0.08) * i / (n - 1) for i in range(n)]
+
+    # Before first rib
+    if t <= ts[0]:
+        return ratios[0]
+
+    # After last rib
+    if t >= ts[-1]:
+        return ratios[-1]
+
+    # Between ribs: linear interpolation
+    for i in range(n - 1):
+        if ts[i] <= t <= ts[i + 1]:
+            span = ts[i + 1] - ts[i]
+            if span < 1e-9:
+                return ratios[i]
+            w = (t - ts[i]) / span
+            return ratios[i] * (1.0 - w) + ratios[i + 1] * w
+
+    return 1.0
+
+
+# =============================================================================
 # LEAF GEOMETRY
 # =============================================================================
 
@@ -62,7 +135,6 @@ def _compute_leaf_parts():
     tilt_deg = float(st.session_state.get("ws_sl_rib_tilt", 20))
     arc_r = float(st.session_state.get("ws_sl_arc_radius", 5.0))
     strut_joint = float(st.session_state.get("ws_sl_strut_joint_height", col_h * 0.75))
-    rib_override = st.session_state.get("ws_sl_rib_lengths_override", [])
 
     n_beam = 80
     t_beam = np.linspace(0, 1, n_beam)
@@ -76,8 +148,21 @@ def _compute_leaf_parts():
         return outreach * 0.42 * (np.sin(np.pi * t) ** 0.7)
 
     def rib_tilt_at(t):
-        return math.radians(tilt_deg) * (math.sin(math.pi * t) ** 0.7)
+        return math.radians(tilt_deg) * (math.sin(np.pi * t) ** 0.7)
 
+    # ---- Build base rib lengths (for override ratio computation)
+    base_lengths = []
+    for t in rib_ts:
+        half_w = leaf_half_width(t)
+        tilt_local = tilt_deg * (math.sin(np.pi * t) ** 0.7)
+        z_rise = half_w * math.tan(math.radians(tilt_local))
+        length = math.sqrt(half_w * half_w + z_rise * z_rise)
+        base_lengths.append(round(length, 2))
+
+    # ---- Build override ratio map
+    ratios = _get_rib_override(ribs_per_side, base_lengths)
+
+    # ---- Build rib lines (with override applied)
     rib_lines = []
     for i, t in enumerate(rib_ts):
         idx = int(t * (n_beam - 1))
@@ -85,13 +170,11 @@ def _compute_leaf_parts():
         a_z = beam_z[idx]
         half_w = leaf_half_width(t)
         tilt = rib_tilt_at(t)
-        if rib_override and i < len(rib_override):
-            base_half = leaf_half_width(t)
-            ratio = float(rib_override[i]) / max(0.01, base_half)
-            half_w = half_w * ratio
-            tip_z = a_z + half_w * math.tan(tilt)
-        else:
-            tip_z = a_z + half_w * math.tan(tilt)
+
+        if ratios:
+            half_w = half_w * ratios[i]
+
+        tip_z = a_z + half_w * math.tan(tilt)
         rib_lines.append({
             "attach": (a_x, a_z),
             "left_tip": (a_x, -half_w, tip_z),
@@ -107,7 +190,11 @@ def _compute_leaf_parts():
         "ribs": rib_lines,
         "strut_joint": strut_joint,
         "arc_r": arc_r,
+        "rib_ratios": ratios,
     }
+
+
+
 
 
 # =============================================================================
@@ -126,6 +213,7 @@ def _add_leaf(fig, parts, rot_deg=0.0, scale=1.0, z_offset=0.0):
         return xr, yr
 
     col_h = parts["col_h"]
+    ratios = parts.get("rib_ratios", None)
 
     # ---- Main beam (curved spine)
     bxs, bys, bzs = [], [], []
@@ -176,7 +264,7 @@ def _add_leaf(fig, parts, rot_deg=0.0, scale=1.0, z_offset=0.0):
             hoverinfo="skip",
         ))
 
-    # ---- Membrane
+    # ---- Membrane (follows rib override ratios)
     n_u = 24
     n_v = 24
     X_s = np.zeros((n_u, n_v))
@@ -196,6 +284,11 @@ def _add_leaf(fig, parts, rot_deg=0.0, scale=1.0, z_offset=0.0):
         bz = parts["beam_z"][idx]
         hw = _half_width(t)
         tilt = _tilt(t)
+
+        # Apply override ratio at this parameter position
+        if ratios:
+            hw = hw * _rib_ratio_at(t, ratios)
+
         tip_z = bz + hw * math.tan(tilt)
 
         for j, v in enumerate(np.linspace(-1, 1, n_v)):
@@ -262,7 +355,7 @@ def _add_tiered_helix(fig, parts):
 
     buds = result["buds"]
 
-    # ---- Bud stubs (from column axis out to bud tip)
+    # ---- Bud stubs
     for bud in buds:
         ax, ay, az = bud["axis_attach"]
         tx, ty, tz = bud["bud_tip"]
@@ -274,7 +367,7 @@ def _add_tiered_helix(fig, parts):
             hoverinfo="skip",
         ))
 
-    # ---- Bud anchor nodes (marker where the bud meets the column)
+    # ---- Bud anchor nodes
     anchor_x = [b["axis_attach"][0] for b in buds]
     anchor_y = [b["axis_attach"][1] for b in buds]
     anchor_z = [b["axis_attach"][2] for b in buds]
