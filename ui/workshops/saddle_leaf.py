@@ -307,7 +307,8 @@ def render_saddle_leaf():
         st.session_state["ws_sl_object_shape"] = "leaf"
 
         n_ribs = int(st.session_state.get("ws_sl_ribs_per_side", 7))
-        rib_override = st.session_state.get("ws_sl_rib_lengths_override", [])
+        override_active = bool(st.session_state.get("ws_sl_rib_override_active", False))
+        rib_override = st.session_state.get("ws_sl_rib_lengths_override", []) if override_active else []
         rib_base = st.session_state.get("ws_sl_rib_base_lengths", [])
         is_sym = st.session_state.get("ws_sl_rib_symmetric", True)
 
