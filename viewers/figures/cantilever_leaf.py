@@ -139,7 +139,7 @@ def _compute_leaf_parts():
     n_beam = 80
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
-    beam_z = col_h + arc_r * np.sin(t_beam * np.pi * 0.6) * 0.7
+    beam_z = col_h + (arc_r * 0.5) * 4.0 * t_beam * (1.0 - t_beam)
     beam_y = np.zeros_like(t_beam)
 
     rib_ts = np.linspace(0.08, 0.92, ribs_per_side)
