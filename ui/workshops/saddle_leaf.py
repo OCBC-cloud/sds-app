@@ -156,6 +156,7 @@ def _init_defaults():
         "ws_sl_taper_ratio": 0.88,
         "ws_sl_rib_override_active": False,
         "ws_sl_rib_lengths_override": [],
+        "ws_sl_strut_angle_deg": 42,
         "ws_sl_last_geometry": None,
     }
     for k, v in defaults.items():
@@ -566,14 +567,25 @@ def render_saddle_leaf():
         st.session_state["ws_sl_column_preference"] = "auto" if col_pref == "Auto-select" else "manual"
 
         col_h_val = float(st.session_state.get("ws_sl_column_height", 10.0))
-        strut_joint = round(col_h_val * 0.75, 2)
+        strut_joint = round(col_h_val * 0.60, 2)
         st.session_state["ws_sl_strut_joint_height"] = strut_joint
+
+        strut_angle = st.number_input(
+            "Strut Angle (deg) - from horizontal",
+            min_value=25.0, max_value=65.0,
+            value=float(st.session_state.get("ws_sl_strut_angle_deg", 42.0)),
+            step=1.0,
+            key="ws_sl_strut_angle_input",
+        )
+        st.session_state["ws_sl_strut_angle_deg"] = strut_angle
 
         _preview_box(
             'Strut joint height: <span class="num">'
             + ("%.2f m" % strut_joint)
-            + '</span> (75% of column height)<br>'
-            'Fixed by the engine.'
+            + '</span> (60% of column height)<br>'
+            'Strut angle: <span class="num">'
+            + ("%.0f deg" % strut_angle)
+            + '</span> from horizontal.'
         )
 
         _preview_box(
