@@ -310,10 +310,46 @@ def _add_leaf(fig, parts, rot_deg=0.0, scale=1.0, z_offset=0.0):
         hoverinfo="skip",
     ))
 
-    # ---- Curved strut
-    idx_third = int(0.33 * (n_beam - 1))
-    px = parts["beam_x"][idx_third] * scale
-    pz = (parts["beam_z"][idx_third] - col_h) * scale + col_h + z_offset
+    # ---- Curved strut (angle-driven beam attach point)
+    strut_angle_deg = float(st.session_state.get("ws_sl_strut_angle_deg", 42.0))
+    strut_angle_rad = math.radians(strut_angle_deg)
+    tan_a = math.tan(strut_angle_rad)
+
+    # Beam shape: z(x) = col_h + 4*S*(x/L)*(1 - x/L),  S = sagitta, L = outreach
+    # Solve: (z(x) - strut_joint) / x = tan(angle)
+    # Rearranged quadratic: A_q * x^2 + B_q * x + C_q = 0
+    S = float(st.session_state.get("ws_sl_arc_radius", 5.0)) * 0.5
+    L = parts["outreach"]
+    strut_j = parts["strut_joint"]
+
+    A_q = 4.0 * S / (L * L)
+    B_q = tan_a - (4.0 * S / L)
+    C_q = strut_j - col_h
+
+    discriminant = B_q * B_q - 4.0 * A_q * C_q
+
+    px_local = None
+    if discriminant >= 0.0 and A_q > 1e-9:
+        sqrt_d = math.sqrt(discriminant)
+        x1 = (-B_q + sqrt_d) / (2.0 * A_q)
+        x2 = (-B_q - sqrt_d) / (2.0 * A_q)
+        candidates = [x for x in (x1, x2) if 0.0 < x < L]
+        if candidates:
+            px_local = candidates[0]
+
+    if px_local is None:
+        px_local = L * 0.33  # fallback if no valid solution
+
+    # Locate nearest beam sample index
+    idx_attach = int((px_local / L) * (n_beam - 1))
+    if idx_attach < 0:
+        idx_attach = 0
+    if idx_attach >= n_beam:
+        idx_attach = n_beam - 1
+
+    px = parts["beam_x"][idx_attach] * scale
+    pz = (parts["beam_z"][idx_attach] - col_h) * scale + col_h + z_offset
+
     t_s = np.linspace(0, 1, 20)
     sx_loc = px * (1 - t_s)
     sz_loc = pz + (parts["strut_joint"] * scale + z_offset - pz) * t_s
