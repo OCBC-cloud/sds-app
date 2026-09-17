@@ -3,10 +3,12 @@
 # =============================================================================
 # Input page for the Cantilever Leaf variant.
 #
-# Design decisions (agreed 2026-09-15, revised 2026-09-16):
+# Design decisions (agreed 2026-09-15, revised 2026-09-17):
 #   - Object Shape selector at top
 #   - "Adjust Rib Lengths" opens ui/rooms/leaf_room.py
+#   - "Reset to Computed" clears rib override
 #   - Rib lengths computed from geometry
+#   - Rib override auto-clears when geometry changes
 #   - Strut joint height FIXED at 75% of column height
 #   - Arrangement: Single / Double / Multiple / Tree Stack / Tiered Helix
 #   - Tree Stack: 1-3 tiers, scale factor 0.75 fixed
@@ -152,6 +154,9 @@ def _init_defaults():
         "ws_sl_leaf_angular_width": 60.0,
         "ws_sl_taper_mode": "taper_up",
         "ws_sl_taper_ratio": 0.88,
+        "ws_sl_rib_override_active": False,
+        "ws_sl_rib_lengths_override": [],
+        "ws_sl_last_geometry": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -247,6 +252,7 @@ def _warning_box(text):
 
 
 
+
 # =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
@@ -338,15 +344,26 @@ def render_saddle_leaf():
 
         _preview_box(rib_summary)
 
-        if st.button(
-            "Adjust Rib Lengths",
-            key="ws_sl_open_rib_room",
-            use_container_width=True,
-        ):
-            st.session_state.page = "leaf_room"
-            st.rerun()
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button(
+                "Adjust Rib Lengths",
+                key="ws_sl_open_rib_room",
+                use_container_width=True,
+            ):
+                st.session_state.page = "leaf_room"
+                st.rerun()
+        with col_b:
+            if st.button(
+                "Reset to Computed",
+                key="ws_sl_reset_ribs",
+                use_container_width=True,
+            ):
+                st.session_state["ws_sl_rib_override_active"] = False
+                st.session_state["ws_sl_rib_lengths_override"] = []
+                st.rerun()
 
-        _info_box("Opens a dedicated room for individual rib adjustment.")
+        _info_box("Adjust opens a dedicated room. Reset clears overrides to computed lengths.")
 
     # =========================================================================
     # SECTION 2 - GEOMETRY
@@ -416,6 +433,15 @@ def render_saddle_leaf():
                 key="ws_sl_arc_input",
             )
             st.session_state["ws_sl_arc_radius"] = arc_r
+
+        # ---- Auto-clear rib override when geometry changes
+        current_geometry = (col_h, outreach, ribs, tilt)
+        last_geometry = st.session_state.get("ws_sl_last_geometry", None)
+        if last_geometry is not None and last_geometry != current_geometry:
+            if st.session_state.get("ws_sl_rib_override_active", False):
+                st.session_state["ws_sl_rib_override_active"] = False
+                st.session_state["ws_sl_rib_lengths_override"] = []
+        st.session_state["ws_sl_last_geometry"] = current_geometry
 
         curve_options = ["parabolic", "circular", "catenary"]
         curve_labels = ["Parabolic", "Circular", "Catenary"]
@@ -511,8 +537,6 @@ def render_saddle_leaf():
             + " Fabric</strong><br>" + info_text
         )
 
-
-
     # =========================================================================
     # SECTION 4 - COLUMN AND SPINE
     # =========================================================================
@@ -557,7 +581,11 @@ def render_saddle_leaf():
             "Torsion and moment are resisted by the baseplate."
         )
 
-    # =========================================================================
+
+
+
+
+# =========================================================================
     # SECTION 5 - RIBS
     # =========================================================================
     with st.expander("5. Ribs", expanded=False):
@@ -911,6 +939,3 @@ def render_saddle_leaf():
         ):
             st.session_state.page = "results"
             st.rerun()
-
-
-
