@@ -17,6 +17,8 @@ import streamlit as st
 # =============================================================================
 
 MAX_RIB_PAIRS = 7
+MIN_RIB_LENGTH = 0.10
+MAX_RIB_LENGTH = 30.0
 
 
 # =============================================================================
@@ -58,6 +60,19 @@ def _rib_position_label(i, n):
     if i < mid:
         return "inner"
     return "outer"
+
+
+def _safe_length(val):
+    """Clamp a length value to the allowed input range."""
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return 5.0
+    if v < MIN_RIB_LENGTH:
+        return MIN_RIB_LENGTH
+    if v > MAX_RIB_LENGTH:
+        return MAX_RIB_LENGTH
+    return v
 
 
 def _header():
@@ -169,15 +184,15 @@ def render_leaf_room():
     if is_symmetric:
         for i in range(n_ribs):
             pos = _rib_position_label(i, n_ribs)
-            base_val = base_lengths[i] if i < len(base_lengths) else 5.0
+            base_val = _safe_length(base_lengths[i]) if i < len(base_lengths) else 5.0
             if override_active and i < len(current_overrides):
-                current_val = current_overrides[i]
+                current_val = _safe_length(current_overrides[i])
             else:
                 current_val = base_val
             new_val = st.number_input(
                 "Rib " + str(i + 1) + " of " + str(n_ribs) + " - " + pos + " (m)",
-                min_value=0.5,
-                max_value=30.0,
+                min_value=MIN_RIB_LENGTH,
+                max_value=MAX_RIB_LENGTH,
                 value=float(current_val),
                 step=0.1,
                 key="ws_sl_rib_input_sym_" + str(i),
@@ -195,15 +210,15 @@ def render_leaf_room():
             left_vals = []
             for i in range(n_ribs):
                 pos = _rib_position_label(i, n_ribs)
-                base_val = base_lengths[i] if i < len(base_lengths) else 5.0
+                base_val = _safe_length(base_lengths[i]) if i < len(base_lengths) else 5.0
                 if override_active and i < len(current_overrides):
-                    current_val = current_overrides[i]
+                    current_val = _safe_length(current_overrides[i])
                 else:
                     current_val = base_val
                 new_val = st.number_input(
                     "Rib " + str(i + 1) + " L",
-                    min_value=0.5,
-                    max_value=30.0,
+                    min_value=MIN_RIB_LENGTH,
+                    max_value=MAX_RIB_LENGTH,
                     value=float(current_val),
                     step=0.1,
                     key="ws_sl_rib_input_L_" + str(i),
@@ -219,15 +234,15 @@ def render_leaf_room():
             right_vals = []
             for i in range(n_ribs):
                 pos = _rib_position_label(i, n_ribs)
-                base_val = base_lengths[i] if i < len(base_lengths) else 5.0
+                base_val = _safe_length(base_lengths[i]) if i < len(base_lengths) else 5.0
                 if override_active and i < len(current_overrides):
-                    current_val = current_overrides[i]
+                    current_val = _safe_length(current_overrides[i])
                 else:
                     current_val = base_val
                 new_val = st.number_input(
                     "Rib " + str(i + 1) + " R",
-                    min_value=0.5,
-                    max_value=30.0,
+                    min_value=MIN_RIB_LENGTH,
+                    max_value=MAX_RIB_LENGTH,
                     value=float(current_val),
                     step=0.1,
                     key="ws_sl_rib_input_R_" + str(i),
@@ -275,6 +290,8 @@ def render_leaf_room():
             st.session_state["ws_sl_rib_override_active"] = True
             st.session_state.page = "workshop"
             st.rerun()
+
+
 
 
 
