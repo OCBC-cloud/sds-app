@@ -1438,4 +1438,198 @@ for tier in range(num_tiers):
 2. Complete Bug A Part B (saddle_leaf.py)
 3. Then: revisit Q1 and Q2 as design projects.
 
+
+# ADDENDUM — 2026-09-17 SESSION (afternoon)
+
+## BUGS CLOSED TODAY
+
+### Bug A — Rib override persistence — FIXED ✅
+**Problem:** Manual rib overrides from `leaf_room` persisted even after the
+user changed Column Height, Outreach, Ribs per Side, or Rib Tilt. They also
+carried over between arrangements (e.g. tiered_helix to tree_stack).
+
+**Root cause:**
+- `leaf_room.py` was auto-initialising the override list on every session
+- `saddle_leaf.py` was reading the override without checking if it was active
+- No mechanism existed to clear the override when geometry changed
+
+**Fix (three parts):**
+1. `ui/rooms/leaf_room.py` — added `ws_sl_rib_override_active` flag (default False).
+   Override only activates when user presses "Apply and Return". No more
+   auto-initialisation of the override list.
+2. `ui/workshops/saddle_leaf.py` Section 1 — reads the flag. Only shows the
+   override summary when the flag is True. Added "Reset to Computed" button.
+3. `ui/workshops/saddle_leaf.py` Section 2 — added auto-clear logic. When
+   Column Height, Outreach, Ribs per Side, or Rib Tilt changes, the override
+   flag is cleared and the override list is emptied.
+
+**Tested:** Confirmed working on 2026-09-17 (afternoon).
+
+
+### Bug B — leaf_room crash on low rib values — FIXED ✅
+**Problem:** `StreamlitValueBelowMinError: The value 0.48 is less than the
+min_value 0.5.` The `leaf_room` page crashed for certain geometries where
+the computed rib length dipped below 0.5 m.
+
+**Root cause:** `ui/rooms/leaf_room.py` used `min_value=0.5` on all three
+number_input calls, but the computed rib lengths can go below 0.5 m for
+certain geometries (e.g. 10 m column, 10 m outreach, 7 ribs gives rib 1
+= 0.48 m).
+
+**Fix:** Changed `min_value` to `0.10` in all three number_input calls
+(symmetric mode, individual left, individual right). Added a `_safe_length()`
+helper that clamps any value to the allowed range before passing to Streamlit.
+
+**Tested:** Confirmed working on 2026-09-17 (afternoon).
+
+
+### Bug C — Membrane does not follow rib override — FIXED ✅
+**Problem:** When the user overrode rib lengths in `leaf_room`, the ribs
+changed length but the membrane and perimeter cable did NOT follow. The
+ribs poked through or hid inside the fabric. The leaf shape was broken.
+
+**Root cause:** `viewers/figures/cantilever_leaf.py` applied the override to
+the ribs only. The membrane loop used `_half_width(t)` — the pure geometric
+formula — ignoring the override entirely. Same for the perimeter cable.
+
+**Fix:** Added two helper functions to `cantilever_leaf.py`:
+- `_get_rib_override(n_ribs, base_lengths)` — reads the override flag and
+  returns a normalised ratio list (override[i] / base[i]) clamped to [0.25, 4.0].
+- `_rib_ratio_at(t, ratios)` — interpolates the ratio at any parameter t in
+  the leaf zone, matching the rib positions.
+
+The membrane loop now applies the ratio before computing half-width:
+  `if ratios: hw = hw * _rib_ratio_at(t, ratios)`
+
+The whole leaf (ribs + membrane + cable) now reshapes coherently when the
+override changes.
+
+**Tested:** Confirmed working on 2026-09-17 (afternoon).
+
+---
+
+## BUILT / REBUILT THIS SESSION
+
+### `engine/leaf_arrangement.py` — NEW ENGINE ✅
+- Pure stateless placement engine: `place_leaves(...)`
+- Inputs: first_leaf_height, leaf_zone_height, num_leaves, column_radius,
+  leaf_angular_width, scale_mode, taper_ratio
+- Outputs: buds list (axis_attach, bud_tip, yaw_deg, scale, z_attach) + meta
+- Bud length = column_radius + 0.45 m (the +450mm standard)
+- Self-test at bottom (_verify_leaf_arrangement)
+- Density concept REMOVED as explicit parameter. Implied by num_leaves vs
+  leaf_zone_height.
+
+### `viewers/figures/cantilever_leaf.py` — REBUILT ✅
+- Removed: tree_spiral arrangement (did not work as intended)
+- Kept: single, double, multiple, tree_stack
+- Added: tiered_helix arrangement (calls engine/leaf_arrangement.place_leaves)
+- Added: `_resolve_column_top_z()` — column extends through the entire leaf
+  zone for tiered_helix so every bud has a supporting column behind it.
+- Added: Bud anchor nodes (yellow markers) at each bud's axis_attach.
+- Added: `_get_rib_override()` and `_rib_ratio_at()` for Bug C fix.
+- Visual: column, bud stubs, bud anchors, leaves, virtual helix curve.
+
+### `ui/workshops/saddle_leaf.py` — REBUILT (3 chunks) ✅
+- Section 9 arrangement options: single, double, multiple, tree_stack,
+  tiered_helix
+- Tiered helix uses input boxes (not sliders) for all 7 parameters
+- Section 1: "Adjust Rib Lengths" + "Reset to Computed" buttons (two columns)
+- Section 1: reads `ws_sl_rib_override_active` flag correctly
+- Section 2: auto-clear block after arc_r input (Bug A part B)
+- File is ~915 lines (larger than originally thought)
+
+### `ui/rooms/leaf_room.py` — UPDATED ✅
+- Added `ws_sl_rib_override_active` flag (default False)
+- Override only activates when user presses "Apply and Return"
+- No auto-initialisation of override list
+- `min_value` changed from 0.5 to 0.10
+- Added `_safe_length()` helper for clamping
+
+---
+
+## PROTOCOL LEARNED / CONFIRMED
+
+### Rule 18 (revised) — The Blank Line Reality
+**The chat platform collapses trailing blank lines inside code blocks,
+inconsistently.** Sometimes they survive; often they don't. The AI cannot
+guarantee they arrive.
+**Therefore: every chunk paste is followed by the user pressing Enter 6
+times at the bottom**, before the next chunk is pasted. This is the only
+reliable method on iPhone.
+**Do not pretend otherwise. Do not blame the platform. Do not ask the AI to
+"try harder."** Just do the 6 presses.
+
+### Rule 19 — File Size Threshold
+- Files ≤ 300 lines: single paste
+- Files > 300 lines: split into chunks of ~200-300 lines each
+- Last chunk does NOT need buffer lines (end of file)
+- Middle chunks: 6 blank lines added by user after paste
+
+### Rule 20 — Surgical Edits Are Not For iPhone
+Surgical edits (find-and-replace specific lines) are unreliable on iPhone
+Safari. On 2026-09-17, three surgical edits to `saddle_leaf.py` failed
+because Safari Find did not work well and indentation was destroyed on
+paste.
+**Rule: For any file > 300 lines, use chunked replacement. Do not attempt
+surgical edits.**
+
+### Rule 21 — Check AM vs PM Before Suggesting Rest
+iPhone screenshots show local time. The AI must check whether it is AM or
+PM before suggesting the user rest. On 2026-09-17, the AI spent much of
+the session reading 4:14 PM as 4:14 AM and repeatedly suggested sleep —
+wasting the user's afternoon.
+
+### Rule 22 — Language Separation (per A5)
+- **Above the membrane** (technical work): English only
+- **Below the membrane** (poetry, reflection, humour): Mandarin welcome
+- **Do not mix them in the same reply** without explicit purpose
+
+---
+
+## WORKING FEATURES AT END OF 2026-09-17
+
+- ✅ All 5 arrangements render: single, double, multiple, tree_stack, tiered_helix
+- ✅ Tiered helix produces structurally sound 3D views
+- ✅ Column extends through leaf zone
+- ✅ Bud anchor nodes visible
+- ✅ Input boxes show values clearly on iPhone
+- ✅ Engine is reusable — any future structure can call place_leaves()
+- ✅ Reset to Computed button works
+- ✅ Auto-clear on geometry change works
+- ✅ Membrane follows rib override
+- ✅ Perimeter cable follows rib override
+- ✅ leaf_room does not crash on low rib values
+
+## KNOWN ISSUES / FUTURE WORK
+
+- ⏳ User cannot remove ribs entirely (currently min 5, max 7)
+  - Future: allow 3-4 ribs with edge cable auto-rerouting
+- ⏳ Column radius is user input, not derived from selected section
+  - Future: read from section database (Phase C)
+- ⏳ Session state lost on browser refresh / app timeout
+  - Future: Save Design / Load Design (JSON) — Section 24 of main PROJECT_STATE
+  - Future: LocalStorage auto-save for session recovery
+
+## TESTING NOTES
+
+- **Tested geometry:** Column 4, Outreach 5, Ribs 5
+- **Computed ribs:** 0.80 / 1.85 / 2.21 / 1.85 / 0.80
+- **Override tested:** 1.50 / 2.50 / 3.50 / 2.50 / 1.50
+- **Result:** Membrane stretched to cover new rib tips. Leaf reshaped coherently.
+- **Auto-clear test:** Changed geometry → override reverted to computed. Correct.
+
+---
+
+## DOCUMENT HISTORY
+
+Updated 2026-09-17 (afternoon):
+  - Bug A (override persistence) — FIXED
+  - Bug B (leaf_room crash) — FIXED
+  - Bug C (membrane detach) — FIXED
+  - Engine `leaf_arrangement.py` — NEW
+  - `cantilever_leaf.py` — REBUILT with override support
+  - `saddle_leaf.py` — REBUILT in 3 chunks with all 3 fixes
+  - `leaf_room.py` — UPDATED with flag and min_value fix
+  - Rules 18-22 documented
 End of project state.
