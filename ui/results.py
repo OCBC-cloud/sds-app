@@ -148,7 +148,7 @@ def render_results():
         "Prompt (select all, copy)",
         value=prompt_text,
         height=180,
-        key="render_prompt_text",
+        key="render_prompt_text_" + scene_key,
     )
 
     st.markdown(
