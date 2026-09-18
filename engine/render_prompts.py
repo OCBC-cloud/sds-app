@@ -110,6 +110,53 @@ SCENES = {
             "shot on Canon EOS R5, 50mm lens, f/2.8."
         ),
     },
+    "motorsport": {
+        "name": "Motorsports Paddock (daytime)",
+        "scene_text": (
+            "Shading the pit lane canopy area of a motorsport circuit. "
+            "Racing motorcycles parked beneath the structure, team crew "
+            "in racing suits working on bikes, tool carts, tyre stacks, "
+            "grandstands and timing tower in the background, bright "
+            "daytime sunlight, dramatic motorsport photography, "
+            "high detail, shot on Canon EOS R5, 35mm lens, f/4."
+        ),
+    },
+    "parade": {
+        "name": "National Day Parade (morning)",
+        "scene_text": (
+            "Standing on Dataran Merdeka in Kuala Lumpur during a "
+            "National Day parade. Malaysian flags flying, marching "
+            "contingents in formation, spectators along the streets, "
+            "the Sultan Abdul Samad building and colonial architecture "
+            "in the background, clear morning light, patriotic and "
+            "ceremonial atmosphere, wide architectural photography, "
+            "shot on Canon EOS R5, 24mm lens, f/8."
+        ),
+    },
+    "hubei": {
+        "name": "Chinese Mountain Landscape (misty morning)",
+        "scene_text": (
+            "Set on a scenic overlook in the mountains of Hubei "
+            "province, China. Mist rolling through pine trees, "
+            "traditional Chinese pavilions and tiled roofs in the "
+            "distance, layered mountain peaks fading into the "
+            "clouds, soft diffused morning light, ink-wash painting "
+            "atmosphere, serene and timeless, shot on Canon EOS R5, "
+            "50mm lens, f/5.6."
+        ),
+    },
+    "airbase": {
+        "name": "Air Force Base (sunset)",
+        "scene_text": (
+            "On the apron of a modern air force base at sunset. "
+            "Next-generation stealth fighter jets parked beneath "
+            "the structure, ground crew in flight suits, service "
+            "vehicles, a control tower silhouette in the background, "
+            "dramatic orange and red sky, military precision and "
+            "scale, cinematic photography, shot on Canon EOS R5, "
+            "24mm lens, f/8."
+        ),
+    },
 }
 
 
