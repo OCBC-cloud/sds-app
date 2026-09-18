@@ -2,11 +2,11 @@
 # SDSe Fluid Design Studio - Results Page
 # =============================================================================
 # Displays the design results: 3D view, structure summary,
-# health score, section used, analysis readings, quantities.
+# marketing render workflow, health score, section used,
+# analysis readings, quantities.
 #
-# Updated 2026-09-15:
-#   - Structure summary block added below the 3D view
-#   - Summary reads from viewers/figures/_descriptions.py
+# Updated 2026-09-18:
+#   - Marketing Render section added (external renderer workflow)
 # =============================================================================
 
 import streamlit as st
@@ -66,6 +66,175 @@ def render_results():
     summary_html = get_structure_summary(vk)
     if summary_html:
         st.markdown(summary_html, unsafe_allow_html=True)
+
+
+
+
+
+
+    # ---- Marketing Render (external renderer workflow)
+    st.markdown(
+        '<div style="color: #f39c12; font-weight: 700; '
+        'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">'
+        'Marketing Render</div>',
+        unsafe_allow_html=True,
+    )
+
+    from engine.render_prompts import (
+        SCENES, RENDERERS, DISCLAIMER, format_prompt,
+    )
+
+    st.markdown(
+        '<div style="background: #0d1620; border-left: 3px solid #3498db; '
+        'padding: 0.7rem 0.9rem; border-radius: 4px; margin-bottom: 0.8rem; '
+        'font-size: 0.85rem; color: #c8d4e0; line-height: 1.6;">'
+        '<strong>Turn your structure into a marketing image.</strong><br>'
+        'Follow the steps below. SDSe prepares the snapshot and the '
+        'prompt. You take them to an external renderer of your choice. '
+        'Bring the result back.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- Step 1: capture
+    st.markdown(
+        '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
+        'margin-top: 0.6rem;">Step 1 - Capture your 3D view</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div style="color: #a8b8c8; font-size: 0.8rem; '
+        'margin-bottom: 0.5rem;">'
+        'Take a screenshot of the 3D view above. You will upload it '
+        'to the external renderer in Step 4.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- Step 2: choose a scene
+    st.markdown(
+        '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
+        'margin-top: 0.9rem;">Step 2 - Choose a scene</div>',
+        unsafe_allow_html=True,
+    )
+    scene_keys = list(SCENES.keys())
+    scene_labels = [SCENES[k]["name"] for k in scene_keys]
+    scene_choice = st.radio(
+        "Scene",
+        scene_labels,
+        index=0,
+        key="render_scene_radio",
+        label_visibility="collapsed",
+    )
+    scene_key = scene_keys[scene_labels.index(scene_choice)]
+
+    # ---- Step 3: build and show the prompt
+    st.markdown(
+        '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
+        'margin-top: 0.9rem;">Step 3 - Your prompt</div>',
+        unsafe_allow_html=True,
+    )
+
+    render_params = {
+        "num_leaves": st.session_state.get("ws_sl_num_leaves", None),
+        "arrangement": st.session_state.get("ws_sl_arrangement", None),
+        "column_height": st.session_state.get("ws_sl_column_height", None),
+        "outreach": st.session_state.get("ws_sl_outreach", None),
+    }
+
+    prompt_text = format_prompt(scene_key, sk, vk, render_params)
+
+    st.text_area(
+        "Prompt (select all, copy)",
+        value=prompt_text,
+        height=180,
+        key="render_prompt_text",
+    )
+
+    st.markdown(
+        '<div style="color: #a8b8c8; font-size: 0.8rem; '
+        'margin-top: -0.4rem; margin-bottom: 0.8rem;">'
+        'Long-press the text above, select all, and copy.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- Step 4: open an external renderer
+    st.markdown(
+        '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
+        'margin-top: 0.9rem;">Step 4 - Open an external renderer</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div style="color: #a8b8c8; font-size: 0.8rem; '
+        'margin-bottom: 0.5rem;">'
+        'Tap one of the options below. It opens in a new tab. Paste '
+        'the prompt and upload your snapshot.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    for r in RENDERERS:
+        st.markdown(
+            '<a href="' + r["url"] + '" target="_blank" '
+            'style="display: block; background: #121e2e; '
+            'border: 1px solid #1e2a3a; border-left: 4px solid #f39c12; '
+            'border-radius: 8px; padding: 0.8rem 1rem; '
+            'margin-bottom: 0.5rem; text-decoration: none;">'
+            '<div style="color: #ffffff; font-weight: 600; '
+            'font-size: 0.95rem;">' + r["name"] + '</div>'
+            '<div style="color: #a8b8c8; font-size: 0.78rem; '
+            'margin-top: 0.2rem;">' + r["note"] + '</div>'
+            '</a>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        '<div style="background: #1a2a3a; border-left: 3px solid #4a7a9c; '
+        'padding: 0.7rem 0.9rem; border-radius: 4px; margin-top: 0.8rem; '
+        'font-size: 0.78rem; color: #c8d4e0; line-height: 1.6;">'
+        + DISCLAIMER.replace("\n\n", "<br><br>")
+        + '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- Step 5: upload the render
+    st.markdown(
+        '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
+        'margin-top: 1rem;">Step 5 - Upload your render</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div style="color: #a8b8c8; font-size: 0.8rem; '
+        'margin-bottom: 0.5rem;">'
+        'After the external renderer generates the image, download it, '
+        'then upload it here.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    uploaded = st.file_uploader(
+        "Upload rendered image",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="render_upload",
+        label_visibility="collapsed",
+    )
+
+    if uploaded is not None:
+        st.image(uploaded, use_container_width=True)
+        st.download_button(
+            "Download this render",
+            data=uploaded.getvalue(),
+            file_name="sdse_render.png",
+            mime="image/png",
+            key="render_download",
+            use_container_width=True,
+        )
+
+
+
+
+
 
     # ---- Health Score card
     st.markdown(
@@ -202,10 +371,4 @@ def render_results():
         if st.button("Home", key="hm", use_container_width=True, type="primary"):
             st.session_state.page = "studio"
             st.rerun()
-
-
-
-
-
-
 
