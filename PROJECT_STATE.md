@@ -1801,4 +1801,30 @@ Rule 22 — Language Separation
 - PROJECT_STATE.md (this addendum)
 - COMMERCIAL_MODEL.md (new — separate file)
 
+## RELATED DOCUMENTS
+
+The following documents are peers to PROJECT_STATE.md. They are the
+single source of truth for their respective areas.
+
+  - COMMERCIAL_MODEL.md
+      Pricing tiers, target users, revenue projection, competitive
+      landscape.
+
+  - MARKETING_RENDER_WORKFLOW.md
+      Design for the marketing render feature. External image
+      renderer integration. Prompt templates. Feasibility notes.
+      Three-phase implementation plan.
+
+  - APP_MAP.md (if exists)
+      Full file structure of the repository.
+
+When any of these documents is updated, PROJECT_STATE.md is only
+required to reflect:
+  - That the document changed
+  - Which session changed it
+  - A one-line summary
+
+The full detail remains in the referenced document.
+
+
 End of project state.
