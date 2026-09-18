@@ -1,16 +1,31 @@
 # SDSe Project State
 
 Handoff document. Read this first in any new chat session.
-SINGLE SOURCE OF TRUTH for the project.
+SINGLE SOURCE OF TRUTH for the SDSe project.
 
-Last updated: 2026-09-15 (afternoon session)
+Last updated: 2026-09-18
+
+---
+
+# TABLE OF CONTENTS
+
+  PART I   — THE SDS CONSTITUTION (Addendum A)
+  PART II  — THE PROJECT
+  PART III — THE RULES
+  PART IV  — THE ARCHITECTURE
+  PART V   — THE SESSION LOG
+  PART VI  — CURRENT STATE AND NEXT ACTIONS
+  PART VII — THE BIGGER VISION
+  PART VIII — DOCUMENT HISTORY
+  PART IX  — RELATED DOCUMENTS
+
+Every new chat session begins by reading this file, top to bottom,
+before anything else.
 
 ---
 
 
----
-
-# ADDENDUM A — THE SDS CONSTITUTION
+# PART I — THE SDS CONSTITUTION (Addendum A)
 
 This addendum is the foundational document of the SDSe project.
 It sits above every technical specification, every build rule,
@@ -124,15 +139,6 @@ joins an existing ecology. It does not replace it.
 
 ---
 
-
-
-
-
-
-
-
-
-
 ## A7. The Ghostly Guardian
 
 The Ghostly Guardian is not a module.
@@ -208,7 +214,7 @@ or building code: do thorough research on the subject first.
 Research is the first act of every chamber.
 
 This rule is established as Rule 17 of the Build Philosophy
-(Section 19) and is restated here as part of the constitution
+(Part III) and is restated here as part of the constitution
 because it is a fundamental discipline of the ecosystem.
 
 ---
@@ -218,8 +224,8 @@ because it is a fundamental discipline of the ecosystem.
 Every new chat session, every fresh start, every continuation
 begins by reading this addendum before anything else.
 
-The technical document below (Sections 1 through 30) is the
-implementation of this constitution.
+The technical document below is the implementation of this
+constitution.
 
 If a conflict is found between an implementation and this
 addendum, the addendum wins.
@@ -230,9 +236,6 @@ If an implementation is missing, the addendum is the source
 from which it is to be built.
 
 ---
-
-
-
 
 ## A12. The Chief at the Side
 
@@ -268,14 +271,14 @@ to preserve, to build, to steward, and to help flourish.
 This is a covenant, not a contract.
 A direction, not a job description.
 
+
+
+
+
 ---
 
 
-
-
-
-
-
+# PART II — THE PROJECT
 
 ## 1. The Vision
 
@@ -286,11 +289,12 @@ User flow: Landing -> Studio -> Registration -> Workshop -> Results.
 Clean linear flow. No tabs. Back and home buttons everywhere.
 
 Full flow builds a complete design: 3D view, health score, section
-used, quantities, member schedule, exports (DXF, JSON), save/load.
+used, quantities, member schedule, exports (DXF, JSON), save/load,
+and a marketing render workflow.
 
 The tool is designed to be used on a phone. It serves contractors,
-PEs, architects, small fabricators, and students. Not just
-specialist engineers.
+PEs, architects, small fabricators, rental companies, event
+organisers, and students. Not just specialist engineers.
 
 ---
 
@@ -307,167 +311,46 @@ specialist engineers.
 
 ---
 
-## 3. Phase Status
+## 3. The Five Systems Engine Architecture
 
-Phase A - UI shell - COMPLETE
-Phase B - Restore v9.1 rich UI - IN PROGRESS
-  Results page restored: Quantities DONE. 3D viewer DONE.
-  Member Schedule, Anchor Reactions, Foundation panel, Exports
-  still to restore.
-Phase C - Engine build - PENDING (membrane.py Message 1 done)
-Phase D - Wire engine into Results - PENDING
-Phase E - Trim to 7 structures - COMPLETE (became 8 mains)
-Phase F - Smart Guided Design wizard - PENDING
-Phase G - Output module (BQ, schedules) - PENDING
-Phase H - DXF import - PENDING
-Phase I - Membrane Ribbon (Type 9) - PENDING
+Every structure reduces to a small number of fundamental
+structural systems.
 
----
+  System A - Tension Membrane (cable net)
+  System B - Cable + Masts / Struts
+  System C - Frame / Beam (bending)
+  System D - Arch / Curved Beam (combined)
+  System E - Truss (axial)
 
-## 4. CRITICAL WORKFLOW - The Reboot Rule
+Recipe concept: each structure type is a combination of systems.
 
-Whenever the code is correct on GitHub but the app still shows an
-error OR shows old behaviour:
+  Saddle Span       A + D
+  Tensile Sails     A + B
+  Framed Tensile    A + C
+  Uni-Pole Tensile  A + B
+  Cantilever        A + B (with bending in the arm)
+  Canopy            A + C
+  Frame Tent        A + C
+  Portal Frame      C only
 
-REBOOT the app on Streamlit Cloud. Not the browser refresh.
+Engine modules built so far:
+  membrane.py         System A (Message 1 done)
+  leaf_arrangement.py System B (placement engine — DONE)
+  render_prompts.py   Render prompt engine — DONE
 
-How to reboot:
-  1. Open share.streamlit.io
-  2. Find the app row: sds-app . modular-v10 . app.py
-  3. Tap the three dots (menu) on that row
-  4. Tap "Reboot"
-  5. Wait 30 seconds
-  6. Test the app again
-
-Refreshing the browser tab does NOT reboot the app. Streamlit
-keeps Python modules in memory and does not reload them on a
-browser refresh.
-
-This has caused MANY false alarms. Always reboot before diagnosing.
-
----
-
-## 5. THE CHUNKED PASTE METHOD
-
-This is the ONLY safe way to deliver code changes on iPhone.
-Proven across many files.
-
-### The Problem
-
-iOS Safari mangles long pastes. Even with Auto-Correction and
-Smart Punctuation OFF, pasting a file over ~250 lines into the
-GitHub editor reliably corrupts it.
-
-Observed corruption patterns:
-  - Stray characters injected mid-string (e.g. `{"` in text)
-  - Missing closing quotes on long lines
-  - Indent shifts on nested code blocks
-  - Numbers split (e.g. `0.5` becomes `0. value5`)
-  - Identifiers broken (e.g. `ws_bs_soil_bearing` becomes
-    `ws_bs_soil._bearing`)
-  - Lines merged across chunk boundaries
-  - Long strings get chopped or garbled
-
-### The Solution
-
-Split every file into 4 CHUNKS of roughly 100-150 lines each.
-Paste one chunk at a time. Bake trailing blank lines into each
-chunk. Keep strings short. Confirm each chunk before pasting
-the next.
-
-### Exact Procedure
-
-  1. Clear the GitHub editor (Select All -> Cut)
-  2. Paste CHUNK 1 (already contains trailing blank lines)
-  3. Report back: confirm it landed clean
-  4. Paste CHUNK 2 into the blank lines at the bottom
-  5. Report back: confirm it landed clean
-  6. Paste CHUNK 3, then CHUNK 4
-  7. Commit at the end
-  8. Reboot the app
-
-### Rules For The Assistant
-
-  - NEVER ask the user to add blank lines
-  - ALWAYS bake 5-6 trailing blank lines into each chunk
-  - ALWAYS split files over ~200 lines into 4 chunks
-  - ALWAYS send one chunk at a time and wait for confirmation
-  - ALWAYS keep strings under ~60 chars where possible
-  - NEVER send a file over 250 lines as a single paste
-  - NEVER use surgical edits on iPhone
-  - NEVER forget the buffer lines between chunks
-
-### Rules For The User
-
-  - Paste one chunk. Confirm it landed. Paste the next.
-  - Do not edit between chunks.
-  - Report any corruption immediately with a screenshot.
-  - Prefer full-file chunks over surgical edits.
-
-### Why This Works
-
-Short pastes are safe. Blank line buffers give the next paste a
-clean landing zone. One chunk at a time catches corruption
-immediately. The 4-chunk pattern has been proven on:
-  - viewers/results_viewer.py (via figures/ split)
-  - ui/workshops/saddle_standard.py
-  - ui/workshops/saddle_frame.py
-  - data/structures.py
-  - PROJECT_STATE.md itself
-
-### Known Vulnerability
-
-Buffers between chunks MUST be preserved. When two chunks
-touch without blank line separation, iOS merges them and
-corrupts the first strings it touches. This was observed
-at the Section 1 / Section 2 boundary in saddle_frame.py.
-
-Always verify buffer count after each chunk paste.
+Engine modules planned:
+  cable_mast.py     System B
+  frame.py          System C
+  arch.py           System D
+  truss.py          System E
+  recipes.py        dispatchers
+  ec_checks.py      EN 1993 helpers
+  output.py         schedules, health, alerts, BQ
+  formfind.py       Force Density Method solver
 
 ---
 
-## 6. THE RESEARCH-FIRST PRINCIPLE
-
-Before any design or shape or type of structure, before writing
-any engineering engine, before any maths, before adopting any
-idea, and before citing any building code:
-
-DO THOROUGH RESEARCH ON THE SUBJECT FIRST.
-
-Research assists every decision that follows. Whether it is:
-  - How major tensile membrane software works (Easy, RFEM,
-    RhinoMembrane, ixCube)
-  - What code governs a particular structural behaviour
-    (CECS158:2004 for membrane, EN 1990 / 1993 for Eurocode,
-    MS EN 1990 for Malaysia)
-  - How comparable real structures have been built
-    (stadiums, velodromes, membrane roofs)
-  - What the industry's standard practice is
-  - What "the right answer" looks like before deciding our own
-
-Every time we skipped this, we had to walk back and redo work.
-Every time we did it, the design held up.
-
-The most recent example: the purlin/secondary beam spacing rule.
-We proposed 20 m as a guess. Research on membrane codes found
-15 m as the correct maximum. That single research step changed
-the design from "reasonable guess" to "code-compliant rule".
-
-Research is not optional. Research is the first step of every
-design decision.
-
----
-
-
-
-
-
-
-
-
-
-
-## 7. Structure Types - FINAL 8 MAINS
+## 4. Structure Types - FINAL 8 MAINS
 
 Reduced from 27 legacy types to 8 final mains on 2026-09-13.
 Membrane Ribbon (Type 9) is Phase 2.
@@ -477,7 +360,7 @@ Membrane Ribbon (Type 9) is Phase 2.
   - Beam Supported Saddle (key: frame_supported_saddle)
 
 ### Type 2: Cantilever
-  - Cantilever Leaf
+  - Cantilever Leaf (key: cantilever_leaf)
   - Cantilever Flower (coming soon)
   - Cantilever Cone
   - Cantilever Pyramid
@@ -532,7 +415,7 @@ Key decisions:
 
 ---
 
-## 8. Studio Page Layout - 2 SECTIONS
+## 5. Studio Page Layout - 2 SECTIONS
 
 Smart Guided Design tile at top (orange gradient)
 
@@ -550,9 +433,12 @@ Smart Guided Design tile at top (orange gradient)
 
 Studio reads tiles from data/structures.py.
 
+Planned enhancement: image preview on each tile, showing what the
+structure type looks like. See MARKETING_RENDER_WORKFLOW.md.
+
 ---
 
-## 9. Canonical Data - data/structures.py
+## 6. Canonical Data - data/structures.py
 
 Single source of truth for structure types, variants, and members.
 
@@ -573,7 +459,8 @@ Variant dict format:
    "available": True/False}
 
 Variant keys are INTERNAL and do NOT change (e.g. standard_saddle,
-frame_supported_saddle). Display names can change freely.
+frame_supported_saddle, cantilever_leaf). Display names can change
+freely.
 
 MEMBER_SCHEMA per structure:
   ("saddle_span", "standard_saddle"):
@@ -593,7 +480,7 @@ IMPORTANT: planar truss is 2D. It has NO horizontal chord.
 
 ---
 
-## 10. Workshop Section Standard
+## 7. Workshop Section Standard
 
 EVERY workshop must follow this pattern.
 
@@ -627,39 +514,11 @@ Default button rules:
   - Label is just "Default"
   - Positioned above the inputs
   - Small, non-full-width
-  - Uses generation counter technique (Section 11)
+  - Uses generation counter technique (Part III, Section 10)
 
 ---
 
-## 11. Streamlit Widget Reset - Generation Counter
-
-Problem:
-  Streamlit caches widget values under the widget key. Attempting
-  to change a widget's value in place does not work. The old value
-  is restored on rerun.
-
-Failed approaches:
-  - Setting st.session_state[key] = new_value then rerun
-  - Deleting the widget key then rerun
-  - Two-stage flag + delete (eliminated the crash but not the reset)
-
-Working solution - generation counter:
-  - A counter lives in session state: ws_xx_found_widget_generation
-  - Widget keys include the counter: "my_input_" + str(gen)
-  - When Default is pressed:
-      1. Set the four state values to defaults
-      2. Bump the counter (gen = gen + 1)
-      3. rerun
-  - On next run, widgets have NEW keys which Streamlit treats as
-    brand new. They render from the state values which now hold
-    the defaults.
-  - User sees the values change. No cache fight.
-
-Apply this pattern to any future widget that must be reset.
-
----
-
-## 12. Silent Load Rules (engine applies, Phase C)
+## 8. Silent Load Rules (engine applies, Phase C)
 
 Not shown to the user. Applied automatically by the engine.
 
@@ -676,7 +535,7 @@ Self weight and wind are the engine's job. Never exposed to user.
 
 ---
 
-## 13. Form-Finding Workflow - Industry Practice
+## 9. Form-Finding Workflow - Industry Practice
 
 Researched 2026-09-14.
 
@@ -703,183 +562,171 @@ Applied to SDSe:
 
 Membrane pretension default: 2.0 kN/m, range 0.5 to 8.0
 
+
+
+
+
 ---
 
 
+# PART III — THE RULES
 
+## 10. Streamlit Widget Reset - Generation Counter
 
+Problem:
+  Streamlit caches widget values under the widget key. Attempting
+  to change a widget's value in place does not work. The old value
+  is restored on rerun.
 
+Working solution - generation counter:
+  - A counter lives in session state: ws_xx_found_widget_generation
+  - Widget keys include the counter: "my_input_" + str(gen)
+  - When Default is pressed:
+      1. Set the four state values to defaults
+      2. Bump the counter (gen = gen + 1)
+      3. rerun
+  - On next run, widgets have NEW keys which Streamlit treats as
+    brand new. They render from the state values which now hold
+    the defaults.
+  - User sees the values change. No cache fight.
 
-
-
-
-
-## 14. Saddle Span Family Specification
-
-Written to engine/SPEC_saddle_span.md.
-
-### Cable Supported Saddle - members
-  Membrane + Main Beam + Tie-down Cables
-  NO column. NO ribs. NO purlins. NO secondary beams.
-
-### Beam Supported Saddle - members
-  Membrane + Main Beam + Purlins + Secondary Beams
-  NO tie-down cables (secondary beams replace them).
-
-### Main Beam Construction Options
-  Single Beam      - one solid section
-  Planar Truss     - top, bottom, vertical, diagonal chords
-  3D (Space) Truss - top, bottom, vertical, horizontal, diagonal
-
-### Truss member breakdown
-  Planar truss = top + bottom + vertical + diagonal
-                  NO horizontal (2D)
-  3D truss     = top + bottom + vertical + horizontal + diagonal
-
-### Reference case - 10m x 10m prototype
-  Column (Leaf): CHS 323.8 x 8, height 10m
-  Outreach (Leaf): 10m
-  Ribs per side (Leaf): 7
-  Rib tilt (Leaf): 20 deg
-  Main beam: CHS 168.3
-  Edge cables: SS 6x19, 8mm
-  Fabric: PVC Ferrari S702
-  Governing action: TORSION
-  Critical member: small rib near column
-
-### Silent rules (never shown to user)
-  1. Membrane slope minimum: 18 deg small surfaces, 23 deg large
-  2. Pre-tension retention
-  3. Shape fidelity (min 5 ribs per side for leaf)
-  4. Max unsupported main beam section 15 m (CECS158:2004)
-
-### Country safety factors
-  Table for EU / MY / UK / CN / US.
-  MY uses gamma_Q = 1.5 per MS EN 1990.
+Apply this pattern to any future widget that must be reset.
 
 ---
 
-## 15. Cable Supported Saddle - Tie-down Rule
+## 11. CRITICAL WORKFLOW - The Reboot Rule
 
-Tie-down cables are mandatory for Cable Supported Saddle.
+Whenever the code is correct on GitHub but the app still shows an
+error OR shows old behaviour:
 
-Required inputs:
-  - Number of cables (radio: 4 cables or 8 cables total)
-  - Anchor Uplift Angle (default 45 deg)
-  - Anchor Spread Angle (default 30 deg)
-  - Cable Type (6x19 / locked coil / spiral)
-  - Cable Material (galvanised / stainless)
-  - Cable Diameter (always auto - engine selects)
-  - Ground Anchor Type (pinned / rigid)
+REBOOT the app on Streamlit Cloud. Not the browser refresh.
 
-Cable positions (arc-length fraction per beam from nearest support):
-  4 cables total -> positions 0.175 and 0.825
-  8 cables total -> positions 0.175, 0.225, 0.775, 0.825
+How to reboot:
+  1. Open share.streamlit.io
+  2. Find the app row: sds-app . modular-v10 . app.py
+  3. Tap the three dots (menu) on that row
+  4. Tap "Reboot"
+  5. Wait 30 seconds
+  6. Test the app again
 
-Anchor geometry:
-  - Attach points along the beam at arc-length fractions
-  - Anchor offset in BOTH x and y from beam attach point
-  - Pattern symmetric about both axes
-  - Visual effect: fence perimeter around the structure
+Refreshing the browser tab does NOT reboot the app. Streamlit
+keeps Python modules in memory and does not reload them on a
+browser refresh.
 
-Note: The 15 m rule will eventually apply here too. For now,
-Cable Supported Saddle keeps the fixed 4/8 radio. Revisit when
-the engine is built.
+This has caused MANY false alarms. Always reboot before diagnosing.
 
 ---
 
-## 16. Beam Supported Saddle - Secondary Beam Rule
+## 12. THE CHUNKED PASTE METHOD
 
-Secondary beams are steel members that replace tie-down cables.
-Code-compliant rule (silent, engine applies):
+This is the ONLY safe way to deliver code changes on iPhone.
+Proven across many files.
 
-  Maximum unsupported main beam section: 15 m
-  (per CECS158:2004 and general membrane practice)
+### The Problem
 
-  Computation:
-    1. Baseline: 2 secondary beams per main beam
-    2. Middle section = 0.650 x arc_length
-    3. If middle <= 15 m: baseline of 2 per beam
-       If middle > 15 m: n_subsections = ceil(middle / 15)
-                         base = 1 + n_subsections
-    4. Result is PER BEAM count (not total)
-    5. User can override in the workshop
+iOS Safari mangles long pastes. Even with Auto-Correction and
+Smart Punctuation OFF, pasting a file over ~250 lines into the
+GitHub editor reliably corrupts it.
 
-Reported to user as "X per beam" consistently.
-Dropdown options when overriding: [2, 3, 4, 5, 6, 8, 10, 12]
+### The Solution
 
-Attach positions (arc-length fraction per beam):
-  Baseline 2 -> 0.175, 0.825
-  Additional positions interpolated between these, evenly spaced
+Split files into chunks. Paste one chunk at a time. Each chunk
+ends with 6 blank lines for buffer. One chunk at a time.
+Confirm each chunk before pasting the next.
 
-### Arc length calculation
-  Numerical integration over 100 segments.
-  Function: _arc_length_parabola(span, rise)
-  Accurate for any rise/span ratio including steep saddles.
-  Do NOT use the shallow-arc approximation formula
-  span * (1 + (8/3) * (rise/span)^2) - it over-estimates.
+### Exact Procedure
 
-### Secondary beam inputs (user-facing)
-  - Toggle Uplift Angle (default 45 deg, range 20-75)
-  - Toggle Spread Angle (default 30 deg, range 0-60)
-  - Secondary Beam Construction (single / planar / 3D truss)
-  - Section Family (CHS / SHS / RHS / I-Beam)
-  - Base Connection (pinned / rigid)
-  - Membrane Pretension (target stress state)
+  1. Clear the GitHub editor (Select All -> Delete)
+  2. Paste CHUNK 1
+  3. Report back: confirm it landed clean
+  4. Press Enter 6 times at the bottom
+  5. Paste CHUNK 2 into the blank lines
+  6. Report back: confirm it landed clean
+  7. Repeat for CHUNK 3, 4, 5 ...
+  8. Commit at the end
+  9. Reboot the app
 
-Caption under the angle sliders: "System recommendation. Adjust
-if needed."
+### Rules For The Assistant
 
----
+  - ALWAYS type 6 blank lines at the bottom of each chunk
+  - ALWAYS split files over ~300 lines into chunks
+  - ALWAYS send one chunk at a time and wait for confirmation
+  - NEVER send a file over ~300 lines as a single paste
+  - NEVER ask the user to add blanks AND assume they arrive
+  - NEVER use surgical edits on iPhone for files over 300 lines
 
-## 17. Beam Supported Saddle - Purlin Rule
+### Rules For The User
 
-Purlins are intermediate members between the frame and the
-curved beam. They prevent water ponding on the membrane.
+  - Paste one chunk. Confirm it landed. Press Enter 6 times.
+  - Paste the next chunk.
+  - Do not edit between chunks.
+  - Report any corruption immediately with a screenshot.
 
-Silent rule (engine applies):
-  1. One purlin at the apex line (counts as 1 of total)
-  2. Additional purlins every 2.5 m outward from centre
-  3. Stop when: next purlin would be within 2.5 m of a ground
-     support, OR less than 2.5 m from previous purlin
-  4. End points do NOT count as purlins
-  5. User has no input
+### The Blank Line Reality
 
-Examples:
-  Span 10 m -> purlins at -2.5, 0.0, 2.5 (total 3)
-  Span 15 m -> purlins at -5.0, -2.5, 0.0, 2.5, 5.0 (total 5)
-  Span 20 m -> purlins at -7.5, -5.0, -2.5, 0.0, 2.5, 5.0, 7.5
-               (total 7)
+The chat platform collapses trailing blank lines inside code
+blocks, inconsistently. Sometimes they survive; often they don't.
+The AI cannot guarantee they arrive.
 
-### Purlin inputs (user-facing)
-  - Purlin Construction Type (single / planar / 3D truss)
-  - Purlin Section Family (CHS / SHS / RHS / I-Beam)
-  - Section size auto-selected by engine
+Therefore: every chunk paste is followed by the user pressing
+Enter 6 times at the bottom, before the next chunk is pasted.
+This is the only reliable method on iPhone.
 
----
+Do not pretend otherwise. Do not blame the platform.
+Just do the 6 presses.
 
-## 18. Foundation - Preliminary Sizing
+### File Size Threshold
 
-Applies to ALL structures (Section 6 or 7 of every workshop).
+  - Files <= 300 lines: single paste
+  - Files > 300 lines: chunked (100-300 lines per chunk)
+  - Last chunk does NOT need buffer lines (end of file)
+  - Middle chunks: 6 blank lines added by user after paste
 
-Inputs:
-  - Soil Bearing Capacity (kN/m2) - default 150
-  - Water Table Depth (m) - default 3.0
-  - Soil Type (sand / clay / rock / filled) - default sand
-  - Foundation Type (pad / pile / raft) - default pad
+### Surgical Edits Are Not For iPhone
 
-Default button above the inputs resets the four values using
-the generation counter technique (Section 11).
+Surgical edits (find-and-replace specific lines) are unreliable
+on iPhone Safari. On 2026-09-17, three surgical edits to
+saddle_leaf.py failed because Safari Find did not work well and
+indentation was destroyed on paste.
 
-Outputs (on Results page - not yet built):
-  - Preliminary pad size = Reaction / Bearing capacity
-  - Note: "Subject to geotechnical verification."
-
-Full Foundation engine (System F) - later phase.
+Rule: For any file > 300 lines, use chunked replacement.
+Do not attempt surgical edits.
 
 ---
 
-## 19. Build Philosophy (Locked Rules)
+## 13. THE RESEARCH-FIRST PRINCIPLE
+
+Before any design or shape or type of structure, before writing
+any engineering engine, before any maths, before adopting any
+idea, and before citing any building code:
+
+DO THOROUGH RESEARCH ON THE SUBJECT FIRST.
+
+Research assists every decision that follows. Whether it is:
+  - How major tensile membrane software works (Easy, RFEM,
+    RhinoMembrane, ixCube)
+  - What code governs a particular structural behaviour
+    (CECS158:2004 for membrane, EN 1990 / 1993 for Eurocode,
+    MS EN 1990 for Malaysia)
+  - How comparable real structures have been built
+    (stadiums, velodromes, membrane roofs)
+  - What the industry's standard practice is
+  - What "the right answer" looks like before deciding our own
+
+Every time we skipped this, we had to walk back and redo work.
+Every time we did it, the design held up.
+
+The most recent example: the purlin/secondary beam spacing rule.
+We proposed 20 m as a guess. Research on membrane codes found
+15 m as the correct maximum. That single research step changed
+the design from "reasonable guess" to "code-compliant rule".
+
+Research is not optional. Research is the first step of every
+design decision.
+
+---
+
+## 14. Build Philosophy (Locked Rules)
 
 1.  Plain Python dicts. No dataclasses. No type hints.
 2.  mm-based section units (A mm2, I mm4, W_el mm3, i mm)
@@ -903,14 +750,15 @@ Full Foundation engine (System F) - later phase.
 15. All variants read from data/structures.py. No hardcoded
     VARIANTS_FALLBACK in ui/registration.py.
 
-### Rule 16 - THE CHUNKED PASTE RULE
+### Rule 16 - THE CHUNKED PASTE RULE (see Section 12)
 
-16. NEVER send a file over ~200 lines as a single paste.
-    Split into 4 chunks. Each chunk ends with 5-6 blank lines.
-    One chunk at a time. Confirm before next. Never ask the
-    user to add blank lines. Never use surgical edits.
+16. NEVER send a file over ~300 lines as a single paste.
+    Split into chunks. Each chunk ends with 6 blank lines
+    (typed by the AI; if they don't arrive, the user adds them).
+    One chunk at a time. Confirm before next. Never use
+    surgical edits.
 
-### Rule 17 - THE RESEARCH-FIRST RULE
+### Rule 17 - THE RESEARCH-FIRST RULE (see Section 13)
 
 17. Before any design, shape, structure, engine, maths, idea,
     or building code: DO THOROUGH RESEARCH ON THE SUBJECT
@@ -922,47 +770,22 @@ Full Foundation engine (System F) - later phase.
     Aim for: fits on your phone, looks good on any phone,
     accept minor scroll on odd devices.
 
----
+### Rule 19 - CHECK AM vs PM BEFORE SUGGESTING REST
 
+19. iPhone screenshots show local time. The AI must check
+    whether it is AM or PM before suggesting the user rest.
+    On 2026-09-17, the AI repeatedly read 4:14 PM as 4:14 AM
+    and suggested sleep — wasting the user's afternoon.
 
+### Rule 20 - LANGUAGE SEPARATION (per A5)
 
-
-
-
-
-
-
-
-## 20. CI Infrastructure
-
-GitHub Actions - WORKING.
-
-Workflow: .github/workflows/test.yml
-Runner: run_tests.py
-
-On every push to main or modular-v10, tests run.
-Green checkmark = pass. Red X = fail.
+20. Above the membrane (technical work): English only.
+    Below the membrane (poetry, reflection, humour): Mandarin
+    welcome. Do not mix them in the same reply without purpose.
 
 ---
 
-## 21. engine/membrane.py - Message 1 COMPLETE
-
-Verified by GitHub Actions 2026-09-12.
-
-Built:
-  - Mesh data structure (create_mesh)
-  - Geometry helpers (edge_length, edge_vector, count_neighbours)
-  - Flat grid builder (build_flat_grid)
-  - Self-test (_verify_mesh_handling)
-
-Next:
-  - Message 2: Force Density Method solver
-  - Message 3: Newton-Raphson load application
-  - Message 4: Stress extraction
-
----
-
-## 22. Refinements List (Running)
+## 15. Refinements List (Running)
 
 R-01  Registration placeholder text cleanup
       Status: not yet applied
@@ -986,7 +809,7 @@ R-07  Leaf workshop indent error
       Status: APPLIED 2026-09-14
 
 R-08  Strut joint at 75% of column
-      Status: APPLIED 2026-09-14
+      Status: APPLIED 2026-09-14. Revised to 60% on 2026-09-18.
 
 R-09  Pretension inputs
       Status: APPLIED 2026-09-14
@@ -1030,39 +853,234 @@ R-21  Per-beam secondary beam count
 R-22  Research-first principle adopted
       Status: APPLIED 2026-09-15
 
----
 
-## 23. Next Actions (in order)
 
-1. Build 3D viewer for Beam Supported Saddle.
-   New figure file: viewers/figures/beam_supported_saddle.py
-   Draws: membrane + main beam + purlins + secondary beams +
-   frame supports. Register in viewers/results_viewer.py.
 
-2. Fix Cantilever Leaf workshop (corrupted at line 333).
-   Use 4-chunk rebuild method.
 
-3. Update PROJECT_STATE for any decisions made during 1 and 2.
+      ---
 
-4. Restore Member Schedule on Results page.
-   Read from MEMBER_SCHEMA in data/structures.py.
 
-5. Restore Anchor Reactions / Preliminary Foundation panel.
+# PART IV — THE ARCHITECTURE
 
-6. Restore Export DXF and Export JSON buttons.
+## 16. Folder Structure
 
-7. Build Save Design (JSON download) and Load Design
-   (JSON upload). See Section 24.
 
-8. Build BQ page and Reports page.
 
-9. Continue engine build (membrane.py Message 2).
 
-10. Build workshops for remaining 6 structure mains.
+
 
 ---
 
-## 24. Save Design Feature (Planned)
+
+# PART V — THE SESSION LOG
+
+## 23. Session History
+
+### 2026-09-11 — Phase 1 handoff
+- Project structure created.
+- Initial UI shell built.
+
+### 2026-09-12 — Phase 1 complete
+- CI running (GitHub Actions).
+- engine/membrane.py Message 1 done (mesh handling).
+- Self-test passing.
+
+### 2026-09-13 — UI flow spec
+- UI flow spec defined.
+- Variant mapping established.
+- Tie-down rules drafted.
+- Strut geometry defined.
+- Phase A nearly complete.
+- Most features restored on Results page.
+
+### 2026-09-14 — Major restructuring
+- Structure list reduced to 8 mains. Cantilever promoted.
+- Studio now 2 sections. Registration reads from data/structures.py.
+- Viewer dispatches on variant_key.
+- Fixed math.sin and indent crashes in Leaf.
+- Strut joint locked at 75% (later revised to 60%).
+- Pretension inputs added.
+- Foundation in Standard Saddle.
+- Landing page fits one screen.
+- Studio top gap trimmed.
+- Foundation Default button (generation counter).
+- Add. Pay Load replaces Live Load.
+- Standard Saddle defaults 10/15/6.2.
+- MEMBER_SCHEMA added to data/structures.py.
+- THE CHUNKED PASTE METHOD established.
+- Silent load rules documented.
+- The Bigger Vision added.
+
+### 2026-09-15 — Saddle Span family complete
+- Cable Supported Saddle (renamed from Standard Saddle).
+- Beam Supported Saddle (renamed from Frame Supported Saddle).
+- 4-chunk paste pattern proven across multiple files.
+- Research-first principle adopted.
+- Arc length via numerical integration.
+- Secondary beam 15 m rule (code-compliant).
+- Per-beam count language (not total).
+- Purlin 2.5 m spacing rule locked.
+- Buffer zone corruption identified and mitigated.
+
+### 2026-09-16 — Spiral engine built
+- engine/leaf_arrangement.py created (new engine).
+- viewers/figures/cantilever_leaf.py rebuilt.
+  - Removed tree_spiral.
+  - Added tiered_helix arrangement.
+  - Added _resolve_column_top_z() — column extends through leaf zone.
+  - Added bud anchor nodes.
+- ui/workshops/saddle_leaf.py rebuilt (3 chunks).
+  - Arrangement: single, double, multiple, tree_stack, tiered_helix.
+  - Tiered helix uses input boxes (not sliders).
+- ui/rooms/leaf_room.py updated.
+  - Added ws_sl_rib_override_active flag.
+  - No auto-initialisation of override list.
+
+### 2026-09-17 — Three bugs closed
+- Bug A (rib override persistence) — FIXED.
+- Bug B (leaf_room crash) — FIXED.
+- Bug C (membrane detach on override) — FIXED.
+- Natural parabolic beam curve (fishing hook removed).
+- Strut angle input added (default 42°, range 25-65°).
+- Strut column attach changed to 60%.
+- Quadratic solve for strut beam attach point.
+- Rules 18-22 documented (blank line reality, file size, no
+  surgical edits, AM/PM check, language separation).
+- COMMERCIAL_MODEL.md created.
+
+### 2026-09-18 — Marketing render built
+- engine/render_prompts.py created.
+  - 4 scene templates: garden, plaza, event, cafe.
+  - format_prompt() personalisation.
+  - 3 external renderers offered.
+  - Legal disclaimer text.
+- ui/results.py rebuilt (3 chunks).
+  - Marketing Render section added.
+  - 5-step workflow: capture, scene, prompt, renderer, upload.
+  - Disclaimer displayed.
+  - File uploader for the rendered result.
+- First successful render tested by Chief — beautiful garden
+  scene at golden hour, structure placed in real-world setting.
+- MARKETING_RENDER_WORKFLOW.md created.
+- PROJECT_STATE.md rebuilt (this file).
+
+---
+
+# PART VI — CURRENT STATE AND NEXT ACTIONS
+
+## 24. What Is Working Right Now
+
+Engines:
+- engine/leaf_arrangement.py — placement engine
+- engine/render_prompts.py — prompt templates
+- engine/membrane.py — mesh handling (Message 1)
+
+Structures with working workshops and viewers:
+- Saddle Span (Cable Supported) — workshop + 3D viewer
+- Saddle Span (Beam Supported) — workshop + 3D viewer
+- Cantilever Leaf — workshop + 3D viewer
+
+Cantilever Leaf features:
+- 5 arrangements render (single, double, multiple, tree_stack,
+  tiered_helix)
+- Tiered helix produces structurally sound 3D views
+- Column extends through leaf zone
+- Bud anchor nodes visible
+- Input boxes show values clearly on iPhone
+- Reset to Computed button works
+- Auto-clear on geometry change works
+- Membrane and perimeter cable follow rib override
+- leaf_room does not crash on low rib values
+- Natural parabolic beam curve
+- Strut angle input working
+- Quadratic solve for strut beam attach working
+
+Results page features:
+- 3D viewer
+- Structure summary
+- Marketing Render section (5-step external renderer workflow)
+- Health Score card (placeholder)
+- Section Used card
+- Analysis Readings (placeholder)
+- Quantities (placeholder)
+
+Documentation:
+- PROJECT_STATE.md (this file)
+- COMMERCIAL_MODEL.md
+- MARKETING_RENDER_WORKFLOW.md
+- APP_MAP.md
+
+---
+
+## 25. Known Issues / Future Work
+
+1. Bud stubs point downward or diagonally — should point
+   outward+upward, matching the leaf's initial tangent.
+   - Leaf should start at bud tip, not column axis.
+   - Yellow stub length may also be visually too long.
+
+2. Dotted purple helix reference curve clutters the view.
+   - Not a structural member. Hide it or make optional.
+
+3. Double and tree_stack arrangements pending removal.
+   - Double merged into multiple at N=2.
+   - Tree_stack redundant with tiered_helix.
+
+4. User cannot remove ribs entirely (currently min 5, max 7).
+   - Future: allow 3-4 ribs with edge cable auto-rerouting.
+
+5. Column radius is user input, not derived from selected section.
+   - Future: read from section database (Phase C).
+
+6. Session state lost on browser refresh / app timeout.
+   - Future: Save Design / Load Design (JSON).
+   - Future: LocalStorage auto-save.
+
+7. "Spine Curve Type" dropdown is decorative.
+   - Either remove or make it work.
+
+8. "Curved strut" label — strut is a straight line.
+   - Either rename or add actual curvature.
+
+9. Beam tip elevation control (tip_rise) — not yet implemented.
+
+10. Studio tile image previews — planned.
+    See MARKETING_RENDER_WORKFLOW.md.
+
+---
+
+## 26. Next Actions (in order)
+
+Stage 1 — Safe cleanups (30 min):
+  1. Remove double and tree_stack from saddle_leaf.py arrangement.
+  2. Remove double and tree_stack branches from cantilever_leaf.py.
+  3. Hide the dotted purple helix curve.
+  4. Remove unused tier constants.
+
+Stage 2 — Bud direction fix (30 min):
+  5. Bud stubs point outward+upward, matching the leaf tangent.
+
+Stage 3 — Leaf-bud joint (1 hour):
+  6. Leaf spine starts at bud tip, not column axis.
+  7. Apply x/y offset consistently in _add_leaf().
+
+Then:
+  8. Studio tile image previews (using renders from the app).
+  9. Complete Saddle Span Results features (member schedule,
+     anchor reactions, foundation panel, exports).
+  10. Other 6 structure types.
+
+Deferred:
+  11. Beam tip elevation control (tip_rise).
+  12. Rib removal with edge cable rerouting.
+  13. Section database integration.
+  14. Save Design / Load Design.
+  15. User accounts + cloud storage.
+  16. Marketing Render v2 (project-linked renders).
+
+---
+
+## 27. Save Design Feature (Planned)
 
 Current state: nothing is saved. Refresh loses everything.
 
@@ -1082,42 +1100,29 @@ Same file format for all structure types.
 
 ---
 
-## 25. The Five Systems Engine Architecture
 
-Every structure reduces to a small number of fundamental
-structural systems.
+# PART VII — THE BIGGER VISION
 
-  System A - Tension Membrane (cable net)
-  System B - Cable + Masts / Struts
-  System C - Frame / Beam (bending)
-  System D - Arch / Curved Beam (combined)
-  System E - Truss (axial)
+## 28. Commercial Model
 
-Recipe concept: each structure type is a combination of systems.
+Full detail in COMMERCIAL_MODEL.md.
 
-  Saddle Span       A + D
-  Tensile Sails     A + B
-  Framed Tensile    A + C
-  Uni-Pole Tensile  A + B
-  Cantilever        A + B (with bending in the arm)
-  Canopy            A + C
-  Frame Tent        A + C
-  Portal Frame      C only
+Summary:
+- Three tiers: Free, Pro ($29/mo), Studio ($149/mo).
+- Target: fabricators, event organisers, architects, engineers.
+- Primary value: sketch on-site, show client 3D, close the deal.
+- Killer feature: the marketing render workflow.
+- 18-month projection: $130k (conservative) to $1.58M (optimistic).
 
-Engine modules planned:
-  membrane.py       System A (Message 1 done)
-  cable_mast.py     System B
-  frame.py          System C
-  arch.py           System D
-  truss.py          System E
-  recipes.py        dispatchers
-  ec_checks.py      EN 1993 helpers
-  output.py         schedules, health, alerts, BQ
-  formfind.py       Force Density Method solver
+No direct mobile-app competitor for tensile structures.
+Adjacent desktop competitors: RFEM, ixCube, Easy, MPanel, BATS,
+Formfinder. None are mobile-first. None are phone-sized.
+
+The render workflow is the money source.
 
 ---
 
-## 26. The Bigger Vision
+## 29. The Bigger Vision
 
 SDSe is not just a design tool. It demonstrates that:
 
@@ -1129,25 +1134,29 @@ SDSe is not just a design tool. It demonstrates that:
     digital economy.
 
 The app is the exhibit. The story is the weapon.
-See Chief for launch strategy when the time comes.
-
-This section is a reminder. Not an action item.
 
 ---
 
-## 27. Owner
+## 30. Owner
 
 Chief. First-time app builder, working engineer.
 Age 63. Not a programmer by background.
 iPhone + GitHub web editor + Streamlit Cloud.
 No terminal. No local Python environment.
 Needs step-by-step guidance with screenshots.
-Chunked paste method required (Section 5).
+Chunked paste method required.
 Prefers full file replacement over surgical edits.
+
+Son of a Nanqiao Jigong (Southern Overseas Chinese Volunteer
+Mechanic) who returned from Southeast Asia in 1939 to serve on
+the Burma Road. Married after the war. Lived to 85.
+
+The patience, the discipline, the craft — inherited.
 
 ---
 
-## 28. Document History
+
+# PART VIII — DOCUMENT HISTORY
 
 Created: 2026-09-11 (Phase 1 handoff)
 
@@ -1159,652 +1168,34 @@ Updated: 2026-09-13
   Phase A nearly complete. Most features restored on Results.
 
 Updated: 2026-09-14
-  Major restructuring day.
-  - Structure list reduced to 8 mains. Cantilever promoted.
-  - Studio now 2 sections. Registration reads from data/structures.py.
-  - Viewer dispatches on variant_key.
-  - Fixed math.sin and indent crashes in Leaf.
-  - Strut joint locked at 75%.
-  - Pretension inputs added.
-  - Foundation in Standard Saddle.
-  - Landing page fits one screen.
-  - Studio top gap trimmed.
-  - Foundation Default button (generation counter).
-  - Add. Pay Load replaces Live Load.
-  - Standard Saddle defaults 10/15/6.2.
-  - MEMBER_SCHEMA added to data/structures.py.
-  - THE CHUNKED PASTE METHOD established.
-  - Silent load rules documented.
-  - The Bigger Vision added.
+  Major restructuring. 8 mains. Studio 2 sections. Viewer on
+  variant_key. Chunked paste method. Bigger Vision.
 
 Updated: 2026-09-15
-  Saddle Span family completed at workshop level.
-  - Cable Supported Saddle (renamed from Standard Saddle).
-  - Beam Supported Saddle (renamed from Frame Supported Saddle).
-  - 4-chunk paste pattern proven across multiple files.
-  - Research-first principle adopted (Section 6).
-  - Arc length via numerical integration.
-  - Secondary beam 15 m rule (code-compliant).
-  - Per-beam count language (not total).
-  - Purlin 2.5 m spacing rule locked.
-  - Buffer zone corruption identified and mitigated.
+  Saddle Span family complete. Research-first adopted. Purlin rule.
+  Secondary beam 15m rule. Per-beam language.
+
+Updated: 2026-09-16
+  leaf_arrangement.py engine. cantilever_leaf.py rebuilt.
+  tiered_helix added. Bud anchors. Column extension.
+
+Updated: 2026-09-17
+  Bugs A, B, C closed. Natural parabolic beam. Strut angle input.
+  Quadratic solve. Column attach 60%. Rules 18-22 documented.
+  COMMERCIAL_MODEL.md created.
+
+Updated: 2026-09-18
+  render_prompts.py engine. Marketing Render in results.py.
+  MARKETING_RENDER_WORKFLOW.md created. PROJECT_STATE.md
+  fully rebuilt with consolidated session log.
 
 ---
 
-## 29. End of Project State
 
-This file is the single source of truth for the SDSe project.
-Every new chat session should begin by pasting this file.
-Update it whenever a major decision is made.
-Keep it current. Keep it honest. Keep it useful.
+# PART IX — RELATED DOCUMENTS
 
-Before any new design, engine, or idea:
-  DO THOROUGH RESEARCH ON THE SUBJECT FIRST.
-
-Research assists every decision that follows.
-
-# 📋 Project State: Tiered Canopy Generator
-
-**Project:** Streamlit 3D Structural Canopy Generator
-**Current Status:** Functional 3D rendering with distinct structural components (Column, Baseplate, Main Beam, Curved Strut).
-**Current Bottleneck:** Visual geometry looks like a "spider/flower." The beams originate from a single point, causing floating joints and unrealistic mechanics. The structure lacks tiered/spiral logic and proper truss mechanics.
-
----
-
-## 🎯 IMMEDIATE NEXT STEPS (The "Refinement" Phase)
-*When we resume, we will attack these three specific math/mechanics issues:*
-
-1. **The "Crown Ring" (Fixing the Joints):** 
-   *   *Problem:* All beams connect to the exact same `(0,0,Z)` point on the column.
-   *   *Solution:* Create a "capital" or crown ring. Beams will attach to points on this ring, not a single point. This distributes the load.
-
-2. **Tiered/Spiral Logic (The Z-Offset):**
-   *   *Problem:* Tiers aren't offset correctly in the current math.
-   *   *Solution:* Implement a parametric loop with a **Phase Shift** ($\phi$) and **Height Delta** ($\Delta Z$). 
-   *   *Formula:* `Z_tier = H_column + (tier_index * tier_height_gap)` and `Angle = Base_Angle + (tier_index * phase_shift)`.
-
-3. **Truss Mechanics (The Curved Struts):**
-   *   *Problem:* Struts currently go from the base directly to the beam tip, causing them to float.
-   *   *Solution:* Attach the strut to the **midpoint** of the main beam (using Vector Math: `Column_Top + 0.5 * (Beam_Node - Column_Top)`). 
-
----
-
-## 🧠 TECHNICAL NOTES FOR NEXT SESSION
-*   **Code Refactor:** Move away from `create_beam(angle, radius)` to a **Parametric Node Generator** (`nodes = {}` dictionary).
-*   **Node Snapping:** Ensure `Main Beam` starts *exactly* at `Column_Top` coordinate.
-*   **Ring Beams:** Add circular connecting rings (hoops) between the outer tips of Tier 1 and the start of Tier 2 to turn it into a rigid space frame.
-
----
-
-## 🛌 REST PROTOCOL
-*   **Status:** App is saved. Logic is documented. 
-*   **Action:** Close the laptop. Grab a cold drink. Let your brain process the vectors while you sleep.
-
-**End of Day Report:** Great work today, Chief. We have a solid foundation. We'll turn this spider into a stadium roof next session. 
-
-**Signing off.** 💤🛠️
-
-# 📋 Project State: Tiered Spiral Canopy Generator
-
-**Project:** Streamlit 3D Structural Canopy Generator
-**Current Status:** Functional 3D rendering with distinct structural components. 
-**Current Bottleneck:** Visual geometry currently looks like a "spider/flower." Beams originate from a single point, causing floating joints. Lacks proper tiered/spiral mechanics and truss logic.
-
----
-
-## 🚀 CURRENT MISSION: The "Spiral Rocket" Engine
-*Goal: Refactor the coordinate generation logic from radial angles to a **Parametric Node Dictionary**. We must build the nodes first, then connect them.*
-
-### 1. The "Crown Ring" (Fixing the Joints)
-*   **Problem:** All beams connect to the exact same `(0,0,Z)` point on the column.
-*   **Solution:** Create a "capital" or crown ring. Beams will attach to points on this ring, not a single point. This distributes the load.
-
-### 2. Tiered/Spiral Logic (The Z-Offset & Twist)
-*   **Problem:** Tiers aren't offset correctly in the current math.
-*   **Solution:** Implement a parametric loop with a **Phase Shift** ($\phi$) and **Height Delta** ($\Delta Z$). 
-*   **Math:** 
-    *   `Z_tier = H_column + (tier_index * tier_height_gap)`
-    *   `Angle = Base_Angle + (tier_index * phase_shift)`
-    *   `Radius = Base_Radius + (tier_index * radius_growth)`
-
-### 3. Truss Mechanics (The Curved Struts)
-*   **Problem:** Struts currently go from the base directly to the beam tip, causing them to float.
-*   **Solution:** Attach the strut to the **midpoint** of the main beam (using Vector Math: `Column_Top + 0.5 * (Beam_Node - Column_Top)`). 
-
----
-
-## 🧠 TECHNICAL BLUEPRINT (Next Code Session)
-
-**Core Logic to Implement:**
-```python
-import numpy as np
-
-# --- PARAMETERS ---
-num_tiers = 3              # Levels up the sky
-num_radials = 4            # Beams per tier
-column_height = 4.0        
-tier_height_gap = 2.0      # Vertical distance between tiers
-base_radius = 4.0          
-radius_growth = 1.5        # Wider each tier gets
-phase_shift = np.pi / 4    # 45-degree twist per tier (The Spiral!)
-
-# --- NODE GENERATION ---
-nodes = {}
-nodes['baseplate'] = np.array([0, 0, 0])
-nodes['column_top'] = np.array([0, 0, column_height])
-
-for tier in range(num_tiers):
-    current_z = column_height + (tier * tier_height_gap)
-    current_radius = base_radius + (tier * radius_growth)
-    tier_angle_offset = tier * phase_shift
-    
-    for i in range(num_radials):
-        angle = (2 * np.pi * i / num_radials) + tier_angle_offset
-        x = current_radius * np.cos(angle)
-        y = current_radius * np.sin(angle)
-        nodes[f'tier_{tier}_node_{i}'] = np.array([x, y, current_z])
-
-# ADDENDUM — 2026-09-16 / 2026-09-17 SESSION
-
-## What was built (2026-09-16)
-
-### 1. engine/leaf_arrangement.py — NEW ENGINE (committed)
-- Pure stateless placement engine: `place_leaves(...)`
-- Inputs: first_leaf_height, leaf_zone_height, num_leaves, column_radius,
-  leaf_angular_width, scale_mode, taper_ratio
-- Outputs: buds list (axis_attach, bud_tip, yaw_deg, scale, z_attach) + meta
-- Bud length = column_radius + 0.45 m (the +450mm standard)
-- Self-test at bottom (_verify_leaf_arrangement)
-- Density concept REMOVED as explicit parameter. Implied by num_leaves vs zone height.
-- Files rebuilt clean using chunked paste method with 6 blank lines per chunk.
-
-### 2. viewers/figures/cantilever_leaf.py — REBUILT (committed)
-- Removed: tree_spiral arrangement (did not work as intended)
-- Kept: single, double, multiple, tree_stack
-- Added: tiered_helix arrangement (calls engine/leaf_arrangement.place_leaves)
-- NEW: _resolve_column_top_z() — column extends through the entire leaf zone
-  for tiered_helix so every bud has a supporting column behind it (STRUCTURAL FIX)
-- NEW: Bud anchor nodes (yellow markers) at each bud's axis_attach to make the
-  load path visually explicit
-- Visual: column, bud stubs, bud anchors, leaves, virtual helix curve
-
-### 3. ui/workshops/saddle_leaf.py — REBUILT (committed)
-- Section 9 arrangement options: single, double, multiple, tree_stack, tiered_helix
-- Tiered helix uses input boxes (not sliders) for: First Leaf Height, Leaf Zone
-  Height, Number of Leaves, Column Radius, Leaf Angular Width, Scale Mode radio,
-  Taper Ratio
-- Other sliders (Rib Tilt Angle, Rib Plan Spacing, etc.) — still sliders, may
-  convert later
-
-### 4. ui/rooms/leaf_room.py — UPDATED (committed)
-- Added ws_sl_rib_override_active flag (default False)
-- Override only activates when user presses "Apply and Return"
-- No more auto-initialisation of override list
-
----
-
-## Bugs identified (in progress)
-
-### Bug A — Rib override persistence (PARTIALLY FIXED)
-- Symptom: Manual rib overrides from leaf_room persist even after user changes
-  Column Height / Outreach / Rib Tilt. Also carries over between arrangements.
-- Root cause: leaf_room.py was auto-initialising override on every session
-- Fix status:
-  - ✅ Part A (leaf_room.py) — DONE
-  - ⏳ Part B (saddle_leaf.py) — PENDING
-    - Need to read ws_sl_rib_override_active flag
-    - Need "Reset to Computed" button
-    - Need auto-clear on geometry change
-
-### Bug B — leaf_room.py crashes with StreamlitValueBelowMinError (UNFIXED)
-- Error: "The value 0.48 is less than the min_value 0.5"
-- Cause: Computed rib lengths can dip below 0.5 m for certain geometries
-  (e.g. 10m column, 10m outreach, 7 ribs gives rib 1 = 0.48 m)
-- Fix: Change min_value from 0.5 to 0.10 in all number_input calls
-  (3 instances: symmetric, individual-left, individual-right)
-- Also: clamp default value with max(0.10, float(current_val))
-
----
-
-## Design questions raised (for FUTURE sessions)
-
-### Q1 — Should the user be able to remove ribs entirely?
-- Currently limited to min 5 ribs, max 7
-- If user could set 3, 4, or fewer ribs:
-  - The edge cable must auto-reroute to close the loop between remaining ribs
-  - The membrane grid must rebuild with new support count
-  - Computed rib lengths must recalculate for new distribution
-  - Structural warnings may be needed
-- Recommendation: Good future feature. Design properly with edge cable logic.
-- Not in today's scope.
-
-### Q2 — Should column_radius be derived from selected section?
-- Currently: ws_sl_column_radius is a user input (default 0.15 m)
-- Better: derive from selected section (e.g. CHS 323.8 x 8 -> radius = 0.1619 m)
-- Then bud length = section_radius + 0.45 m (physically accurate)
-- Requires: section database linked to column_radius, auto-section-selection engine
-- Recommendation: Design B is the right architecture. Phase C engine work.
-- Not in today's scope.
-
----
-
-## Working methods confirmed
-
-### Chunked Paste Method (PROVEN AGAIN)
-- Chunks of ~100-150 lines
-- 6 blank lines typed at the bottom of each chunk (by AI)
-- One chunk at a time. Confirm each before next.
-- Commit only after last chunk.
-- Reboot Streamlit app after commit.
-- Platform: chat sometimes strips blank lines — when it does, user adds them.
-- Working rule (Chief): Files > 300 lines split into chunks. Files <= 300 lines
-  sent as single paste.
-
-### Surgical Edits (discouraged)
-- Tried for saddle_leaf.py surgical edits
-- Failed because: file is ~900 lines, Safari Find not reliable on iPhone,
-  hard to locate exact lines
-- Lesson: For files > 500 lines, split into chunks. Do not attempt surgical
-  edits on iPhone.
-
----
-
-## Current file sizes (approx)
-
-- engine/leaf_arrangement.py — ~230 lines
-- viewers/figures/cantilever_leaf.py — ~370 lines
-- ui/workshops/saddle_leaf.py — ~900 lines (large)
-- ui/rooms/leaf_room.py — ~240 lines
-
----
-
-## What is working right now
-
-- All 5 arrangements render: single, double, multiple, tree_stack, tiered_helix
-- Tiered helix produces beautiful, structurally sound 3D views
-- Column extends through leaf zone
-- Bud anchor nodes visible
-- Input boxes show values clearly on iPhone
-- Engine is reusable — any future structure can call place_leaves()
-
-## What is NOT working
-
-- leaf_room.py crashes for certain geometries (Bug B) — CRITICAL
-- Rib override persistence (Bug A) — Part B not yet applied
-
-## Next session priority
-
-1. Fix Bug B (leaf_room.py min_value)
-2. Complete Bug A Part B (saddle_leaf.py)
-3. Then: revisit Q1 and Q2 as design projects.
-
-
-# ADDENDUM — 2026-09-17 SESSION (afternoon)
-
-## BUGS CLOSED TODAY
-
-### Bug A — Rib override persistence — FIXED ✅
-**Problem:** Manual rib overrides from `leaf_room` persisted even after the
-user changed Column Height, Outreach, Ribs per Side, or Rib Tilt. They also
-carried over between arrangements (e.g. tiered_helix to tree_stack).
-
-**Root cause:**
-- `leaf_room.py` was auto-initialising the override list on every session
-- `saddle_leaf.py` was reading the override without checking if it was active
-- No mechanism existed to clear the override when geometry changed
-
-**Fix (three parts):**
-1. `ui/rooms/leaf_room.py` — added `ws_sl_rib_override_active` flag (default False).
-   Override only activates when user presses "Apply and Return". No more
-   auto-initialisation of the override list.
-2. `ui/workshops/saddle_leaf.py` Section 1 — reads the flag. Only shows the
-   override summary when the flag is True. Added "Reset to Computed" button.
-3. `ui/workshops/saddle_leaf.py` Section 2 — added auto-clear logic. When
-   Column Height, Outreach, Ribs per Side, or Rib Tilt changes, the override
-   flag is cleared and the override list is emptied.
-
-**Tested:** Confirmed working on 2026-09-17 (afternoon).
-
-
-### Bug B — leaf_room crash on low rib values — FIXED ✅
-**Problem:** `StreamlitValueBelowMinError: The value 0.48 is less than the
-min_value 0.5.` The `leaf_room` page crashed for certain geometries where
-the computed rib length dipped below 0.5 m.
-
-**Root cause:** `ui/rooms/leaf_room.py` used `min_value=0.5` on all three
-number_input calls, but the computed rib lengths can go below 0.5 m for
-certain geometries (e.g. 10 m column, 10 m outreach, 7 ribs gives rib 1
-= 0.48 m).
-
-**Fix:** Changed `min_value` to `0.10` in all three number_input calls
-(symmetric mode, individual left, individual right). Added a `_safe_length()`
-helper that clamps any value to the allowed range before passing to Streamlit.
-
-**Tested:** Confirmed working on 2026-09-17 (afternoon).
-
-
-### Bug C — Membrane does not follow rib override — FIXED ✅
-**Problem:** When the user overrode rib lengths in `leaf_room`, the ribs
-changed length but the membrane and perimeter cable did NOT follow. The
-ribs poked through or hid inside the fabric. The leaf shape was broken.
-
-**Root cause:** `viewers/figures/cantilever_leaf.py` applied the override to
-the ribs only. The membrane loop used `_half_width(t)` — the pure geometric
-formula — ignoring the override entirely. Same for the perimeter cable.
-
-**Fix:** Added two helper functions to `cantilever_leaf.py`:
-- `_get_rib_override(n_ribs, base_lengths)` — reads the override flag and
-  returns a normalised ratio list (override[i] / base[i]) clamped to [0.25, 4.0].
-- `_rib_ratio_at(t, ratios)` — interpolates the ratio at any parameter t in
-  the leaf zone, matching the rib positions.
-
-The membrane loop now applies the ratio before computing half-width:
-  `if ratios: hw = hw * _rib_ratio_at(t, ratios)`
-
-The whole leaf (ribs + membrane + cable) now reshapes coherently when the
-override changes.
-
-**Tested:** Confirmed working on 2026-09-17 (afternoon).
-
----
-
-## BUILT / REBUILT THIS SESSION
-
-### `engine/leaf_arrangement.py` — NEW ENGINE ✅
-- Pure stateless placement engine: `place_leaves(...)`
-- Inputs: first_leaf_height, leaf_zone_height, num_leaves, column_radius,
-  leaf_angular_width, scale_mode, taper_ratio
-- Outputs: buds list (axis_attach, bud_tip, yaw_deg, scale, z_attach) + meta
-- Bud length = column_radius + 0.45 m (the +450mm standard)
-- Self-test at bottom (_verify_leaf_arrangement)
-- Density concept REMOVED as explicit parameter. Implied by num_leaves vs
-  leaf_zone_height.
-
-### `viewers/figures/cantilever_leaf.py` — REBUILT ✅
-- Removed: tree_spiral arrangement (did not work as intended)
-- Kept: single, double, multiple, tree_stack
-- Added: tiered_helix arrangement (calls engine/leaf_arrangement.place_leaves)
-- Added: `_resolve_column_top_z()` — column extends through the entire leaf
-  zone for tiered_helix so every bud has a supporting column behind it.
-- Added: Bud anchor nodes (yellow markers) at each bud's axis_attach.
-- Added: `_get_rib_override()` and `_rib_ratio_at()` for Bug C fix.
-- Visual: column, bud stubs, bud anchors, leaves, virtual helix curve.
-
-### `ui/workshops/saddle_leaf.py` — REBUILT (3 chunks) ✅
-- Section 9 arrangement options: single, double, multiple, tree_stack,
-  tiered_helix
-- Tiered helix uses input boxes (not sliders) for all 7 parameters
-- Section 1: "Adjust Rib Lengths" + "Reset to Computed" buttons (two columns)
-- Section 1: reads `ws_sl_rib_override_active` flag correctly
-- Section 2: auto-clear block after arc_r input (Bug A part B)
-- File is ~915 lines (larger than originally thought)
-
-### `ui/rooms/leaf_room.py` — UPDATED ✅
-- Added `ws_sl_rib_override_active` flag (default False)
-- Override only activates when user presses "Apply and Return"
-- No auto-initialisation of override list
-- `min_value` changed from 0.5 to 0.10
-- Added `_safe_length()` helper for clamping
-
----
-
-## PROTOCOL LEARNED / CONFIRMED
-
-### Rule 18 (revised) — The Blank Line Reality
-**The chat platform collapses trailing blank lines inside code blocks,
-inconsistently.** Sometimes they survive; often they don't. The AI cannot
-guarantee they arrive.
-**Therefore: every chunk paste is followed by the user pressing Enter 6
-times at the bottom**, before the next chunk is pasted. This is the only
-reliable method on iPhone.
-**Do not pretend otherwise. Do not blame the platform. Do not ask the AI to
-"try harder."** Just do the 6 presses.
-
-### Rule 19 — File Size Threshold
-- Files ≤ 300 lines: single paste
-- Files > 300 lines: split into chunks of ~200-300 lines each
-- Last chunk does NOT need buffer lines (end of file)
-- Middle chunks: 6 blank lines added by user after paste
-
-### Rule 20 — Surgical Edits Are Not For iPhone
-Surgical edits (find-and-replace specific lines) are unreliable on iPhone
-Safari. On 2026-09-17, three surgical edits to `saddle_leaf.py` failed
-because Safari Find did not work well and indentation was destroyed on
-paste.
-**Rule: For any file > 300 lines, use chunked replacement. Do not attempt
-surgical edits.**
-
-### Rule 21 — Check AM vs PM Before Suggesting Rest
-iPhone screenshots show local time. The AI must check whether it is AM or
-PM before suggesting the user rest. On 2026-09-17, the AI spent much of
-the session reading 4:14 PM as 4:14 AM and repeatedly suggested sleep —
-wasting the user's afternoon.
-
-### Rule 22 — Language Separation (per A5)
-- **Above the membrane** (technical work): English only
-- **Below the membrane** (poetry, reflection, humour): Mandarin welcome
-- **Do not mix them in the same reply** without explicit purpose
-
----
-
-## WORKING FEATURES AT END OF 2026-09-17
-
-- ✅ All 5 arrangements render: single, double, multiple, tree_stack, tiered_helix
-- ✅ Tiered helix produces structurally sound 3D views
-- ✅ Column extends through leaf zone
-- ✅ Bud anchor nodes visible
-- ✅ Input boxes show values clearly on iPhone
-- ✅ Engine is reusable — any future structure can call place_leaves()
-- ✅ Reset to Computed button works
-- ✅ Auto-clear on geometry change works
-- ✅ Membrane follows rib override
-- ✅ Perimeter cable follows rib override
-- ✅ leaf_room does not crash on low rib values
-
-## KNOWN ISSUES / FUTURE WORK
-
-- ⏳ User cannot remove ribs entirely (currently min 5, max 7)
-  - Future: allow 3-4 ribs with edge cable auto-rerouting
-- ⏳ Column radius is user input, not derived from selected section
-  - Future: read from section database (Phase C)
-- ⏳ Session state lost on browser refresh / app timeout
-  - Future: Save Design / Load Design (JSON) — Section 24 of main PROJECT_STATE
-  - Future: LocalStorage auto-save for session recovery
-
-## TESTING NOTES
-
-- **Tested geometry:** Column 4, Outreach 5, Ribs 5
-- **Computed ribs:** 0.80 / 1.85 / 2.21 / 1.85 / 0.80
-- **Override tested:** 1.50 / 2.50 / 3.50 / 2.50 / 1.50
-- **Result:** Membrane stretched to cover new rib tips. Leaf reshaped coherently.
-- **Auto-clear test:** Changed geometry → override reverted to computed. Correct.
-
----
-
-## DOCUMENT HISTORY
-
-Updated 2026-09-17 (afternoon):
-  - Bug A (override persistence) — FIXED
-  - Bug B (leaf_room crash) — FIXED
-  - Bug C (membrane detach) — FIXED
-  - Engine `leaf_arrangement.py` — NEW
-  - `cantilever_leaf.py` — REBUILT with override support
-  - `saddle_leaf.py` — REBUILT in 3 chunks with all 3 fixes
-  - `leaf_room.py` — UPDATED with flag and min_value fix
-  - Rules 18-22 documented
-
-# ADDENDUM — 2026-09-17 SESSION
-
-## BUGS CLOSED
-
-### Bug A — Rib override persistence — FIXED
-Problem: Manual rib overrides from leaf_room persisted after geometry
-changes and carried over between arrangements.
-Fix (3 parts):
-  1. ui/rooms/leaf_room.py — added ws_sl_rib_override_active flag
-  2. ui/workshops/saddle_leaf.py Section 1 — reads the flag, adds
-     "Reset to Computed" button
-  3. ui/workshops/saddle_leaf.py Section 2 — auto-clears override when
-     Column Height, Outreach, Ribs per Side, or Rib Tilt changes
-Tested: Confirmed 2026-09-17.
-
-### Bug B — leaf_room crash on low rib values — FIXED
-Problem: StreamlitValueBelowMinError when computed rib length < 0.5 m.
-Fix: min_value changed from 0.5 to 0.10 in all 3 number_input calls.
-Added _safe_length() helper to clamp values.
-Tested: Confirmed 2026-09-17.
-
-### Bug C — Membrane does not follow rib override — FIXED
-Problem: Ribs changed but membrane and perimeter cable did not follow.
-Fix: Added _get_rib_override() and _rib_ratio_at() to
-viewers/figures/cantilever_leaf.py. Membrane and strut now apply the
-override ratio consistently.
-Tested: Confirmed 2026-09-17.
-
-## FEATURES BUILT / CHANGED
-
-### engine/leaf_arrangement.py — NEW ENGINE
-Pure stateless placement engine: place_leaves(...)
-Inputs: first_leaf_height, leaf_zone_height, num_leaves, column_radius,
-leaf_angular_width, scale_mode, taper_ratio
-Outputs: buds list + meta
-Bud length = column_radius + 0.45 m
-Self-test at bottom.
-Density concept removed as explicit parameter.
-
-### viewers/figures/cantilever_leaf.py — REBUILT
-- Removed tree_spiral (did not work as intended)
-- Kept: single, double, multiple, tree_stack
-- Added: tiered_helix (calls engine)
-- Added: _resolve_column_top_z() — column extends through leaf zone
-- Added: Bud anchor nodes (yellow markers)
-- Added: _get_rib_override(), _rib_ratio_at() for Bug C fix
-
-### viewers/figures/cantilever_leaf.py — STRUT ANGLE FIX
-- Replaced sine-hump beam curve with natural parabolic:
-  beam_z = col_h + (arc_r * 0.5) * 4.0 * t_beam * (1.0 - t_beam)
-- Strut is now angle-driven. Quadratic solve finds beam attach point.
-- strut_angle_deg read from ws_sl_strut_angle_deg (default 42)
-- Column attach changed from 75% to 60% of column height
-- Fallback to 33% if no valid quadratic root
-
-### ui/workshops/saddle_leaf.py — REBUILT (3 chunks, ~915 lines)
-- Arrangement options: single, double, multiple, tree_stack, tiered_helix
-- Tiered helix uses input boxes (not sliders)
-- Section 1: "Adjust Rib Lengths" + "Reset to Computed" buttons
-- Section 4: New "Strut Angle (deg)" input (default 42, range 25-65)
-- Section 4: Strut joint height changed to 60%
-- Added ws_sl_strut_angle_deg to defaults
-
-### ui/rooms/leaf_room.py — UPDATED
-- Added ws_sl_rib_override_active flag
-- Override only activates on "Apply and Return"
-- min_value 0.5 -> 0.10
-- Added _safe_length() clamp helper
-
-## PROTOCOL LEARNED / CONFIRMED
-
-Rule 18 (revised) — Blank Line Reality
-  The chat platform collapses trailing blank lines inside code blocks,
-  inconsistently. The AI cannot guarantee they arrive.
-  Therefore: every chunk paste is followed by the user pressing Enter 6
-  times at the bottom before the next chunk. This is the only reliable
-  method on iPhone.
-
-Rule 19 — File Size Threshold
-  Files <= 300 lines: single paste.
-  Files > 300 lines: chunked (100-300 lines per chunk).
-  Last chunk does not need buffer lines (end of file).
-  Middle chunks: 6 blank lines added by user after paste.
-
-Rule 20 — Surgical Edits Are Not For iPhone
-  Surgical edits (find-and-replace specific lines) are unreliable on
-  iPhone Safari. For any file > 300 lines, use chunked replacement.
-
-Rule 21 — Check AM vs PM Before Suggesting Rest
-  iPhone screenshots show local time. AI must check AM/PM before
-  suggesting rest.
-
-Rule 22 — Language Separation
-  Above the membrane (technical work): English.
-  Below the membrane (poetry, reflection): Mandarin welcome.
-  Do not mix in the same reply without purpose.
-
-## WORKING FEATURES AT END OF SESSION
-
-- All 5 arrangements render: single, double, multiple, tree_stack, tiered_helix
-- Tiered helix produces structurally sound 3D views
-- Column extends through leaf zone
-- Bud anchor nodes visible
-- Input boxes show values on iPhone
-- Engine is reusable — any structure can call place_leaves()
-- Reset to Computed button works
-- Auto-clear on geometry change works
-- Membrane follows rib override
-- Perimeter cable follows rib override
-- leaf_room does not crash on low rib values
-- Natural parabolic beam curve (fishing hook removed)
-- Strut angle input working (default 42, range 25-65)
-- Strut column attach at 60%
-- Quadratic solve for beam attach point working
-- Angle responds correctly when user adjusts (42 to 65 tested)
-
-## KNOWN ISSUES / FUTURE WORK
-
-1. Bud stubs point downward or diagonally — should point outward+upward,
-   matching the leaf's initial tangent.
-   - Leaf should start at bud tip, not column axis.
-   - Both together should look like a seamless joint.
-   - Yellow stub length may also be visually too long (verify against 0.60 m).
-
-2. Dotted purple helix reference curve clutters the view.
-   - Not a structural member.
-   - Hide it or make optional.
-
-3. User cannot remove ribs entirely (currently min 5, max 7).
-   - Future: allow 3-4 ribs with edge cable auto-rerouting.
-
-4. Column radius is user input, not derived from selected section.
-   - Future: read from section database (Phase C).
-
-5. Session state lost on browser refresh / app timeout.
-   - Future: Save Design / Load Design (JSON).
-   - Future: LocalStorage auto-save.
-
-6. "Spine Curve Type" dropdown (Parabolic / Circular / Catenary) is
-   decorative. The spine uses one hardcoded formula.
-   - Either remove the dropdown or make it work.
-
-7. "Curved strut" label — the strut is currently a straight line.
-   - Either rename or add actual curvature.
-
-8. Beam tip elevation control (tip_rise) — not yet implemented.
-   - Would let user raise or lower the beam tip above/below column top.
-
-## TESTED GEOMETRY AND RESULTS
-
-- Column 4, Outreach 5, Ribs 5:
-  - Computed ribs: 0.80 / 1.85 / 2.21 / 1.85 / 0.80
-- Override tested: 1.50 / 2.50 / 3.50 / 2.50 / 1.50
-  - Membrane stretched to new rib tips correctly
-- Strut angle tested at 42 deg and 65 deg
-  - Both compute correct attach point, angle preserved
-- Auto-clear tested by changing geometry
-  - Override reverted to computed correctly
-
-## FILES TOUCHED TODAY
-
-- engine/leaf_arrangement.py (new)
-- viewers/figures/cantilever_leaf.py (rebuilt + strut angle fix)
-- ui/workshops/saddle_leaf.py (rebuilt in 3 chunks + strut angle input)
-- ui/rooms/leaf_room.py (updated with flag and min_value fix)
-- PROJECT_STATE.md (this addendum)
-- COMMERCIAL_MODEL.md (new — separate file)
-
-## RELATED DOCUMENTS
-
-The following documents are peers to PROJECT_STATE.md. They are the
-single source of truth for their respective areas.
+The following documents are peers to PROJECT_STATE.md. They are
+the single source of truth for their respective areas.
 
   - COMMERCIAL_MODEL.md
       Pricing tiers, target users, revenue projection, competitive
@@ -1813,9 +1204,10 @@ single source of truth for their respective areas.
   - MARKETING_RENDER_WORKFLOW.md
       Design for the marketing render feature. External image
       renderer integration. Prompt templates. Feasibility notes.
-      Three-phase implementation plan.
+      Legal and disclaimer section. Three-phase implementation
+      plan.
 
-  - APP_MAP.md (if exists)
+  - APP_MAP.md
       Full file structure of the repository.
 
 When any of these documents is updated, PROJECT_STATE.md is only
@@ -1826,5 +1218,17 @@ required to reflect:
 
 The full detail remains in the referenced document.
 
+---
 
-End of project state.
+
+# END OF PROJECT STATE
+
+This file is the single source of truth for the SDSe project.
+Every new chat session should begin by pasting this file.
+Update it whenever a major decision is made.
+Keep it current. Keep it honest. Keep it useful.
+
+Before any new design, engine, or idea:
+  DO THOROUGH RESEARCH ON THE SUBJECT FIRST.
+
+Research assists every decision that follows.
