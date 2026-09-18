@@ -245,3 +245,111 @@ Created: 2026-09-18
   - Storage plan defined (session vs cloud)
   - Constitution alignment noted
   - Three-phase implementation plan drafted
+
+## 11. Legal & Disclaimer
+
+### 11.1 Position on Third-Party Renderers
+
+SDSe provides the structure snapshot and a personalised prompt. The
+user takes these to a third-party image renderer of their choice.
+SDSe does not generate images. SDSe does not send images anywhere.
+SDSe does not endorse or partner with any renderer.
+
+This separation is deliberate. It keeps the SDSe system light, keeps
+the user in control, and avoids any appearance of a partnership that
+does not exist.
+
+### 11.2 Renderers Under Consideration
+
+The following renderers may be offered in the SDSe interface. They
+are listed as possible options for the user to consider. Each opens
+in a new browser tab. SDSe is not affiliated with any of them.
+
+  - Bing Image Creator
+    https://www.bing.com/create
+
+  - Midjourney
+    https://www.midjourney.com
+
+  - Adobe Firefly
+    https://firefly.adobe.com
+
+  - DALL-E (via ChatGPT)
+    https://chat.openai.com
+
+  - Stable Diffusion (via Replicate)
+    https://replicate.com
+
+The list may change over time. Users are free to use any renderer
+they prefer. The SDSe interface does not require the use of any
+specific external service.
+
+### 11.3 Disclaimer Text (to appear in the app)
+
+The following text should be displayed in the Render section of the
+SDSe interface, directly below the renderer links:
+
+  ---
+
+  SDSe is not affiliated with any of the renderers listed above.
+  These are third-party tools offered for your consideration.
+  Each opens in a new browser tab. Use of any renderer is subject
+  to that renderer's own terms of service.
+
+  Before using any rendered image for commercial purposes, please
+  check the terms of the renderer you used. Not all renderers
+  permit commercial use of generated images.
+
+  AI-generated images may have uncertain copyright status. Consult
+  a legal professional before using them in commercial material.
+
+  ---
+
+### 11.4 Why This Wording
+
+The disclaimer is written to:
+
+  - State clearly that SDSe is not affiliated with the renderers.
+  - Present the renderers as options for the user to consider,
+    not as recommendations or endorsements.
+  - Remind the user of their own responsibility regarding the
+    renderer's terms and commercial use.
+  - Note the uncertain copyright status of AI-generated images
+    without alarming the user.
+
+The tone is gentle and factual. It informs without creating fear.
+
+### 11.5 What the SDSe App Must Not Do
+
+To remain clear of any partnership implication, the SDSe app must
+not:
+
+  - Display any renderer's logo. Only plain text names.
+  - Say "powered by", "in partnership with", or "recommended by"
+    any renderer.
+  - Auto-send images to any renderer on the user's behalf.
+  - Claim that the app generates images. It prepares snapshot and
+    prompt. The user and the external renderer do the rest.
+  - Store the user's images on any renderer's server.
+
+If any of these are added later, the legal position changes.
+The design decision documented here must be revisited first.
+
+### 11.6 Malaysian Context (Note Only)
+
+As of 2026-09-18, Malaysian copyright law does not have settled
+rules on AI-generated works. There is no case law in Malaysia on
+whether AI-generated images can be copyrighted.
+
+This does not affect the SDSe app's design, but it is a reminder
+that AI-related legal territory is still developing. The disclaimer
+text in Section 11.3 is written defensively to account for this
+uncertainty.
+
+### 11.7 Document History (this section)
+
+Added: 2026-09-18
+  - Legal and disclaimer section added
+  - Renderer list documented with plain links
+  - Disclaimer text drafted in gentle, factual tone
+  - Clear separation between SDSe and any renderer established
