@@ -135,9 +135,19 @@ def render_results():
         unsafe_allow_html=True,
     )
 
+    arrangement_now = st.session_state.get("ws_sl_arrangement", "single")
+    if arrangement_now == "tiered_helix":
+        n_leaves_now = st.session_state.get("ws_sl_num_leaves", None)
+    elif arrangement_now == "multiple":
+        n_leaves_now = st.session_state.get("ws_sl_arrangement_count", None)
+    elif arrangement_now == "tree_stack":
+        n_leaves_now = st.session_state.get("ws_sl_arrangement_tiers", None)
+    else:
+        n_leaves_now = 1
+
     render_params = {
-        "num_leaves": st.session_state.get("ws_sl_num_leaves", None),
-        "arrangement": st.session_state.get("ws_sl_arrangement", None),
+        "num_leaves": n_leaves_now,
+        "arrangement": arrangement_now,
         "column_height": st.session_state.get("ws_sl_column_height", None),
         "outreach": st.session_state.get("ws_sl_outreach", None),
     }
