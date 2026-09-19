@@ -4,19 +4,18 @@
 # Displays the design results: 3D view, marketing render workflow,
 # health score, section used, analysis readings, quantities.
 #
+# Updated 2026-09-19 (evening, fourth pass):
+#   - format_prompt now takes a params dict again. The prompt
+#     carries the full structure description. The image is a
+#     visual reference only.
+#   - params are rebuilt per-variant from session state.
 # Updated 2026-09-19 (evening, third pass):
-#   - The viewer description and dimensions are now drawn inside the
-#     3D chart itself (by viewers/results_viewer.py). The Python
-#     block under the chart is removed.
+#   - Viewer description + dimensions drawn inside the chart.
 # Updated 2026-09-19 (evening, second pass):
-#   - 3D view and viewer description wrapped in a Streamlit bordered
-#     container. (Superseded: the text is now in-plot.)
+#   - Streamlit bordered container (superseded).
 # Updated 2026-09-19 (evening):
-#   - Viewer description + dimensions block added below the 3D chart.
 #   - extract_display_params removed (junk dump gone).
-#   - get_structure_summary removed (replaced by workshop strings).
-#   - format_prompt signature: (scene_key, structure_key, variant_key,
-#     time_key). No params argument.
+#   - get_structure_summary removed.
 # Updated 2026-09-19:
 #   - Time-of-day control added to Marketing Render.
 # Updated 2026-09-18:
@@ -26,6 +25,55 @@
 import streamlit as st
 
 from viewers.results_viewer import generate_results_figure
+
+
+# =============================================================================
+# PARAMS BUILDER (per variant)
+# =============================================================================
+# Each variant's workshop writes its parameter values to session state
+# under a known prefix. This function reads them back and returns a
+# plain dict. format_prompt uses the dict to describe the structure.
+
+def _build_params(variant_key):
+    """Return a params dict for the active variant."""
+    get = st.session_state.get
+
+    if variant_key == "cantilever_leaf":
+        arrangement = get("ws_sl_arrangement", "single")
+        if arrangement == "tiered_helix":
+            n_leaves = get("ws_sl_num_leaves", None)
+        elif arrangement == "multiple":
+            n_leaves = get("ws_sl_arrangement_count", None)
+        elif arrangement == "tree_stack":
+            n_leaves = get("ws_sl_arrangement_tiers", None)
+        else:
+            n_leaves = 1
+        return {
+            "num_leaves": n_leaves,
+            "arrangement": arrangement,
+            "column_height": get("ws_sl_column_height", None),
+            "outreach": get("ws_sl_outreach", None),
+        }
+
+    if variant_key == "standard_saddle":
+        return {
+            "span": get("ws_ss_span", None),
+            "apex": get("ws_ss_apex", None),
+            "rise": get("ws_ss_rise", None),
+            "curve_type": get("ws_ss_curve_type", None),
+            "tiedown_count": get("ws_ss_tiedown_intervals", None),
+        }
+
+    if variant_key == "frame_supported_saddle":
+        return {
+            "span": get("ws_bs_span", None),
+            "apex": get("ws_bs_apex", None),
+            "rise": get("ws_bs_rise", None),
+            "curve_type": get("ws_bs_curve_type", None),
+            "secondary_count": get("ws_bs_secondary_count", None),
+        }
+
+    return {}
 
 
 def render_results():
@@ -110,9 +158,8 @@ def render_results():
     st.markdown(
         '<div style="color: #a8b8c8; font-size: 0.8rem; '
         'margin-bottom: 0.5rem;">'
-        'Take a screenshot of the 3D view above, including the description '
-        'and dimension lines drawn inside the chart. You will upload it to '
-        'the external renderer in Step 4.'
+        'Take a screenshot of the 3D view above. You will upload it '
+        'to the external renderer in Step 4 as a visual reference.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -158,7 +205,8 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    prompt_text = format_prompt(scene_key, sk, vk, time_key)
+    params = _build_params(vk)
+    prompt_text = format_prompt(scene_key, sk, vk, params, time_key)
 
     st.text_area(
         "Prompt (select all, copy)",
