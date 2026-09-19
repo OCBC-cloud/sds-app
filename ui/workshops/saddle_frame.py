@@ -14,6 +14,11 @@
 #   One at apex, then every 2.5 m outward.
 #
 # Arc length: numerical integration over 100 segments.
+#
+# Updated 2026-09-19 (evening):
+#   - _init_defaults() writes two viewer strings used by the Results
+#     page under the 3D chart.
+#   - The dimensions string is rebuilt live each render.
 # =============================================================================
 
 import math
@@ -71,6 +76,9 @@ def _init_defaults():
         "ws_bs_add_payload": 0.0,
         "ws_bs_design_standard": "MY",
         "ws_bs_attachment_type": "kader",
+        # ---- Viewer strings for the Results page (below the 3D chart)
+        "ws_bs_viewer_description": "Beam Supported Saddle Span tensile membrane structure",
+        "ws_bs_viewer_dimensions": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -176,14 +184,6 @@ def _compute_purlin_positions(span):
         positions.append(-offset)
         k += 1
     return sorted(positions)
-
-
-
-
-
-
-
-
 
 
 # =============================================================================
@@ -312,15 +312,6 @@ def render_saddle_frame():
                 key="ws_bs_fabric_grade_select",
             )
             st.session_state["ws_bs_fabric_grade"] = grade
-
-
-
-
-
-
-
-
-
 
     # =========================================================================
     # SECTION 3 - BEAM CONSTRUCTION
@@ -519,15 +510,6 @@ def render_saddle_frame():
         )
         st.session_state["ws_bs_membrane_pretension"] = mem_pre
 
-
-
-
-
-
-
-
-
-
     # =========================================================================
     # SECTION 6 - PURLINS
     # =========================================================================
@@ -702,6 +684,20 @@ def render_saddle_frame():
             preview_box("Fabric edge held in a track along the beam.")
         else:
             info_box("Segment boundaries set by the form-finding engine.")
+
+    # =========================================================================
+    # VIEWER STRINGS (rebuilt live, read by the Results page)
+    # =========================================================================
+    # Total height = rise (apex of the beam above the ground supports).
+
+    _total_h = float(st.session_state.get("ws_bs_rise", 6.2))
+
+    st.session_state["ws_bs_viewer_description"] = (
+        "Beam Supported Saddle Span tensile membrane structure"
+    )
+    st.session_state["ws_bs_viewer_dimensions"] = (
+        "Total height " + ("%.2f" % _total_h) + " m"
+    )
 
     # =========================================================================
     # ACTIONS
