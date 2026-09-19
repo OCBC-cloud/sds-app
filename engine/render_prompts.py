@@ -367,3 +367,116 @@ if __name__ == "__main__":
         print("{:24s}: {}".format(k, v))
     print("-" * 70)
     print("GATE:", "PASS" if res["pass"] else "FAIL")
+
+
+# =============================================================================
+# DISPLAY PARAMETER EXTRACTION
+# =============================================================================
+# Reads all workshop parameters from session state and returns a list of
+# human-readable (label, value) pairs.
+#
+# The workshop writes every parameter to session state with a known
+# prefix. This function reads them all back, generically. No per-structure
+# code. Works for any current or future structure type that follows the
+# convention.
+
+def extract_display_params():
+    """
+    Read all workshop parameters from session state.
+
+    Returns a list of (label, value) tuples, ordered as they appear
+    in session state. Skips internal and non-visual keys.
+    """
+    import streamlit as st
+
+    prefixes = [
+        "ws_sl_", "ws_ss_", "ws_ut_", "ws_ts_",
+        "ws_ft_", "ws_cn_", "ws_tn_", "ws_pf_",
+    ]
+
+    skip_suffixes = [
+        "_generation", "_override_active", "_lengths_override",
+        "_base_lengths", "_last_geometry", "_widget_generation",
+    ]
+    skip_keys = [
+        "ws_sl_arrangement_count", "ws_sl_arrangement_tiers",
+        "ws_sl_last_geometry", "ws_sl_rib_override_active",
+        "ws_sl_rib_lengths_override", "ws_sl_rib_base_lengths",
+        "ws_sl_found_widget_generation",
+        "ws_sl_steel_grade", "ws_sl_section_family",
+        "ws_sl_fabric_type", "ws_sl_fabric_grade",
+        "ws_sl_column_type", "ws_sl_column_preference",
+        "ws_sl_rib_section_family", "ws_sl_rib_preference",
+        "ws_sl_rib_connection", "ws_sl_attachment_type",
+        "ws_sl_perimeter_cable_type",
+        "ws_sl_perimeter_cable_material",
+        "ws_sl_membrane_pretension",
+        "ws_sl_soil_bearing", "ws_sl_soil_type",
+        "ws_sl_water_table", "ws_sl_foundation_type",
+        "ws_sl_add_payload", "ws_sl_design_standard",
+        "ws_sl_curve_type",
+    ]
+
+    params = []
+    seen = set()
+
+    for key in st.session_state:
+        matched_prefix = None
+        for p in prefixes:
+            if key.startswith(p):
+                matched_prefix = p
+                break
+        if matched_prefix is None:
+            continue
+
+        if key in skip_keys:
+            continue
+        if any(key.endswith(s) for s in skip_suffixes):
+            continue
+
+        value = st.session_state[key]
+        label = _humanise_param_key(key, matched_prefix)
+        formatted = _format_display_value(value)
+
+        if formatted is None:
+            continue
+        if label in seen:
+            continue
+        seen.add(label)
+
+        params.append((label, formatted))
+
+    return params
+
+
+def _humanise_param_key(key, prefix):
+    """Convert ws_sl_column_height to 'Column height'."""
+    stripped = key[len(prefix):]
+    words = stripped.split("_")
+    if not words:
+        return key
+    return words[0].capitalize() + (
+        " " + " ".join(words[1:]) if len(words) > 1 else ""
+    )
+
+
+def _format_display_value(value):
+    """Format a workshop value for display. Returns None to skip."""
+    if value is None:
+        return None
+
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+
+    if isinstance(value, float):
+        return ("%.2f" % value)
+
+    if isinstance(value, int):
+        return str(value)
+
+    if isinstance(value, str):
+        if "_" in value:
+            return value.replace("_", " ")
+        return value
+
+    return None
