@@ -5,6 +5,8 @@
 # marketing render workflow, health score, section used,
 # analysis readings, quantities.
 #
+# Updated 2026-09-19:
+#   - Time-of-day control added to Marketing Render
 # Updated 2026-09-18:
 #   - Marketing Render section added (external renderer workflow)
 # =============================================================================
@@ -67,11 +69,6 @@ def render_results():
     if summary_html:
         st.markdown(summary_html, unsafe_allow_html=True)
 
-
-
-
-
-
     # ---- Marketing Render (external renderer workflow)
     st.markdown(
         '<div style="color: #f39c12; font-weight: 700; '
@@ -81,7 +78,7 @@ def render_results():
     )
 
     from engine.render_prompts import (
-        SCENES, RENDERERS, DISCLAIMER, format_prompt,
+        SCENES, TIMES, RENDERERS, DISCLAIMER, format_prompt,
     )
 
     st.markdown(
@@ -128,6 +125,23 @@ def render_results():
     )
     scene_key = scene_keys[scene_labels.index(scene_choice)]
 
+    # ---- Step 2b: choose the time of day
+    st.markdown(
+        '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
+        'margin-top: 0.9rem;">Step 2b - Choose the time of day</div>',
+        unsafe_allow_html=True,
+    )
+    time_keys = list(TIMES.keys())
+    time_labels = [TIMES[k]["name"] for k in time_keys]
+    time_choice = st.radio(
+        "Time of day",
+        time_labels,
+        index=2,
+        key="render_time_radio",
+        label_visibility="collapsed",
+    )
+    time_key = time_keys[time_labels.index(time_choice)]
+
     # ---- Step 3: build and show the prompt
     st.markdown(
         '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
@@ -152,7 +166,7 @@ def render_results():
         "outreach": st.session_state.get("ws_sl_outreach", None),
     }
 
-    prompt_text = format_prompt(scene_key, sk, vk, render_params)
+    prompt_text = format_prompt(scene_key, sk, vk, render_params, time_key)
 
     st.text_area(
         "Prompt (select all, copy)",
@@ -240,11 +254,6 @@ def render_results():
             key="render_download",
             use_container_width=True,
         )
-
-
-
-
-
 
     # ---- Health Score card
     st.markdown(
@@ -381,4 +390,3 @@ def render_results():
         if st.button("Home", key="hm", use_container_width=True, type="primary"):
             st.session_state.page = "studio"
             st.rerun()
-
