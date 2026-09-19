@@ -14,6 +14,14 @@
 #   - Tree Stack: 1-3 tiers, scale factor 0.75 fixed
 #   - Tiered Helix: engine-driven, all values as input boxes
 #   - 9 collapsible sections total
+#
+# Updated 2026-09-19 (evening):
+#   - _init_defaults() writes two viewer strings used by the Results
+#     page under the 3D chart:
+#       ws_sl_viewer_description
+#       ws_sl_viewer_dimensions
+#   - The dimensions string is rebuilt live each render from the
+#     current widget values, just before the ACTIONS block.
 # =============================================================================
 
 import math
@@ -158,10 +166,16 @@ def _init_defaults():
         "ws_sl_rib_lengths_override": [],
         "ws_sl_strut_angle_deg": 42,
         "ws_sl_last_geometry": None,
+        # ---- Viewer strings for the Results page (below the 3D chart)
+        "ws_sl_viewer_description": "Cantilever Leaf tensile membrane structure",
+        "ws_sl_viewer_dimensions": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
+
+
 
 
 # =============================================================================
@@ -250,6 +264,7 @@ def _warning_box(text):
         '<div class="ws-warning-box">' + text + '</div>',
         unsafe_allow_html=True,
     )
+
 
 
 
@@ -856,14 +871,11 @@ def render_saddle_leaf():
             )
 
         elif st.session_state["ws_sl_arrangement"] == "tiered_helix":
-            fl_h = st.number_input(
-                "First Leaf Height (m)",
-                min_value=1.0, max_value=30.0,
-                value=float(st.session_state["ws_sl_first_leaf_height"]),
-                step=0.5,
-                key="ws_sl_flh_input",
+            # First leaf height equals the column height. The widget is
+            # removed: the user's column height IS the first leaf height.
+            st.session_state["ws_sl_first_leaf_height"] = float(
+                st.session_state.get("ws_sl_column_height", 10.0)
             )
-            st.session_state["ws_sl_first_leaf_height"] = fl_h
 
             lz_h = st.number_input(
                 "Leaf Zone Height (m)",
@@ -933,6 +945,36 @@ def render_saddle_leaf():
         )
 
     # =========================================================================
+    # VIEWER STRINGS (rebuilt live, read by the Results page)
+    # =========================================================================
+    # The Results page displays these two strings under the 3D chart.
+    # Description is static. Dimensions is rebuilt each render from
+    # the current widget values, so it never goes stale.
+    #
+    # Total height rules (agreed 2026-09-19):
+    #   single / double / multiple / tree_stack:
+    #       Total height = column height
+    #   tiered_helix:
+    #       Total height = column height + leaf zone height
+    #       (first leaf height = column height, per Chief)
+
+    _arr = st.session_state.get("ws_sl_arrangement", "single")
+    _col_h = float(st.session_state.get("ws_sl_column_height", 10.0))
+
+    if _arr == "tiered_helix":
+        _lz_h = float(st.session_state.get("ws_sl_leaf_zone_height", 7.0))
+        _total_h = _col_h + _lz_h
+    else:
+        _total_h = _col_h
+
+    st.session_state["ws_sl_viewer_description"] = (
+        "Cantilever Leaf tensile membrane structure"
+    )
+    st.session_state["ws_sl_viewer_dimensions"] = (
+        "Total height " + ("%.2f" % _total_h) + " m"
+    )
+
+    # =========================================================================
     # ACTIONS
     # =========================================================================
     st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
@@ -951,3 +993,8 @@ def render_saddle_leaf():
         ):
             st.session_state.page = "results"
             st.rerun()
+
+
+
+
+
