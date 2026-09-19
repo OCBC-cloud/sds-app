@@ -161,6 +161,48 @@ SCENES = {
 
 
 # =============================================================================
+# TIME OF DAY PRESETS
+# =============================================================================
+# Independent of scene. Controls lighting, shadow direction, and mood.
+# The user picks a scene (where) and a time (when). The prompt engine
+# combines them.
+
+TIMES = {
+    "morning": {
+        "name": "Morning (soft light)",
+        "lighting_text": (
+            "Soft morning light, low warm sun in the east, long shadows "
+            "stretching westward, cool clean air, slight haze in the "
+            "distance, early morning atmosphere."
+        ),
+    },
+    "midday": {
+        "name": "Midday (bright overhead)",
+        "lighting_text": (
+            "Bright overhead midday sun, short sharp shadows directly "
+            "beneath objects, high contrast, clear visibility, saturated "
+            "colours, strong direct light."
+        ),
+    },
+    "golden_hour": {
+        "name": "Golden Hour (warm glow)",
+        "lighting_text": (
+            "Golden hour light, low warm sun, long soft shadows, orange "
+            "and pink sky, gentle warm glow on all surfaces, ideal "
+            "architectural photography light."
+        ),
+    },
+    "evening": {
+        "name": "Evening / Dusk (blue hour)",
+        "lighting_text": (
+            "Blue hour twilight, deep blue sky, artificial lights "
+            "beginning to glow, soft ambient illumination, reflections "
+            "on water and glass, cinematic atmosphere."
+        ),
+    },
+}
+
+# =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
 
