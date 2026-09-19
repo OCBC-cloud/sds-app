@@ -206,7 +206,7 @@ TIMES = {
 # PUBLIC FUNCTION
 # =============================================================================
 
-def format_prompt(scene_key, structure_key, variant_key, params):
+def format_prompt(scene_key, structure_key, variant_key, params, time_key="golden_hour"):
     """
     Return a personalised prompt for the given scene and structure.
 
@@ -260,10 +260,14 @@ def format_prompt(scene_key, structure_key, variant_key, params):
     if dim_lines:
         intro += " Structure details: " + ", ".join(dim_lines) + "."
 
+    # ---- Time of day lighting
+    time_preset = TIMES.get(time_key, TIMES["golden_hour"])
+    lighting = " " + time_preset["lighting_text"]
+
     # ---- Scene text
     body = " " + scene["scene_text"]
 
-    return intro + body
+    return intro + lighting + body
 
 
 # =============================================================================
