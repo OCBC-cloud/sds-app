@@ -63,7 +63,21 @@ def render_results():
         import traceback
         st.error("3D view failed: " + str(e))
         st.code(traceback.format_exc())
-
+    # ---- Live dimension readout (below the 3D view)
+    from engine.render_prompts import extract_display_params
+    display_params = extract_display_params()
+    if display_params:
+        parts = [label + ": " + value for label, value in display_params]
+        display_text = " · ".join(parts)
+        st.markdown(
+            '<div style="background: #0d1620; border-radius: 6px; '
+            'padding: 0.7rem 0.9rem; margin-top: 0.5rem; '
+            'font-size: 0.82rem; color: #d0dce8; line-height: 1.6; '
+            'font-family: monospace;">'
+            + display_text +
+            '</div>',
+            unsafe_allow_html=True,
+        )
     # ---- Structure summary (below 3D view)
     summary_html = get_structure_summary(vk)
     if summary_html:
