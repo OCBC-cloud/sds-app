@@ -1,15 +1,16 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Results Page
 # =============================================================================
-# Displays the design results: 3D view, viewer description block,
-# marketing render workflow, health score, section used,
-# analysis readings, quantities.
+# Displays the design results: 3D view, marketing render workflow,
+# health score, section used, analysis readings, quantities.
 #
+# Updated 2026-09-19 (evening, third pass):
+#   - The viewer description and dimensions are now drawn inside the
+#     3D chart itself (by viewers/results_viewer.py). The Python
+#     block under the chart is removed.
 # Updated 2026-09-19 (evening, second pass):
-#   - 3D view and viewer description now live inside a real Streamlit
-#     container (st.container(border=True)), so the border genuinely
-#     surrounds both and the screenshot captures the description.
-#   - Previous raw HTML <div> wrapper removed.
+#   - 3D view and viewer description wrapped in a Streamlit bordered
+#     container. (Superseded: the text is now in-plot.)
 # Updated 2026-09-19 (evening):
 #   - Viewer description + dimensions block added below the 3D chart.
 #   - extract_display_params removed (junk dump gone).
@@ -25,32 +26,6 @@
 import streamlit as st
 
 from viewers.results_viewer import generate_results_figure
-
-
-# =============================================================================
-# WORKSHOP PREFIX MAP
-# =============================================================================
-# Maps the active variant_key to the workshop's session-state prefix.
-# The workshop writes two strings under that prefix:
-#   ws_<prefix>_viewer_description
-#   ws_<prefix>_viewer_dimensions
-# The Results page reads them and displays them under the 3D chart.
-
-VARIANT_PREFIX = {
-    "cantilever_leaf": "ws_sl_",
-    "standard_saddle": "ws_ss_",
-    "frame_supported_saddle": "ws_bs_",
-}
-
-
-def _viewer_strings(variant_key):
-    """Return (description, dimensions) for the active variant, or ('', '')."""
-    prefix = VARIANT_PREFIX.get(variant_key)
-    if not prefix:
-        return "", ""
-    desc = st.session_state.get(prefix + "viewer_description", "") or ""
-    dims = st.session_state.get(prefix + "viewer_dimensions", "") or ""
-    return desc, dims
 
 
 def render_results():
@@ -92,38 +67,15 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    # ---- 3D chart + viewer description inside one real bordered container
-    with st.container(border=True):
-        try:
-            fig = generate_results_figure(sk, vk)
-            st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            import traceback
-            st.error("3D view failed: " + str(e))
-            st.code(traceback.format_exc())
-
-        # ---- Viewer description + dimensions (inside the same card, amber)
-        viewer_desc, viewer_dims = _viewer_strings(vk)
-        if viewer_desc or viewer_dims:
-            st.markdown(
-                '<hr style="border: 0; border-top: 1px solid #1e2a3a; '
-                'margin: 0.6rem 0 0.8rem 0;">',
-                unsafe_allow_html=True,
-            )
-            if viewer_desc:
-                st.markdown(
-                    '<div style="color: #f39c12; font-size: 0.95rem; '
-                    'font-weight: 600; line-height: 1.4;">'
-                    + viewer_desc + '</div>',
-                    unsafe_allow_html=True,
-                )
-            if viewer_dims:
-                st.markdown(
-                    '<div style="color: #f39c12; font-size: 0.95rem; '
-                    'line-height: 1.5; margin-top: 0.4rem;">'
-                    + viewer_dims + '</div>',
-                    unsafe_allow_html=True,
-                )
+    # ---- 3D chart. The description + dimensions strings are drawn
+    #      inside the figure by the results viewer dispatcher.
+    try:
+        fig = generate_results_figure(sk, vk)
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        import traceback
+        st.error("3D view failed: " + str(e))
+        st.code(traceback.format_exc())
 
     # ---- Marketing Render (external renderer workflow)
     st.markdown(
@@ -159,8 +111,8 @@ def render_results():
         '<div style="color: #a8b8c8; font-size: 0.8rem; '
         'margin-bottom: 0.5rem;">'
         'Take a screenshot of the 3D view above, including the description '
-        'and dimension lines below it. You will upload it to the external '
-        'renderer in Step 4.'
+        'and dimension lines drawn inside the chart. You will upload it to '
+        'the external renderer in Step 4.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -199,11 +151,7 @@ def render_results():
     )
     time_key = time_keys[time_labels.index(time_choice)]
 
-
-
-
-
-# ---- Step 3: build and show the prompt
+    # ---- Step 3: build and show the prompt
     st.markdown(
         '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
         'margin-top: 0.9rem;">Step 3 - Your prompt</div>',
@@ -434,8 +382,3 @@ def render_results():
         if st.button("Home", key="hm", use_container_width=True, type="primary"):
             st.session_state.page = "studio"
             st.rerun()
-
-
-
-
-
