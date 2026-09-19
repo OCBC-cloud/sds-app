@@ -206,7 +206,7 @@ def render_results():
 
 
 
-# ---- Step 3: build and show the prompt
+    # ---- Step 3: build and show the prompt
     st.markdown(
         '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
         'margin-top: 0.9rem;">Step 3 - Your prompt</div>',
