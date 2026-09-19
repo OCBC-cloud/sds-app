@@ -5,6 +5,11 @@
 # marketing render workflow, health score, section used,
 # analysis readings, quantities.
 #
+# Updated 2026-09-19 (evening, second pass):
+#   - 3D view and viewer description now live inside a real Streamlit
+#     container (st.container(border=True)), so the border genuinely
+#     surrounds both and the screenshot captures the description.
+#   - Previous raw HTML <div> wrapper removed.
 # Updated 2026-09-19 (evening):
 #   - Viewer description + dimensions block added below the 3D chart.
 #   - extract_display_params removed (junk dump gone).
@@ -39,7 +44,7 @@ VARIANT_PREFIX = {
 
 
 def _viewer_strings(variant_key):
-    """Return (description, dimensions) for the active variant, or (\"\", \"\")."""
+    """Return (description, dimensions) for the active variant, or ('', '')."""
     prefix = VARIANT_PREFIX.get(variant_key)
     if not prefix:
         return "", ""
@@ -80,53 +85,45 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    # ---- 3D View
+    # ---- 3D View heading
     st.markdown(
         '<div style="color: #f39c12; font-weight: 700; '
         'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">3D View</div>',
         unsafe_allow_html=True,
     )
 
-    # ---- 3D chart inside a card so the description block sits inside it.
-    st.markdown(
-        '<div style="background: #0d1620; border: 1px solid #1e2a3a; '
-        'border-radius: 10px; padding: 0.6rem 0.6rem 1rem 0.6rem;">',
-        unsafe_allow_html=True,
-    )
+    # ---- 3D chart + viewer description inside one real bordered container
+    with st.container(border=True):
+        try:
+            fig = generate_results_figure(sk, vk)
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            import traceback
+            st.error("3D view failed: " + str(e))
+            st.code(traceback.format_exc())
 
-    try:
-        fig = generate_results_figure(sk, vk)
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        import traceback
-        st.error("3D view failed: " + str(e))
-        st.code(traceback.format_exc())
-
-    # ---- Viewer description + dimensions (below the chart, amber)
-    viewer_desc, viewer_dims = _viewer_strings(vk)
-    if viewer_desc or viewer_dims:
-        st.markdown(
-            '<div style="border-top: 1px solid #1e2a3a; '
-            'margin-top: 0.6rem; padding-top: 0.8rem;">',
-            unsafe_allow_html=True,
-        )
-        if viewer_desc:
+        # ---- Viewer description + dimensions (inside the same card, amber)
+        viewer_desc, viewer_dims = _viewer_strings(vk)
+        if viewer_desc or viewer_dims:
             st.markdown(
-                '<div style="color: #f39c12; font-size: 0.95rem; '
-                'font-weight: 600; line-height: 1.4;">'
-                + viewer_desc + '</div>',
+                '<hr style="border: 0; border-top: 1px solid #1e2a3a; '
+                'margin: 0.6rem 0 0.8rem 0;">',
                 unsafe_allow_html=True,
             )
-        if viewer_dims:
-            st.markdown(
-                '<div style="color: #f39c12; font-size: 0.95rem; '
-                'line-height: 1.5; margin-top: 0.4rem;">'
-                + viewer_dims + '</div>',
-                unsafe_allow_html=True,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+            if viewer_desc:
+                st.markdown(
+                    '<div style="color: #f39c12; font-size: 0.95rem; '
+                    'font-weight: 600; line-height: 1.4;">'
+                    + viewer_desc + '</div>',
+                    unsafe_allow_html=True,
+                )
+            if viewer_dims:
+                st.markdown(
+                    '<div style="color: #f39c12; font-size: 0.95rem; '
+                    'line-height: 1.5; margin-top: 0.4rem;">'
+                    + viewer_dims + '</div>',
+                    unsafe_allow_html=True,
+                )
 
     # ---- Marketing Render (external renderer workflow)
     st.markdown(
@@ -206,7 +203,7 @@ def render_results():
 
 
 
-    # ---- Step 3: build and show the prompt
+# ---- Step 3: build and show the prompt
     st.markdown(
         '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
         'margin-top: 0.9rem;">Step 3 - Your prompt</div>',
