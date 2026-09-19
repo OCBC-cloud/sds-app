@@ -33,6 +33,11 @@
 #   to let us reset a widget in place. The workaround is to change
 #   the widget KEY each time we want a fresh render. A counter in
 #   session state drives this. The user sees only the values change.
+#
+# Updated 2026-09-19 (evening):
+#   - _init_defaults() writes two viewer strings used by the Results
+#     page under the 3D chart.
+#   - The dimensions string is rebuilt live each render.
 # =============================================================================
 
 import streamlit as st
@@ -95,6 +100,9 @@ def _init_defaults():
         "ws_ss_design_standard": "MY",
         # Section 8 - Attachment
         "ws_ss_attachment_type": "kader",
+        # ---- Viewer strings for the Results page (below the 3D chart)
+        "ws_ss_viewer_description": "Standard Saddle Span tensile membrane structure",
+        "ws_ss_viewer_dimensions": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -252,14 +260,6 @@ def render_saddle_standard():
             )
             st.session_state["ws_ss_fabric_grade"] = grade
 
-
-
-
-
-
-
-
-
     # =========================================================================
     # SECTION 3 - MEMBERS
     # =========================================================================
@@ -338,7 +338,6 @@ def render_saddle_standard():
             "They resist wind uplift and stabilise the structure."
         )
 
-        # ---- Tie-down count: radio, 4 cables or 8 cables
         td_options = [4, 8]
         td_labels = ["4 cables", "8 cables"]
         current_td = int(st.session_state.get("ws_ss_tiedown_intervals", 4))
@@ -445,14 +444,6 @@ def render_saddle_standard():
             "based on the computed tension under the target stress state."
         )
 
-
-
-
-
-
-
-
-
     # =========================================================================
     # SECTION 6 - BASEPLATE AND PRELIMINARY FOUNDATION
     # =========================================================================
@@ -472,7 +463,6 @@ def render_saddle_standard():
 
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
 
-        # ---- Small "Default" button, right above the soil inputs
         if st.button(
             "Default",
             key="ws_ss_found_default",
@@ -484,7 +474,6 @@ def render_saddle_standard():
             st.session_state["ws_ss_found_widget_generation"] = gen + 1
             st.rerun()
 
-        # ---- Soil inputs (keys carry the generation counter)
         col1, col2 = st.columns(2)
         with col1:
             bearing = st.number_input(
@@ -607,6 +596,20 @@ def render_saddle_standard():
                 "This matches industry practice (Easy, RFEM, RhinoMembrane). "
                 "No fixed spacing input required."
             )
+
+    # =========================================================================
+    # VIEWER STRINGS (rebuilt live, read by the Results page)
+    # =========================================================================
+    # Total height = rise (apex of the beam above the ground supports).
+
+    _total_h = float(st.session_state.get("ws_ss_rise", 6.2))
+
+    st.session_state["ws_ss_viewer_description"] = (
+        "Standard Saddle Span tensile membrane structure"
+    )
+    st.session_state["ws_ss_viewer_dimensions"] = (
+        "Total height " + ("%.2f" % _total_h) + " m"
+    )
 
     # =========================================================================
     # ACTIONS
