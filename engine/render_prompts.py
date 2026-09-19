@@ -8,8 +8,11 @@
 # Midjourney, Adobe Firefly, etc.). The result is brought back by the
 # user.
 #
-# This engine is stateless. It receives structure parameters and
-# returns a formatted prompt string.
+# This engine is stateless. It receives a scene and a time of day and
+# returns a formatted prompt string. The structure itself is not
+# described in the prompt: the workshop writes its own description and
+# dimensions string, which the results page displays under the 3D
+# viewer. The external renderer reads the structure from the snapshot.
 #
 # Legal: SDSe is not affiliated with any external renderer. See
 # MARKETING_RENDER_WORKFLOW.md for the disclaimer text and design
@@ -67,7 +70,8 @@ DISCLAIMER = (
 # SCENE TEMPLATES
 # =============================================================================
 # Each template is a paragraph that describes the desired scene.
-# A structure description is prepended by format_prompt().
+# The structure itself is not described here: the renderer reads it
+# from the attached snapshot.
 
 SCENES = {
     "garden": {
@@ -202,91 +206,55 @@ TIMES = {
     },
 }
 
+# ============ END OF CHUNK 1 ============
+
+
+
+
+
 # =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
 
-def format_prompt(scene_key, structure_key, variant_key, params, time_key="golden_hour"):
+def format_prompt(scene_key, structure_key, variant_key, time_key="golden_hour"):
     """
-    Return a personalised prompt for the given scene and structure.
+    Return a personalised prompt for the given scene and time of day.
+
+    The structure itself is not described. The workshop writes its own
+    description and dimensions string, and the results page displays
+    them under the 3D viewer. The user screenshots the viewer and the
+    two lines together. The external renderer reads the structure and
+    its dimensions from the attached image.
 
     Parameters
     ----------
     scene_key : str
-        One of: "garden", "plaza", "event", "cafe".
+        One of the keys of SCENES. Falls back to "garden" if unknown.
     structure_key : str
-        e.g. "cantilever", "saddle_span".
+        Kept for future logging. Not injected into the prompt.
     variant_key : str
-        e.g. "cantilever_leaf", "standard_saddle".
-    params : dict
-        Must contain whichever of the following are available:
-        column_height, outreach, num_leaves, arrangement.
+        Kept for future logging. Not injected into the prompt.
+    time_key : str
+        One of the keys of TIMES. Falls back to "golden_hour" if unknown.
 
     Returns
     -------
     prompt : str
         A single string ready to paste into an external renderer.
     """
-    scene = SCENES.get(scene_key)
-    if scene is None:
-        scene = SCENES["garden"]
-
-    # ---- Build the structure description
-    structure_name = _humanise(structure_key)
-    variant_name = _humanise(variant_key)
-
-    # ---- Core structure line
-    intro = (
-        "Photorealistic architectural photograph of a {variant} "
-        "structure ({structure})."
-    ).format(variant=variant_name, structure=structure_name)
-
-    # ---- Optional dimensions line
-    dim_lines = []
-    if params:
-        if "num_leaves" in params and params["num_leaves"]:
-            dim_lines.append(str(int(params["num_leaves"])) + " leaves")
-        if "arrangement" in params and params["arrangement"]:
-            dim_lines.append(_humanise(params["arrangement"]) + " arrangement")
-        if "column_height" in params and params["column_height"]:
-            dim_lines.append(
-                "column height " + _fmt_m(params["column_height"])
-            )
-        if "outreach" in params and params["outreach"]:
-            dim_lines.append(
-                "outreach " + _fmt_m(params["outreach"])
-            )
-
-    if dim_lines:
-        intro += " Structure details: " + ", ".join(dim_lines) + "."
-
-    # ---- Time of day lighting
+    scene = SCENES.get(scene_key, SCENES["garden"])
     time_preset = TIMES.get(time_key, TIMES["golden_hour"])
-    lighting = " " + time_preset["lighting_text"]
 
-    # ---- Scene text
+    intro = (
+        "Photorealistic architectural photograph. "
+        "The attached reference image shows the structure and its "
+        "dimensions."
+    )
+
+    lighting = " " + time_preset["lighting_text"]
     body = " " + scene["scene_text"]
 
     return intro + lighting + body
-
-
-# =============================================================================
-# HELPERS
-# =============================================================================
-
-def _humanise(s):
-    """Convert a snake_case key to Title Case."""
-    if not s:
-        return ""
-    return " ".join(w.capitalize() for w in str(s).split("_"))
-
-
-def _fmt_m(value):
-    """Format a length in metres with 1 decimal."""
-    try:
-        return ("%.1f m" % float(value))
-    except (TypeError, ValueError):
-        return str(value)
 
 
 # =============================================================================
@@ -297,60 +265,73 @@ def _verify_render_prompts():
     """Sanity checks on the prompt formatter."""
     results = {}
 
-    # Test 1: garden scene, cantilever leaf, with dimensions
+    # Test 1: garden scene, golden hour, cantilever leaf
     p = format_prompt(
         "garden",
         "cantilever",
         "cantilever_leaf",
-        {
-            "num_leaves": 6,
-            "arrangement": "tiered_helix",
-            "column_height": 4.0,
-            "outreach": 5.0,
-        },
+        "golden_hour",
     )
-    results["has_variant"] = "Cantilever Leaf" in p
-    results["has_leaves"] = "6 leaves" in p
-    results["has_arrangement"] = "Tiered Helix arrangement" in p
-    results["has_column"] = "column height 4.0 m" in p
-    results["has_outreach"] = "outreach 5.0 m" in p
-    results["has_scene"] = "public garden" in p.lower()
+    results["has_reference_line"] = (
+        "attached reference image shows the structure" in p
+    )
+    results["has_golden_hour"] = "Golden hour light" in p
+    results["has_garden_scene"] = "public garden" in p.lower()
+    results["no_structure_words"] = (
+        "cantilever" not in p.lower()
+        and "saddle" not in p.lower()
+        and "leaf" not in p.lower()
+    )
+    results["no_dimension_words"] = (
+        "leaves" not in p.lower()
+        and "arrangement" not in p.lower()
+    )
 
     # Test 2: unknown scene falls back to garden
     p2 = format_prompt(
         "unknown_scene",
         "saddle_span",
         "standard_saddle",
-        {},
+        "midday",
     )
-    results["unknown_fallback"] = "public garden" in p2.lower()
-    results["saddle_ok"] = "Saddle Span" in p2
+    results["unknown_scene_fallback"] = "public garden" in p2.lower()
+    results["has_midday"] = "overhead midday sun" in p2.lower()
 
-    # Test 3: no params - no dimensions line
-    p3 = format_prompt("plaza", "cantilever", "cantilever_leaf", {})
-    results["no_params"] = "Structure details:" not in p3
-
-    # Test 4: partial params
-    p4 = format_prompt(
-        "event",
+    # Test 3: unknown time falls back to golden hour
+    p3 = format_prompt(
+        "plaza",
         "cantilever",
         "cantilever_leaf",
-        {"num_leaves": 4},
+        "unknown_time",
     )
-    results["partial"] = "4 leaves" in p4
+    results["unknown_time_fallback"] = "Golden hour light" in p3
+
+    # Test 4: all scenes reachable
+    results["all_scenes_ok"] = True
+    for sk in SCENES.keys():
+        pt = format_prompt(sk, "x", "y", "morning")
+        if SCENES[sk]["scene_text"] not in pt:
+            results["all_scenes_ok"] = False
+
+    # Test 5: all times reachable
+    results["all_times_ok"] = True
+    for tk in TIMES.keys():
+        pt = format_prompt("garden", "x", "y", tk)
+        if TIMES[tk]["lighting_text"] not in pt:
+            results["all_times_ok"] = False
 
     # Overall
     results["pass"] = all([
-        results["has_variant"],
-        results["has_leaves"],
-        results["has_arrangement"],
-        results["has_column"],
-        results["has_outreach"],
-        results["has_scene"],
-        results["unknown_fallback"],
-        results["saddle_ok"],
-        results["no_params"],
-        results["partial"],
+        results["has_reference_line"],
+        results["has_golden_hour"],
+        results["has_garden_scene"],
+        results["no_structure_words"],
+        results["no_dimension_words"],
+        results["unknown_scene_fallback"],
+        results["has_midday"],
+        results["unknown_time_fallback"],
+        results["all_scenes_ok"],
+        results["all_times_ok"],
     ])
     return results
 
@@ -367,116 +348,3 @@ if __name__ == "__main__":
         print("{:24s}: {}".format(k, v))
     print("-" * 70)
     print("GATE:", "PASS" if res["pass"] else "FAIL")
-
-
-# =============================================================================
-# DISPLAY PARAMETER EXTRACTION
-# =============================================================================
-# Reads all workshop parameters from session state and returns a list of
-# human-readable (label, value) pairs.
-#
-# The workshop writes every parameter to session state with a known
-# prefix. This function reads them all back, generically. No per-structure
-# code. Works for any current or future structure type that follows the
-# convention.
-
-def extract_display_params():
-    """
-    Read all workshop parameters from session state.
-
-    Returns a list of (label, value) tuples, ordered as they appear
-    in session state. Skips internal and non-visual keys.
-    """
-    import streamlit as st
-
-    prefixes = [
-        "ws_sl_", "ws_ss_", "ws_ut_", "ws_ts_",
-        "ws_ft_", "ws_cn_", "ws_tn_", "ws_pf_",
-    ]
-
-    skip_suffixes = [
-        "_generation", "_override_active", "_lengths_override",
-        "_base_lengths", "_last_geometry", "_widget_generation",
-    ]
-    skip_keys = [
-        "ws_sl_arrangement_count", "ws_sl_arrangement_tiers",
-        "ws_sl_last_geometry", "ws_sl_rib_override_active",
-        "ws_sl_rib_lengths_override", "ws_sl_rib_base_lengths",
-        "ws_sl_found_widget_generation",
-        "ws_sl_steel_grade", "ws_sl_section_family",
-        "ws_sl_fabric_type", "ws_sl_fabric_grade",
-        "ws_sl_column_type", "ws_sl_column_preference",
-        "ws_sl_rib_section_family", "ws_sl_rib_preference",
-        "ws_sl_rib_connection", "ws_sl_attachment_type",
-        "ws_sl_perimeter_cable_type",
-        "ws_sl_perimeter_cable_material",
-        "ws_sl_membrane_pretension",
-        "ws_sl_soil_bearing", "ws_sl_soil_type",
-        "ws_sl_water_table", "ws_sl_foundation_type",
-        "ws_sl_add_payload", "ws_sl_design_standard",
-        "ws_sl_curve_type",
-    ]
-
-    params = []
-    seen = set()
-
-    for key in st.session_state:
-        matched_prefix = None
-        for p in prefixes:
-            if key.startswith(p):
-                matched_prefix = p
-                break
-        if matched_prefix is None:
-            continue
-
-        if key in skip_keys:
-            continue
-        if any(key.endswith(s) for s in skip_suffixes):
-            continue
-
-        value = st.session_state[key]
-        label = _humanise_param_key(key, matched_prefix)
-        formatted = _format_display_value(value)
-
-        if formatted is None:
-            continue
-        if label in seen:
-            continue
-        seen.add(label)
-
-        params.append((label, formatted))
-
-    return params
-
-
-def _humanise_param_key(key, prefix):
-    """Convert ws_sl_column_height to 'Column height'."""
-    stripped = key[len(prefix):]
-    words = stripped.split("_")
-    if not words:
-        return key
-    return words[0].capitalize() + (
-        " " + " ".join(words[1:]) if len(words) > 1 else ""
-    )
-
-
-def _format_display_value(value):
-    """Format a workshop value for display. Returns None to skip."""
-    if value is None:
-        return None
-
-    if isinstance(value, bool):
-        return "Yes" if value else "No"
-
-    if isinstance(value, float):
-        return ("%.2f" % value)
-
-    if isinstance(value, int):
-        return str(value)
-
-    if isinstance(value, str):
-        if "_" in value:
-            return value.replace("_", " ")
-        return value
-
-    return None
