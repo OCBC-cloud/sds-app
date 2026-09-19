@@ -1,20 +1,51 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Results Page
 # =============================================================================
-# Displays the design results: 3D view, structure summary,
+# Displays the design results: 3D view, viewer description block,
 # marketing render workflow, health score, section used,
 # analysis readings, quantities.
 #
+# Updated 2026-09-19 (evening):
+#   - Viewer description + dimensions block added below the 3D chart.
+#   - extract_display_params removed (junk dump gone).
+#   - get_structure_summary removed (replaced by workshop strings).
+#   - format_prompt signature: (scene_key, structure_key, variant_key,
+#     time_key). No params argument.
 # Updated 2026-09-19:
-#   - Time-of-day control added to Marketing Render
+#   - Time-of-day control added to Marketing Render.
 # Updated 2026-09-18:
-#   - Marketing Render section added (external renderer workflow)
+#   - Marketing Render section added (external renderer workflow).
 # =============================================================================
 
 import streamlit as st
 
 from viewers.results_viewer import generate_results_figure
-from viewers.figures._descriptions import get_structure_summary
+
+
+# =============================================================================
+# WORKSHOP PREFIX MAP
+# =============================================================================
+# Maps the active variant_key to the workshop's session-state prefix.
+# The workshop writes two strings under that prefix:
+#   ws_<prefix>_viewer_description
+#   ws_<prefix>_viewer_dimensions
+# The Results page reads them and displays them under the 3D chart.
+
+VARIANT_PREFIX = {
+    "cantilever_leaf": "ws_sl_",
+    "standard_saddle": "ws_ss_",
+    "frame_supported_saddle": "ws_bs_",
+}
+
+
+def _viewer_strings(variant_key):
+    """Return (description, dimensions) for the active variant, or (\"\", \"\")."""
+    prefix = VARIANT_PREFIX.get(variant_key)
+    if not prefix:
+        return "", ""
+    desc = st.session_state.get(prefix + "viewer_description", "") or ""
+    dims = st.session_state.get(prefix + "viewer_dimensions", "") or ""
+    return desc, dims
 
 
 def render_results():
@@ -56,6 +87,13 @@ def render_results():
         unsafe_allow_html=True,
     )
 
+    # ---- 3D chart inside a card so the description block sits inside it.
+    st.markdown(
+        '<div style="background: #0d1620; border: 1px solid #1e2a3a; '
+        'border-radius: 10px; padding: 0.6rem 0.6rem 1rem 0.6rem;">',
+        unsafe_allow_html=True,
+    )
+
     try:
         fig = generate_results_figure(sk, vk)
         st.plotly_chart(fig, use_container_width=True)
@@ -63,25 +101,32 @@ def render_results():
         import traceback
         st.error("3D view failed: " + str(e))
         st.code(traceback.format_exc())
-    # ---- Live dimension readout (below the 3D view)
-    from engine.render_prompts import extract_display_params
-    display_params = extract_display_params()
-    if display_params:
-        parts = [label + ": " + value for label, value in display_params]
-        display_text = " · ".join(parts)
+
+    # ---- Viewer description + dimensions (below the chart, amber)
+    viewer_desc, viewer_dims = _viewer_strings(vk)
+    if viewer_desc or viewer_dims:
         st.markdown(
-            '<div style="background: #0d1620; border-radius: 6px; '
-            'padding: 0.7rem 0.9rem; margin-top: 0.5rem; '
-            'font-size: 0.82rem; color: #d0dce8; line-height: 1.6; '
-            'font-family: monospace;">'
-            + display_text +
-            '</div>',
+            '<div style="border-top: 1px solid #1e2a3a; '
+            'margin-top: 0.6rem; padding-top: 0.8rem;">',
             unsafe_allow_html=True,
         )
-    # ---- Structure summary (below 3D view)
-    summary_html = get_structure_summary(vk)
-    if summary_html:
-        st.markdown(summary_html, unsafe_allow_html=True)
+        if viewer_desc:
+            st.markdown(
+                '<div style="color: #f39c12; font-size: 0.95rem; '
+                'font-weight: 600; line-height: 1.4;">'
+                + viewer_desc + '</div>',
+                unsafe_allow_html=True,
+            )
+        if viewer_dims:
+            st.markdown(
+                '<div style="color: #f39c12; font-size: 0.95rem; '
+                'line-height: 1.5; margin-top: 0.4rem;">'
+                + viewer_dims + '</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # ---- Marketing Render (external renderer workflow)
     st.markdown(
@@ -116,8 +161,9 @@ def render_results():
     st.markdown(
         '<div style="color: #a8b8c8; font-size: 0.8rem; '
         'margin-bottom: 0.5rem;">'
-        'Take a screenshot of the 3D view above. You will upload it '
-        'to the external renderer in Step 4.'
+        'Take a screenshot of the 3D view above, including the description '
+        'and dimension lines below it. You will upload it to the external '
+        'renderer in Step 4.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -156,31 +202,18 @@ def render_results():
     )
     time_key = time_keys[time_labels.index(time_choice)]
 
-    # ---- Step 3: build and show the prompt
+
+
+
+
+# ---- Step 3: build and show the prompt
     st.markdown(
         '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
         'margin-top: 0.9rem;">Step 3 - Your prompt</div>',
         unsafe_allow_html=True,
     )
 
-    arrangement_now = st.session_state.get("ws_sl_arrangement", "single")
-    if arrangement_now == "tiered_helix":
-        n_leaves_now = st.session_state.get("ws_sl_num_leaves", None)
-    elif arrangement_now == "multiple":
-        n_leaves_now = st.session_state.get("ws_sl_arrangement_count", None)
-    elif arrangement_now == "tree_stack":
-        n_leaves_now = st.session_state.get("ws_sl_arrangement_tiers", None)
-    else:
-        n_leaves_now = 1
-
-    render_params = {
-        "num_leaves": n_leaves_now,
-        "arrangement": arrangement_now,
-        "column_height": st.session_state.get("ws_sl_column_height", None),
-        "outreach": st.session_state.get("ws_sl_outreach", None),
-    }
-
-    prompt_text = format_prompt(scene_key, sk, vk, render_params, time_key)
+    prompt_text = format_prompt(scene_key, sk, vk, time_key)
 
     st.text_area(
         "Prompt (select all, copy)",
@@ -404,3 +437,8 @@ def render_results():
         if st.button("Home", key="hm", use_container_width=True, type="primary"):
             st.session_state.page = "studio"
             st.rerun()
+
+
+
+
+
