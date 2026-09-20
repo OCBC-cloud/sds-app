@@ -85,7 +85,7 @@ LANDING_CSS = """
         font-size: 0.9rem;
         color: #f39c12;
         letter-spacing: 2px;
-        text-transform: uppercase;
+        text-transform: none;
         font-weight: 600;
         margin: 0 0 2rem 0;
     }
