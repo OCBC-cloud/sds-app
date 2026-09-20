@@ -34,10 +34,12 @@
 #   the widget KEY each time we want a fresh render. A counter in
 #   session state drives this. The user sees only the values change.
 #
+# Updated 2026-09-20 (morning):
+#   - Viewer-strings block reads widget keys FIRST, session keys second.
+#     Same fix as saddle_leaf.py.
 # Updated 2026-09-19 (evening):
 #   - _init_defaults() writes two viewer strings used by the Results
 #     page under the 3D chart.
-#   - The dimensions string is rebuilt live each render.
 # =============================================================================
 
 import streamlit as st
@@ -601,8 +603,15 @@ def render_saddle_standard():
     # VIEWER STRINGS (rebuilt live, read by the Results page)
     # =========================================================================
     # Total height = rise (apex of the beam above the ground supports).
+    #
+    # IMPORTANT: read the WIDGET key first (ws_ss_rise_input), not the
+    # semantic key (ws_ss_rise). Streamlit reruns on page switch can
+    # overwrite the semantic key with the widget default.
 
-    _total_h = float(st.session_state.get("ws_ss_rise", 6.2))
+    _total_h = float(st.session_state.get(
+        "ws_ss_rise_input",
+        st.session_state.get("ws_ss_rise", 6.2),
+    ))
 
     st.session_state["ws_ss_viewer_description"] = (
         "Standard Saddle Span tensile membrane structure"
