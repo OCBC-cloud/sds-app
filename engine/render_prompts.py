@@ -8,13 +8,14 @@
 # Midjourney, Adobe Firefly, etc.). The result is brought back by the
 # user.
 #
-# The prompt is short. One live shape sentence, one lighting sentence,
-# one scene paragraph. The shape sentence is assembled at prompt time
-# from the current workshop values, so it always matches what the user
-# is looking at on screen.
+# Prompt layout (three parts):
+#   1. Structure name + live shape sentence (assembled from params)
+#   2. Lighting sentence (from TIMES, unless scene overrides it)
+#   3. Scene paragraph (from SCENES)
 #
-# A word-count guard trims the prompt if it ever approaches the
-# external renderer's input limit (Bing: 480 words).
+# The prompt is capped at MAX_PROMPT_CHARS characters. Bing's own
+# input limit is 480 characters. We stay below it so nothing gets
+# silently truncated by the renderer.
 #
 # Legal: SDSe is not affiliated with any external renderer. See
 # MARKETING_RENDER_WORKFLOW.md for the disclaimer text and design
@@ -23,12 +24,12 @@
 
 
 # =============================================================================
-# WORD LIMIT
+# CHARACTER LIMIT
 # =============================================================================
-# External renderers cap the prompt length. Bing is 480 words.
-# We keep a safe margin below that.
+# External renderers cap the prompt length.
+# Bing: 480 characters. We stay below that.
 
-MAX_PROMPT_WORDS = 420
+MAX_PROMPT_CHARS = 440
 
 
 # =============================================================================
@@ -41,13 +42,13 @@ RENDERERS = [
         "key": "bing",
         "name": "Bing Image Creator",
         "url": "https://www.bing.com/create",
-        "note": "Free. No account required.",
+        "note": "Free. No account required. 480 character prompt limit.",
     },
     {
         "key": "midjourney",
         "name": "Midjourney",
         "url": "https://www.midjourney.com",
-        "note": "Paid subscription. Highest quality.",
+        "note": "Paid subscription. Highest quality. Longer prompts allowed.",
     },
     {
         "key": "firefly",
@@ -80,74 +81,60 @@ DISCLAIMER = (
 # =============================================================================
 # SCENE TEMPLATES
 # =============================================================================
-# Each template is a paragraph that describes the desired scene.
-# A live shape sentence is prepended by format_prompt().
-#
-# The special "technical" scene overrides the time-of-day lighting,
-# producing a plain product-shot with no location and no mood.
+# Each scene is a short paragraph. The special "technical" scene
+# overrides the time-of-day lighting, producing a plain product-shot.
+# No camera/lens specs. No mood poetry. Only what the renderer can draw.
 
 SCENES = {
     "technical": {
         "name": "Technical (neutral background)",
         "overrides_lighting": True,
         "scene_text": (
-            "Isolated on a plain light grey studio background. No scene, "
-            "no people, no landscaping. Even diffused studio lighting, "
-            "no dramatic shadows. Clean product-shot rendering, sharp "
-            "focus, technical catalogue style."
+            "Isolated on a plain light grey studio background, no scene, "
+            "no people. Even diffused lighting, clean product-shot "
+            "rendering."
         ),
     },
     "garden": {
         "name": "Public Garden",
         "overrides_lighting": False,
         "scene_text": (
-            "Placed in a lush public garden. Green trees, flowerbeds, "
-            "stone pathways, small water feature reflecting the canopy. "
-            "People walking underneath the structure. Wide-angle "
-            "architectural photography, extremely detailed, shot on "
-            "Canon EOS R5, 24mm lens, f/8, ISO 100."
+            "Placed in a lush public garden with flowerbeds, stone "
+            "pathways, and a reflective water feature. People walking "
+            "underneath the structure."
         ),
     },
     "plaza": {
         "name": "Monumental Square",
         "overrides_lighting": False,
         "scene_text": (
-            "As the centerpiece of a modern urban plaza. Surrounding "
-            "plaza with stone paving, modern glass buildings in the "
-            "background, pedestrians walking, city skyline visible. "
-            "Wide-angle architectural photography."
+            "At the centerpiece of a modern urban plaza with stone "
+            "paving and glass buildings in the background. Pedestrians "
+            "walking nearby."
         ),
     },
     "event": {
         "name": "Event Venue",
         "overrides_lighting": False,
         "scene_text": (
-            "Over an elegant outdoor event space. Underneath: round "
-            "tables with white linens, string lights, guests at a "
-            "wedding reception. Romantic atmosphere. Shot on Canon "
-            "EOS R5, 35mm lens, f/4."
+            "Over an outdoor event space with round tables, white "
+            "linens, and string lights. Guests at a reception."
         ),
     },
     "cafe": {
         "name": "Retail / Cafe",
         "overrides_lighting": False,
         "scene_text": (
-            "Shading an outdoor cafe. Beneath: wooden tables, coffee "
-            "cups, customers seated. Modern hospitality setting, "
-            "shallow depth of field, shot on Canon EOS R5, 50mm lens, "
-            "f/2.8."
+            "Shading an outdoor cafe with wooden tables and coffee "
+            "cups. Customers seated beneath."
         ),
     },
     "motorsport": {
         "name": "Motorsports Paddock",
         "overrides_lighting": False,
         "scene_text": (
-            "Shading the pit lane canopy area of a motorsport circuit. "
-            "Racing motorcycles parked beneath the structure, team crew "
-            "in racing suits working on bikes, tool carts, tyre stacks, "
-            "grandstands and timing tower in the background. Dramatic "
-            "motorsport photography, shot on Canon EOS R5, 35mm lens, "
-            "f/4."
+            "Shading the pit lane of a motorsport circuit. Racing "
+            "motorcycles parked beneath, team crew working on bikes."
         ),
     },
     "parade": {
@@ -155,35 +142,26 @@ SCENES = {
         "overrides_lighting": False,
         "scene_text": (
             "Standing on Dataran Merdeka in Kuala Lumpur during a "
-            "National Day parade. Malaysian flags flying, marching "
-            "contingents in formation, spectators along the streets, "
-            "the Sultan Abdul Samad building in the background. "
-            "Patriotic and ceremonial atmosphere, wide architectural "
-            "photography, shot on Canon EOS R5, 24mm lens, f/8."
+            "National Day parade. Malaysian flags, marching "
+            "contingents, and the Sultan Abdul Samad building behind."
         ),
     },
     "hubei": {
         "name": "Chinese Mountain Landscape",
         "overrides_lighting": False,
         "scene_text": (
-            "Set on a scenic overlook in the mountains of Hubei "
-            "province, China. Mist rolling through pine trees, "
-            "traditional Chinese pavilions and tiled roofs in the "
-            "distance, layered mountain peaks fading into the clouds. "
-            "Ink-wash painting atmosphere, serene and timeless, shot "
-            "on Canon EOS R5, 50mm lens, f/5.6."
+            "On a scenic overlook in the mountains of Hubei province, "
+            "China. Pine trees, mist, and traditional pavilions in the "
+            "distance."
         ),
     },
     "airbase": {
         "name": "Air Force Base",
         "overrides_lighting": False,
         "scene_text": (
-            "On the apron of a modern air force base. Next-generation "
-            "stealth fighter jets parked beneath the structure, ground "
-            "crew in flight suits, service vehicles, a control tower "
-            "silhouette in the background. Military precision and "
-            "scale, cinematic photography, shot on Canon EOS R5, 24mm "
-            "lens, f/8."
+            "On the apron of a modern air force base. Stealth fighter "
+            "jets parked beneath the structure, ground crew working "
+            "nearby."
         ),
     },
 }
@@ -192,41 +170,31 @@ SCENES = {
 # =============================================================================
 # TIME OF DAY PRESETS
 # =============================================================================
-# Independent of scene. Controls lighting, shadow direction, and mood.
-# Four plain slots: Morning, Noon, Evening, Night.
-#
-# The "technical" scene overrides this block entirely.
+# Independent of scene. One short lighting sentence each.
 
 TIMES = {
     "morning": {
         "name": "Morning",
         "lighting_text": (
-            "Soft morning light, low warm sun rising, long shadows "
-            "stretching across the ground, cool clean air, slight haze "
-            "in the distance."
+            "Soft morning light, low warm sun, long shadows on the ground."
         ),
     },
     "noon": {
         "name": "Noon",
         "lighting_text": (
-            "Bright overhead midday sun, short sharp shadows directly "
-            "beneath objects, high contrast, clear visibility, "
-            "saturated colours."
+            "Bright overhead midday sun, short sharp shadows, high contrast."
         ),
     },
     "evening": {
         "name": "Evening",
         "lighting_text": (
-            "Warm evening light, low sun, long soft shadows, orange "
-            "and pink sky, gentle warm glow on all surfaces."
+            "Warm evening light, low sun, long soft shadows, orange sky."
         ),
     },
     "night": {
         "name": "Night",
         "lighting_text": (
-            "Dark night sky, artificial lights glowing on the "
-            "structure and its surroundings, deep blue ambient "
-            "illumination, cinematic atmosphere."
+            "Dark night sky, artificial lights glowing on the structure."
         ),
     },
 }
@@ -245,14 +213,12 @@ def format_prompt(scene_key, structure_key, variant_key, params, time_key="eveni
     """
     Return a personalised prompt for the given scene, structure, and time.
 
-    Prompt layout (four parts):
+    Prompt layout:
       1. Photorealistic architectural photograph of a <name>. <shape>.
       2. Lighting sentence (skipped when the scene overrides lighting).
       3. Scene paragraph.
-      4. Word-count guard trims the tail if it exceeds MAX_PROMPT_WORDS.
 
-    The shape sentence is written live from the params dict so it always
-    matches the workshop values the user is currently working with.
+    Capped at MAX_PROMPT_CHARS characters.
 
     Parameters
     ----------
@@ -293,8 +259,8 @@ def format_prompt(scene_key, structure_key, variant_key, params, time_key="eveni
 
     prompt = lead + lighting + body
 
-    # ---- 4. Word-count guard
-    prompt = _enforce_word_limit(prompt)
+    # ---- 4. Character guard
+    prompt = _enforce_char_limit(prompt)
 
     return prompt
 
@@ -303,8 +269,7 @@ def format_prompt(scene_key, structure_key, variant_key, params, time_key="eveni
 # PER-VARIANT LIVE SHAPE SENTENCES
 # =============================================================================
 # Every shape sentence is assembled from the params dict. No hardcoded
-# dimensions. No technical spec sheet. Just what a viewer's eye would
-# notice.
+# dimensions. Only what a viewer's eye would notice.
 
 def _describe_structure(variant_key, structure_key, params):
     """Return (name, shape_sentence) for the active variant."""
@@ -316,7 +281,6 @@ def _describe_structure(variant_key, structure_key, params):
     if variant_key == "frame_supported_saddle":
         return _describe_beam_supported_saddle(params)
 
-    # Fallback for unknown variants
     name = (
         _humanise(structure_key) + " tensile membrane structure"
         if structure_key
@@ -443,20 +407,17 @@ def _fmt_m(value):
         return str(value)
 
 
-def _enforce_word_limit(text):
+def _enforce_char_limit(text):
     """
-    Trim the prompt if it exceeds MAX_PROMPT_WORDS.
-    Strategy: split on sentences, drop trailing scene sentences
-    until under the limit. Never truncate mid-sentence.
+    Trim the prompt if it exceeds MAX_PROMPT_CHARS.
+    Splits into sentences and drops trailing ones until under the limit.
+    Never truncates mid-sentence. Adds a period if the last one is lost.
     """
-    words = text.split()
-    if len(words) <= MAX_PROMPT_WORDS:
+    if len(text) <= MAX_PROMPT_CHARS:
         return text
 
-    # Split into sentences on '. ' boundaries and reassemble, dropping
-    # from the tail until under the limit.
     parts = text.split(". ")
-    while len(parts) > 1 and len(" ".join(parts).split()) > MAX_PROMPT_WORDS:
+    while len(parts) > 1 and len(". ".join(parts)) > MAX_PROMPT_CHARS:
         parts.pop()
 
     trimmed = ". ".join(parts)
@@ -493,19 +454,14 @@ def _verify_render_prompts():
     results["leaf_has_scene"] = "public garden" in p1.lower()
     results["leaf_no_spec_sheet"] = "Structure details:" not in p1
     results["leaf_no_baseplate"] = "baseplate" not in p1.lower()
+    results["leaf_no_camera"] = "Canon EOS" not in p1
 
     # ---- Test 2: Standard Saddle
     p2 = format_prompt(
         "plaza",
         "saddle_span",
         "standard_saddle",
-        {
-            "span": 10.0,
-            "apex": 15.0,
-            "rise": 6.2,
-            "curve_type": "parabolic",
-            "tiedown_count": 4,
-        },
+        {"span": 10.0, "rise": 6.2},
         "noon",
     )
     results["saddle_has_name"] = "Standard Saddle Span" in p2
@@ -516,19 +472,14 @@ def _verify_render_prompts():
     results["saddle_no_leaf_words"] = (
         "leaves" not in p2.lower() and "cantilever" not in p2.lower()
     )
-    results["saddle_no_spec_sheet"] = "Structure details:" not in p2
+    results["saddle_no_camera"] = "Canon EOS" not in p2
 
     # ---- Test 3: Beam Supported Saddle
     p3 = format_prompt(
         "event",
         "saddle_span",
         "frame_supported_saddle",
-        {
-            "span": 12.0,
-            "rise": 7.0,
-            "curve_type": "circular",
-            "secondary_count": 4,
-        },
+        {"span": 12.0, "rise": 7.0},
         "evening",
     )
     results["beam_has_name"] = "Beam Supported Saddle Span" in p3
@@ -547,7 +498,7 @@ def _verify_render_prompts():
     )
     results["tech_no_night_lighting"] = "Dark night sky" not in p4
     results["tech_has_studio"] = "studio background" in p4.lower()
-    results["tech_no_scene_people"] = "people" not in p4.lower()
+    results["tech_no_people"] = "people" not in p4.lower()
 
     # ---- Test 5: unknown scene falls back to technical
     p5 = format_prompt(
@@ -569,7 +520,7 @@ def _verify_render_prompts():
     )
     results["unknown_time_fallback"] = "Warm evening light" in p6
 
-    # ---- Test 7: word count under limit for all scenes and times
+    # ---- Test 7: every scene/time combination stays under the character cap
     results["all_prompts_under_limit"] = True
     for sk in SCENES.keys():
         for tk in TIMES.keys():
@@ -577,7 +528,7 @@ def _verify_render_prompts():
                 sk, "saddle_span", "standard_saddle",
                 {"span": 10.0, "rise": 6.2}, tk,
             )
-            if len(pt.split()) > MAX_PROMPT_WORDS:
+            if len(pt) > MAX_PROMPT_CHARS:
                 results["all_prompts_under_limit"] = False
 
     # ---- Overall
