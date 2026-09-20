@@ -136,6 +136,6 @@ def render_landing():
 
     # ---- Footer
     st.markdown(
-        '<div class="landing-footer">All Major EN Code</div>',
+        '<div class="landing-footer">All Major Building Code</div>',
         unsafe_allow_html=True,
     )
