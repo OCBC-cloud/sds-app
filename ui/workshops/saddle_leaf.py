@@ -15,13 +15,14 @@
 #   - Tiered Helix: engine-driven, all values as input boxes
 #   - 9 collapsible sections total
 #
+# Updated 2026-09-20 (morning):
+#   - Viewer-strings block reads widget keys FIRST, session keys second.
+#     Streamlit reruns on page switch can overwrite the semantic session
+#     key with the widget default, causing wrong Total height.
+#   - Same pattern applied to saddle_standard.py and saddle_frame.py.
 # Updated 2026-09-19 (evening):
 #   - _init_defaults() writes two viewer strings used by the Results
-#     page under the 3D chart:
-#       ws_sl_viewer_description
-#       ws_sl_viewer_dimensions
-#   - The dimensions string is rebuilt live each render from the
-#     current widget values, just before the ACTIONS block.
+#     page under the 3D chart.
 # =============================================================================
 
 import math
@@ -612,7 +613,7 @@ def render_saddle_leaf():
 
 
 
-    # =========================================================================
+# =========================================================================
     # SECTION 5 - RIBS
     # =========================================================================
     with st.expander("5. Ribs", expanded=False):
@@ -948,21 +949,30 @@ def render_saddle_leaf():
     # VIEWER STRINGS (rebuilt live, read by the Results page)
     # =========================================================================
     # The Results page displays these two strings under the 3D chart.
-    # Description is static. Dimensions is rebuilt each render from
-    # the current widget values, so it never goes stale.
     #
-    # Total height rules (agreed 2026-09-19):
-    #   single / double / multiple / tree_stack:
-    #       Total height = column height
-    #   tiered_helix:
-    #       Total height = column height + leaf zone height
-    #       (first leaf height = column height, per Chief)
+    # IMPORTANT: read the WIDGET keys first (ws_sl_column_height_input,
+    # ws_sl_lzh_input), not the semantic keys (ws_sl_column_height,
+    # ws_sl_leaf_zone_height). On a page switch, Streamlit reruns this
+    # function once in the background, and the semantic session key can
+    # be overwritten by the widget default. Reading the widget key gives
+    # the value the user actually typed.
+    #
+    # Total height rules:
+    #   single / double / multiple / tree_stack:  column height
+    #   tiered_helix:  column height + leaf zone height
 
     _arr = st.session_state.get("ws_sl_arrangement", "single")
-    _col_h = float(st.session_state.get("ws_sl_column_height", 10.0))
+
+    _col_h = float(st.session_state.get(
+        "ws_sl_column_height_input",
+        st.session_state.get("ws_sl_column_height", 10.0),
+    ))
 
     if _arr == "tiered_helix":
-        _lz_h = float(st.session_state.get("ws_sl_leaf_zone_height", 7.0))
+        _lz_h = float(st.session_state.get(
+            "ws_sl_lzh_input",
+            st.session_state.get("ws_sl_leaf_zone_height", 7.0),
+        ))
         _total_h = _col_h + _lz_h
     else:
         _total_h = _col_h
