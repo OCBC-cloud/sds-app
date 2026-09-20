@@ -19,15 +19,15 @@
 #   "frame_supported_saddle"   -> Beam Supported Saddle
 #   "cantilever_leaf"          -> Cantilever Leaf
 #
+# Updated 2026-09-21:
+#   - Annotation font size 13 -> 8, to match the legend font size
+#     configured in viewers/figures/_shared.py (apply_common_layout).
+#
 # Updated 2026-09-19 (evening, third pass):
 #   After the figure is built, two amber annotations are added
 #   inside the plot area (bottom-centre, above the legend):
 #     - viewer description line
 #     - viewer dimensions line
-#   These strings are written to session state by the active
-#   workshop under a per-variant prefix. They are read here and
-#   drawn into the figure so a screenshot of the chart captures
-#   the structure name and dimensions for the external renderer.
 # =============================================================================
 
 import plotly.graph_objects as go
@@ -50,10 +50,6 @@ FIGURE_REGISTRY = {
     "standard_saddle": build_standard_saddle,
     "cantilever_leaf": build_cantilever_leaf,
     "frame_supported_saddle": build_beam_supported_saddle,
-    # Future:
-    # "cantilever_cone": build_cantilever_cone,
-    # "cantilever_pyramid": build_cantilever_pyramid,
-    # and so on for every variant.
 }
 
 
@@ -73,6 +69,9 @@ VARIANT_PREFIX = {
 }
 
 AMBER = "#f39c12"
+
+# Matches the legend font size set in apply_common_layout().
+ANNOTATION_FONT_SIZE = 8
 
 
 # =============================================================================
@@ -108,7 +107,11 @@ def _add_viewer_strings(fig, variant_key):
             xref="paper", yref="paper",
             x=0.5, y=y_desc,
             showarrow=False,
-            font=dict(color=AMBER, size=13, family="sans-serif"),
+            font=dict(
+                color=AMBER,
+                size=ANNOTATION_FONT_SIZE,
+                family="sans-serif",
+            ),
             align="center",
             xanchor="center",
             yanchor="bottom",
@@ -120,7 +123,11 @@ def _add_viewer_strings(fig, variant_key):
             xref="paper", yref="paper",
             x=0.5, y=y_dims,
             showarrow=False,
-            font=dict(color=AMBER, size=13, family="sans-serif"),
+            font=dict(
+                color=AMBER,
+                size=ANNOTATION_FONT_SIZE,
+                family="sans-serif",
+            ),
             align="center",
             xanchor="center",
             yanchor="bottom",
