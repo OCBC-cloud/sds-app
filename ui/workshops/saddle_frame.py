@@ -15,10 +15,12 @@
 #
 # Arc length: numerical integration over 100 segments.
 #
+# Updated 2026-09-20 (morning):
+#   - Viewer-strings block reads widget keys FIRST, session keys second.
+#     Same fix as saddle_leaf.py and saddle_standard.py.
 # Updated 2026-09-19 (evening):
 #   - _init_defaults() writes two viewer strings used by the Results
 #     page under the 3D chart.
-#   - The dimensions string is rebuilt live each render.
 # =============================================================================
 
 import math
@@ -689,8 +691,15 @@ def render_saddle_frame():
     # VIEWER STRINGS (rebuilt live, read by the Results page)
     # =========================================================================
     # Total height = rise (apex of the beam above the ground supports).
+    #
+    # IMPORTANT: read the WIDGET key first (ws_bs_rise_input), not the
+    # semantic key (ws_bs_rise). Streamlit reruns on page switch can
+    # overwrite the semantic key with the widget default.
 
-    _total_h = float(st.session_state.get("ws_bs_rise", 6.2))
+    _total_h = float(st.session_state.get(
+        "ws_bs_rise_input",
+        st.session_state.get("ws_bs_rise", 6.2),
+    ))
 
     st.session_state["ws_bs_viewer_description"] = (
         "Beam Supported Saddle Span tensile membrane structure"
