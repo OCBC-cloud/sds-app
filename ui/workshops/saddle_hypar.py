@@ -12,17 +12,27 @@
 #   - Arc arm anchored at anchor_fraction of column height, arcing
 #     upward in the middle. Both ends at the same height.
 #   - Diagonal strut from column top to the arm.
-#   - Two perpendicular bent ribs at the arm's midpoint, arcing
-#     upward. Rib tips higher than the rib anchor.
-#   - Saddle membrane spanning four corners.
-#   - Edge cables concave inward (per PRINCIPLES_membrane.md).
+#   - Two rib tips at the ends of an arc that passes through the
+#     arm's midpoint. The arm's midpoint is the LOWEST point of
+#     the arc; the rib tips are the HIGHEST.
+#   - Saddle membrane spanning four corners:
+#       arm anchor end (low), arm tip end (low),
+#       left rib tip (high), right rib tip (high).
+#   - Edge cables follow the concave membrane edges
+#     (per PRINCIPLES_membrane.md).
 #
 # Arrangement logic reuses engine/leaf_arrangement.py exactly.
 #
 # Placeholder inputs (see engine/PLACEHOLDERS.md):
 #   ws_ch_column_radius
 #   ws_ch_arm_arc_radius
-#   Membrane edge sag (in the viewer, not a UI input)
+#   ws_ch_rib_curve_radius
+#   ws_ch_membrane_sag_pct
+#
+# History:
+#   2026-09-21 - First build.
+#   2026-09-21 - Rib curve radius added as user input.
+#   2026-09-21 - Membrane edge sag added as user input (0-30, default 15).
 # =============================================================================
 
 import math
@@ -137,6 +147,8 @@ def _init_defaults():
         # Placeholder inputs (see engine/PLACEHOLDERS.md)
         "ws_ch_column_radius": 0.15,
         "ws_ch_arm_arc_radius": 4.0,
+        "ws_ch_rib_curve_radius": 6.0,
+        "ws_ch_membrane_sag_pct": 15.0,
 
         # Materials
         "ws_ch_steel_grade": "S355",
@@ -192,9 +204,6 @@ def _init_defaults():
             st.session_state[k] = v
 
 
-
-
-
 # =============================================================================
 # HELPERS
 # =============================================================================
@@ -227,7 +236,7 @@ def _warning_box(text):
     )
 
 
-def _validate_hypar_geometry(col_h, reach, anchor_frac, rib_reach, rib_bend):
+def _validate_hypar_geometry(col_h, reach, anchor_frac, rib_reach, rib_curve_r):
     warnings = []
     if col_h <= 0:
         warnings.append("Column height must be greater than 0.")
@@ -237,12 +246,17 @@ def _validate_hypar_geometry(col_h, reach, anchor_frac, rib_reach, rib_bend):
         warnings.append("Anchor fraction outside recommended range 0.55 to 0.80.")
     if rib_reach <= 0:
         warnings.append("Rib reach must be greater than 0.")
-    if rib_bend < 5 or rib_bend > 40:
-        warnings.append("Rib bend angle outside recommended range 5 to 40 deg.")
+    if rib_curve_r <= 0:
+        warnings.append("Rib curve radius must be greater than 0.")
     if reach > col_h * 0.9:
         warnings.append("Arm reach close to column height. Cantilever arm may be unstable.")
     if rib_reach > reach * 0.8:
         warnings.append("Rib reach close to arm reach. Check membrane proportions.")
+    if rib_curve_r < rib_reach:
+        warnings.append(
+            "Rib curve radius smaller than rib reach. The arc cannot pass "
+            "through the rib tips. Radius will be adjusted by the viewer."
+        )
     return warnings
 
 
@@ -289,7 +303,6 @@ def render_saddle_hypar():
             "Choose the base object. Hypar is active now."
         )
 
-        shape_options = ["leaf", "flower", "bell", "hypar"]
         shape_labels = [
             "Leaf (coming soon)",
             "Flower (coming soon)",
@@ -358,18 +371,35 @@ def render_saddle_hypar():
                 value=float(st.session_state["ws_ch_rib_reach"]),
                 step=0.5,
                 key="ws_ch_rib_reach_input",
+                help="Horizontal distance from the arm's midpoint to each "
+                     "rib tip.",
             )
             st.session_state["ws_ch_rib_reach"] = rib_reach
 
-        rib_bend = st.slider(
-            "Rib Bend Angle (deg)",
-            min_value=5.0, max_value=40.0,
-            value=float(st.session_state["ws_ch_rib_bend_deg"]),
-            step=1.0,
-            key="ws_ch_rib_bend_slider",
-            help="How much the ribs arc upward from the arm.",
-        )
-        st.session_state["ws_ch_rib_bend_deg"] = rib_bend
+        col5, col6 = st.columns(2)
+        with col5:
+            rib_curve_r = st.number_input(
+                "Rib Curve Radius (m) *",
+                min_value=0.5, max_value=20.0,
+                value=float(st.session_state["ws_ch_rib_curve_radius"]),
+                step=0.5,
+                key="ws_ch_rib_curve_input",
+                help="Radius of the arc that passes through both rib tips "
+                     "and the arm's midpoint. If it cannot reach the "
+                     "given rib reach, it is adjusted automatically.",
+            )
+            st.session_state["ws_ch_rib_curve_radius"] = rib_curve_r
+        with col6:
+            sag_pct = st.slider(
+                "Membrane Edge Sag (%)",
+                min_value=0, max_value=30,
+                value=int(st.session_state["ws_ch_membrane_sag_pct"]),
+                step=1,
+                key="ws_ch_sag_slider",
+                help="How much the membrane edges bow inward toward the "
+                     "centre. 0 = straight edges, 30 = deep concave edges.",
+            )
+            st.session_state["ws_ch_membrane_sag_pct"] = float(sag_pct)
 
         _preview_box(
             'Arm anchor height: <span class="num">'
@@ -377,12 +407,18 @@ def render_saddle_hypar():
             + '</span> ('
             + ("%.0f%%" % (anchor_frac * 100))
             + ' of column)<br>'
-            'Rib rise above arm: <span class="num">'
-            + ("%.2f m" % (rib_reach * math.tan(math.radians(rib_bend))))
-            + '</span>'
+            'Rib reach: <span class="num">'
+            + ("%.2f m" % rib_reach)
+            + '</span>  |  '
+            'Rib arc radius: <span class="num">'
+            + ("%.2f m" % rib_curve_r)
+            + '</span>  |  '
+            'Membrane edge sag: <span class="num">'
+            + str(int(sag_pct))
+            + '%</span>'
         )
 
-        warns = _validate_hypar_geometry(col_h, reach, anchor_frac, rib_reach, rib_bend)
+        warns = _validate_hypar_geometry(col_h, reach, anchor_frac, rib_reach, rib_curve_r)
         for w in warns:
             _warning_box(w)
 
@@ -499,17 +535,13 @@ def render_saddle_hypar():
             "resisted by the baseplate."
         )
 
-
-
-
-
-# =========================================================================
+    # =========================================================================
     # SECTION 5 - RIBS
     # =========================================================================
     with st.expander("5. Ribs", expanded=False):
         _section_header(
             "Ribs",
-            "The two perpendicular bent ribs at the arm's midpoint."
+            "One continuous arc through the arm's midpoint and both rib tips."
         )
 
         col1, col2 = st.columns(2)
@@ -544,10 +576,9 @@ def render_saddle_hypar():
         st.session_state["ws_ch_rib_connection"] = conn_options[conn_labels.index(conn_choice)]
 
         _info_box(
-            "Both ribs attach at the exact midpoint of the arm. They "
-            "arc upward, so their tips sit higher than the rib anchor "
-            "on the arm. This curvature pairs with the arm's downward "
-            "run to form the saddle membrane."
+            "The two rib tips and the arm's midpoint form the three "
+            "points of a single symmetric arc. The midpoint is the "
+            "lowest point; the tips are the highest."
         )
 
     # =========================================================================
@@ -577,8 +608,8 @@ def render_saddle_hypar():
             "<strong>Membrane Boundary</strong><br>"
             "The membrane spans four corners: the arm anchor, the arm "
             "tip, and the two rib tips. Its four edges are cable-"
-            "supported and curve inward under equilibrium. This is "
-            "the SDSe form-finding principle (engine/PRINCIPLES_membrane.md)."
+            "supported and curve inward under equilibrium. The cable "
+            "follows the same concave curve as the fabric edge."
         )
 
         col1, col2 = st.columns(2)
@@ -617,11 +648,7 @@ def render_saddle_hypar():
         )
         st.session_state["ws_ch_membrane_pretension"] = mem_pre
 
-
-
-
-
-# =========================================================================
+    # =========================================================================
     # SECTION 7 - BASEPLATE AND PRELIMINARY FOUNDATION
     # =========================================================================
     with st.expander("7. Baseplate and Preliminary Foundation", expanded=False):
@@ -850,8 +877,6 @@ def render_saddle_hypar():
     # =========================================================================
     # VIEWER STRINGS (rebuilt live, read by the Results page)
     # =========================================================================
-    # Total height = column height for all arrangements.
-    # For tiered_helix, extend to first_leaf_height + leaf_zone_height.
 
     _arr = st.session_state.get("ws_ch_arrangement", "single")
 
