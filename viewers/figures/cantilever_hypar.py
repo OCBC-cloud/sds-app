@@ -18,25 +18,13 @@
 #   B = right rib tip                                HIGH
 #   D = left rib tip                                 HIGH
 #
-# Rib geometry:
-#   The rib is ONE continuous arc that passes through three points:
-#     P_left  = left rib tip   (at -rib_reach in X)
-#     P_mid   = arm's midpoint (the lowest point of the arc)
-#     P_right = right rib tip  (at +rib_reach in X)
-#   The user inputs BOTH the rib reach and the rib curve radius.
-#
-# Membrane edge sag:
-#   The user inputs the sag as a percentage (0-30). The fabric
-#   edges bow inward by that fraction of edge length. The cable
-#   follows the same curve.
-#
 # History:
 #   2026-09-21 - First build.
 #   2026-09-21 - Edge cable winding corrected.
 #   2026-09-21 - Membrane rebuilt as a saddle with concave edges.
 #   2026-09-21 - Rib is now one arc through three points.
-#   2026-09-21 - Membrane edge sag read from session state as a
-#                percentage, driven by the workshop slider.
+#   2026-09-21 - Membrane edge sag read from session state.
+#   2026-09-21 - Joint marker on arm removed.
 # =============================================================================
 
 import math
@@ -58,9 +46,6 @@ TIER_SCALE = 0.75
 TIER_ROTATION_DEG = 45.0
 TIER_RISE_FACTOR = 0.85
 
-# Default sag fraction when session state has no value.
-# PLACEHOLDER VALUE - replace with FDM result.
-# See engine/PLACEHOLDERS.md.
 DEFAULT_SAG_FRACTION = 0.15
 
 
@@ -97,11 +82,8 @@ def _read_params():
 # =============================================================================
 
 def _arc_through_three_points(P_left, P_mid, P_right, radius, n_pts=40):
-    """
-    Return an array of n_pts points along an arc that passes through
-    P_left, P_mid, P_right. P_mid is the lowest point of the arc;
-    P_left and P_right are the two tips.
-    """
+    """Return an array of n_pts points along an arc that passes
+    through P_left, P_mid, P_right. P_mid is the lowest point."""
     P_left = np.asarray(P_left, dtype=float)
     P_mid = np.asarray(P_mid, dtype=float)
     P_right = np.asarray(P_right, dtype=float)
@@ -188,7 +170,6 @@ def _compute_hypar_geometry(p):
 
     anchor_z = col_h * anchor_frac
 
-    # ---- Arm arc
     n_arm = 80
     t_arm = np.linspace(0.0, 1.0, n_arm)
     arm_y = reach * t_arm
@@ -201,7 +182,6 @@ def _compute_hypar_geometry(p):
     mid_y = float(arm_y[mid_idx])
     mid_z = float(arm_z[mid_idx])
 
-    # ---- Rib arc through three points
     if rib_curve_r >= rib_reach:
         tip_rise = rib_curve_r - math.sqrt(rib_curve_r ** 2 - rib_reach ** 2)
         adjusted_radius = rib_curve_r
@@ -221,13 +201,11 @@ def _compute_hypar_geometry(p):
         P_left, P_mid, P_right, rib_curve_r, n_pts=60
     )
 
-    # ---- Four membrane corners
     corner_A = np.array([0.0, 0.0, anchor_z])
     corner_C = np.array([0.0, reach, anchor_z])
     corner_B = np.array(P_right)
     corner_D = np.array(P_left)
 
-    # ---- Strut from column top to a point on the arm
     strut_anchor_y = reach * 0.15
     t_strut = strut_anchor_y / reach
     strut_anchor_z = anchor_z + 4.0 * arm_rise * t_strut * (1.0 - t_strut)
@@ -427,7 +405,7 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         hoverinfo="skip",
     ))
 
-    # ---- Edge cable: one trace, following the concave fabric edge
+    # ---- Edge cable: one trace following the concave fabric edge
     sag_frac = _edge_sag_fraction()
     A = np.asarray(geom["corner_A"], dtype=float)
     B = np.asarray(geom["corner_B"], dtype=float)
@@ -453,16 +431,6 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         line=dict(color="#f1c40f", width=3),
         showlegend=show_legend,
         name="Edge cables" if show_legend else None,
-        hoverinfo="skip",
-    ))
-
-    # ---- Joint marker at the strut's anchor on the arm
-    jx, jy, jz = _transform(geom["strut_end"])
-    fig.add_trace(go.Scatter3d(
-        x=[jx], y=[jy], z=[jz],
-        mode="markers",
-        marker=dict(color="#f1c40f", size=6, symbol="circle"),
-        showlegend=False,
         hoverinfo="skip",
     ))
 
