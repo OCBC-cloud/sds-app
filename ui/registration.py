@@ -4,6 +4,12 @@
 # Project meta inputs + variant selection.
 # Date is captured automatically on first visit and never overwritten.
 # Variants are read from data/structures.py (single source of truth).
+#
+# History:
+#   2026-09-21 - Variants with available=False are now hidden entirely
+#                instead of shown greyed out. This keeps the
+#                Registration page clean. Unbuilt variants are
+#                reachable later from inside the workshop Section 1.
 # =============================================================================
 
 from datetime import datetime
@@ -67,7 +73,10 @@ def render_registration():
         unsafe_allow_html=True,
     )
 
-    variants = STRUCTURE_VARIANTS.get(structure_key, [])
+    all_variants = STRUCTURE_VARIANTS.get(structure_key, [])
+
+    # Skip unavailable variants entirely (hidden, not greyed out).
+    variants = [v for v in all_variants if v.get("available", True)]
 
     if not variants:
         st.info("Variants for this structure type are coming soon.")
@@ -81,37 +90,30 @@ def render_registration():
         vk = variant.get("key", "")
         vn = variant.get("name", "")
         vd = variant.get("description", "")
-        va = variant.get("available", True)
-
-        badge = ""
-        if not va:
-            badge = ('<span style="display: inline-block; padding: 2px 8px; '
-                     'border-radius: 10px; font-size: 0.7rem; font-weight: 600; '
-                     'background: #f39c1233; color: #f39c12; '
-                     'border: 1px solid #f39c12; margin-left: 6px;">Coming Soon</span>')
 
         st.markdown(
             '<div style="background: #121e2e; border: 1px solid #1e2a3a; '
             'border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: 0.6rem;">'
             '<div style="color: #ffffff; font-size: 1rem; font-weight: 600; '
-            'margin-bottom: 0.3rem;">' + vn + badge + '</div>'
+            'margin-bottom: 0.3rem;">' + vn + '</div>'
             '<div style="color: #a8b8c8; font-size: 0.85rem; line-height: 1.4;">'
             + vd + '</div>'
             '</div>',
             unsafe_allow_html=True,
         )
 
-        if va:
-            if st.button("Select " + vn, key="reg_var_" + structure_key + "_" + vk, use_container_width=True):
-                st.session_state.variant_key = vk
-                st.session_state.variant_name = vn
-                st.session_state.page = "workshop"
-                st.rerun()
-        else:
-            st.button("Coming Soon", key="reg_var_na_" + structure_key + "_" + vk,
-                      use_container_width=True, disabled=True)
+        if st.button("Select " + vn, key="reg_var_" + structure_key + "_" + vk, use_container_width=True):
+            st.session_state.variant_key = vk
+            st.session_state.variant_name = vn
+            st.session_state.page = "workshop"
+            st.rerun()
 
     st.markdown('<div style="height: 1.5rem;"></div>', unsafe_allow_html=True)
     if st.button("Back to Studio", key="reg_back", use_container_width=True):
         st.session_state.page = "studio"
         st.rerun()
+
+
+
+
+
