@@ -2,7 +2,9 @@
 
 Status: designed, not built.
 Date: 2026-09-21.
-Related: SPEC_cantilever_leaf.md (if exists), engine/render_prompts.py.
+Related: engine/PRINCIPLES_membrane.md, engine/PLACEHOLDERS.md.
+
+PLACEHOLDER INPUTS: see engine/PLACEHOLDERS.md.
 
 ---
 
@@ -24,49 +26,77 @@ geometry of the mother object changes.
 A single Cantilever Hypar canopy, in words:
 
 - One vertical column, at one end of the structure (not central).
+  Straight, no curvature. Thickness is a placeholder (see §9).
+
 - One main arc arm. One end anchors to the column at approximately
-  2/3 of column height. The other end reaches out and is free.
-  This free end defines the reach of the canopy.
-- One diagonal strut. Runs from the top of the column down and
-  outward to meet the anchored end of the arm at the 2/3 point.
-  It triangulates the arm into the column so the column is not
-  twisted by cantilever moment.
-- Two perpendicular bent ribs. Branch off at the exact midpoint
-  of the main arm, one left and one right, perpendicular to the
-  arm. Their tips are the outer roof corners.
+  2/3 of column height (parameter: anchor height fraction, default
+  0.65). The arm arcs UPWARD in the middle. Both ends of the arm
+  — the anchor end and the free tip end — sit at the SAME height.
+  The tip is out horizontally at the arm reach distance.
+
+- One diagonal strut. Runs from the column top down and outward
+  toward the arm. It crosses the arm at the structural anchor
+  point. That crossing point is computed by geometry, not fixed.
+
+- Two perpendicular bent ribs. Attach at the exact midpoint of
+  the main arm (the highest point of the arm's arc). One rib to
+  the left, one to the right, perpendicular to the arm. Each rib
+  arcs UPWARD: both rib tips are HIGHER than the rib anchor on
+  the beam. Seen from the side, the two rib tips and the rib
+  anchor form a symmetric arc with the anchor at its middle
+  (lowest point of the rib arc).
+
 - One saddle membrane. A taut four-cornered hypar sheet spanning:
-    the anchored end of the arm,
-    the free end of the arm,
-    the left rib tip,
-    the right rib tip.
+    the anchored end of the arm (lower),
+    the free end of the arm (lower, same height as anchor),
+    the left rib tip (higher),
+    the right rib tip (higher).
+  Opposite corners match in height. This is a true hypar.
+
 - Edge cables. Run along the four edges of the membrane. They
-  are pulled inward by the saddle curvature and terminate at the
-  four structural corners above.
+  are concave inward toward the membrane centre (per
+  PRINCIPLES_membrane.md). Magnitude is a placeholder (10–15%
+  of edge length) until the FDM engine lands.
 
 Load path, in one line:
   membrane tension -> edges -> cables -> arm + rib tips ->
-  arm -> column at 2/3 height -> column top strut triangulates ->
+  arm -> column at the anchor point -> strut triangulates ->
   column -> baseplate -> ground.
 
 ---
 
-## 3. Parameters (proposed)
+## 3. Parameters
 
-Same interface shape as Cantilever Leaf. Reuses column height,
-outreach (here: the arm reach), and rib concept. New parameters
-needed for the mother object:
+Real user inputs (kept):
 
-- Column height (m)                  - reused from Leaf
-- Arm reach (m)                      - new (was Leaf's "outreach")
-- Arm anchor height (m or fraction)  - new, default 2/3 of column
-- Rib length (m)                     - new, radius of the two
-                                        perpendicular bent ribs
-- Rib tilt angle (deg)               - reused from Leaf concept
-- Column radius (m)                  - reused from Leaf
-- Membrane pretension (kN/m)         - reused from Leaf
+- Column height (m)
+- Arm reach (m)
+- Anchor height fraction (default 0.65, range 0.55 to 0.80)
+- Rib reach (m)
+- Rib bend angle (deg, default 15, range 5 to 40)
 
-The arm arc radius is a derived quantity from reach and anchor
-height, or user-set. Decide at build time.
+Placeholder inputs (see engine/PLACEHOLDERS.md):
+
+- Column radius (m)
+- Arm arc radius (m)
+
+Derived internally (not user inputs):
+
+- Strut intersection point (geometry intersection)
+- Rib arc length (from rib reach and rib bend angle)
+- Membrane four corners (from the four structural points above)
+- Membrane surface (bilinear saddle between the four corners,
+  10–15% edge sag placeholder until FDM lands)
+
+Arrangement inputs, identical to Cantilever Leaf:
+
+- Arrangement mode (single / double / multiple / tree_stack /
+  tiered_helix)
+- Number of units around column (multiple mode)
+- Number of tiers (tree_stack mode)
+- Number of leaves (tiered_helix mode)
+- Leaf zone height (tiered_helix mode)
+- Taper mode and ratio (tiered_helix mode)
 
 ---
 
@@ -78,10 +108,10 @@ height, or user-set. Decide at build time.
 - tree_stack  - hypars stacked in tiers, scale factor 0.75
 - tiered_helix - hypars spiralling up the column
 
-The five modes are implemented by the arrangement code already
-present in Cantilever Leaf. No new arrangement logic required.
-The Hypar workshop will call the same arrangement functions and
-supply a different mother-object geometry to the viewer.
+The five modes reuse engine/leaf_arrangement.py exactly.
+The engine is shape-agnostic: it produces position, rotation,
+and scale for the mother object, and does not care what the
+object is. No new arrangement code required.
 
 ---
 
@@ -89,18 +119,20 @@ supply a different mother-object geometry to the viewer.
 
 The 3D viewer for one hypar mother object:
 
-- Column (green cylinder)
-- Baseplate (green block at column base)
-- Diagonal strut from column top to anchor point (orange line)
-- Main arc arm (red curve)
-- Two perpendicular bent ribs (red curves, or a distinct colour
-  to separate them from the arm)
+- Column (green vertical line, no curvature)
+- Baseplate (green marker at column base)
+- Main arc arm (red curve, rising in the middle, both ends at
+  the same height)
+- Diagonal strut (orange line from column top to the arm's
+  structural anchor point)
+- Two perpendicular bent ribs (blue curves, arcing upward,
+  both tips higher than the rib anchor at the arm)
 - Saddle membrane (blue semi-transparent surface across the
-  four corners)
-- Edge cables (dashed lines along the four membrane edges,
-  yellow by convention, matching saddle-span convention)
-- Column joint marker (yellow sphere) at the anchor point on
-  the column
+  four corners, edges concave inward)
+- Edge cables (yellow dashed lines along the four membrane
+  edges, concave inward)
+- Column joint marker (yellow sphere at the structural anchor
+  point on the arm)
 
 The viewer will follow the same pattern as cantilever_leaf.py:
 read parameters from session state, draw the mother object,
@@ -108,18 +140,18 @@ then let the arrangement layer multiply / stack / helix.
 
 ---
 
-## 6. Render description (for engine/render_prompts.py)
+## 6. Render description (engine/render_prompts.py)
 
 One clean shape sentence, live from params, in the same style
 as the other variants. Draft:
 
   "Cantilever Hypar tensile membrane structure. One curved arc
-   arm cantilevered from a column at [anchor height] m, with two
-   perpendicular ribs at its midpoint, holding a taut four-corner
-   saddle fabric membrane pulled inward by edge cables."
+   arm cantilevered from a column, with two perpendicular ribs
+   at its midpoint, holding a taut four-corner saddle fabric
+   membrane whose edges curve inward under tension."
 
-No numbers on the membrane. Only the anchor height and reach,
-matching the style of the Leaf and Saddle prompts.
+Only the anchor height fraction appears as a number, matching
+the style of the Leaf and Saddle prompts.
 
 ---
 
@@ -127,7 +159,7 @@ matching the style of the Leaf and Saddle prompts.
 
 Reuse without change:
 
-- The whole Arrangement section (Section 9) logic.
+- engine/leaf_arrangement.py — the arrangement engine.
 - Tier scale factor 0.75 (tree_stack).
 - Helix turns computation (tiered_helix).
 - The viewer strings block pattern (description + dimensions,
@@ -146,27 +178,39 @@ Change, specifically for Hypar:
 
 ---
 
-## 8. What is NOT in this spec
+## 8. Workshop prefix and variant key
 
-- Exact mathematics of the saddle membrane form-finding.
-  That is part of the FDM engine, pending.
-- Structural analysis of the arm and column. Pending.
-- Member sizing. Pending.
-- The exact wording of every numeric default. Propose at build.
+Prefix:      ws_ch_
+Variant key: cantilever_hypar
 
 ---
 
-## 9. Build order (suggested)
+## 9. What is NOT in this spec
 
-1. Decide the exact viewer geometry of one hypar mother object.
-   Prototype it in viewers/figures/cantilever_hypar.py.
-2. Create ui/workshops/saddle_hypar.py, mirroring saddle_leaf.py.
-   Replace mother-object parameters. Reuse arrangement.
-3. Add Cantilever Hypar to the registration page's structure
-   list, alongside Cantilever Leaf.
-4. Add the shape sentence to engine/render_prompts.py.
-5. Test all five arrangements in the viewer and in the renderer.
+- Exact mathematics of the saddle membrane form-finding.
+  Pending FDM engine.
+- Structural analysis of the arm, ribs, strut, and column.
+  Pending structural calc engine.
+- Member sizing for any member. Pending structural calc engine.
+- The exact numeric defaults for placeholder inputs beyond
+  what is stated above. Propose at build.
+
+---
+
+## 10. Build order
+
+1. viewers/figures/cantilever_hypar.py — mother-object geometry.
+2. ui/workshops/saddle_hypar.py — mirror of saddle_leaf.py.
+3. Registration wiring: un-hide Cantilever Hypar, wire button.
+4. Dispatcher: add cantilever_hypar to viewers/results_viewer.py.
+5. Render prompt: add _describe_cantilever_hypar.
+6. Test all five arrangements in the viewer and in the renderer.
 
 ---
 
 End of spec.
+
+
+
+
+
