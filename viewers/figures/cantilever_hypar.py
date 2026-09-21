@@ -4,35 +4,34 @@
 # Builds the 3D figure for the Cantilever Hypar variant.
 # Called by viewers/results_viewer.py dispatcher.
 #
-# Geometry (from SPEC_cantilever_hypar.md):
-#   - Straight vertical column at one end of the structure.
-#   - Arc arm anchored to the column at a set fraction of column
-#     height, arcing UPWARD in the middle. Both ends of the arm
-#     sit at the same height.
-#   - Diagonal strut from column top to the arm. Crossing point
-#     is the structural anchor.
-#   - Two perpendicular bent ribs at the arm's midpoint. Each rib
-#     arcs UPWARD. Rib tips higher than the rib anchor.
-#   - Saddle membrane spanning four corners:
-#       arm anchor end (lower), arm tip end (lower),
-#       left rib tip (higher), right rib tip (higher).
-#   - Edge cables concave inward (per PRINCIPLES_membrane.md).
+# MEMBRANE-FIRST PRINCIPLE (per engine/PRINCIPLES_membrane.md):
+#   The membrane is the hero. The steel follows.
 #
-# Arrangement is handled by engine/leaf_arrangement.py — the same
-# shape-agnostic engine used by Cantilever Leaf. No new arrangement
-# logic is written here.
+#   1. The four membrane corners are defined first. Everything else
+#      is measured from them.
+#   2. The membrane is form-found as a saddle between those corners.
+#      Each of the four edges is a concave arc bowing inward toward
+#      the membrane centre. The interior is a smooth saddle surface.
+#   3. The membrane touches the arm and ribs ONLY at the four
+#      corners. It does not drape over any structural member.
+#   4. Edge cables follow the same concave arcs as the membrane edges.
+#
+# Corners (in plan, X is arm direction, Y is rib direction):
+#   corner_anchor : (0,         0,       anchor_z)   LOW
+#   corner_tip    : (reach,     0,       anchor_z)   LOW
+#   corner_left   : (mid_x,  -rib_reach, mid_z+rise) HIGH
+#   corner_right  : (mid_x,  +rib_reach, mid_z+rise) HIGH
 #
 # Placeholder inputs (see engine/PLACEHOLDERS.md):
 #   - Column radius: draws the column thickness.
 #   - Arm arc radius: draws the arm curve.
-#   - Membrane edge sag (10-15%): draws the saddle surface.
+#   - Membrane edge sag (10-15%): placeholder for the FDM result.
 #
 # History:
 #   2026-09-21 - First build.
-#   2026-09-21 - Edge cable winding order corrected. Corner order
-#                was anchor -> left -> tip -> right -> anchor, which
-#                produced a bowtie. Corrected to anchor -> tip ->
-#                right -> left -> anchor.
+#   2026-09-21 - Edge cable winding order corrected.
+#   2026-09-21 - Membrane rebuilt as a saddle with concave edges.
+#                Flat bilinear patch replaced.
 # =============================================================================
 
 import math
@@ -54,10 +53,9 @@ TIER_SCALE = 0.75
 TIER_ROTATION_DEG = 45.0
 TIER_RISE_FACTOR = 0.85
 
-# Placeholder value: fraction of edge length to sag inward.
 # PLACEHOLDER VALUE - replace with FDM result.
 # See engine/PLACEHOLDERS.md.
-EDGE_SAG_FRACTION = 0.12
+EDGE_SAG_FRACTION = 0.10
 
 
 # =============================================================================
@@ -67,13 +65,11 @@ EDGE_SAG_FRACTION = 0.12
 def _read_params():
     """Read all Hypar parameters from session state into one dict."""
     p = {
-        # Real user inputs
         "column_height": float(st.session_state.get("ws_ch_column_height", 10.0)),
         "arm_reach": float(st.session_state.get("ws_ch_arm_reach", 6.0)),
         "anchor_fraction": float(st.session_state.get("ws_ch_anchor_fraction", 0.65)),
         "rib_reach": float(st.session_state.get("ws_ch_rib_reach", 3.0)),
         "rib_bend_deg": float(st.session_state.get("ws_ch_rib_bend_deg", 15.0)),
-        # Placeholder inputs (remove when structural engine lands)
         "column_radius": float(st.session_state.get("ws_ch_column_radius", 0.15)),
         "arm_arc_radius": float(st.session_state.get("ws_ch_arm_arc_radius", 4.0)),
     }
@@ -81,19 +77,11 @@ def _read_params():
 
 
 # =============================================================================
-# MOTHER OBJECT GEOMETRY
+# GEOMETRY
 # =============================================================================
 
 def _compute_hypar_geometry(p):
-    """
-    Return a dict of arrays describing one Hypar mother object.
-
-    Coordinate system:
-      - Origin (0, 0, 0) at base of column.
-      - Column runs vertically up Z.
-      - Arm extends in +X direction.
-      - Ribs extend in ±Y direction.
-    """
+    """Return a dict describing one Hypar mother object."""
     col_h = p["column_height"]
     reach = p["arm_reach"]
     anchor_frac = p["anchor_fraction"]
@@ -111,7 +99,6 @@ def _compute_hypar_geometry(p):
     arm_z = anchor_z + 4.0 * rise * t_arm * (1.0 - t_arm)
     arm_y = np.zeros_like(t_arm)
 
-    # ---- Arm midpoint
     mid_idx = n_arm // 2
     mid_x = arm_x[mid_idx]
     mid_y = arm_y[mid_idx]
@@ -141,11 +128,11 @@ def _compute_hypar_geometry(p):
     strut_start = (0.0, 0.0, col_h)
     strut_end = (anchor_x, 0.0, anchor_z_on_arm)
 
-    # ---- Membrane four corners
-    corner_anchor = (0.0, 0.0, anchor_z)
-    corner_tip = (reach, 0.0, anchor_z)
-    corner_left = left_tip
-    corner_right = right_tip
+    # ---- Membrane four corners (the membrane's supports)
+    corner_anchor = np.array([0.0, 0.0, anchor_z])           # LOW
+    corner_tip = np.array([reach, 0.0, anchor_z])            # LOW
+    corner_left = np.array(left_tip)                          # HIGH
+    corner_right = np.array(right_tip)                        # HIGH
 
     return {
         "col_h": col_h,
@@ -171,36 +158,91 @@ def _compute_hypar_geometry(p):
 
 
 # =============================================================================
-# MEMBRANE SURFACE
+# MEMBRANE SURFACE (saddle with concave edges)
 # =============================================================================
 
-def _build_membrane(geom, n_u=24, n_v=24):
-    """Return X, Y, Z arrays for the membrane surface."""
-    c_a = np.array(geom["corner_anchor"])
-    c_t = np.array(geom["corner_tip"])
-    c_l = np.array(geom["corner_left"])
-    c_r = np.array(geom["corner_right"])
+def _concave_edge(p0, p1, centre, n_pts, sag_frac):
+    """
+    Return a list of n_pts points along the edge from p0 to p1, bowed
+    inward toward the membrane centre by sag_frac of edge length.
+    """
+    p0 = np.asarray(p0, dtype=float)
+    p1 = np.asarray(p1, dtype=float)
+    centre = np.asarray(centre, dtype=float)
+
+    edge_vec = p1 - p0
+    edge_len = float(np.linalg.norm(edge_vec))
+    if edge_len < 1e-9:
+        return [p0.copy() for _ in range(n_pts)]
+
+    sag = sag_frac * edge_len
+
+    # Direction from midpoint toward centre (inward bow).
+    mid = (p0 + p1) * 0.5
+    inward = centre - mid
+    inward_len = float(np.linalg.norm(inward))
+    if inward_len < 1e-9:
+        inward_dir = np.zeros(3)
+    else:
+        inward_dir = inward / inward_len
+
+    pts = []
+    for t in np.linspace(0.0, 1.0, n_pts):
+        base = p0 * (1.0 - t) + p1 * t
+        # Parabolic weight, zero at both ends, max at middle.
+        w = 4.0 * t * (1.0 - t)
+        pts.append(base + inward_dir * sag * w)
+    return pts
+
+
+def _build_membrane_saddle(geom, n_u=32, n_v=32):
+    """
+    Build a saddle membrane between the four corners.
+
+    The membrane's boundary is four concave edges (each bows inward
+    toward the centre). The interior is a Coons-style surface that
+    matches those edges.
+    """
+    c_a = np.asarray(geom["corner_anchor"], dtype=float)   # LOW
+    c_t = np.asarray(geom["corner_tip"], dtype=float)      # LOW
+    c_l = np.asarray(geom["corner_left"], dtype=float)     # HIGH
+    c_r = np.asarray(geom["corner_right"], dtype=float)    # HIGH
+
+    centre = (c_a + c_t + c_l + c_r) * 0.25
+
+    # Boundary edges, each concave inward
+    n_edge = max(n_u, n_v)
+    edge_at = _concave_edge(c_a, c_t, centre, n_edge, EDGE_SAG_FRACTION)  # u=0 edge
+    edge_bt = _concave_edge(c_l, c_r, centre, n_edge, EDGE_SAG_FRACTION)  # u=1 edge
+    edge_al = _concave_edge(c_a, c_l, centre, n_edge, EDGE_SAG_FRACTION)  # v=0 edge
+    edge_tr = _concave_edge(c_t, c_r, centre, n_edge, EDGE_SAG_FRACTION)  # v=1 edge
 
     X = np.zeros((n_u, n_v))
     Y = np.zeros((n_u, n_v))
     Z = np.zeros((n_u, n_v))
 
-    centre = (c_a + c_t + c_l + c_r) * 0.25
-
     for i, u in enumerate(np.linspace(0.0, 1.0, n_u)):
+        # Points along u-edges (the two "top" and "bottom" edges)
+        eu = edge_al[i]   # point on edge a->l at u
+        fu = edge_tr[i]   # point on edge t->r at u
+
         for j, v in enumerate(np.linspace(0.0, 1.0, n_v)):
-            left_pt = c_a * (1.0 - u) + c_l * u
-            right_pt = c_t * (1.0 - u) + c_r * u
-            pt = left_pt * (1.0 - v) + right_pt * v
+            # Points along v-edges (the two "left" and "right" edges)
+            gv = edge_at[j]   # point on edge a->t at v
+            hv = edge_bt[j]   # point on edge l->r at v
 
-            edge_w_u = min(u, 1.0 - u) * 2.0
-            edge_w_v = min(v, 1.0 - v) * 2.0
-            weight = edge_w_u * edge_w_v
-            sagged = pt * (1.0 - EDGE_SAG_FRACTION * weight) + centre * (EDGE_SAG_FRACTION * weight)
+            # Coons patch interpolation
+            A = eu * (1.0 - v) + fu * v
+            B = gv * (1.0 - u) + hv * u
+            C = (c_a * (1.0 - u) * (1.0 - v)
+                 + c_t * u * (1.0 - v)
+                 + c_l * (1.0 - u) * v
+                 + c_r * u * v)
+            pt = A + B - C
 
-            X[i, j] = sagged[0]
-            Y[i, j] = sagged[1]
-            Z[i, j] = sagged[2]
+            X[i, j] = pt[0]
+            Y[i, j] = pt[1]
+            Z[i, j] = pt[2]
 
     return X, Y, Z
 
@@ -293,8 +335,8 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         hoverinfo="skip",
     ))
 
-    # ---- Membrane surface
-    X_m, Y_m, Z_m = _build_membrane(geom)
+    # ---- Membrane surface (saddle with concave edges)
+    X_m, Y_m, Z_m = _build_membrane_saddle(geom)
     X_rot = np.zeros_like(X_m)
     Y_rot = np.zeros_like(Y_m)
     Z_rot = np.zeros_like(Z_m)
@@ -316,21 +358,33 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         hoverinfo="skip",
     ))
 
-    # ---- Edge cables (corrected winding: anchor -> tip -> right -> left -> anchor)
-    corners = [
-        geom["corner_anchor"],
-        geom["corner_tip"],
-        geom["corner_right"],
-        geom["corner_left"],
-        geom["corner_anchor"],
+    # ---- Edge cables along the membrane's four concave edges
+    c_a = geom["corner_anchor"]
+    c_t = geom["corner_tip"]
+    c_l = geom["corner_left"]
+    c_r = geom["corner_right"]
+    centre = (
+        np.asarray(c_a) + np.asarray(c_t)
+        + np.asarray(c_l) + np.asarray(c_r)
+    ) * 0.25
+
+    boundary_edges = [
+        (c_a, c_t, centre),
+        (c_t, c_r, centre),
+        (c_r, c_l, centre),
+        (c_l, c_a, centre),
     ]
+
     ecx, ecy, ecz = [], [], []
-    for c in corners:
-        xv = c[0] * scale
-        yv = c[1] * scale
-        zv = _scale_z(c[2])
-        xr, yr = _rot(xv, yv)
-        ecx.append(xr); ecy.append(yr); ecz.append(zv)
+    n_per_edge = 12
+    for (p0, p1, ctr) in boundary_edges:
+        pts = _concave_edge(p0, p1, ctr, n_per_edge, EDGE_SAG_FRACTION)
+        for q in pts:
+            xv = q[0] * scale
+            yv = q[1] * scale
+            zv = _scale_z(q[2])
+            xr, yr = _rot(xv, yv)
+            ecx.append(xr); ecy.append(yr); ecz.append(zv)
 
     fig.add_trace(go.Scatter3d(
         x=ecx, y=ecy, z=ecz,
