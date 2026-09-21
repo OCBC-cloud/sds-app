@@ -13,7 +13,7 @@
 #     is the structural anchor.
 #   - Two perpendicular bent ribs at the arm's midpoint. Each rib
 #     arcs UPWARD. Rib tips higher than the rib anchor.
-#   - Saddle membrane spanning the four corners:
+#   - Saddle membrane spanning four corners:
 #       arm anchor end (lower), arm tip end (lower),
 #       left rib tip (higher), right rib tip (higher).
 #   - Edge cables concave inward (per PRINCIPLES_membrane.md).
@@ -26,8 +26,13 @@
 #   - Column radius: draws the column thickness.
 #   - Arm arc radius: draws the arm curve.
 #   - Membrane edge sag (10-15%): draws the saddle surface.
-#   These are removed when the structural calc engine and FDM
-#   engine land. Do not treat them as design values.
+#
+# History:
+#   2026-09-21 - First build.
+#   2026-09-21 - Edge cable winding order corrected. Corner order
+#                was anchor -> left -> tip -> right -> anchor, which
+#                produced a bowtie. Corrected to anchor -> tip ->
+#                right -> left -> anchor.
 # =============================================================================
 
 import math
@@ -45,7 +50,6 @@ from engine.leaf_arrangement import place_leaves
 # CONSTANTS
 # =============================================================================
 
-# Arrangement constants (identical to Cantilever Leaf).
 TIER_SCALE = 0.75
 TIER_ROTATION_DEG = 45.0
 TIER_RISE_FACTOR = 0.85
@@ -76,9 +80,6 @@ def _read_params():
     return p
 
 
-
-
-
 # =============================================================================
 # MOTHER OBJECT GEOMETRY
 # =============================================================================
@@ -102,41 +103,29 @@ def _compute_hypar_geometry(p):
 
     anchor_z = col_h * anchor_frac
 
-    # ---- Arm arc: from column surface at anchor_z, arcs upward in
-    # the middle, comes back to anchor_z at the free tip.
-    # We model it as a symmetric parabola between two endpoints:
-    #   start: (0, 0, anchor_z)
-    #   end:   (reach, 0, anchor_z)
-    #   apex:  midway, at anchor_z + rise
-    # The rise is derived from the arc radius placeholder.
+    # ---- Arm arc
     n_arm = 80
     t_arm = np.linspace(0.0, 1.0, n_arm)
     arm_x = reach * t_arm
-    # Parabolic rise with peak at t = 0.5
-    # rise = arc_r * 0.5 controls apex height above anchor.
     rise = arc_r * 0.5
     arm_z = anchor_z + 4.0 * rise * t_arm * (1.0 - t_arm)
     arm_y = np.zeros_like(t_arm)
 
-    # ---- Arm midpoint index (apex of the arc)
+    # ---- Arm midpoint
     mid_idx = n_arm // 2
     mid_x = arm_x[mid_idx]
     mid_y = arm_y[mid_idx]
     mid_z = arm_z[mid_idx]
 
-    # ---- Ribs: two arcs attaching at the arm's midpoint,
-    # extending in ±Y direction. Each rib arcs upward, so the tip
-    # is HIGHER than the rib anchor.
+    # ---- Ribs
     n_rib = 40
     t_rib = np.linspace(0.0, 1.0, n_rib)
     rib_rise = rib_reach * math.tan(math.radians(rib_bend_deg))
 
-    # Left rib (negative Y)
     left_rib_x = np.full(n_rib, mid_x)
     left_rib_y = -rib_reach * t_rib
     left_rib_z = mid_z + 4.0 * rib_rise * t_rib * (1.0 - t_rib)
 
-    # Right rib (positive Y)
     right_rib_x = np.full(n_rib, mid_x)
     right_rib_y = rib_reach * t_rib
     right_rib_z = mid_z + 4.0 * rib_rise * t_rib * (1.0 - t_rib)
@@ -144,18 +133,8 @@ def _compute_hypar_geometry(p):
     left_tip = (mid_x, -rib_reach, mid_z + rib_rise)
     right_tip = (mid_x, rib_reach, mid_z + rib_rise)
 
-    # ---- Structural anchor: intersection of strut with arm.
-    # Strut runs from column top (0, 0, col_h) toward the arm.
-    # We define the strut's direction toward the arm's apex and
-    # find where it crosses the arm's arc. Simplified approach:
-    # find the point on the arm where a straight line from the
-    # column top points at the arm's anchor.
-    # Since the arm starts at (0, 0, anchor_z), the strut from
-    # column top to that point is nearly vertical. For a proper
-    # structural anchor we place it on the arm at a small
-    # horizontal offset:
+    # ---- Structural anchor (strut crossing)
     anchor_x = reach * 0.15
-    # Solve arm_z at this x
     t_anchor = anchor_x / reach
     anchor_z_on_arm = anchor_z + 4.0 * rise * t_anchor * (1.0 - t_anchor)
 
@@ -163,8 +142,8 @@ def _compute_hypar_geometry(p):
     strut_end = (anchor_x, 0.0, anchor_z_on_arm)
 
     # ---- Membrane four corners
-    corner_anchor = (0.0, 0.0, anchor_z)               # arm start
-    corner_tip = (reach, 0.0, anchor_z)                # arm tip
+    corner_anchor = (0.0, 0.0, anchor_z)
+    corner_tip = (reach, 0.0, anchor_z)
     corner_left = left_tip
     corner_right = right_tip
 
@@ -194,10 +173,6 @@ def _compute_hypar_geometry(p):
 # =============================================================================
 # MEMBRANE SURFACE
 # =============================================================================
-# Four-corner bilinear saddle. The membrane touches the structure
-# only at the four corners (per PRINCIPLES_membrane.md). Edges are
-# concave inward by a placeholder fraction. The interior is a
-# bilinear interpolation with a small sag toward the centre.
 
 def _build_membrane(geom, n_u=24, n_v=24):
     """Return X, Y, Z arrays for the membrane surface."""
@@ -206,8 +181,6 @@ def _build_membrane(geom, n_u=24, n_v=24):
     c_l = np.array(geom["corner_left"])
     c_r = np.array(geom["corner_right"])
 
-    # Bilinear interpolation. Let u sweep from anchor side to tip side,
-    # and v sweep from left edge to right edge.
     X = np.zeros((n_u, n_v))
     Y = np.zeros((n_u, n_v))
     Z = np.zeros((n_u, n_v))
@@ -216,13 +189,10 @@ def _build_membrane(geom, n_u=24, n_v=24):
 
     for i, u in enumerate(np.linspace(0.0, 1.0, n_u)):
         for j, v in enumerate(np.linspace(0.0, 1.0, n_v)):
-            # Corner interpolation
             left_pt = c_a * (1.0 - u) + c_l * u
             right_pt = c_t * (1.0 - u) + c_r * u
             pt = left_pt * (1.0 - v) + right_pt * v
 
-            # Apply a sag toward the centre, strongest away from
-            # all four edges.
             edge_w_u = min(u, 1.0 - u) * 2.0
             edge_w_v = min(v, 1.0 - v) * 2.0
             weight = edge_w_u * edge_w_v
@@ -235,20 +205,13 @@ def _build_membrane(geom, n_u=24, n_v=24):
     return X, Y, Z
 
 
-
-
-
 # =============================================================================
 # MOTHER OBJECT DRAWING
 # =============================================================================
 
 def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
                        col_h_ref=None, show_legend=False):
-    """
-    Add one Hypar mother object at the given rotation, scale, and
-    vertical offset. All coordinates are scaled relative to the
-    base column height (col_h_ref) so that stacking works properly.
-    """
+    """Add one Hypar mother object at the given rotation, scale, offset."""
     theta = math.radians(rot_deg)
     cos_t = math.cos(theta)
     sin_t = math.sin(theta)
@@ -268,9 +231,7 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         yv = geom["arm_y"][i] * scale
         zv = _scale_z(geom["arm_z"][i])
         xr, yr = _rot(xv, yv)
-        ax.append(xr)
-        ay.append(yr)
-        az.append(zv)
+        ax.append(xr); ay.append(yr); az.append(zv)
 
     fig.add_trace(go.Scatter3d(
         x=ax, y=ay, z=az,
@@ -288,9 +249,7 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         yv = geom["left_rib_y"][i] * scale
         zv = _scale_z(geom["left_rib_z"][i])
         xr, yr = _rot(xv, yv)
-        lx.append(xr)
-        ly.append(yr)
-        lz.append(zv)
+        lx.append(xr); ly.append(yr); lz.append(zv)
 
     fig.add_trace(go.Scatter3d(
         x=lx, y=ly, z=lz,
@@ -308,9 +267,7 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         yv = geom["right_rib_y"][i] * scale
         zv = _scale_z(geom["right_rib_z"][i])
         xr, yr = _rot(xv, yv)
-        rx.append(xr)
-        ry.append(yr)
-        rz.append(zv)
+        rx.append(xr); ry.append(yr); rz.append(zv)
 
     fig.add_trace(go.Scatter3d(
         x=rx, y=ry, z=rz,
@@ -336,8 +293,7 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         hoverinfo="skip",
     ))
 
-    # ---- Membrane surface (only when scale is 1 for clarity;
-    # smaller stacked membranes are still drawn for continuity)
+    # ---- Membrane surface
     X_m, Y_m, Z_m = _build_membrane(geom)
     X_rot = np.zeros_like(X_m)
     Y_rot = np.zeros_like(Y_m)
@@ -360,12 +316,12 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         hoverinfo="skip",
     ))
 
-    # ---- Edge cables (yellow dashed) around the four corners
+    # ---- Edge cables (corrected winding: anchor -> tip -> right -> left -> anchor)
     corners = [
         geom["corner_anchor"],
-        geom["corner_left"],
         geom["corner_tip"],
         geom["corner_right"],
+        geom["corner_left"],
         geom["corner_anchor"],
     ]
     ecx, ecy, ecz = [], [], []
@@ -374,9 +330,7 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         yv = c[1] * scale
         zv = _scale_z(c[2])
         xr, yr = _rot(xv, yv)
-        ecx.append(xr)
-        ecy.append(yr)
-        ecz.append(zv)
+        ecx.append(xr); ecy.append(yr); ecz.append(zv)
 
     fig.add_trace(go.Scatter3d(
         x=ecx, y=ecy, z=ecz,
@@ -387,7 +341,7 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         hoverinfo="skip",
     ))
 
-    # ---- Joint marker at the structural anchor on the arm
+    # ---- Joint marker at the structural anchor
     jx = geom["strut_end"][0] * scale
     jy = geom["strut_end"][1] * scale
     jz = _scale_z(geom["strut_end"][2])
@@ -402,7 +356,7 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
 
 
 # =============================================================================
-# TIERED HELIX ARRANGEMENT (reuses leaf_arrangement engine)
+# TIERED HELIX ARRANGEMENT
 # =============================================================================
 
 def _add_tiered_helix(fig, geom, col_h_ref):
@@ -427,7 +381,6 @@ def _add_tiered_helix(fig, geom, col_h_ref):
 
     buds = result["buds"]
 
-    # ---- Bud stubs (yellow reference lines)
     for bud in buds:
         ax, ay, az = bud["axis_attach"]
         tx, ty, tz = bud["bud_tip"]
@@ -439,7 +392,6 @@ def _add_tiered_helix(fig, geom, col_h_ref):
             hoverinfo="skip",
         ))
 
-    # ---- Each mother object at its bud
     for bud in buds:
         _add_hypar_mother(
             fig, geom,
@@ -480,14 +432,12 @@ def build_cantilever_hypar():
 
     arrangement = st.session_state.get("ws_ch_arrangement", "single")
 
-    # ---- Column height for display: extend through helix zone
     col_top_z = col_h
     if arrangement == "tiered_helix":
         fl_h = float(st.session_state.get("ws_ch_first_leaf_height", col_h))
         lz_h = float(st.session_state.get("ws_ch_leaf_zone_height", 7.0))
         col_top_z = max(col_h, fl_h + lz_h)
 
-    # ---- Column (straight, green)
     fig.add_trace(go.Scatter3d(
         x=[0, 0], y=[0, 0], z=[0, col_top_z],
         mode="lines",
@@ -501,7 +451,6 @@ def build_cantilever_hypar():
         name="Baseplate",
     ))
 
-    # ---- Arrangement routing
     if arrangement == "single":
         _add_hypar_mother(fig, geom, 0.0, 1.0, 0.0,
                           col_h_ref=col_h, show_legend=True)
@@ -544,7 +493,6 @@ def build_cantilever_hypar():
         _add_hypar_mother(fig, geom, 0.0, 1.0, 0.0,
                           col_h_ref=col_h, show_legend=True)
 
-    # ---- Legend dummy for the membrane
     fig.add_trace(go.Scatter3d(
         x=[None], y=[None], z=[None],
         mode="markers",
