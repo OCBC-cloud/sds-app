@@ -4,12 +4,6 @@
 # Looks up the correct figure builder for a given variant and calls it.
 # Each variant has its own builder file under viewers/figures/.
 #
-# Architecture (updated 2026-09-15):
-#   - This file is a small dispatcher only.
-#   - Every variant's figure lives in viewers/figures/<variant>.py
-#   - Shared helpers live in viewers/figures/_shared.py
-#   - Adding a new variant = add a file + add a registry entry
-#
 # Dispatch rule:
 #   Variant keys are globally unique. The dispatcher ignores
 #   structure_key entirely and routes on variant_key alone.
@@ -18,16 +12,12 @@
 #   "standard_saddle"          -> Cable Supported Saddle
 #   "frame_supported_saddle"   -> Beam Supported Saddle
 #   "cantilever_leaf"          -> Cantilever Leaf
+#   "cantilever_hypar"         -> Cantilever Hypar
 #
 # Updated 2026-09-21:
-#   - Annotation font size 13 -> 8, to match the legend font size
-#     configured in viewers/figures/_shared.py (apply_common_layout).
-#
-# Updated 2026-09-19 (evening, third pass):
-#   After the figure is built, two amber annotations are added
-#   inside the plot area (bottom-centre, above the legend):
-#     - viewer description line
-#     - viewer dimensions line
+#   - Cantilever Hypar registered.
+# Updated 2026-09-21:
+#   - Annotation font size 13 -> 8, to match legend.
 # =============================================================================
 
 import plotly.graph_objects as go
@@ -38,39 +28,34 @@ from viewers.figures._shared import apply_common_layout
 from viewers.figures.standard_saddle import build_standard_saddle
 from viewers.figures.cantilever_leaf import build_cantilever_leaf
 from viewers.figures.beam_supported_saddle import build_beam_supported_saddle
+from viewers.figures.cantilever_hypar import build_cantilever_hypar
 
 
 # =============================================================================
 # FIGURE REGISTRY
 # =============================================================================
-# Maps variant_key to the builder function that draws it.
-# Add a new entry here when a new variant gets its own figure file.
 
 FIGURE_REGISTRY = {
     "standard_saddle": build_standard_saddle,
     "cantilever_leaf": build_cantilever_leaf,
     "frame_supported_saddle": build_beam_supported_saddle,
+    "cantilever_hypar": build_cantilever_hypar,
 }
 
 
 # =============================================================================
 # WORKSHOP PREFIX MAP
 # =============================================================================
-# The active workshop writes two strings under its own prefix:
-#   ws_<prefix>_viewer_description
-#   ws_<prefix>_viewer_dimensions
-# They are drawn onto the figure so a screenshot of the chart
-# captures them.
 
 VARIANT_PREFIX = {
     "cantilever_leaf": "ws_sl_",
     "standard_saddle": "ws_ss_",
     "frame_supported_saddle": "ws_bs_",
+    "cantilever_hypar": "ws_ch_",
 }
 
 AMBER = "#f39c12"
 
-# Matches the legend font size set in apply_common_layout().
 ANNOTATION_FONT_SIZE = 8
 
 
@@ -79,13 +64,7 @@ ANNOTATION_FONT_SIZE = 8
 # =============================================================================
 
 def _add_viewer_strings(fig, variant_key):
-    """
-    Draw the workshop's description and dimensions strings inside the
-    plot area, bottom-centre, amber, just above the legend.
-
-    Uses paper coordinates (xref='paper', yref='paper') so the text
-    stays anchored to the chart frame regardless of the data range.
-    """
+    """Draw the workshop's description and dimensions strings inside the plot."""
     prefix = VARIANT_PREFIX.get(variant_key)
     if not prefix:
         return
@@ -96,8 +75,6 @@ def _add_viewer_strings(fig, variant_key):
     if not desc and not dims:
         return
 
-    # Y positions in paper coords. Legend sits at the very bottom of
-    # the plot area. We stack the two lines just above the legend.
     y_desc = 0.055
     y_dims = 0.010
 
@@ -107,14 +84,8 @@ def _add_viewer_strings(fig, variant_key):
             xref="paper", yref="paper",
             x=0.5, y=y_desc,
             showarrow=False,
-            font=dict(
-                color=AMBER,
-                size=ANNOTATION_FONT_SIZE,
-                family="sans-serif",
-            ),
-            align="center",
-            xanchor="center",
-            yanchor="bottom",
+            font=dict(color=AMBER, size=ANNOTATION_FONT_SIZE, family="sans-serif"),
+            align="center", xanchor="center", yanchor="bottom",
         )
 
     if dims:
@@ -123,14 +94,8 @@ def _add_viewer_strings(fig, variant_key):
             xref="paper", yref="paper",
             x=0.5, y=y_dims,
             showarrow=False,
-            font=dict(
-                color=AMBER,
-                size=ANNOTATION_FONT_SIZE,
-                family="sans-serif",
-            ),
-            align="center",
-            xanchor="center",
-            yanchor="bottom",
+            font=dict(color=AMBER, size=ANNOTATION_FONT_SIZE, family="sans-serif"),
+            align="center", xanchor="center", yanchor="bottom",
         )
 
 
@@ -139,12 +104,7 @@ def _add_viewer_strings(fig, variant_key):
 # =============================================================================
 
 def generate_results_figure(structure_key, variant_key):
-    """
-    Dispatch to the correct figure builder, then add the workshop's
-    viewer strings as in-plot annotations.
-
-    Falls back to a 'coming soon' placeholder if the variant has no builder.
-    """
+    """Dispatch to the correct figure builder, then add viewer strings."""
     builder = FIGURE_REGISTRY.get(variant_key)
 
     if builder is not None:
@@ -160,3 +120,8 @@ def generate_results_figure(structure_key, variant_key):
         font=dict(color=AMBER, size=16),
     )
     return apply_common_layout(fig, 10.0)
+
+
+
+
+
