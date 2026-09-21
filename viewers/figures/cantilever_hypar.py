@@ -1,929 +1,702 @@
 # =============================================================================
-# SDSe Fluid Design Studio - Cantilever Hypar Workshop
+# SDSe - Cantilever Hypar Figure Builder
 # =============================================================================
-# Input page for the Cantilever Hypar variant.
+# Builds the 3D figure for the Cantilever Hypar variant.
+# Called by viewers/results_viewer.py dispatcher.
 #
-# Sibling of Cantilever Leaf. Same column. Same five arrangement
-# modes. Different mother object: an asymmetric four-cornered
-# saddle canopy cantilevered out sideways from the column.
+# MEMBRANE-FIRST PRINCIPLE (per engine/PRINCIPLES_membrane.md):
+#   1. Four corners A, B, C, D are the membrane's only supports.
+#   2. The cable IS the membrane's edge. There is no separate
+#      straight cable line. The cable follows the SAME concave
+#      inward curve as the fabric edge.
+#   3. The membrane touches the arm and ribs only at the four
+#      corners.
 #
-# Geometry (from SPEC_cantilever_hypar.md):
-#   - Straight vertical column.
-#   - Arc arm anchored at anchor_fraction of column height, arcing
-#     upward in the middle. Both ends at the same height.
-#   - Diagonal strut from column top to the arm.
-#   - Two rib tips at the ends of an arc that passes through the
-#     arm's midpoint. The arm's midpoint is the LOWEST point of
-#     the arc; the rib tips are the HIGHEST.
-#   - Saddle membrane spanning four corners:
-#       arm anchor end (low), arm tip end (low),
-#       left rib tip (high), right rib tip (high).
-#   - Edge cables follow the concave membrane edges
-#     (per PRINCIPLES_membrane.md).
+# Plan view (X to the right, Y away from viewer):
+#   A = arm anchor end at (0, 0, anchor_z)          LOW
+#   C = arm tip end at (0, reach, anchor_z)          LOW
+#   B = right rib tip                                HIGH
+#   D = left rib tip                                 HIGH
 #
-# Arrangement logic reuses engine/leaf_arrangement.py exactly.
-#
-# Placeholder inputs (see engine/PLACEHOLDERS.md):
-#   ws_ch_column_radius
-#   ws_ch_arm_arc_radius
-#   ws_ch_rib_curve_radius
-#   Membrane edge sag (in the viewer, not a UI input)
+# Rib geometry:
+#   The rib is ONE continuous arc that passes through three points:
+#     P_left  = left rib tip   (at -rib_reach in X)
+#     P_mid   = arm's midpoint (the lowest point of the arc)
+#     P_right = right rib tip  (at +rib_reach in X)
+#   The user inputs BOTH the rib reach and the rib curve radius.
+#   If the given radius cannot reach the given reach, the radius
+#   is adjusted automatically. A warning is stored in session
+#   state but does not block the drawing.
 #
 # History:
 #   2026-09-21 - First build.
-#   2026-09-21 - Rib curve radius added as user input.
-#                Rib is now an arc through three points: left tip,
-#                arm midpoint, right tip. Radius and reach are
-#                both user inputs; the viewer adjusts the radius
-#                if the given reach cannot fit the arc.
+#   2026-09-21 - Edge cable winding corrected.
+#   2026-09-21 - Membrane rebuilt as a saddle with concave edges.
+#   2026-09-21 - Rebuilt around four named corners A, B, C, D.
+#   2026-09-21 - Rib is now one arc through three points
+#                (left tip, arm midpoint, right tip). Radius is a
+#                user input. Cable and membrane edge unified: one
+#                trace, one curve.
 # =============================================================================
 
 import math
 
+import numpy as np
+import plotly.graph_objects as go
+
 import streamlit as st
 
-from data.materials import STEEL_MATERIALS, FABRIC_PROPERTIES
-from data.constants import WIND_SPEEDS
+from viewers.figures._shared import apply_common_layout
+from engine.leaf_arrangement import place_leaves
 
 
 # =============================================================================
-# CSS
+# CONSTANTS
 # =============================================================================
 
-WORKSHOP_CSS = """
-    <style>
-    .ws-breadcrumb {
-        font-size: 0.85rem;
-        color: #a8b8c8;
-        margin-bottom: 1.2rem;
-        letter-spacing: 0.3px;
-    }
-    .ws-breadcrumb .crumb {
-        color: #f39c12;
-        font-weight: 600;
-    }
-    .ws-section {
-        background-color: #121e2e;
-        border: 1px solid #1e2a3a;
-        border-radius: 10px;
-        padding: 1rem 1.2rem;
-        margin-bottom: 0.9rem;
-    }
-    .ws-section-title {
-        color: #f39c12;
-        font-size: 1.05rem;
-        font-weight: 700;
-        margin: 0 0 0.2rem 0;
-        letter-spacing: 0.3px;
-    }
-    .ws-section-help {
-        color: #a8b8c8;
-        font-size: 0.82rem;
-        margin: 0 0 0.8rem 0;
-        line-height: 1.35;
-    }
-    .ws-preview-box {
-        background-color: #0d1620;
-        border-left: 3px solid #3498db;
-        padding: 0.6rem 0.8rem;
-        border-radius: 4px;
-        margin-top: 0.5rem;
-        font-size: 0.85rem;
-        color: #c8d4e0;
-        line-height: 1.5;
-    }
-    .ws-preview-box .num {
-        color: #ffffff;
-        font-weight: 600;
-    }
-    .ws-warning-box {
-        background-color: #4a3a1a;
-        border-left: 3px solid #f39c12;
-        padding: 0.6rem 0.8rem;
-        border-radius: 4px;
-        margin-top: 0.5rem;
-        font-size: 0.85rem;
-        color: #f0f4fa;
-    }
-    .ws-info-box {
-        background-color: #1a2a3a;
-        border-left: 3px solid #4a7a9c;
-        padding: 0.7rem 0.9rem;
-        border-radius: 4px;
-        margin-top: 0.5rem;
-        font-size: 0.85rem;
-        color: #c8d4e0;
-        line-height: 1.5;
-    }
-    </style>
-"""
+TIER_SCALE = 0.75
+TIER_ROTATION_DEG = 45.0
+TIER_RISE_FACTOR = 0.85
+
+# PLACEHOLDER VALUE - replace with FDM result.
+# See engine/PLACEHOLDERS.md.
+EDGE_SAG_FRACTION = 0.12
 
 
 # =============================================================================
-# FABRIC CLASSIFICATION INFO
+# PARAMETER READERS
 # =============================================================================
 
-FABRIC_INFO = {
-    "Type I": "700-800 g/m2. Light tensile structures, tents, shade sails.",
-    "Type II": "900-1000 g/m2. Medium tensile structures.",
-    "Type III": "1050-1200 g/m2. Mid-to-large tensile structures.",
-    "Type IV": "1300-1400 g/m2. Large-span structures, stadiums.",
-    "Type V": "1450-2000 g/m2. Max span, air-supported roofs.",
-}
-
-
-# =============================================================================
-# DEFAULTS
-# =============================================================================
-
-def _init_defaults():
-    defaults = {
-        "ws_ch_object_shape": "hypar",
-
-        # Geometry (real user inputs)
-        "ws_ch_column_height": 10.0,
-        "ws_ch_arm_reach": 6.0,
-        "ws_ch_anchor_fraction": 0.65,
-        "ws_ch_rib_reach": 3.0,
-        "ws_ch_rib_bend_deg": 15.0,
-
-        # Placeholder inputs (see engine/PLACEHOLDERS.md)
-        "ws_ch_column_radius": 0.15,
-        "ws_ch_arm_arc_radius": 4.0,
-        "ws_ch_rib_curve_radius": 6.0,
-
-        # Materials
-        "ws_ch_steel_grade": "S355",
-        "ws_ch_section_family": "CHS",
-        "ws_ch_fabric_type": "PVDF",
-        "ws_ch_fabric_grade": "Type III",
-
-        # Column and strut
-        "ws_ch_column_type": "unipole",
-        "ws_ch_column_preference": "auto",
-        "ws_ch_strut_angle_deg": 42,
-
-        # Ribs
-        "ws_ch_rib_section_family": "CHS",
-        "ws_ch_rib_preference": "auto",
-        "ws_ch_rib_connection": "bolted",
-
-        # Membrane attachment
-        "ws_ch_attachment_type": "kader",
-        "ws_ch_perimeter_cable_type": "6x19",
-        "ws_ch_perimeter_cable_material": "stainless",
-        "ws_ch_membrane_pretension": 2.0,
-
-        # Foundation
-        "ws_ch_soil_bearing": 150.0,
-        "ws_ch_soil_type": "sand",
-        "ws_ch_water_table": 3.0,
-        "ws_ch_foundation_type": "pad",
-        "ws_ch_found_widget_generation": 0,
-
-        # Loads
-        "ws_ch_add_payload": 0.0,
-        "ws_ch_design_standard": "MY",
-
-        # Arrangement
-        "ws_ch_arrangement": "single",
-        "ws_ch_arrangement_count": 4,
-        "ws_ch_arrangement_tiers": 1,
-        "ws_ch_first_leaf_height": 10.0,
-        "ws_ch_leaf_zone_height": 7.0,
-        "ws_ch_num_leaves": 8,
-        "ws_ch_leaf_angular_width": 60.0,
-        "ws_ch_taper_mode": "taper_up",
-        "ws_ch_taper_ratio": 0.88,
-        "ws_ch_last_geometry": None,
-
-        # Viewer strings
-        "ws_ch_viewer_description": "Cantilever Hypar tensile membrane structure",
-        "ws_ch_viewer_dimensions": "",
+def _read_params():
+    """Read all Hypar parameters from session state into one dict."""
+    return {
+        "column_height": float(st.session_state.get("ws_ch_column_height", 10.0)),
+        "arm_reach": float(st.session_state.get("ws_ch_arm_reach", 6.0)),
+        "anchor_fraction": float(st.session_state.get("ws_ch_anchor_fraction", 0.65)),
+        "rib_reach": float(st.session_state.get("ws_ch_rib_reach", 3.0)),
+        "rib_curve_radius": float(st.session_state.get("ws_ch_rib_curve_radius", 6.0)),
+        "column_radius": float(st.session_state.get("ws_ch_column_radius", 0.15)),
+        "arm_arc_radius": float(st.session_state.get("ws_ch_arm_arc_radius", 4.0)),
     }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
+
+
+# =============================================================================
+# RIB ARC THROUGH THREE POINTS
+# =============================================================================
+
+def _arc_through_three_points(P_left, P_mid, P_right, radius, n_pts=40):
+    """
+    Return an array of n_pts points along an arc that passes through
+    P_left, P_mid, P_right. P_mid is the lowest point of the arc;
+    P_left and P_right are the two tips.
+
+    The three points lie in a vertical plane. We fit a circle to
+    them in that plane. If the given radius cannot fit through the
+    three points, we do not use the user's radius directly -- we
+    fit a circle through the three points and return that circle's
+    points. In that case the returned radius differs from the given
+    radius and a warning should be recorded.
+
+    Returns
+    -------
+    pts : ndarray of shape (n_pts, 3)
+    adjusted : bool
+    actual_radius : float
+    """
+    P_left = np.asarray(P_left, dtype=float)
+    P_mid = np.asarray(P_mid, dtype=float)
+    P_right = np.asarray(P_right, dtype=float)
+
+    # The three points define a plane. Set up local 2D coordinates
+    # in that plane. Axis u goes from P_left to P_right. Axis v is
+    # in the plane and perpendicular to u.
+    u_axis = P_right - P_left
+    u_len = float(np.linalg.norm(u_axis))
+    if u_len < 1e-9:
+        return np.array([P_mid] * n_pts), True, 0.0
+    u_axis = u_axis / u_len
+
+    # Use world-up as a reference to build v-axis in the plane
+    world_up = np.array([0.0, 0.0, 1.0])
+    v_axis = world_up - np.dot(world_up, u_axis) * u_axis
+    v_len = float(np.linalg.norm(v_axis))
+    if v_len < 1e-9:
+        # Plane is horizontal; any perpendicular will do
+        v_axis = np.array([0.0, 1.0, 0.0])
+        v_axis = v_axis - np.dot(v_axis, u_axis) * u_axis
+        v_axis = v_axis / float(np.linalg.norm(v_axis))
+    else:
+        v_axis = v_axis / v_len
+
+    origin = P_left
+    p_l = np.array([0.0, np.dot(P_left - origin, v_axis)])
+    p_m = np.array([np.dot(P_mid - origin, u_axis),
+                    np.dot(P_mid - origin, v_axis)])
+    p_r = np.array([u_len, np.dot(P_right - origin, v_axis)])
+
+    # Fit a circle to (0, vl), (xm, vm), (u_len, vr).
+    # The circle passes through all three. Then build the arc.
+    x1, y1 = p_l
+    x2, y2 = p_m
+    x3, y3 = p_r
+
+    d = 2.0 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
+    if abs(d) < 1e-9:
+        # Collinear - fall back to a straight line
+        pts_2d = []
+        for t in np.linspace(0.0, 1.0, n_pts):
+            pts_2d.append(np.array([t * u_len,
+                                     (1.0 - t) * y1 + t * y3]))
+        pts_2d = np.array(pts_2d)
+        adjusted = True
+        actual_r = 0.0
+    else:
+        ux = ((x1 ** 2 + y1 ** 2) * (y2 - y3)
+              + (x2 ** 2 + y2 ** 2) * (y3 - y1)
+              + (x3 ** 2 + y3 ** 2) * (y1 - y2)) / d
+        uy = ((x1 ** 2 + y1 ** 2) * (x3 - x2)
+              + (x2 ** 2 + y2 ** 2) * (x1 - x3)
+              + (x3 ** 2 + y3 ** 2) * (x2 - x1)) / d
+        actual_r = math.sqrt((x1 - ux) ** 2 + (y1 - uy) ** 2)
+
+        # Angles of the three points about the circle centre
+        a_l = math.atan2(y1 - uy, x1 - ux)
+        a_m = math.atan2(y2 - uy, x2 - ux)
+        a_r = math.atan2(y3 - uy, x3 - ux)
+
+        # Unwrap so we sweep continuously from a_l through a_m to a_r
+        def _unwrap(a, ref):
+            while a - ref > math.pi:
+                a -= 2.0 * math.pi
+            while a - ref < -math.pi:
+                a += 2.0 * math.pi
+            return a
+
+        a_m = _unwrap(a_m, a_l)
+        a_r = _unwrap(a_r, a_m)
+
+        pts_2d = []
+        for t in np.linspace(0.0, 1.0, n_pts):
+            a = a_l + t * (a_r - a_l)
+            pts_2d.append(np.array([ux + actual_r * math.cos(a),
+                                     uy + actual_r * math.sin(a)]))
+        pts_2d = np.array(pts_2d)
+        adjusted = abs(actual_r - radius) > 1e-6
+
+    # Convert back to 3D
+    pts_3d = np.zeros((n_pts, 3))
+    for i in range(n_pts):
+        u_coord = pts_2d[i, 0]
+        v_coord = pts_2d[i, 1]
+        pts_3d[i] = origin + u_coord * u_axis + v_coord * v_axis
+
+    return pts_3d, adjusted, actual_r
 
 
 
 
 
 # =============================================================================
-# HELPERS
+# GEOMETRY
 # =============================================================================
 
-def _section_header(title, help_text=""):
-    html = '<div class="ws-section-title">' + title + '</div>'
-    if help_text:
-        html += '<div class="ws-section-help">' + help_text + '</div>'
-    st.markdown(html, unsafe_allow_html=True)
+def _compute_hypar_geometry(p):
+    """
+    Return a dict of arrays and points describing one Hypar mother object.
 
+    Coordinate system:
+      - Origin (0, 0, 0) at base of column.
+      - Column runs vertically up Z.
+      - Arm runs from A (0, 0, anchor_z) outward in +Y to C.
+      - Ribs run left and right in ±X from the arm's midpoint.
+    """
+    col_h = p["column_height"]
+    reach = p["arm_reach"]
+    anchor_frac = p["anchor_fraction"]
+    rib_reach = p["rib_reach"]
+    rib_curve_r = p["rib_curve_radius"]
+    arc_r = p["arm_arc_radius"]
 
-def _info_box(text):
-    st.markdown(
-        '<div class="ws-info-box">' + text + '</div>',
-        unsafe_allow_html=True,
+    anchor_z = col_h * anchor_frac
+
+    # ---- Arm arc: A (0, 0, anchor_z) -> C (0, reach, anchor_z)
+    n_arm = 80
+    t_arm = np.linspace(0.0, 1.0, n_arm)
+    arm_y = reach * t_arm
+    arm_x = np.zeros_like(t_arm)
+
+    arm_rise = arc_r * 0.5
+    arm_z = anchor_z + 4.0 * arm_rise * t_arm * (1.0 - t_arm)
+
+    mid_idx = n_arm // 2
+    mid_x = float(arm_x[mid_idx])
+    mid_y = float(arm_y[mid_idx])
+    mid_z = float(arm_z[mid_idx])
+
+    # ---- Rib arc: one arc through three points
+    #   P_left  = (-rib_reach, mid_y, *  )   left rib tip
+    #   P_mid   = (mid_x,      mid_y, mid_z)  arm's midpoint
+    #   P_right = (+rib_reach, mid_y, *  )   right rib tip
+    # The two tips share the same height, which is what the arc
+    # determines. We do NOT fix the tip height by a fraction; we
+    # let the arc through three points compute it, where the third
+    # point is the arm's midpoint and the two tips sit at the
+    # rib_reach on either side of it.
+    #
+    # The three-point arc is fully determined once we know what
+    # height to place the two tips. Since we only know the reach and
+    # the radius, we solve for the tip height that makes the arc
+    # through (P_left, P_mid, P_right) have the given radius. If
+    # the given radius is smaller than rib_reach, no such height
+    # exists and we fall back to the smallest possible radius that
+    # still passes through the three points, which forces the tips
+    # to sit level with the arm's midpoint (arc becomes a line).
+    #
+    # Since rib_curve_r >= rib_reach for a proper arc:
+    #     tip_height = mid_z + (r - sqrt(r^2 - reach^2))
+    if rib_curve_r >= rib_reach:
+        tip_rise = rib_curve_r - math.sqrt(rib_curve_r ** 2 - rib_reach ** 2)
+        adjusted_radius = rib_curve_r
+        radius_adjusted = False
+    else:
+        # Smallest feasible radius to fit through the points
+        tip_rise = 0.0
+        adjusted_radius = rib_reach
+        radius_adjusted = True
+
+    tip_z = mid_z + tip_rise
+
+    P_left = np.array([-rib_reach, mid_y, tip_z])
+    P_mid = np.array([mid_x, mid_y, mid_z])
+    P_right = np.array([rib_reach, mid_y, tip_z])
+
+    rib_pts, _adjusted_pts, _actual_r = _arc_through_three_points(
+        P_left, P_mid, P_right, rib_curve_r, n_pts=60
     )
 
+    left_rib_x = rib_pts[:, 0]
+    left_rib_y = rib_pts[:, 1]
+    left_rib_z = rib_pts[:, 2]
 
-def _preview_box(text):
-    st.markdown(
-        '<div class="ws-preview-box">' + text + '</div>',
-        unsafe_allow_html=True,
-    )
+    right_rib_x = rib_pts[:, 0]
+    right_rib_y = rib_pts[:, 1]
+    right_rib_z = rib_pts[:, 2]
 
+    # ---- Four membrane corners
+    corner_A = np.array([0.0, 0.0, anchor_z])              # LOW (arm anchor)
+    corner_C = np.array([0.0, reach, anchor_z])             # LOW (arm tip)
+    corner_B = np.array(P_right)                             # HIGH (right rib tip)
+    corner_D = np.array(P_left)                              # HIGH (left rib tip)
 
-def _warning_box(text):
-    st.markdown(
-        '<div class="ws-warning-box">' + text + '</div>',
-        unsafe_allow_html=True,
-    )
+    # ---- Strut from column top to a point on the arm
+    strut_anchor_y = reach * 0.15
+    t_strut = strut_anchor_y / reach
+    strut_anchor_z = anchor_z + 4.0 * arm_rise * t_strut * (1.0 - t_strut)
+    strut_start = (0.0, 0.0, col_h)
+    strut_end = (0.0, strut_anchor_y, strut_anchor_z)
 
-
-def _validate_hypar_geometry(col_h, reach, anchor_frac, rib_reach, rib_curve_r):
-    warnings = []
-    if col_h <= 0:
-        warnings.append("Column height must be greater than 0.")
-    if reach <= 0:
-        warnings.append("Arm reach must be greater than 0.")
-    if anchor_frac < 0.55 or anchor_frac > 0.80:
-        warnings.append("Anchor fraction outside recommended range 0.55 to 0.80.")
-    if rib_reach <= 0:
-        warnings.append("Rib reach must be greater than 0.")
-    if rib_curve_r <= 0:
-        warnings.append("Rib curve radius must be greater than 0.")
-    if reach > col_h * 0.9:
-        warnings.append("Arm reach close to column height. Cantilever arm may be unstable.")
-    if rib_reach > reach * 0.8:
-        warnings.append("Rib reach close to arm reach. Check membrane proportions.")
-    # Geometric feasibility: an arc of radius R drawn through three points
-    # with half-chord = rib_reach requires R >= rib_reach.
-    if rib_curve_r < rib_reach:
-        warnings.append(
-            "Rib curve radius smaller than rib reach. The arc cannot pass "
-            "through the rib tips. Radius will be adjusted by the viewer."
-        )
-    return warnings
+    return {
+        "col_h": col_h,
+        "col_r": p["column_radius"],
+        "anchor_z": anchor_z,
+        "arm_x": arm_x, "arm_y": arm_y, "arm_z": arm_z,
+        "mid": (mid_x, mid_y, mid_z),
+        "rib_pts": rib_pts,
+        "left_tip": P_left,
+        "right_tip": P_right,
+        "strut_start": strut_start,
+        "strut_end": strut_end,
+        "corner_A": corner_A,
+        "corner_B": corner_B,
+        "corner_C": corner_C,
+        "corner_D": corner_D,
+        "rib_radius_adjusted": radius_adjusted,
+        "rib_radius_used": adjusted_radius,
+    }
 
 
 # =============================================================================
-# PUBLIC FUNCTION
+# MEMBRANE EDGE AND SURFACE
 # =============================================================================
 
-def render_saddle_hypar():
-    """Render the Cantilever Hypar workshop."""
-    st.markdown(WORKSHOP_CSS, unsafe_allow_html=True)
-    _init_defaults()
+def _concave_edge(p0, p1, centre, n_pts, sag_frac):
+    """
+    Return n_pts points along the fabric edge from p0 to p1,
+    bowed inward toward the membrane centre by sag_frac of edge length.
 
-    gen = int(st.session_state.get("ws_ch_found_widget_generation", 0))
+    The cable follows this same curve. There is no separate straight
+    line. The cable IS the membrane's edge.
+    """
+    p0 = np.asarray(p0, dtype=float)
+    p1 = np.asarray(p1, dtype=float)
+    centre = np.asarray(centre, dtype=float)
 
-    project_name = st.session_state.get("project_info", {}).get("name", "") or "Untitled Project"
-    client_name = st.session_state.get("project_info", {}).get("client", "") or "Unknown Client"
+    edge_vec = p1 - p0
+    edge_len = float(np.linalg.norm(edge_vec))
+    if edge_len < 1e-9:
+        return [p0.copy() for _ in range(n_pts)]
 
-    st.markdown(
-        '<div class="ws-breadcrumb">'
-        'SDSe Fluid Design Studio / '
-        '<span class="crumb">Cantilever</span>'
-        ' / '
-        '<span class="crumb">Cantilever Hypar</span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    sag = sag_frac * edge_len
+    mid = (p0 + p1) * 0.5
+    inward = centre - mid
+    inward_len = float(np.linalg.norm(inward))
+    if inward_len < 1e-9:
+        inward_dir = np.zeros(3)
+    else:
+        inward_dir = inward / inward_len
 
-    st.markdown(
-        '<div class="ws-section">'
-        '<div class="ws-section-title">' + project_name + '</div>'
-        '<div class="ws-section-help">'
-        'Client: ' + client_name + '  |  Structure: Cantilever Hypar'
-        '</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    pts = []
+    for t in np.linspace(0.0, 1.0, n_pts):
+        base = p0 * (1.0 - t) + p1 * t
+        w = 4.0 * t * (1.0 - t)
+        pts.append(base + inward_dir * sag * w)
+    return pts
 
-    # =========================================================================
-    # SECTION 1 - OBJECT SHAPE
-    # =========================================================================
-    with st.expander("1. Object Shape", expanded=True):
-        _section_header(
-            "Object Shape",
-            "Choose the base object. Hypar is active now."
-        )
 
-        shape_options = ["leaf", "flower", "bell", "hypar"]
-        shape_labels = [
-            "Leaf (coming soon)",
-            "Flower (coming soon)",
-            "Bell (coming soon)",
-            "Hypar",
-        ]
-        shape_choice = st.radio(
-            "Base Object",
-            shape_labels,
-            index=3,
-            key="ws_ch_shape_radio",
-        )
-        st.session_state["ws_ch_object_shape"] = "hypar"
+def _build_membrane_surface(geom, n_u=32, n_v=32):
+    """
+    Build the membrane as a Coons patch bounded by four concave edges.
+    Corners are A, B, C, D in order. Cables run along the same
+    concave edges as the fabric.
+    """
+    A = np.asarray(geom["corner_A"], dtype=float)
+    B = np.asarray(geom["corner_B"], dtype=float)
+    C = np.asarray(geom["corner_C"], dtype=float)
+    D = np.asarray(geom["corner_D"], dtype=float)
 
-        _info_box(
-            "The Cantilever Hypar is a saddle-shaped membrane canopy "
-            "cantilevered out sideways from a column. Its arrangement "
-            "modes are the same as Cantilever Leaf."
-        )
+    centre = (A + B + C + D) * 0.25
 
-    # =========================================================================
-    # SECTION 2 - GEOMETRY
-    # =========================================================================
-    with st.expander("2. Geometry", expanded=False):
-        _section_header(
-            "Geometry",
-            "Overall layout of one Hypar canopy."
-        )
+    n_edge = max(n_u, n_v)
 
-        col1, col2 = st.columns(2)
-        with col1:
-            col_h = st.number_input(
-                "Column Height (m) *",
-                min_value=2.0, max_value=30.0,
-                value=float(st.session_state["ws_ch_column_height"]),
-                step=0.5,
-                key="ws_ch_column_height_input",
+    # Four fabric edges, each concave inward
+    edge_AB = _concave_edge(A, B, centre, n_edge, EDGE_SAG_FRACTION)
+    edge_BC = _concave_edge(B, C, centre, n_edge, EDGE_SAG_FRACTION)
+    edge_CD = _concave_edge(C, D, centre, n_edge, EDGE_SAG_FRACTION)
+    edge_DA = _concave_edge(D, A, centre, n_edge, EDGE_SAG_FRACTION)
+
+    X = np.zeros((n_u, n_v))
+    Y = np.zeros((n_u, n_v))
+    Z = np.zeros((n_u, n_v))
+
+    edge_DC_rev = edge_CD[::-1]
+    edge_AD = edge_DA[::-1]
+
+    for i, u in enumerate(np.linspace(0.0, 1.0, n_u)):
+        P_left = edge_AB[i]
+        P_right = edge_DC_rev[i]
+
+        for j, v in enumerate(np.linspace(0.0, 1.0, n_v)):
+            P_top = edge_AD[j]
+            P_bottom = edge_BC[j]
+
+            S = P_left * (1.0 - v) + P_right * v
+            T = P_top * (1.0 - u) + P_bottom * u
+            corner_term = (
+                A * (1.0 - u) * (1.0 - v)
+                + B * u * (1.0 - v)
+                + D * (1.0 - u) * v
+                + C * u * v
             )
-            st.session_state["ws_ch_column_height"] = col_h
-        with col2:
-            reach = st.number_input(
-                "Arm Reach (m) *",
-                min_value=1.0, max_value=20.0,
-                value=float(st.session_state["ws_ch_arm_reach"]),
-                step=0.5,
-                key="ws_ch_arm_reach_input",
-            )
-            st.session_state["ws_ch_arm_reach"] = reach
+            pt = S + T - corner_term
 
-        col3, col4 = st.columns(2)
-        with col3:
-            anchor_frac = st.slider(
-                "Anchor Height Fraction",
-                min_value=0.55, max_value=0.80,
-                value=float(st.session_state["ws_ch_anchor_fraction"]),
-                step=0.01,
-                key="ws_ch_anchor_frac_slider",
-                help="Height on the column where the arm anchors, as "
-                     "a fraction of column height.",
-            )
-            st.session_state["ws_ch_anchor_fraction"] = anchor_frac
-        with col4:
-            rib_reach = st.number_input(
-                "Rib Reach (m) *",
-                min_value=0.5, max_value=15.0,
-                value=float(st.session_state["ws_ch_rib_reach"]),
-                step=0.5,
-                key="ws_ch_rib_reach_input",
-                help="Horizontal distance from the arm's midpoint to each "
-                     "rib tip.",
-            )
-            st.session_state["ws_ch_rib_reach"] = rib_reach
+            X[i, j] = pt[0]
+            Y[i, j] = pt[1]
+            Z[i, j] = pt[2]
 
-        rib_curve_r = st.number_input(
-            "Rib Curve Radius (m) *",
-            min_value=0.5, max_value=20.0,
-            value=float(st.session_state["ws_ch_rib_curve_radius"]),
-            step=0.5,
-            key="ws_ch_rib_curve_input",
-            help="Radius of the arc that passes through both rib tips "
-                 "and the arm's midpoint. The arm's midpoint is the "
-                 "lowest point of the arc. If this radius cannot reach "
-                 "the given rib reach, it will be adjusted automatically.",
+    return X, Y, Z
+
+
+
+
+
+# =============================================================================
+# MOTHER OBJECT DRAWING
+# =============================================================================
+
+def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
+                       col_h_ref=None, show_legend=False):
+    """Add one Hypar mother object at the given rotation, scale, offset."""
+    theta = math.radians(rot_deg)
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+
+    def _rot(x, y):
+        return x * cos_t - y * sin_t, x * sin_t + y * cos_t
+
+    def _scale_z(z):
+        if col_h_ref is None or col_h_ref <= 0:
+            return z * scale + z_offset
+        return (z - col_h_ref) * scale + col_h_ref + z_offset
+
+    def _transform(pt):
+        xv = pt[0] * scale
+        yv = pt[1] * scale
+        zv = _scale_z(pt[2])
+        xr, yr = _rot(xv, yv)
+        return (xr, yr, zv)
+
+    # ---- Arm
+    ax, ay, az = [], [], []
+    for i in range(len(geom["arm_x"])):
+        xr, yr, zr = _transform(
+            (geom["arm_x"][i], geom["arm_y"][i], geom["arm_z"][i])
         )
-        st.session_state["ws_ch_rib_curve_radius"] = rib_curve_r
+        ax.append(xr); ay.append(yr); az.append(zr)
 
-        _preview_box(
-            'Arm anchor height: <span class="num">'
-            + ("%.2f m" % (col_h * anchor_frac))
-            + '</span> ('
-            + ("%.0f%%" % (anchor_frac * 100))
-            + ' of column)<br>'
-            'Rib reach: <span class="num">'
-            + ("%.2f m" % rib_reach)
-            + '</span>  |  '
-            'Rib arc radius: <span class="num">'
-            + ("%.2f m" % rib_curve_r)
-            + '</span>'
-        )
-
-        warns = _validate_hypar_geometry(col_h, reach, anchor_frac, rib_reach, rib_curve_r)
-        for w in warns:
-            _warning_box(w)
-
-        _info_box(
-            "The membrane surface is not a user input. Its shape is "
-            "determined by the equilibrium of membrane pretension and "
-            "edge cable tension. The viewer approximates the surface "
-            "until the FDM engine lands. See "
-            "engine/PRINCIPLES_membrane.md."
-        )
-
-
-
-
-
-# =========================================================================
-    # SECTION 3 - MATERIALS
-    # =========================================================================
-    with st.expander("3. Materials", expanded=False):
-        _section_header(
-            "Materials",
-            "Steel grade, section family, and fabric."
-        )
-
-        col1, col2 = st.columns(2)
-        with col1:
-            steel_grades = ["S235", "S275", "S355", "S420", "S460"]
-            s_idx = steel_grades.index(st.session_state["ws_ch_steel_grade"])
-            steel = st.selectbox(
-                "Steel Grade",
-                steel_grades,
-                index=s_idx,
-                key="ws_ch_steel_select",
-            )
-            st.session_state["ws_ch_steel_grade"] = steel
-        with col2:
-            section_families = ["CHS", "SHS", "RHS", "I-Beam"]
-            f_idx = section_families.index(st.session_state["ws_ch_section_family"])
-            family = st.selectbox(
-                "Section Family",
-                section_families,
-                index=f_idx,
-                key="ws_ch_family_select",
-            )
-            st.session_state["ws_ch_section_family"] = family
-
-        col3, col4 = st.columns(2)
-        with col3:
-            fabric_types = list(FABRIC_PROPERTIES.keys())
-            ft_idx = fabric_types.index(st.session_state["ws_ch_fabric_type"]) if st.session_state["ws_ch_fabric_type"] in fabric_types else 0
-            fabric_type = st.selectbox(
-                "Fabric Type",
-                fabric_types,
-                index=ft_idx,
-                key="ws_ch_fabric_type_select",
-            )
-            st.session_state["ws_ch_fabric_type"] = fabric_type
-        with col4:
-            grades = [k for k in FABRIC_PROPERTIES.get(fabric_type, {}).keys() if k != "default"]
-            if not grades:
-                grades = ["Type III"]
-            g_idx = grades.index(st.session_state["ws_ch_fabric_grade"]) if st.session_state["ws_ch_fabric_grade"] in grades else 0
-            grade = st.selectbox(
-                "Fabric Grade",
-                grades,
-                index=g_idx,
-                key="ws_ch_fabric_grade_select",
-            )
-            st.session_state["ws_ch_fabric_grade"] = grade
-
-        info_text = FABRIC_INFO.get(
-            st.session_state["ws_ch_fabric_grade"],
-            "Refer to manufacturer datasheet.",
-        )
-        _info_box(
-            "<strong>" + st.session_state["ws_ch_fabric_grade"]
-            + " Fabric</strong><br>" + info_text
-        )
-
-    # =========================================================================
-    # SECTION 4 - COLUMN AND STRUT
-    # =========================================================================
-    with st.expander("4. Column and Strut", expanded=False):
-        _section_header(
-            "Column and Strut",
-            "The vertical column and the diagonal strut that triangulates "
-            "the arm into the column."
-        )
-
-        col_types = ["unipole", "truss"]
-        col_labels = ["Uni-Pole Column", "Truss Column"]
-        ct_idx = col_types.index(st.session_state["ws_ch_column_type"])
-        ct_choice = st.radio(
-            "Column Type",
-            col_labels,
-            index=ct_idx,
-            key="ws_ch_column_type_radio",
-        )
-        st.session_state["ws_ch_column_type"] = col_types[col_labels.index(ct_choice)]
-
-        col_pref = st.radio(
-            "Column Section Preference",
-            ["Auto-select", "User-specified"],
-            index=0,
-            key="ws_ch_col_pref_radio",
-        )
-        st.session_state["ws_ch_column_preference"] = "auto" if col_pref == "Auto-select" else "manual"
-
-        _preview_box(
-            "The diagonal strut runs from the column top down to a "
-            "computed anchor point on the arm. The intersection point "
-            "is calculated by the engine (geometry intersection for "
-            "now, mechanics optimum when the structural engine lands)."
-        )
-
-        _info_box(
-            "Column base is a rigid baseplate. Torsion and moment are "
-            "resisted by the baseplate."
-        )
-
-    # =========================================================================
-    # SECTION 5 - RIBS
-    # =========================================================================
-    with st.expander("5. Ribs", expanded=False):
-        _section_header(
-            "Ribs",
-            "One continuous arc through the arm's midpoint and both rib tips."
-        )
-
-        col1, col2 = st.columns(2)
-        with col1:
-            rib_families = ["CHS", "SHS", "RHS"]
-            rf_idx = rib_families.index(st.session_state["ws_ch_rib_section_family"])
-            rib_fam = st.selectbox(
-                "Rib Section Family",
-                rib_families,
-                index=rf_idx,
-                key="ws_ch_rib_family_select",
-            )
-            st.session_state["ws_ch_rib_section_family"] = rib_fam
-        with col2:
-            rib_pref = st.radio(
-                "Rib Section Preference",
-                ["Auto-select", "User-specified"],
-                index=0,
-                key="ws_ch_rib_pref_radio",
-            )
-            st.session_state["ws_ch_rib_preference"] = "auto" if rib_pref == "Auto-select" else "manual"
-
-        conn_options = ["bolted", "welded"]
-        conn_labels = ["Bolted Cleat / Gusset", "Welded"]
-        c_idx = conn_options.index(st.session_state["ws_ch_rib_connection"])
-        conn_choice = st.radio(
-            "Rib-to-Arm Connection",
-            conn_labels,
-            index=c_idx,
-            key="ws_ch_rib_conn_radio",
-        )
-        st.session_state["ws_ch_rib_connection"] = conn_options[conn_labels.index(conn_choice)]
-
-        _info_box(
-            "The two rib tips and the arm's midpoint form the three "
-            "points of a single symmetric arc. The midpoint is the "
-            "lowest point; the tips are the highest. This curvature "
-            "pairs with the arm's own curvature to form the saddle."
-        )
-
-    # =========================================================================
-    # SECTION 6 - MEMBRANE ATTACHMENT AND PERIMETER CABLE
-    # =========================================================================
-    with st.expander("6. Membrane Attachment and Perimeter Cable", expanded=False):
-        _section_header(
-            "Membrane Attachment and Perimeter Cable",
-            "How the fabric is attached, and how the perimeter cable runs."
-        )
-
-        attach_options = ["kader", "segmented"]
-        attach_labels = [
-            "Kader Guider (continuous)",
-            "Segmented Edge (discrete)",
-        ]
-        at_idx = attach_options.index(st.session_state["ws_ch_attachment_type"])
-        at_choice = st.radio(
-            "Fabric Attachment Method",
-            attach_labels,
-            index=at_idx,
-            key="ws_ch_attach_radio",
-        )
-        st.session_state["ws_ch_attachment_type"] = attach_options[attach_labels.index(at_choice)]
-
-        _info_box(
-            "<strong>Membrane Boundary</strong><br>"
-            "The membrane spans four corners: the arm anchor, the arm "
-            "tip, and the two rib tips. Its four edges are cable-"
-            "supported and curve inward under equilibrium. The cable "
-            "follows the same concave curve as the fabric edge. This "
-            "is the SDSe form-finding principle "
-            "(engine/PRINCIPLES_membrane.md)."
-        )
-
-        col1, col2 = st.columns(2)
-        with col1:
-            pc_types = ["6x19", "Locked Coil", "Spiral"]
-            pc_idx = pc_types.index(st.session_state["ws_ch_perimeter_cable_type"])
-            pc_type = st.selectbox(
-                "Perimeter Cable Type",
-                pc_types,
-                index=pc_idx,
-                key="ws_ch_pc_type_select",
-            )
-            st.session_state["ws_ch_perimeter_cable_type"] = pc_type
-        with col2:
-            pc_mats = ["stainless", "galvanised"]
-            pc_mat_labels = ["Stainless Steel", "Galvanised Steel"]
-            pc_idx2 = pc_mats.index(st.session_state["ws_ch_perimeter_cable_material"])
-            pc_mat = st.selectbox(
-                "Perimeter Cable Material",
-                pc_mat_labels,
-                index=pc_idx2,
-                key="ws_ch_pc_mat_select",
-            )
-            st.session_state["ws_ch_perimeter_cable_material"] = pc_mats[pc_mat_labels.index(pc_mat)]
-
-        _preview_box(
-            "Perimeter cable diameter is selected automatically by the engine."
-        )
-
-        mem_pre = st.slider(
-            "Membrane Pretension (kN/m)",
-            min_value=0.5, max_value=8.0,
-            value=float(st.session_state["ws_ch_membrane_pretension"]),
-            step=0.1,
-            key="ws_ch_mem_pre_slider",
-        )
-        st.session_state["ws_ch_membrane_pretension"] = mem_pre
-
-
-
-
-
-# =========================================================================
-    # SECTION 7 - BASEPLATE AND PRELIMINARY FOUNDATION
-    # =========================================================================
-    with st.expander("7. Baseplate and Preliminary Foundation", expanded=False):
-        _section_header(
-            "Baseplate and Preliminary Foundation",
-            "Sizing depends on soil at the site."
-        )
-
-        if st.button(
-            "Default",
-            key="ws_ch_found_default",
-        ):
-            st.session_state["ws_ch_soil_bearing"] = 150.0
-            st.session_state["ws_ch_soil_type"] = "sand"
-            st.session_state["ws_ch_water_table"] = 3.0
-            st.session_state["ws_ch_foundation_type"] = "pad"
-            st.session_state["ws_ch_found_widget_generation"] = gen + 1
-            st.rerun()
-
-        col1, col2 = st.columns(2)
-        with col1:
-            bearing = st.number_input(
-                "Soil Bearing Capacity (kN/m2)",
-                min_value=50.0, max_value=1000.0,
-                value=float(st.session_state["ws_ch_soil_bearing"]),
-                step=10.0,
-                key="ws_ch_soil_bearing_input_" + str(gen),
-            )
-            st.session_state["ws_ch_soil_bearing"] = bearing
-        with col2:
-            water = st.number_input(
-                "Water Table Depth (m)",
-                min_value=0.5, max_value=20.0,
-                value=float(st.session_state["ws_ch_water_table"]),
-                step=0.5,
-                key="ws_ch_water_table_input_" + str(gen),
-            )
-            st.session_state["ws_ch_water_table"] = water
-
-        soil_options = ["sand", "clay", "rock", "filled"]
-        soil_labels = ["Sand", "Clay", "Rock", "Filled"]
-        s_idx = soil_options.index(st.session_state["ws_ch_soil_type"])
-        soil_choice = st.selectbox(
-            "Soil Type",
-            soil_labels,
-            index=s_idx,
-            key="ws_ch_soil_type_select_" + str(gen),
-        )
-        st.session_state["ws_ch_soil_type"] = soil_options[soil_labels.index(soil_choice)]
-
-        found_options = ["pad", "pile", "raft"]
-        found_labels = ["Pad Footing", "Pile Group", "Raft"]
-        f_idx = found_options.index(st.session_state["ws_ch_foundation_type"])
-        found_choice = st.selectbox(
-            "Foundation Type",
-            found_labels,
-            index=f_idx,
-            key="ws_ch_found_type_select_" + str(gen),
-        )
-        st.session_state["ws_ch_foundation_type"] = found_options[found_labels.index(found_choice)]
-
-        _warning_box(
-            "Preliminary sizing only. Geotechnical verification required."
-        )
-
-    # =========================================================================
-    # SECTION 8 - LOADS AND DESIGN STANDARD
-    # =========================================================================
-    with st.expander("8. Loads and Design Standard", expanded=False):
-        _section_header(
-            "Loads and Design Standard",
-            "User-added loads. Design code for safety factors."
-        )
-
-        payload = st.number_input(
-            "Add. Pay Load (kg/m)",
-            min_value=0.0, max_value=500.0,
-            value=float(st.session_state["ws_ch_add_payload"]),
-            step=5.0,
-            key="ws_ch_add_payload_input",
-        )
-        st.session_state["ws_ch_add_payload"] = payload
-
-        std_options = ["EU", "MY", "UK", "CN", "US"]
-        std_idx = std_options.index(st.session_state["ws_ch_design_standard"])
-        std = st.selectbox(
-            "Design Standard",
-            std_options,
-            index=std_idx,
-            key="ws_ch_standard_select",
-        )
-        st.session_state["ws_ch_design_standard"] = std
-
-        _preview_box(
-            'Wind speed basis: <span class="num">'
-            + str(WIND_SPEEDS.get(std, 30.0))
-            + ' m/s</span>'
-        )
-
-    # =========================================================================
-    # SECTION 9 - ARRANGEMENT
-    # =========================================================================
-    with st.expander("9. Arrangement", expanded=False):
-        _section_header(
-            "Arrangement",
-            "How the mother object is arranged around the column. "
-            "Identical to Cantilever Leaf."
-        )
-
-        arrangement_options = [
-            "single", "double", "multiple", "tree_stack", "tiered_helix"
-        ]
-        arrangement_labels = [
-            "Single",
-            "Double (mirror)",
-            "Multiple (radial)",
-            "Tree (stacked tiers)",
-            "Tiered Helix (engine)",
-        ]
-        arr_idx = arrangement_options.index(st.session_state["ws_ch_arrangement"])
-        arr_choice = st.radio(
-            "Arrangement",
-            arrangement_labels,
-            index=arr_idx,
-            key="ws_ch_arrangement_radio",
-        )
-        st.session_state["ws_ch_arrangement"] = arrangement_options[arrangement_labels.index(arr_choice)]
-
-        if st.session_state["ws_ch_arrangement"] == "multiple":
-            n_units = st.number_input(
-                "Number of objects around column",
-                min_value=2, max_value=8,
-                value=int(st.session_state["ws_ch_arrangement_count"]),
-                step=1,
-                key="ws_ch_arr_n_input",
-            )
-            st.session_state["ws_ch_arrangement_count"] = n_units
-
-        elif st.session_state["ws_ch_arrangement"] == "tree_stack":
-            n_tiers = st.number_input(
-                "Number of tiers",
-                min_value=1, max_value=3,
-                value=int(st.session_state["ws_ch_arrangement_tiers"]),
-                step=1,
-                key="ws_ch_arr_tiers_input",
-            )
-            st.session_state["ws_ch_arrangement_tiers"] = n_tiers
-
-            _preview_box(
-                "Tier scale factor 0.75. Rotation fixed by engine. "
-                "User only designs the mother object."
-            )
-
-        elif st.session_state["ws_ch_arrangement"] == "tiered_helix":
-            st.session_state["ws_ch_first_leaf_height"] = float(
-                st.session_state.get("ws_ch_column_height", 10.0)
-            )
-
-            lz_h = st.number_input(
-                "Leaf Zone Height (m)",
-                min_value=0.5, max_value=30.0,
-                value=float(st.session_state["ws_ch_leaf_zone_height"]),
-                step=0.5,
-                key="ws_ch_lzh_input",
-            )
-            st.session_state["ws_ch_leaf_zone_height"] = lz_h
-
-            n_lv = st.number_input(
-                "Number of Leaves",
-                min_value=1, max_value=30,
-                value=int(st.session_state["ws_ch_num_leaves"]),
-                step=1,
-                key="ws_ch_num_leaves_input",
-            )
-            st.session_state["ws_ch_num_leaves"] = n_lv
-
-            col_r = st.number_input(
-                "Column Radius (m)",
-                min_value=0.05, max_value=1.00,
-                value=float(st.session_state["ws_ch_column_radius"]),
-                step=0.01,
-                key="ws_ch_col_r_input",
-            )
-            st.session_state["ws_ch_column_radius"] = col_r
-
-            law = st.number_input(
-                "Leaf Angular Width (deg)",
-                min_value=10, max_value=180,
-                value=int(st.session_state["ws_ch_leaf_angular_width"]),
-                step=5,
-                key="ws_ch_law_input",
-            )
-            st.session_state["ws_ch_leaf_angular_width"] = float(law)
-
-            taper_opts = ["full_scale", "taper_up", "taper_down"]
-            taper_labels = ["Full Scale", "Taper Up (smaller at top)", "Taper Down (smaller at bottom)"]
-            t_idx = taper_opts.index(st.session_state["ws_ch_taper_mode"])
-            taper_choice = st.radio(
-                "Scale Mode",
-                taper_labels,
-                index=t_idx,
-                key="ws_ch_taper_mode_radio",
-            )
-            st.session_state["ws_ch_taper_mode"] = taper_opts[taper_labels.index(taper_choice)]
-
-            if st.session_state["ws_ch_taper_mode"] != "full_scale":
-                tr = st.number_input(
-                    "Taper Ratio (per leaf)",
-                    min_value=0.50, max_value=0.99,
-                    value=float(st.session_state["ws_ch_taper_ratio"]),
-                    step=0.01,
-                    key="ws_ch_taper_ratio_input",
-                )
-                st.session_state["ws_ch_taper_ratio"] = tr
-
-            _preview_box(
-                "Bud length = column radius + 0.45 m. "
-                "Helix turns computed by the engine."
-            )
-
-        _info_box(
-            "Arrangement multiplies the mother object around the "
-            "column. Mother geometry is not changed by arrangement."
-        )
-
-    # =========================================================================
-    # VIEWER STRINGS (rebuilt live, read by the Results page)
-    # =========================================================================
-
-    _arr = st.session_state.get("ws_ch_arrangement", "single")
-
-    _col_h = float(st.session_state.get(
-        "ws_ch_column_height_input",
-        st.session_state.get("ws_ch_column_height", 10.0),
+    fig.add_trace(go.Scatter3d(
+        x=ax, y=ay, z=az,
+        mode="lines",
+        line=dict(color="#FF6B6B", width=8),
+        showlegend=show_legend,
+        name="Arm" if show_legend else None,
+        hoverinfo="skip",
     ))
 
-    if _arr == "tiered_helix":
-        _lz_h = float(st.session_state.get(
-            "ws_ch_lzh_input",
-            st.session_state.get("ws_ch_leaf_zone_height", 7.0),
+    # ---- Rib arc (one continuous trace, one arc through three points)
+    rib = geom["rib_pts"]
+    rbx, rby, rbz = [], [], []
+    for i in range(rib.shape[0]):
+        xr, yr, zr = _transform((rib[i, 0], rib[i, 1], rib[i, 2]))
+        rbx.append(xr); rby.append(yr); rbz.append(zr)
+
+    fig.add_trace(go.Scatter3d(
+        x=rbx, y=rby, z=rbz,
+        mode="lines",
+        line=dict(color="#3498db", width=4),
+        showlegend=show_legend,
+        name="Ribs" if show_legend else None,
+        hoverinfo="skip",
+    ))
+
+    # ---- Strut
+    ssx, ssy, ssz = _transform(geom["strut_start"])
+    sex, sey, sez = _transform(geom["strut_end"])
+    fig.add_trace(go.Scatter3d(
+        x=[ssx, sex], y=[ssy, sey], z=[ssz, sez],
+        mode="lines",
+        line=dict(color="#e67e22", width=3),
+        showlegend=show_legend,
+        name="Strut" if show_legend else None,
+        hoverinfo="skip",
+    ))
+
+    # ---- Membrane surface
+    X_m, Y_m, Z_m = _build_membrane_surface(geom)
+    X_rot = np.zeros_like(X_m)
+    Y_rot = np.zeros_like(Y_m)
+    Z_rot = np.zeros_like(Z_m)
+    for i in range(X_m.shape[0]):
+        for j in range(X_m.shape[1]):
+            xr, yr, zr = _transform((X_m[i, j], Y_m[i, j], Z_m[i, j]))
+            X_rot[i, j] = xr
+            Y_rot[i, j] = yr
+            Z_rot[i, j] = zr
+
+    fig.add_trace(go.Surface(
+        x=X_rot, y=Y_rot, z=Z_rot,
+        colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
+        opacity=0.55,
+        showscale=False,
+        hoverinfo="skip",
+    ))
+
+    # ---- Edge cable: ONE trace, following the concave fabric edge.
+    #      The cable IS the membrane's edge. No straight line drawn.
+    A = np.asarray(geom["corner_A"], dtype=float)
+    B = np.asarray(geom["corner_B"], dtype=float)
+    C = np.asarray(geom["corner_C"], dtype=float)
+    D = np.asarray(geom["corner_D"], dtype=float)
+    centre = (A + B + C + D) * 0.25
+
+    cable_pts = []
+    n_per_edge = 16
+    for (p0, p1) in [(A, B), (B, C), (C, D), (D, A)]:
+        pts = _concave_edge(p0, p1, centre, n_per_edge, EDGE_SAG_FRACTION)
+        # Skip the last point to avoid duplicating corners between edges
+        cable_pts.extend(pts[:-1])
+    # Close the loop by returning to A
+    cable_pts.append(A)
+
+    cx, cy, cz = [], [], []
+    for q in cable_pts:
+        xr, yr, zr = _transform(q)
+        cx.append(xr); cy.append(yr); cz.append(zr)
+
+    fig.add_trace(go.Scatter3d(
+        x=cx, y=cy, z=cz,
+        mode="lines",
+        line=dict(color="#f1c40f", width=3),
+        showlegend=show_legend,
+        name="Edge cables" if show_legend else None,
+        hoverinfo="skip",
+    ))
+
+    # ---- Joint marker at the strut's anchor on the arm
+    jx, jy, jz = _transform(geom["strut_end"])
+    fig.add_trace(go.Scatter3d(
+        x=[jx], y=[jy], z=[jz],
+        mode="markers",
+        marker=dict(color="#f1c40f", size=6, symbol="circle"),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+
+# =============================================================================
+# TIERED HELIX ARRANGEMENT
+# =============================================================================
+
+def _add_tiered_helix(fig, geom, col_h_ref):
+    """Place Hypar units along a helix using engine/leaf_arrangement."""
+    first_leaf_height = float(st.session_state.get("ws_ch_first_leaf_height", col_h_ref))
+    leaf_zone_height = float(st.session_state.get("ws_ch_leaf_zone_height", 7.0))
+    num_leaves = int(st.session_state.get("ws_ch_num_leaves", 8))
+    column_radius = float(st.session_state.get("ws_ch_column_radius", 0.15))
+    leaf_angular_width = float(st.session_state.get("ws_ch_leaf_angular_width", 60.0))
+    taper_mode = str(st.session_state.get("ws_ch_taper_mode", "taper_up"))
+    taper_ratio = float(st.session_state.get("ws_ch_taper_ratio", 0.88))
+
+    result = place_leaves(
+        first_leaf_height=first_leaf_height,
+        leaf_zone_height=leaf_zone_height,
+        num_leaves=num_leaves,
+        column_radius=column_radius,
+        leaf_angular_width=leaf_angular_width,
+        scale_mode=taper_mode,
+        taper_ratio=taper_ratio,
+    )
+
+    buds = result["buds"]
+
+    for bud in buds:
+        ax, ay, az = bud["axis_attach"]
+        tx, ty, tz = bud["bud_tip"]
+        fig.add_trace(go.Scatter3d(
+            x=[ax, tx], y=[ay, ty], z=[az, tz],
+            mode="lines",
+            line=dict(color="#f1c40f", width=3),
+            showlegend=False,
+            hoverinfo="skip",
         ))
-        _total_h = _col_h + _lz_h
+
+    for bud in buds:
+        _add_hypar_mother(
+            fig, geom,
+            rot_deg=bud["yaw_deg"],
+            scale=bud["scale"],
+            z_offset=bud["z_attach"] - col_h_ref,
+            col_h_ref=col_h_ref,
+            show_legend=False,
+        )
+
+    return result["meta"]
+
+
+# =============================================================================
+# PUBLIC ENTRY POINT
+# =============================================================================
+
+def build_cantilever_hypar():
+    """Cantilever Hypar: column, arm, ribs, strut, membrane, arrangement."""
+    p = _read_params()
+
+    col_h = p["column_height"]
+    reach = p["arm_reach"]
+
+    if col_h <= 0 or reach <= 0:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Invalid geometry - check inputs",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(color="#f39c12", size=16),
+        )
+        return apply_common_layout(fig, 10.0)
+
+    geom = _compute_hypar_geometry(p)
+
+    # ---- Record rib radius adjustment in session state for the
+    #      workshop to display next run.
+    if geom.get("rib_radius_adjusted", False):
+        st.session_state["ws_ch_rib_radius_adjusted"] = True
+        st.session_state["ws_ch_rib_radius_used"] = geom.get("rib_radius_used", 0.0)
     else:
-        _total_h = _col_h
+        st.session_state["ws_ch_rib_radius_adjusted"] = False
 
-    st.session_state["ws_ch_viewer_description"] = (
-        "Cantilever Hypar tensile membrane structure"
-    )
-    st.session_state["ws_ch_viewer_dimensions"] = (
-        "Total height " + ("%.2f" % _total_h) + " m"
-    )
+    fig = go.Figure()
 
-    # =========================================================================
-    # ACTIONS
-    # =========================================================================
-    st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
+    arrangement = st.session_state.get("ws_ch_arrangement", "single")
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("Back to Registration", key="ws_ch_back", use_container_width=True):
-            st.session_state.page = "registration"
-            st.rerun()
-    with col_b:
-        if st.button(
-            "Intelligent Design Computing",
-            key="ws_ch_run",
-            use_container_width=True,
-            type="primary",
-        ):
-            st.session_state.page = "results"
-            st.rerun()
+    col_top_z = col_h
+    if arrangement == "tiered_helix":
+        fl_h = float(st.session_state.get("ws_ch_first_leaf_height", col_h))
+        lz_h = float(st.session_state.get("ws_ch_leaf_zone_height", 7.0))
+        col_top_z = max(col_h, fl_h + lz_h)
+
+    # ---- Column (straight, green)
+    fig.add_trace(go.Scatter3d(
+        x=[0, 0], y=[0, 0], z=[0, col_top_z],
+        mode="lines",
+        line=dict(color="#2ecc71", width=10),
+        name="Column",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=[0], y=[0], z=[0],
+        mode="markers",
+        marker=dict(color="#2ecc71", size=10, symbol="square"),
+        name="Baseplate",
+    ))
+
+    if arrangement == "single":
+        _add_hypar_mother(fig, geom, 0.0, 1.0, 0.0,
+                          col_h_ref=col_h, show_legend=True)
+
+    elif arrangement == "double":
+        _add_hypar_mother(fig, geom, 0.0, 1.0, 0.0,
+                          col_h_ref=col_h, show_legend=True)
+        _add_hypar_mother(fig, geom, 180.0, 1.0, 0.0,
+                          col_h_ref=col_h, show_legend=False)
+
+    elif arrangement == "multiple":
+        n = int(st.session_state.get("ws_ch_arrangement_count", 4))
+        if n < 2:
+            n = 2
+        step = 360.0 / n
+        for k in range(n):
+            _add_hypar_mother(
+                fig, geom, k * step, 1.0, 0.0,
+                col_h_ref=col_h, show_legend=(k == 0),
+            )
+
+    elif arrangement == "tree_stack":
+        n_tiers = int(st.session_state.get("ws_ch_arrangement_tiers", 1))
+        if n_tiers < 1:
+            n_tiers = 1
+        rise = reach * TIER_RISE_FACTOR
+        for k in range(n_tiers):
+            scale_k = TIER_SCALE ** k
+            z_off = rise * k
+            rot = k * TIER_ROTATION_DEG
+            _add_hypar_mother(
+                fig, geom, rot, scale_k, z_off,
+                col_h_ref=col_h, show_legend=(k == 0),
+            )
+
+    elif arrangement == "tiered_helix":
+        _add_tiered_helix(fig, geom, col_h)
+
+    else:
+        _add_hypar_mother(fig, geom, 0.0, 1.0, 0.0,
+                          col_h_ref=col_h, show_legend=True)
+
+    fig.add_trace(go.Scatter3d(
+        x=[None], y=[None], z=[None],
+        mode="markers",
+        marker=dict(color="#6ab0d4", size=8),
+        name="Membrane",
+    ))
+
+    return apply_common_layout(fig, col_top_z)
 
 
 
