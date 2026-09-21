@@ -13,6 +13,9 @@
 #   - One file per variant (not one giant workshop.py)
 #   - Only variants with specs get their own workshop file
 #   - Variants without a workshop show "Workshop coming soon"
+#
+# History:
+#   2026-09-21 - Cantilever Hypar registered.
 # =============================================================================
 
 import importlib
@@ -41,6 +44,10 @@ VARIANT_REGISTRY = {
         "module": "ui.workshops.saddle_leaf",
         "function": "render_saddle_leaf",
     },
+    "cantilever_hypar": {
+        "module": "ui.workshops.saddle_hypar",
+        "function": "render_saddle_hypar",
+    },
     # Cantilever Flower - not yet built
     "cantilever_flower": {
         "module": None,
@@ -64,7 +71,6 @@ VARIANT_REGISTRY = {
     "cantilever_pyramid": {"module": None, "function": None},
     "cantilever_bell": {"module": None, "function": None},
     "cantilever_sail": {"module": None, "function": None},
-    "cantilever_hypar": {"module": None, "function": None},
     # Canopy family - not yet built
     "wall_mounted_shade": {"module": None, "function": None},
     "cable_supported_shade": {"module": None, "function": None},
@@ -228,8 +234,6 @@ def _render_back_button():
     if st.button("Back to Registration", key="ws_back", use_container_width=True):
         st.session_state.page = "registration"
         st.rerun()
-
-
 
 
 
