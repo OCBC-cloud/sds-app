@@ -8,24 +8,17 @@
 # STRUCTURE_VARIANTS - sub-types under each main type
 # MEMBER_SCHEMA      - members present in each structure + variant
 #
-# Usage:
-#   from data.structures import (
-#       STRUCTURE_TYPES, STRUCTURE_VARIANTS, MEMBER_SCHEMA
-#   )
-#
 # History:
 #   2026-09-13 - Reduced from 27 legacy types to 8 final mains.
 #                Cantilever promoted to a main type.
 #   2026-09-14 - Added MEMBER_SCHEMA for Member Schedule display.
-#                Planar truss (4 members) distinguished from
-#                3D/space truss (5 members).
-#   2026-09-15 - Renamed display names for Saddle Span sub-types:
-#                Standard Saddle  -> Cable Supported Saddle
-#                Frame Supported  -> Beam Supported Saddle
-#                Variant keys unchanged.
-#   2026-09-21 - Cantilever Hypar set available True.
-#                Cantilever Cone, Pyramid, Bell, Sail set available
-#                False until their workshops are built.
+#   2026-09-15 - Renamed display names for Saddle Span sub-types.
+#   2026-09-21 - Cantilever list reduced to two visible entries:
+#                "Cantilever Leaf" and "Cantilever Variants".
+#                The five unbuilt variants (Flower, Cone, Pyramid,
+#                Bell, Sail) remain in the file with available=False
+#                for future reference but are hidden from the
+#                registration page.
 #                Hypar entry added to MEMBER_SCHEMA.
 # =============================================================================
 
@@ -81,9 +74,6 @@ STRUCTURE_TYPES = {
 }
 
 
-
-
-
 STRUCTURE_VARIANTS = {
     "saddle_span": [
         {"key": "standard_saddle",
@@ -99,6 +89,14 @@ STRUCTURE_VARIANTS = {
         {"key": "cantilever_leaf", "name": "Cantilever Leaf",
          "description": "Curved spine and radial ribs. Leaf shape.",
          "available": True},
+        {"key": "cantilever_hypar", "name": "Cantilever Variants",
+         "description": "Leaf, Hypar, and more. Choose inside the workshop.",
+         "available": True},
+
+        # ---- Hidden for now. Not shown on Registration.
+        # Available flag is False so the registration page can filter
+        # them out. They will become reachable from inside the
+        # workshop's Section 1 once that routing is built.
         {"key": "cantilever_flower", "name": "Cantilever Flower",
          "description": "Multi-leaf layered spiral.",
          "available": False},
@@ -114,9 +112,6 @@ STRUCTURE_VARIANTS = {
         {"key": "cantilever_sail", "name": "Cantilever Sail",
          "description": "Column with arm and sail membrane.",
          "available": False},
-        {"key": "cantilever_hypar", "name": "Cantilever Hypar",
-         "description": "Column with arm and hypar membrane.",
-         "available": True},
     ],
     "unipole_tensile": [
         {"key": "single_cone", "name": "Single Cone",
@@ -199,20 +194,8 @@ STRUCTURE_VARIANTS = {
 }
 
 
-
-
-
 # =============================================================================
 # MEMBER SCHEMA
-# =============================================================================
-# Maps (structure_key, variant_key) to the members that appear
-# in the Member Schedule for that structure.
-#
-# Truss expansions:
-#   PLANAR_TRUSS = top, bottom, vertical, diagonal
-#   SPACE_TRUSS  = top, bottom, vertical, horizontal, diagonal
-#
-# IMPORTANT: planar truss is 2D. It has NO horizontal chord.
 # =============================================================================
 
 _PLANAR_TRUSS_ROWS = [
@@ -296,10 +279,7 @@ MEMBER_SCHEMA = {
 
 
 def expand_beam_rows(construction_type):
-    """
-    Return the list of member rows for a beam of the given
-    construction type.
-    """
+    """Return the list of member rows for a beam of the given construction type."""
     if construction_type == "planar_truss":
         return [dict(r) for r in _PLANAR_TRUSS_ROWS]
     if construction_type == "space_truss":
