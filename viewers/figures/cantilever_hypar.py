@@ -24,19 +24,19 @@
 #     P_mid   = arm's midpoint (the lowest point of the arc)
 #     P_right = right rib tip  (at +rib_reach in X)
 #   The user inputs BOTH the rib reach and the rib curve radius.
-#   If the given radius cannot reach the given reach, the radius
-#   is adjusted automatically. A warning is stored in session
-#   state but does not block the drawing.
+#
+# Membrane edge sag:
+#   The user inputs the sag as a percentage (0-30). The fabric
+#   edges bow inward by that fraction of edge length. The cable
+#   follows the same curve.
 #
 # History:
 #   2026-09-21 - First build.
 #   2026-09-21 - Edge cable winding corrected.
 #   2026-09-21 - Membrane rebuilt as a saddle with concave edges.
-#   2026-09-21 - Rebuilt around four named corners A, B, C, D.
-#   2026-09-21 - Rib is now one arc through three points
-#                (left tip, arm midpoint, right tip). Radius is a
-#                user input. Cable and membrane edge unified: one
-#                trace, one curve.
+#   2026-09-21 - Rib is now one arc through three points.
+#   2026-09-21 - Membrane edge sag read from session state as a
+#                percentage, driven by the workshop slider.
 # =============================================================================
 
 import math
@@ -58,9 +58,21 @@ TIER_SCALE = 0.75
 TIER_ROTATION_DEG = 45.0
 TIER_RISE_FACTOR = 0.85
 
+# Default sag fraction when session state has no value.
 # PLACEHOLDER VALUE - replace with FDM result.
 # See engine/PLACEHOLDERS.md.
-EDGE_SAG_FRACTION = 0.12
+DEFAULT_SAG_FRACTION = 0.15
+
+
+def _edge_sag_fraction():
+    """Read membrane edge sag from session state as a fraction."""
+    pct = st.session_state.get("ws_ch_membrane_sag_pct", None)
+    if pct is None:
+        return DEFAULT_SAG_FRACTION
+    try:
+        return max(0.0, float(pct)) / 100.0
+    except (TypeError, ValueError):
+        return DEFAULT_SAG_FRACTION
 
 
 # =============================================================================
@@ -89,39 +101,21 @@ def _arc_through_three_points(P_left, P_mid, P_right, radius, n_pts=40):
     Return an array of n_pts points along an arc that passes through
     P_left, P_mid, P_right. P_mid is the lowest point of the arc;
     P_left and P_right are the two tips.
-
-    The three points lie in a vertical plane. We fit a circle to
-    them in that plane. If the given radius cannot fit through the
-    three points, we do not use the user's radius directly -- we
-    fit a circle through the three points and return that circle's
-    points. In that case the returned radius differs from the given
-    radius and a warning should be recorded.
-
-    Returns
-    -------
-    pts : ndarray of shape (n_pts, 3)
-    adjusted : bool
-    actual_radius : float
     """
     P_left = np.asarray(P_left, dtype=float)
     P_mid = np.asarray(P_mid, dtype=float)
     P_right = np.asarray(P_right, dtype=float)
 
-    # The three points define a plane. Set up local 2D coordinates
-    # in that plane. Axis u goes from P_left to P_right. Axis v is
-    # in the plane and perpendicular to u.
     u_axis = P_right - P_left
     u_len = float(np.linalg.norm(u_axis))
     if u_len < 1e-9:
         return np.array([P_mid] * n_pts), True, 0.0
     u_axis = u_axis / u_len
 
-    # Use world-up as a reference to build v-axis in the plane
     world_up = np.array([0.0, 0.0, 1.0])
     v_axis = world_up - np.dot(world_up, u_axis) * u_axis
     v_len = float(np.linalg.norm(v_axis))
     if v_len < 1e-9:
-        # Plane is horizontal; any perpendicular will do
         v_axis = np.array([0.0, 1.0, 0.0])
         v_axis = v_axis - np.dot(v_axis, u_axis) * u_axis
         v_axis = v_axis / float(np.linalg.norm(v_axis))
@@ -129,24 +123,15 @@ def _arc_through_three_points(P_left, P_mid, P_right, radius, n_pts=40):
         v_axis = v_axis / v_len
 
     origin = P_left
-    p_l = np.array([0.0, np.dot(P_left - origin, v_axis)])
-    p_m = np.array([np.dot(P_mid - origin, u_axis),
-                    np.dot(P_mid - origin, v_axis)])
-    p_r = np.array([u_len, np.dot(P_right - origin, v_axis)])
-
-    # Fit a circle to (0, vl), (xm, vm), (u_len, vr).
-    # The circle passes through all three. Then build the arc.
-    x1, y1 = p_l
-    x2, y2 = p_m
-    x3, y3 = p_r
+    x1, y1 = 0.0, float(np.dot(P_left - origin, v_axis))
+    x2, y2 = float(np.dot(P_mid - origin, u_axis)), float(np.dot(P_mid - origin, v_axis))
+    x3, y3 = u_len, float(np.dot(P_right - origin, v_axis))
 
     d = 2.0 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
     if abs(d) < 1e-9:
-        # Collinear - fall back to a straight line
         pts_2d = []
         for t in np.linspace(0.0, 1.0, n_pts):
-            pts_2d.append(np.array([t * u_len,
-                                     (1.0 - t) * y1 + t * y3]))
+            pts_2d.append(np.array([t * u_len, (1.0 - t) * y1 + t * y3]))
         pts_2d = np.array(pts_2d)
         adjusted = True
         actual_r = 0.0
@@ -159,12 +144,10 @@ def _arc_through_three_points(P_left, P_mid, P_right, radius, n_pts=40):
               + (x3 ** 2 + y3 ** 2) * (x2 - x1)) / d
         actual_r = math.sqrt((x1 - ux) ** 2 + (y1 - uy) ** 2)
 
-        # Angles of the three points about the circle centre
         a_l = math.atan2(y1 - uy, x1 - ux)
         a_m = math.atan2(y2 - uy, x2 - ux)
         a_r = math.atan2(y3 - uy, x3 - ux)
 
-        # Unwrap so we sweep continuously from a_l through a_m to a_r
         def _unwrap(a, ref):
             while a - ref > math.pi:
                 a -= 2.0 * math.pi
@@ -183,17 +166,11 @@ def _arc_through_three_points(P_left, P_mid, P_right, radius, n_pts=40):
         pts_2d = np.array(pts_2d)
         adjusted = abs(actual_r - radius) > 1e-6
 
-    # Convert back to 3D
     pts_3d = np.zeros((n_pts, 3))
     for i in range(n_pts):
-        u_coord = pts_2d[i, 0]
-        v_coord = pts_2d[i, 1]
-        pts_3d[i] = origin + u_coord * u_axis + v_coord * v_axis
+        pts_3d[i] = origin + pts_2d[i, 0] * u_axis + pts_2d[i, 1] * v_axis
 
     return pts_3d, adjusted, actual_r
-
-
-
 
 
 # =============================================================================
@@ -201,15 +178,7 @@ def _arc_through_three_points(P_left, P_mid, P_right, radius, n_pts=40):
 # =============================================================================
 
 def _compute_hypar_geometry(p):
-    """
-    Return a dict of arrays and points describing one Hypar mother object.
-
-    Coordinate system:
-      - Origin (0, 0, 0) at base of column.
-      - Column runs vertically up Z.
-      - Arm runs from A (0, 0, anchor_z) outward in +Y to C.
-      - Ribs run left and right in ±X from the arm's midpoint.
-    """
+    """Return a dict of arrays and points describing one Hypar mother object."""
     col_h = p["column_height"]
     reach = p["arm_reach"]
     anchor_frac = p["anchor_fraction"]
@@ -219,12 +188,11 @@ def _compute_hypar_geometry(p):
 
     anchor_z = col_h * anchor_frac
 
-    # ---- Arm arc: A (0, 0, anchor_z) -> C (0, reach, anchor_z)
+    # ---- Arm arc
     n_arm = 80
     t_arm = np.linspace(0.0, 1.0, n_arm)
     arm_y = reach * t_arm
     arm_x = np.zeros_like(t_arm)
-
     arm_rise = arc_r * 0.5
     arm_z = anchor_z + 4.0 * arm_rise * t_arm * (1.0 - t_arm)
 
@@ -233,33 +201,12 @@ def _compute_hypar_geometry(p):
     mid_y = float(arm_y[mid_idx])
     mid_z = float(arm_z[mid_idx])
 
-    # ---- Rib arc: one arc through three points
-    #   P_left  = (-rib_reach, mid_y, *  )   left rib tip
-    #   P_mid   = (mid_x,      mid_y, mid_z)  arm's midpoint
-    #   P_right = (+rib_reach, mid_y, *  )   right rib tip
-    # The two tips share the same height, which is what the arc
-    # determines. We do NOT fix the tip height by a fraction; we
-    # let the arc through three points compute it, where the third
-    # point is the arm's midpoint and the two tips sit at the
-    # rib_reach on either side of it.
-    #
-    # The three-point arc is fully determined once we know what
-    # height to place the two tips. Since we only know the reach and
-    # the radius, we solve for the tip height that makes the arc
-    # through (P_left, P_mid, P_right) have the given radius. If
-    # the given radius is smaller than rib_reach, no such height
-    # exists and we fall back to the smallest possible radius that
-    # still passes through the three points, which forces the tips
-    # to sit level with the arm's midpoint (arc becomes a line).
-    #
-    # Since rib_curve_r >= rib_reach for a proper arc:
-    #     tip_height = mid_z + (r - sqrt(r^2 - reach^2))
+    # ---- Rib arc through three points
     if rib_curve_r >= rib_reach:
         tip_rise = rib_curve_r - math.sqrt(rib_curve_r ** 2 - rib_reach ** 2)
         adjusted_radius = rib_curve_r
         radius_adjusted = False
     else:
-        # Smallest feasible radius to fit through the points
         tip_rise = 0.0
         adjusted_radius = rib_reach
         radius_adjusted = True
@@ -270,23 +217,15 @@ def _compute_hypar_geometry(p):
     P_mid = np.array([mid_x, mid_y, mid_z])
     P_right = np.array([rib_reach, mid_y, tip_z])
 
-    rib_pts, _adjusted_pts, _actual_r = _arc_through_three_points(
+    rib_pts, _adj, _r = _arc_through_three_points(
         P_left, P_mid, P_right, rib_curve_r, n_pts=60
     )
 
-    left_rib_x = rib_pts[:, 0]
-    left_rib_y = rib_pts[:, 1]
-    left_rib_z = rib_pts[:, 2]
-
-    right_rib_x = rib_pts[:, 0]
-    right_rib_y = rib_pts[:, 1]
-    right_rib_z = rib_pts[:, 2]
-
     # ---- Four membrane corners
-    corner_A = np.array([0.0, 0.0, anchor_z])              # LOW (arm anchor)
-    corner_C = np.array([0.0, reach, anchor_z])             # LOW (arm tip)
-    corner_B = np.array(P_right)                             # HIGH (right rib tip)
-    corner_D = np.array(P_left)                              # HIGH (left rib tip)
+    corner_A = np.array([0.0, 0.0, anchor_z])
+    corner_C = np.array([0.0, reach, anchor_z])
+    corner_B = np.array(P_right)
+    corner_D = np.array(P_left)
 
     # ---- Strut from column top to a point on the arm
     strut_anchor_y = reach * 0.15
@@ -320,13 +259,8 @@ def _compute_hypar_geometry(p):
 # =============================================================================
 
 def _concave_edge(p0, p1, centre, n_pts, sag_frac):
-    """
-    Return n_pts points along the fabric edge from p0 to p1,
-    bowed inward toward the membrane centre by sag_frac of edge length.
-
-    The cable follows this same curve. There is no separate straight
-    line. The cable IS the membrane's edge.
-    """
+    """Return n_pts points along the fabric edge from p0 to p1,
+    bowed inward toward the membrane centre by sag_frac of edge length."""
     p0 = np.asarray(p0, dtype=float)
     p1 = np.asarray(p1, dtype=float)
     centre = np.asarray(centre, dtype=float)
@@ -354,11 +288,9 @@ def _concave_edge(p0, p1, centre, n_pts, sag_frac):
 
 
 def _build_membrane_surface(geom, n_u=32, n_v=32):
-    """
-    Build the membrane as a Coons patch bounded by four concave edges.
-    Corners are A, B, C, D in order. Cables run along the same
-    concave edges as the fabric.
-    """
+    """Build the membrane as a Coons patch bounded by four concave edges."""
+    sag_frac = _edge_sag_fraction()
+
     A = np.asarray(geom["corner_A"], dtype=float)
     B = np.asarray(geom["corner_B"], dtype=float)
     C = np.asarray(geom["corner_C"], dtype=float)
@@ -367,12 +299,10 @@ def _build_membrane_surface(geom, n_u=32, n_v=32):
     centre = (A + B + C + D) * 0.25
 
     n_edge = max(n_u, n_v)
-
-    # Four fabric edges, each concave inward
-    edge_AB = _concave_edge(A, B, centre, n_edge, EDGE_SAG_FRACTION)
-    edge_BC = _concave_edge(B, C, centre, n_edge, EDGE_SAG_FRACTION)
-    edge_CD = _concave_edge(C, D, centre, n_edge, EDGE_SAG_FRACTION)
-    edge_DA = _concave_edge(D, A, centre, n_edge, EDGE_SAG_FRACTION)
+    edge_AB = _concave_edge(A, B, centre, n_edge, sag_frac)
+    edge_BC = _concave_edge(B, C, centre, n_edge, sag_frac)
+    edge_CD = _concave_edge(C, D, centre, n_edge, sag_frac)
+    edge_DA = _concave_edge(D, A, centre, n_edge, sag_frac)
 
     X = np.zeros((n_u, n_v))
     Y = np.zeros((n_u, n_v))
@@ -404,9 +334,6 @@ def _build_membrane_surface(geom, n_u=32, n_v=32):
             Z[i, j] = pt[2]
 
     return X, Y, Z
-
-
-
 
 
 # =============================================================================
@@ -452,7 +379,7 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         hoverinfo="skip",
     ))
 
-    # ---- Rib arc (one continuous trace, one arc through three points)
+    # ---- Rib arc
     rib = geom["rib_pts"]
     rbx, rby, rbz = [], [], []
     for i in range(rib.shape[0]):
@@ -500,8 +427,8 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
         hoverinfo="skip",
     ))
 
-    # ---- Edge cable: ONE trace, following the concave fabric edge.
-    #      The cable IS the membrane's edge. No straight line drawn.
+    # ---- Edge cable: one trace, following the concave fabric edge
+    sag_frac = _edge_sag_fraction()
     A = np.asarray(geom["corner_A"], dtype=float)
     B = np.asarray(geom["corner_B"], dtype=float)
     C = np.asarray(geom["corner_C"], dtype=float)
@@ -511,10 +438,8 @@ def _add_hypar_mother(fig, geom, rot_deg=0.0, scale=1.0, z_offset=0.0,
     cable_pts = []
     n_per_edge = 16
     for (p0, p1) in [(A, B), (B, C), (C, D), (D, A)]:
-        pts = _concave_edge(p0, p1, centre, n_per_edge, EDGE_SAG_FRACTION)
-        # Skip the last point to avoid duplicating corners between edges
+        pts = _concave_edge(p0, p1, centre, n_per_edge, sag_frac)
         cable_pts.extend(pts[:-1])
-    # Close the loop by returning to A
     cable_pts.append(A)
 
     cx, cy, cz = [], [], []
@@ -615,8 +540,6 @@ def build_cantilever_hypar():
 
     geom = _compute_hypar_geometry(p)
 
-    # ---- Record rib radius adjustment in session state for the
-    #      workshop to display next run.
     if geom.get("rib_radius_adjusted", False):
         st.session_state["ws_ch_rib_radius_adjusted"] = True
         st.session_state["ws_ch_rib_radius_used"] = geom.get("rib_radius_used", 0.0)
@@ -633,7 +556,6 @@ def build_cantilever_hypar():
         lz_h = float(st.session_state.get("ws_ch_leaf_zone_height", 7.0))
         col_top_z = max(col_h, fl_h + lz_h)
 
-    # ---- Column (straight, green)
     fig.add_trace(go.Scatter3d(
         x=[0, 0], y=[0, 0], z=[0, col_top_z],
         mode="lines",
