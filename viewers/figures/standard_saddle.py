@@ -160,7 +160,7 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
 
 
 
-def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
+     def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
     fig.add_trace(go.Scatter3d(
         x=x, y=y_beam, z=z_beam,
         mode="lines",
@@ -171,7 +171,7 @@ def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
     ))
 
 
-def build_standard_saddle():
+    def build_standard_saddle():
     """Standard Saddle: two curved beams, membrane, tie-downs, anchors."""
     span = float(st.session_state.get("ws_ss_span", 10.0))
     apex = float(st.session_state.get("ws_ss_apex", 15.0))
@@ -281,7 +281,7 @@ def build_standard_saddle():
 
 
 
-if edge_cables_on:
+    if edge_cables_on:
         fig.add_trace(go.Scatter3d(
             x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
             mode="lines",
