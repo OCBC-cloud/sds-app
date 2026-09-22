@@ -5,25 +5,27 @@
 # Called by viewers/results_viewer.py dispatcher.
 #
 # Tie-down geometry (updated 2026-09-14):
-#   Attach points positioned by ARC-LENGTH fraction along each beam,
-#   measured from the nearest support.
+#   Attach points positioned by ARC-LENGTH fraction along each beam.
 #     4 cables total -> positions 0.175, 0.825 on each beam
 #     8 cables total -> positions 0.175, 0.225, 0.775, 0.825 on each beam
 #
 # Membrane (updated 2026-09-22):
-#   The membrane surface is now form-found using the FDM kernel
-#   (engine/form_finding.py), replacing the placeholder bilinear
-#   patch. The two long edges follow the beams. The two short ends
-#   depend on the attachment setting:
-#     ws_ss_attachment_type == "kader"
-#       The membrane edge is a continuous attachment along the beams.
-#       The short ends are drawn as straight spans between the beam
-#       tips at the beam height. No cable drawn along the ends.
-#     ws_ss_attachment_type == "segmented"
-#       The membrane edge is cable-supported. The short ends are
-#       drawn as concave inward cable curves. A thicker yellow
-#       cable is drawn along the free edge.
-#   In both cases the interior surface is the FDM equilibrium.
+#   The membrane surface is form-found using the FDM kernel
+#   (engine/form_finding.py). The two long edges follow the beams.
+#
+# Attachment method (updated 2026-09-22):
+#   ws_ss_attachment_type controls how the fabric meets the beams:
+#     "kader"      - continuous track line along each beam
+#     "segmented"  - discrete attachment dots at panel boundaries,
+#                    plus seam lines across the membrane.
+#   The number of segments is derived by the viewer from the beam
+#   arc length and ws_ss_max_panel_length.
+#
+# Edge cables (updated 2026-09-22):
+#   ws_ss_edge_cables is an independent toggle. When True, thick
+#   yellow cables are drawn along the two short ends of the
+#   membrane, following the FDM boundary. Corner dots mark where
+#   the cables meet the beams.
 # =============================================================================
 
 import math
@@ -49,15 +51,9 @@ from engine.form_finding import solve_fdm
 def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
                        membrane_pretension, cable_pretension,
                        nx=20, ny=20):
-    """
-    Build the FDM mesh and solve for the membrane shape.
-
-    Returns X, Y, Z surface grids (nx, ny) plus the two short-end
-    boundary arrays (one for each end).
-    """
+    """Build the FDM mesh and solve for the membrane shape."""
     n_pts = len(x)
 
-    # ---- Node grid
     node_xyz = np.zeros((nx, ny, 3))
     for i in range(nx):
         xi = -span / 2.0 + span * i / (nx - 1.0)
@@ -75,7 +71,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             node_xyz[i, j, 1] = y_pos
             node_xyz[i, j, 2] = z_init
 
-    # ---- Flatten
     n_nodes = nx * ny
     points = np.zeros((n_nodes, 3))
     for i in range(nx):
@@ -83,7 +78,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             k = i * ny + j
             points[k] = node_xyz[i, j]
 
-    # ---- Edges
     edges = []
     for i in range(nx):
         for j in range(ny):
@@ -93,13 +87,11 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             if j + 1 < ny:
                 edges.append((k, i * ny + (j + 1)))
 
-    # ---- Fixed nodes: long edges attached to beams
     fixed_indices = []
     for i in range(nx):
         fixed_indices.append(i * ny + 0)
         fixed_indices.append(i * ny + (ny - 1))
 
-    # ---- Approximate average edge length for force density
     L_avg = 1.0
     if len(edges) > 0:
         total_len = 0.0
@@ -117,18 +109,15 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     for k, (a, b) in enumerate(edges):
         ia = a // ny
         ib = b // ny
-        # Short-edge nodes are ia == 0 or ia == nx-1
         if (ia == 0 or ia == nx - 1) or (ib == 0 or ib == nx - 1):
             L_e = float(np.linalg.norm(points[b] - points[a]))
             if L_e < 1e-9:
                 L_e = L_avg
             q[k] = T_cab * 1000.0 / L_e
 
-    # ---- Solve
     res = solve_fdm(points, edges, fixed_indices, q)
     coords = res["coordinates"]
 
-    # ---- Extract surface
     X = np.zeros((nx, ny))
     Y = np.zeros((nx, ny))
     Z = np.zeros((nx, ny))
@@ -149,6 +138,72 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
 
 
 # =============================================================================
+# ATTACHMENT MODE VISUAL
+# =============================================================================
+
+def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
+    """Continuous track line along the beam."""
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y_beam, z=z_beam,
+        mode="lines",
+        line=dict(color="#f39c12", width=2),
+        showlegend=show_legend,
+        name="Kader track" if show_legend else None,
+        hoverinfo="skip",
+    ))
+
+
+def _add_segmented_dots_and_seams(fig, x, z_beam, y_beam,
+                                   s, total, n_seg,
+                                   X_surf, Y_surf, Z_surf,
+                                   is_left_beam,
+                                   show_legend_dots=False,
+                                   show_legend_seams=False):
+    """
+    Segmented mode visual for one beam:
+      - attachment dots at n_seg + 1 evenly spaced positions
+      - seam lines across the membrane at the interior positions
+    """
+    n_boundaries = n_seg + 1
+    fractions = [i / (n_boundaries - 1.0) for i in range(n_boundaries)]
+
+    # Attachment dots along the beam
+    bx, by, bz = [], [], []
+    for frac in fractions:
+        idx = find_index_at_arclength_fraction(s, total, frac)
+        bx.append(x[idx])
+        by.append(y_beam[idx])
+        bz.append(z_beam[idx])
+
+    fig.add_trace(go.Scatter3d(
+        x=bx, y=by, z=bz,
+        mode="markers",
+        marker=dict(color="#f39c12", size=5, symbol="circle"),
+        showlegend=show_legend_dots,
+        name="Segment attachment" if show_legend_dots else None,
+        hoverinfo="skip",
+    ))
+
+    # Seam lines across the membrane (interior fractions only)
+    n_u = X_surf.shape[0]
+    n_v = X_surf.shape[1]
+    for k in range(1, n_boundaries - 1):
+        frac = fractions[k]
+        idx_u = int(frac * (n_u - 1))
+        idx_u = max(0, min(n_u - 1, idx_u))
+        fig.add_trace(go.Scatter3d(
+            x=X_surf[idx_u, :],
+            y=Y_surf[idx_u, :],
+            z=Z_surf[idx_u, :],
+            mode="lines",
+            line=dict(color="#f39c12", width=1, dash="dot"),
+            showlegend=(show_legend_seams and k == 1),
+            name="Seam" if (show_legend_seams and k == 1) else None,
+            hoverinfo="skip",
+        ))
+
+
+# =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
 
@@ -164,6 +219,8 @@ def build_standard_saddle():
     membrane_pre = float(st.session_state.get("ws_ss_membrane_pretension", 2.0))
     cable_pre = float(st.session_state.get("ws_ss_cable_pretension", 5.0))
     attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
+    edge_cables_on = bool(st.session_state.get("ws_ss_edge_cables", True))
+    max_panel = float(st.session_state.get("ws_ss_max_panel_length", 2.5))
 
     if span <= 0 or apex <= 0 or rise <= 0:
         fig = go.Figure()
@@ -185,6 +242,7 @@ def build_standard_saddle():
 
     fig = go.Figure()
 
+    # ---- Beams
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode="lines",
@@ -213,9 +271,30 @@ def build_standard_saddle():
         name="Membrane",
     ))
 
-    # ---- Free edges depend on attachment method
+    # ---- Attachment visual
     if attach_type == "segmented":
-        # Cable-supported: the short ends are concave inward cable curves.
+        arc_len = float(total) if total > 1e-9 else span
+        n_seg = max(2, int(math.ceil(arc_len / max(0.5, max_panel))))
+        _add_segmented_dots_and_seams(
+            fig, x, z_beam, y1, s, total, n_seg,
+            X_surf, Y_surf, Z_surf,
+            is_left_beam=True,
+            show_legend_dots=True,
+            show_legend_seams=True,
+        )
+        _add_segmented_dots_and_seams(
+            fig, x, z_beam, y2, s, total, n_seg,
+            X_surf, Y_surf, Z_surf,
+            is_left_beam=False,
+            show_legend_dots=False,
+            show_legend_seams=False,
+        )
+    else:
+        _add_kader_track(fig, x, z_beam, y1, show_legend=True)
+        _add_kader_track(fig, x, z_beam, y2, show_legend=False)
+
+    # ---- Edge cables (short ends), optional
+    if edge_cables_on:
         fig.add_trace(go.Scatter3d(
             x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
             mode="lines",
@@ -229,55 +308,27 @@ def build_standard_saddle():
             line=dict(color="#f1c40f", width=5),
             showlegend=False,
         ))
-    else:
-        # Kader: continuous attachment. The short ends are straight spans
-        # between the beam tips at the beam height.
-        tip_s_x = -span / 2.0
-        tip_n_x = span / 2.0
-        bz_s = beam_curve(np.array([tip_s_x]), span, rise, curve_type)[0]
-        bz_n = beam_curve(np.array([tip_n_x]), span, rise, curve_type)[0]
-        y_s_l = -base_width * (1.0 - (2.0 * tip_s_x / span) ** 2)
-        y_s_r = base_width * (1.0 - (2.0 * tip_s_x / span) ** 2)
-        y_n_l = -base_width * (1.0 - (2.0 * tip_n_x / span) ** 2)
-        y_n_r = base_width * (1.0 - (2.0 * tip_n_x / span) ** 2)
+
+        corner_xs = [-span / 2.0, span / 2.0, -span / 2.0, span / 2.0]
+        corner_ys = [
+            -base_width * (1.0 - (2.0 * (-span / 2.0) / span) ** 2),
+            base_width * (1.0 - (2.0 * (span / 2.0) / span) ** 2),
+            base_width * (1.0 - (2.0 * (-span / 2.0) / span) ** 2),
+            -base_width * (1.0 - (2.0 * (span / 2.0) / span) ** 2),
+        ]
+        bz_s = float(beam_curve(np.array([-span / 2.0]), span, rise, curve_type)[0])
+        bz_n = float(beam_curve(np.array([span / 2.0]), span, rise, curve_type)[0])
+        corner_zs = [bz_s, bz_n, bz_s, bz_n]
 
         fig.add_trace(go.Scatter3d(
-            x=[tip_s_x, tip_s_x], y=[y_s_l, y_s_r], z=[bz_s, bz_s],
-            mode="lines",
-            line=dict(color="#6ab0d4", width=4),
-            showlegend=True,
-            name="Edge (kader)",
-        ))
-        fig.add_trace(go.Scatter3d(
-            x=[tip_n_x, tip_n_x], y=[y_n_l, y_n_r], z=[bz_n, bz_n],
-            mode="lines",
-            line=dict(color="#6ab0d4", width=4),
+            x=corner_xs, y=corner_ys, z=corner_zs,
+            mode="markers",
+            marker=dict(color="#f1c40f", size=6, symbol="circle"),
             showlegend=False,
+            hoverinfo="skip",
         ))
 
-    # ---- Corner dots at the four beam tips
-    corner_xs = [-span / 2.0, span / 2.0, -span / 2.0, span / 2.0]
-    corner_zs = [
-        beam_curve(np.array([-span / 2.0]), span, rise, curve_type)[0],
-        beam_curve(np.array([span / 2.0]), span, rise, curve_type)[0],
-        beam_curve(np.array([-span / 2.0]), span, rise, curve_type)[0],
-        beam_curve(np.array([span / 2.0]), span, rise, curve_type)[0],
-    ]
-    corner_ys = [
-        -base_width * (1.0 - (2.0 * (-span / 2.0) / span) ** 2),
-        base_width * (1.0 - (2.0 * (span / 2.0) / span) ** 2),
-        base_width * (1.0 - (2.0 * (-span / 2.0) / span) ** 2),
-        -base_width * (1.0 - (2.0 * (span / 2.0) / span) ** 2),
-    ]
-    fig.add_trace(go.Scatter3d(
-        x=corner_xs, y=corner_ys, z=corner_zs,
-        mode="markers",
-        marker=dict(color="#f1c40f", size=6, symbol="circle"),
-        showlegend=False,
-        hoverinfo="skip",
-    ))
-
-    # ---- Tie-down cables -------------------------------------------------
+    # ---- Tie-down cables
     if n_intervals == 4:
         per_beam_fractions = [0.175, 0.825]
     elif n_intervals == 8:
