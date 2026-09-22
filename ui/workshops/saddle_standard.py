@@ -3,29 +3,18 @@
 # =============================================================================
 # Input page for the Standard Saddle variant of the Saddle Span family.
 #
-# Design decisions (agreed 2026-09-14):
-#   - 8 collapsible sections
-#   - Cable diameter is always automatic
-#   - Pretension inputs define TARGET STRESS STATE for form-finding
-#   - Tie-down cables: radio (4 cables / 8 cables)
-#   - Add. Pay Load for user-supplied equipment loads
-#
 # Updated 2026-09-22:
 #   - Section 8 has an independent radio for edge cables (Yes/No).
-#   - Section 8 shows a "Cable Attachment Points per Beam" input
-#     when Segmented is selected. This is a STRUCTURAL input: it
-#     defines how many discrete support points the fabric edge has
-#     along the beam. Between attachment points, the fabric edge
-#     is a short cable segment that bows inward under the cable
-#     pretension from Section 5.
-# Updated 2026-09-20 (morning):
-#   - Viewer-strings block reads widget keys FIRST, session keys second.
-# Updated 2026-09-19 (evening):
-#   - _init_defaults() writes two viewer strings used by the Results
-#     page under the 3D chart.
+#   - Section 8 shows "Cable Attachment Points per Beam" when
+#     Segmented is selected. This is a STRUCTURAL input: how many
+#     discrete support points the fabric edge has along the beam.
+#     Between them, the fabric edge is a short cable segment that
+#     bows inward under the cable pretension from Section 5.
+# Updated 2026-09-20:
+#   - Viewer-strings block reads widget keys FIRST.
+# Updated 2026-09-19:
+#   - _init_defaults() writes two viewer strings.
 # =============================================================================
-
-import math
 
 import streamlit as st
 
@@ -43,30 +32,20 @@ from ui.workshops._shared import (
 )
 
 
-# =============================================================================
-# DEFAULTS
-# =============================================================================
-
 def _init_defaults():
-    """Initialise workshop state on first entry."""
     defaults = {
-        # Section 1 - Geometry
         "ws_ss_span": 10.0,
         "ws_ss_apex": 15.0,
         "ws_ss_rise": 6.2,
         "ws_ss_curve_type": "parabolic",
-        # Section 2 - Materials
         "ws_ss_steel_grade": "S355",
         "ws_ss_section_family": "CHS",
         "ws_ss_fabric_type": "PVDF",
         "ws_ss_fabric_grade": "Type III",
-        # Section 3 - Members
         "ws_ss_member_construction": "single_beam",
         "ws_ss_section_preference": "auto",
-        # Section 4 - Supports
         "ws_ss_support_type_start": "pinned",
         "ws_ss_support_type_end": "pinned",
-        # Section 5 - Tie-down cables + pretension
         "ws_ss_tiedown_intervals": 4,
         "ws_ss_uplift_angle": 45,
         "ws_ss_spread_angle": 30,
@@ -75,20 +54,16 @@ def _init_defaults():
         "ws_ss_anchor_type": "pinned",
         "ws_ss_membrane_pretension": 2.0,
         "ws_ss_cable_pretension": 5.0,
-        # Section 6 - Baseplate and Foundation
         "ws_ss_soil_bearing": 150.0,
         "ws_ss_soil_type": "sand",
         "ws_ss_water_table": 3.0,
         "ws_ss_foundation_type": "pad",
         "ws_ss_found_widget_generation": 0,
-        # Section 7 - Loads
         "ws_ss_add_payload": 0.0,
         "ws_ss_design_standard": "MY",
-        # Section 8 - Attachment
         "ws_ss_attachment_type": "kader",
         "ws_ss_edge_cables": True,
         "ws_ss_cable_attachment_count": 6,
-        # Viewer strings
         "ws_ss_viewer_description": "Standard Saddle Span tensile membrane structure",
         "ws_ss_viewer_dimensions": "",
     }
@@ -96,10 +71,6 @@ def _init_defaults():
         if k not in st.session_state:
             st.session_state[k] = v
 
-
-# =============================================================================
-# HELPERS
-# =============================================================================
 
 def _validate_geometry(span, apex, rise):
     warnings = []
@@ -118,10 +89,6 @@ def _validate_geometry(span, apex, rise):
     return warnings
 
 
-# =============================================================================
-# PUBLIC FUNCTION
-# =============================================================================
-
 def render_saddle_standard():
     """Render the Standard Saddle workshop."""
     st.markdown(WORKSHOP_CSS, unsafe_allow_html=True)
@@ -135,14 +102,9 @@ def render_saddle_standard():
     render_breadcrumb("Saddle Span", "Standard Saddle")
     render_project_header(project_name, client_name, "Standard Saddle Span")
 
-    # =========================================================================
     # SECTION 1 - GEOMETRY
-    # =========================================================================
     with st.expander("1. Geometry", expanded=True):
-        section_header(
-            "Geometry",
-            "Overall dimensions of the saddle span."
-        )
+        section_header("Geometry", "Overall dimensions of the saddle span.")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -190,14 +152,9 @@ def render_saddle_standard():
         for w in warns:
             warning_box(w)
 
-    # =========================================================================
     # SECTION 2 - MATERIALS
-    # =========================================================================
     with st.expander("2. Materials", expanded=False):
-        section_header(
-            "Materials",
-            "Steel grade, section family, and fabric."
-        )
+        section_header("Materials", "Steel grade, section family, and fabric.")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -245,9 +202,11 @@ def render_saddle_standard():
             )
             st.session_state["ws_ss_fabric_grade"] = grade
 
-    # =========================================================================
-    # SECTION 3 - MEMBERS
-    # =========================================================================
+
+
+
+
+# SECTION 3 - MEMBERS
     with st.expander("3. Member Construction", expanded=False):
         section_header(
             "Member Construction",
@@ -276,9 +235,7 @@ def render_saddle_standard():
                 "Engine will auto-select a unified section for chords and webs."
             )
 
-    # =========================================================================
     # SECTION 4 - GROUND SUPPORTS
-    # =========================================================================
     with st.expander("4. Ground Supports", expanded=False):
         section_header(
             "Ground Supports",
@@ -313,9 +270,7 @@ def render_saddle_standard():
                 "The engine will apply the appropriate interaction check."
             )
 
-    # =========================================================================
     # SECTION 5 - TIE-DOWN CABLES AND PRETENSION
-    # =========================================================================
     with st.expander("5. Tie-down Cables and Pretension", expanded=False):
         section_header(
             "Tie-down Cables and Pretension",
@@ -332,8 +287,8 @@ def render_saddle_standard():
             td_labels,
             index=td_idx,
             key="ws_ss_tiedown_radio",
-       .session )
-        st.session_state_state["ws_ss_tiedown_inter["vals"] =ws td_options[td_labels.index_(td_choicess)]
+        )
+        st.session_state["ws_ss_tiedown_intervals"] = td_options[td_labels.index(td_choice)]
 
         col1, col2 = st.columns(2)
         with col1:
@@ -353,7 +308,7 @@ def render_saddle_standard():
                 step=1,
                 key="ws_ss_spread_angle_slider",
             )
-            st_spread_angle"] = spread
+            st.session_state["ws_ss_spread_angle"] = spread
 
         col3, col4 = st.columns(2)
         with col3:
@@ -420,9 +375,11 @@ def render_saddle_standard():
             )
             st.session_state["ws_ss_cable_pretension"] = cab_pre
 
-    # =========================================================================
-    # SECTION 6 - BASEPLATE AND PRELIMINARY FOUNDATION
-    # =========================================================================
+
+
+
+
+# SECTION 6 - BASEPLATE AND PRELIMINARY FOUNDATION
     with st.expander("6. Baseplate and Preliminary Foundation", expanded=False):
         section_header(
             "Baseplate and Preliminary Foundation",
@@ -486,9 +443,7 @@ def render_saddle_standard():
             "Preliminary sizing only. Geotechnical verification required."
         )
 
-    # =========================================================================
     # SECTION 7 - LOADS AND STANDARD
-    # =========================================================================
     with st.expander("7. Loads and Design Standard", expanded=False):
         section_header(
             "Loads and Design Standard",
@@ -520,9 +475,7 @@ def render_saddle_standard():
             + ' m/s</span>'
         )
 
-    # =========================================================================
     # SECTION 8 - MEMBRANE-TO-BEAM ATTACHMENT
-    # =========================================================================
     with st.expander("8. Membrane-to-Beam Attachment", expanded=False):
         section_header(
             "Membrane-to-Beam Attachment",
@@ -557,7 +510,6 @@ def render_saddle_standard():
                 "pretension (Section 5)."
             )
 
-        # ---- Cable attachment points (only visible when Segmented)
         if st.session_state["ws_ss_attachment_type"] == "segmented":
             n_attach = st.number_input(
                 "Cable Attachment Points per Beam",
@@ -572,21 +524,19 @@ def render_saddle_standard():
             st.session_state["ws_ss_cable_attachment_count"] = n_attach
 
             _span_v = float(st.session_state.get("ws_ss_span", 10.0))
-            _rise_v = float(st.session_state.get("ws_ss_rise", 6.2))
             _approx_seg = _span_v / max(1, n_attach)
 
             preview_box(
                 'Attachment points per beam: <span class="num">'
                 + str(n_attach)
                 + '</span><br>'
-                'Approximate spacing between attachments: <span class="num">'
+                + 'Approximate spacing between attachments: <span class="num">'
                 + ("%.2f m" % _approx_seg)
                 + '</span><br>'
-                'Cable bow between attachments is controlled by the '
-                'cable pretension in Section 5.'
+                + 'Cable bow between attachments is controlled by the '
+                + 'cable pretension in Section 5.'
             )
 
-        # ---- Edge cables toggle
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
             '<strong>Edge Cables on the Free Ends</strong>'
@@ -615,10 +565,7 @@ def render_saddle_standard():
                 "spans between the beam tips."
             )
 
-    # =========================================================================
     # VIEWER STRINGS
-    # =========================================================================
-
     _total_h = float(st.session_state.get(
         "ws_ss_rise_input",
         st.session_state.get("ws_ss_rise", 6.2),
@@ -631,9 +578,7 @@ def render_saddle_standard():
         "Total height " + ("%.2f" % _total_h) + " m"
     )
 
-    # =========================================================================
     # ACTIONS
-    # =========================================================================
     st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
 
     col_a, col_b = st.columns(2)
@@ -650,3 +595,8 @@ def render_saddle_standard():
         ):
             st.session_state.page = "results"
             st.rerun()
+
+
+
+
+
