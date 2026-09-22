@@ -11,27 +11,21 @@
 # Attachment method (updated 2026-09-22):
 #   ws_ss_attachment_type controls how the fabric meets the beams:
 #     "kader"      - continuous track line along each beam.
-#                    Every beam-edge node is fixed.
-#     "segmented"  - discrete cable attachment points at evenly
-#                    spaced arc-length fractions along each beam.
+#     "segmented"  - discrete cable attachment points.
 #                    Only the attachment nodes are fixed. Between
-#                    them, the beam-edge nodes are free and form a
-#                    chain of cable edges.
+#                    them, the beam-edge nodes are free and form
+#                    a chain of cable edges.
 #
 # Symmetry (updated 2026-09-22):
-#   nx and ny are odd so that the mid-span and mid-width have a
-#   node on the mirror plane. This makes the FDM solution
-#   symmetric.
+#   nx and ny are odd so the mid-span and mid-width have a node
+#   on the mirror plane.
 #
 # Attachment dots (updated 2026-09-22):
-#   Dots are drawn at the actual fixed mesh nodes, not at the
-#   idealised attachment fraction. This makes the two side
-#   cables meet precisely at each attachment point.
+#   Dots are drawn at the actual fixed mesh nodes.
 #
 # Side-cable stiffness (updated 2026-09-22):
-#   The side cable uses a higher force density than the membrane,
-#   so the fabric edge between attachments stays close to the
-#   beam. The bow is small.
+#   Factor raised from 6.0 to 12.0 to reduce the visible bow
+#   and return the membrane toward a saddle shape.
 #
 # Edge cables (updated 2026-09-22):
 #   ws_ss_edge_cables is an independent toggle.
@@ -58,9 +52,8 @@ from engine.form_finding import solve_fdm
 # =============================================================================
 
 # The side cable is stiffer than the fabric edge. A higher force
-# density keeps the fabric edge close to the beam, with only a
-# small inward bow between attachments.
-SIDE_CABLE_STIFFNESS_FACTOR = 6.0
+# density keeps the fabric edge close to the beam.
+SIDE_CABLE_STIFFNESS_FACTOR = 12.0
 
 
 # =============================================================================
@@ -74,7 +67,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     """Build the FDM mesh and solve for the membrane shape."""
     n_pts = len(x)
 
-    # ---- Node grid
     node_xyz = np.zeros((nx, ny, 3))
     for i in range(nx):
         xi = -span / 2.0 + span * i / (nx - 1.0)
@@ -108,17 +100,14 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             if j + 1 < ny:
                 edges.append((k, i * ny + (j + 1)))
 
-    # ---- Fixed nodes
     if attach_type == "segmented":
         n_attach = max(2, int(n_attach))
-        # Snap attachment fractions to mesh indices
         attach_i = []
         for k in range(n_attach):
             frac = k / (n_attach - 1.0)
             ii = int(round(frac * (nx - 1)))
             ii = max(0, min(nx - 1, ii))
             attach_i.append(ii)
-        # Remove duplicates (possible if n_attach > nx)
         attach_i = sorted(set(attach_i))
 
         fixed_indices = []
@@ -126,13 +115,11 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             fixed_indices.append(i * ny + 0)
             fixed_indices.append(i * ny + (ny - 1))
     else:
-        # kader
         fixed_indices = []
         for i in range(nx):
             fixed_indices.append(i * ny + 0)
             fixed_indices.append(i * ny + (ny - 1))
 
-    # ---- Force densities
     L_avg = 1.0
     if len(edges) > 0:
         total_len = 0.0
@@ -145,7 +132,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     T_mem = max(0.1, float(membrane_pretension))
     T_cab = max(0.1, float(cable_pretension))
     q_mem = T_mem * 1000.0 / L_avg
-    q_side = SIDE_CABLE_STIFFNESS_FACTOR * T_cab * 1000.0 / L_avg
 
     q = np.full(len(edges), q_mem)
     for k, (a, b) in enumerate(edges):
@@ -153,23 +139,20 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         ib = b // ny
         ja = a % ny
         jb = b % ny
-        # Short-end edges always get cable density
         if (ia == 0 or ia == nx - 1) or (ib == 0 or ib == nx - 1):
             L_e = float(np.linalg.norm(points[b] - points[a]))
             if L_e < 1e-9:
                 L_e = L_avg
             q[k] = T_cab * 1000.0 / L_e
-        # In segmented mode, edges along the beam (j=0 or j=ny-1)
-        # get the higher side-cable density.
         elif attach_type == "segmented":
             on_beam = (ja == 0 or ja == ny - 1) and (jb == 0 or jb == ny - 1)
             if on_beam:
                 L_e = float(np.linalg.norm(points[b] - points[a]))
-                if L_e < 1e-9:
-                    L_e = L_avg
-                q[k] = SIDE_CABLE_STIFFNESS_FACTOR * T_cab * 1000.0 / L_e
+                L if L_e < 1e-9:
+                    L_e_e = L_
 
-    res = solve_fdm(points, edges, fixed_indices, q)
+avg
+                q   [k] = SIDE res_CABLE_STIFFNESS_FACTOR * T_cab * 1000.0 / = solve_fdm(points, edges, fixed_indices, q)
     coords = res["coordinates"]
 
     X = np.zeros((nx, ny))
@@ -188,7 +171,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         edge_south[j] = coords[0 * ny + j]
         edge_north[j] = coords[(nx - 1) * ny + j]
 
-    # Also return the actual attachment node x-positions
     if attach_type == "segmented":
         attach_i_list = []
         n_attach_int = max(2, int(n_attach))
@@ -258,7 +240,6 @@ def build_standard_saddle():
 
     fig = go.Figure()
 
-    # ---- Beams
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode="lines",
@@ -272,7 +253,6 @@ def build_standard_saddle():
         name="Beam R",
     ))
 
-    # ---- FDM membrane
     X_surf, Y_surf, Z_surf, edge_south, edge_north, attach_i_list = _build_saddle_fdm(
         x, z_beam, y1, y2, span, apex,
         membrane_pre, cable_pre,
@@ -288,10 +268,7 @@ def build_standard_saddle():
         name="Membrane",
     ))
 
-    # ---- Attachment visual
     if attach_type == "segmented":
-        n_ny = X_surf.shape[1]
-        # Beam L dots at the actual mesh nodes
         dots_lx = X_surf[attach_i_list, 0].tolist()
         dots_ly = Y_surf[attach_i_list, 0].tolist()
         dots_lz = Z_surf[attach_i_list, 0].tolist()
@@ -304,7 +281,6 @@ def build_standard_saddle():
             hoverinfo="skip",
         ))
 
-        # Beam R dots at the actual mesh nodes
         dots_rx = X_surf[attach_i_list, -1].tolist()
         dots_ry = Y_surf[attach_i_list, -1].tolist()
         dots_rz = Z_surf[attach_i_list, -1].tolist()
@@ -316,7 +292,6 @@ def build_standard_saddle():
             hoverinfo="skip",
         ))
 
-        # Side cables along the FDM edges
         fig.add_trace(go.Scatter3d(
             x=X_surf[:, 0], y=Y_surf[:, 0], z=Z_surf[:, 0],
             mode="lines",
@@ -336,7 +311,6 @@ def build_standard_saddle():
         _add_kader_track(fig, x, z_beam, y1, show_legend=True)
         _add_kader_track(fig, x, z_beam, y2, show_legend=False)
 
-    # ---- Edge cables (short ends)
     if edge_cables_on:
         fig.add_trace(go.Scatter3d(
             x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
@@ -352,7 +326,6 @@ def build_standard_saddle():
             showlegend=False,
         ))
 
-    # ---- Tie-down cables
     if n_intervals == 4:
         per_beam_fractions = [0.175, 0.825]
     elif n_intervals == 8:
