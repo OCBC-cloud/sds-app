@@ -3,48 +3,26 @@
 # =============================================================================
 # Input page for the Standard Saddle variant of the Saddle Span family.
 #
-# Per engine/SPEC_saddle_span.md, this variant is:
-#   Two curved edge beams converging to two ground support points.
-#   Membrane stretched between. Classic hypar form.
-#
 # Design decisions (agreed 2026-09-14):
 #   - 8 collapsible sections
-#   - Shared CSS and helpers from ui/workshops/_shared.py
 #   - Cable diameter is always automatic
-#   - Foundation section with a small "Default" button above the inputs
 #   - Pretension inputs define TARGET STRESS STATE for form-finding
 #   - Tie-down cables: radio (4 cables / 8 cables)
-#   - "Add. Pay Load" for user-supplied equipment loads
-#   - Back to Registration at bottom
-#   - "Intelligent Design Computing" advances to Results
-#
-# Tie-down positions (arc-length fraction per beam, from nearest support):
-#   4 cables total -> 0.175, 0.825
-#   8 cables total -> 0.175, 0.225, 0.775, 0.825
-#
-# Silent load rules (engine applies, Phase C):
-#   Self weight       gamma_G = 1.2
-#   Wind uplift       gamma_Q = -1.4
-#   Wind downward     gamma_Q = +1.4
-#   Add. Pay Load     gamma_Q = 1.5 (per country standard)
-#
-# Widget reset technique (2026-09-14):
-#   Streamlit caches widget values under the widget key and refuses
-#   to let us reset a widget in place. The workaround is to change
-#   the widget KEY each time we want a fresh render. A counter in
-#   session state drives this. The user sees only the values change.
+#   - Add. Pay Load for user-supplied equipment loads
 #
 # Updated 2026-09-22:
-#   - Section 8 now has a separate radio for edge cables on the
-#     free ends (Yes/No). Independent of the attachment method.
-#     The viewer reads ws_ss_edge_cables to decide whether to draw
-#     short-end cables.
+#   - Section 8 has an independent radio for edge cables (Yes/No).
+#   - Section 8 shows a max-panel-length input when Segmented is
+#     selected. The engine computes the segment count from the
+#     beam arc length and the max panel length.
 # Updated 2026-09-20 (morning):
 #   - Viewer-strings block reads widget keys FIRST, session keys second.
 # Updated 2026-09-19 (evening):
 #   - _init_defaults() writes two viewer strings used by the Results
 #     page under the 3D chart.
 # =============================================================================
+
+import math
 
 import streamlit as st
 
@@ -99,7 +77,6 @@ def _init_defaults():
         "ws_ss_soil_type": "sand",
         "ws_ss_water_table": 3.0,
         "ws_ss_foundation_type": "pad",
-        # Widget key generation counter (bumped by the Default button)
         "ws_ss_found_widget_generation": 0,
         # Section 7 - Loads
         "ws_ss_add_payload": 0.0,
@@ -107,7 +84,8 @@ def _init_defaults():
         # Section 8 - Attachment
         "ws_ss_attachment_type": "kader",
         "ws_ss_edge_cables": True,
-        # ---- Viewer strings for the Results page (below the 3D chart)
+        "ws_ss_max_panel_length": 2.5,
+        # Viewer strings
         "ws_ss_viewer_description": "Standard Saddle Span tensile membrane structure",
         "ws_ss_viewer_dimensions": "",
     }
@@ -121,7 +99,6 @@ def _init_defaults():
 # =============================================================================
 
 def _validate_geometry(span, apex, rise):
-    """Return list of warning messages for geometry issues."""
     warnings = []
     if span <= 0:
         warnings.append("Span must be greater than 0.")
@@ -136,6 +113,29 @@ def _validate_geometry(span, apex, rise):
         elif ratio > 0.5:
             warnings.append("Rise / Span ratio is very high. Check anchor capacity.")
     return warnings
+
+
+def _beam_arc_length(span, rise, curve_type):
+    """Approximate arc length of a beam curve by numerical integration."""
+    n = 100
+    xs = [(-span / 2.0) + (span * i / n) for i in range(n + 1)]
+    total = 0.0
+    for i in range(n):
+        x0 = xs[i]
+        x1 = xs[i + 1]
+        if curve_type == "parabolic":
+            z0 = rise * (1.0 - (2.0 * x0 / span) ** 2)
+            z1 = rise * (1.0 - (2.0 * x1 / span) ** 2)
+        elif curve_type == "circular":
+            z0 = rise * (1.0 - (2.0 * x0 / span) ** 2)
+            z1 = rise * (1.0 - (2.0 * x1 / span) ** 2)
+        else:
+            z0 = rise * (1.0 - (2.0 * x0 / span) ** 2)
+            z1 = rise * (1.0 - (2.0 * x1 / span) ** 2)
+        dx = x1 - x0
+        dz = z1 - z0
+        total += math.sqrt(dx * dx + dz * dz)
+    return total
 
 
 # =============================================================================
@@ -161,8 +161,7 @@ def render_saddle_standard():
     with st.expander("1. Geometry", expanded=True):
         section_header(
             "Geometry",
-            "Overall dimensions of the saddle span. Span is the long dimension. "
-            "Apex-to-Apex is the width. Rise is the vertical height of the beam apex."
+            "Overall dimensions of the saddle span."
         )
 
         col1, col2 = st.columns(2)
@@ -217,7 +216,7 @@ def render_saddle_standard():
     with st.expander("2. Materials", expanded=False):
         section_header(
             "Materials",
-            "Steel grade for beams and cables. Fabric type and grade for the membrane."
+            "Steel grade, section family, and fabric."
         )
 
         col1, col2 = st.columns(2)
@@ -340,8 +339,7 @@ def render_saddle_standard():
     with st.expander("5. Tie-down Cables and Pretension", expanded=False):
         section_header(
             "Tie-down Cables and Pretension",
-            "Structural cables from each beam down to ground anchors. "
-            "They resist wind uplift and stabilise the structure."
+            "Structural cables from each beam down to ground anchors."
         )
 
         td_options = [4, 8]
@@ -353,7 +351,6 @@ def render_saddle_standard():
             td_labels,
             index=td_idx,
             key="ws_ss_tiedown_radio",
-            help="Total tie-down cables for the structure. 4 = 2 per side, 8 = 4 per side.",
         )
         st.session_state["ws_ss_tiedown_intervals"] = td_options[td_labels.index(td_choice)]
 
@@ -365,7 +362,6 @@ def render_saddle_standard():
                 value=int(st.session_state["ws_ss_uplift_angle"]),
                 step=1,
                 key="ws_ss_uplift_angle_slider",
-                help="Vertical angle of the cable from beam to ground anchor.",
             )
             st.session_state["ws_ss_uplift_angle"] = uplift
         with col2:
@@ -375,7 +371,6 @@ def render_saddle_standard():
                 value=int(st.session_state["ws_ss_spread_angle"]),
                 step=1,
                 key="ws_ss_spread_angle_slider",
-                help="Horizontal spread of the anchor from the beam.",
             )
             st.session_state["ws_ss_spread_angle"] = spread
 
@@ -415,10 +410,7 @@ def render_saddle_standard():
 
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
-            '<strong>Pretension (Target Stress State)</strong> - '
-            'These values define the target stress state for the form-finding '
-            'engine. The engine will solve for the geometry that is in '
-            'equilibrium with these target values.'
+            '<strong>Pretension (Target Stress State)</strong>'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -431,7 +423,6 @@ def render_saddle_standard():
                 value=float(st.session_state["ws_ss_membrane_pretension"]),
                 step=0.1,
                 key="ws_ss_mem_pre_slider",
-                help="Target membrane stress. Typical range: 1.0 to 4.0 kN/m.",
             )
             st.session_state["ws_ss_membrane_pretension"] = mem_pre
         with col6:
@@ -441,14 +432,8 @@ def render_saddle_standard():
                 value=float(st.session_state["ws_ss_cable_pretension"]),
                 step=0.5,
                 key="ws_ss_cab_pre_slider",
-                help="Target cable tension. Typical range: 5 to 20 kN for 6x19 galvanised.",
             )
             st.session_state["ws_ss_cable_pretension"] = cab_pre
-
-        preview_box(
-            "Cable diameter is selected automatically by the engine "
-            "based on the computed tension under the target stress state."
-        )
 
     # =========================================================================
     # SECTION 6 - BASEPLATE AND PRELIMINARY FOUNDATION
@@ -456,18 +441,8 @@ def render_saddle_standard():
     with st.expander("6. Baseplate and Preliminary Foundation", expanded=False):
         section_header(
             "Baseplate and Preliminary Foundation",
-            "The beam-to-ground supports transfer load to the ground. "
-            "Preliminary foundation sizing depends on the soil at the site."
+            "Sizing depends on soil at the site."
         )
-
-        info_box(
-            "<strong>Support Base and Anchors</strong><br>"
-            "Support baseplate dimensions and anchor bolt size and count are "
-            "auto-selected by the engine based on the support reaction "
-            "(axial + shear + moment). No input required."
-        )
-
-        st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
 
         if st.button(
             "Default",
@@ -488,7 +463,6 @@ def render_saddle_standard():
                 value=float(st.session_state["ws_ss_soil_bearing"]),
                 step=10.0,
                 key="ws_ss_soil_bearing_input_" + str(gen),
-                help="From geotechnical investigation. Typical: sand 150, clay 100, rock 500.",
             )
             st.session_state["ws_ss_soil_bearing"] = bearing
         with col2:
@@ -524,10 +498,7 @@ def render_saddle_standard():
         st.session_state["ws_ss_foundation_type"] = found_options[found_labels.index(found_choice)]
 
         warning_box(
-            "<strong>Note:</strong> Preliminary foundation sizing only. "
-            "Geotechnical verification required. Footing reinforcement and "
-            "detailing are not provided by this app. Engage a geotechnical "
-            "engineer to confirm."
+            "Preliminary sizing only. Geotechnical verification required."
         )
 
     # =========================================================================
@@ -536,7 +507,7 @@ def render_saddle_standard():
     with st.expander("7. Loads and Design Standard", expanded=False):
         section_header(
             "Loads and Design Standard",
-            "User-added loads on the beam. Design code for safety factors."
+            "User-added loads. Design code for safety factors."
         )
 
         payload = st.number_input(
@@ -545,7 +516,6 @@ def render_saddle_standard():
             value=float(st.session_state["ws_ss_add_payload"]),
             step=5.0,
             key="ws_ss_add_payload_input",
-            help="Additional user load from equipment, stage rigging, sound, or lighting systems.",
         )
         st.session_state["ws_ss_add_payload"] = payload
 
@@ -571,8 +541,7 @@ def render_saddle_standard():
     with st.expander("8. Membrane-to-Beam Attachment", expanded=False):
         section_header(
             "Membrane-to-Beam Attachment",
-            "How the fabric edge is attached to the curved beams, and "
-            "whether edge cables are drawn along the free ends."
+            "How the fabric meets the beams, and how the free ends are supported."
         )
 
         attach_options = ["kader", "segmented"]
@@ -591,20 +560,46 @@ def render_saddle_standard():
 
         if st.session_state["ws_ss_attachment_type"] == "kader":
             preview_box(
-                "The fabric edge is continuously held in a track (keder) along the beam. "
-                "Tension is distributed evenly along the beam length. "
-                "No further inputs required."
+                "The fabric edge is continuously held in a track (keder) along "
+                "the beam. Tension is distributed evenly along the beam length."
             )
         else:
             info_box(
                 "<strong>Segmented Edge Attachment</strong><br>"
-                "Segment boundaries and edge cable geometry are determined by "
-                "the form-finding engine, following the membrane natural edge. "
-                "This matches industry practice (Easy, RFEM, RhinoMembrane). "
-                "No fixed spacing input required."
+                "The fabric is cut into panels and attached at discrete points "
+                "along the beam. The engine derives the number of panels from "
+                "the beam arc length and the maximum panel length below."
             )
 
-        # ---- Independent toggle: edge cables on the free ends
+        # ---- Max panel length (only visible when Segmented)
+        if st.session_state["ws_ss_attachment_type"] == "segmented":
+            max_panel = st.number_input(
+                "Maximum Panel Length (m)",
+                min_value=1.0, max_value=10.0,
+                value=float(st.session_state["ws_ss_max_panel_length"]),
+                step=0.5,
+                key="ws_ss_max_panel_input",
+                help="The fabric is cut into panels no longer than this. "
+                     "The number of attachment points follows from it.",
+            )
+            st.session_state["ws_ss_max_panel_length"] = max_panel
+
+            _span_v = float(st.session_state.get("ws_ss_span", 10.0))
+            _rise_v = float(st.session_state.get("ws_ss_rise", 6.2))
+            _curve_v = st.session_state.get("ws_ss_curve_type", "parabolic")
+            _arc = _beam_arc_length(_span_v, _rise_v, _curve_v)
+            _n_seg = max(2, int(math.ceil(_arc / max(0.5, max_panel))))
+
+            preview_box(
+                'Beam arc length: <span class="num">'
+                + ("%.2f m" % _arc)
+                + '</span><br>'
+                'Panels per beam: <span class="num">'
+                + str(_n_seg)
+                + '</span>'
+            )
+
+        # ---- Edge cables toggle
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
             '<strong>Edge Cables on the Free Ends</strong>'
@@ -625,8 +620,7 @@ def render_saddle_standard():
         if st.session_state["ws_ss_edge_cables"]:
             preview_box(
                 "Cables are drawn along the two free ends of the membrane, "
-                "bowing inward under the membrane tension. Four corner "
-                "markers are shown where the cables meet the beams."
+                "bowing inward under the membrane tension."
             )
         else:
             preview_box(
@@ -635,7 +629,7 @@ def render_saddle_standard():
             )
 
     # =========================================================================
-    # VIEWER STRINGS (rebuilt live, read by the Results page)
+    # VIEWER STRINGS
     # =========================================================================
 
     _total_h = float(st.session_state.get(
