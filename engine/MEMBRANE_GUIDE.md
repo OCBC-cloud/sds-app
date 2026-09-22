@@ -813,6 +813,108 @@ the answer is this file.
 
 ---
 
+---
+
+# APPENDIX E — FIRST SUCCESSFUL ENGINE-DRIVEN EDGE BOW
+
+Date: 2026-09-22.
+
+## E.1 What happened
+
+On 2026-09-22 the Cable Supported Saddle viewer was upgraded
+so that the membrane's beam edges are no longer fully fixed.
+In Segmented Edge mode, only the discrete cable attachment
+points are fixed. Between them, the fabric edge is a chain
+of free cable edges with their own force density.
+
+When the FDM kernel solved this mesh, the fabric edge between
+attachment points bowed inward. The bow was not drawn by the
+viewer. It was produced by the solver, from the pretension
+values the user had set.
+
+This is the first time the engine produced a shape the viewer
+could not have drawn by hand.
+
+## E.2 Why it matters
+
+Before this, every shape in every viewer was a geometric
+construction: a bilinear patch, a Coons patch, a formula.
+The shape was drawn.
+
+The bow at the fabric edge is different. It is an equilibrium
+result. It came out of the force balance between:
+
+  - the membrane pretension along the interior edges,
+  - the cable pretension along the boundary cable edges,
+  - the fixed nodes at the attachment points,
+  - the geometry of the beam curves.
+
+Change any of those and the bow changes. That is what an
+engine does.
+
+## E.3 The parameter that controls it
+
+The magnitude of the bow is set by the ratio of the
+side-cable force density to the membrane force density.
+
+In viewers/figures/standard_saddle.py:
+
+    SIDE_CABLE_STIFFNESS_FACTOR = 6.0
+
+The side cable force density is:
+
+    q_side = SIDE_CABLE_STIFFNESS_FACTOR × T_cable × 1000 / L
+
+A higher factor makes the side cable stiffer. The bow gets
+smaller. A lower factor makes the cable softer. The bow gets
+larger.
+
+## E.4 The open tuning question
+
+With factor 6.0, the bow is clearly visible — enough that the
+membrane shape becomes more bulged than a classic hypar. A
+real Cable Supported Saddle Span has an almost straight edge
+along the beam, with only a small inward bow.
+
+The factor will be raised until the bow is small but visible.
+Candidates: 12, then 20 if still too large. The correct value
+is the one that matches what a real structure looks like.
+
+Ultimately this factor is a placeholder. When the structural
+calculation engine lands, the side cable stiffness will come
+from the actual cable EA — a real value from the cable
+catalogue — not from a hand-set multiplier.
+
+## E.5 What this proves about the architecture
+
+The FDM kernel, the mesh layer, the workshop inputs, and the
+viewer are now working together as a chain.
+
+  - The workshop gives the pretensions.
+  - The viewer builds a mesh that reflects the attachment
+    method.
+  - The FDM kernel solves for the equilibrium.
+  - The viewer draws the result.
+  - The user sees a shape that is the consequence of their
+    inputs, not a pre-drawn template.
+
+This is what the engine chain in engine/SPEC_engine_chain.md
+is for. It is the first link to demonstrate it end to end.
+
+## E.6 The lesson
+
+For a membrane with a soft edge (cable-supported), the edge
+shape is not a geometric choice. It is a physical result.
+
+For a membrane with a stiff edge (attached to a rigid member),
+the edge shape follows the member exactly.
+
+The difference between these two cases is the core of SDSe's
+membrane principle, and the FDM kernel respects it.
+
+---
+
+
 End of document.
 
 
