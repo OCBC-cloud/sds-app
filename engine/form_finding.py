@@ -22,27 +22,58 @@
 #   Schek, H.-J. (1974). The force density method for form-finding
 #   and computation of general networks.
 #
-# This is the classical FDM. NFDM (Natural Force Density Method)
-# will be added later as an upgrade, using the same file.
-#
 # Units:
 #   Length: m
 #   Force: N
 #   Force density: N/m
 #
 # History:
-#   2026-09-22 - First build.
-#   2026-09-22 - Hypar saddle test corrected. Original test used a
-#                planar boundary with raised corners, which FDM
-#                resolves to the flat plane through those corners.
-#                A real saddle requires a non-planar boundary:
-#                boundary edges must also curve. New test raises
-#                the boundary edges as concave curves.
+#   2026-09-22 - First build with flat and saddle self-tests.
+#   2026-09-22 - mesh_size_for_span() added. Shared rule for mesh
+#                density, used by all FDM viewers.
 # =============================================================================
 
 import math
 
 import numpy as np
+
+
+# =============================================================================
+# MESH SIZE RULE
+# =============================================================================
+# One node per metre of the span, minimum 21, maximum 100, always odd.
+# Odd numbers put a node on the mirror plane, keeping the FDM solve
+# symmetric for symmetric structures.
+#
+# Minimum 21 keeps a small structure detailed enough to look smooth.
+# Maximum 100 keeps the interactive viewer responsive on a phone.
+
+def mesh_size_for_span(span_m):
+    """
+    Return the recommended mesh size along the given span, in nodes.
+
+    Parameters
+    ----------
+    span_m : float
+        Characteristic span of the surface, in metres.
+
+    Returns
+    -------
+    n : int
+        Odd number of nodes, between 21 and 101.
+    """
+    if span_m is None or span_m <= 0:
+        return 21
+
+    n = int(round(span_m))          # one node per metre
+    if n < 21:
+        n = 21
+    if n > 101:
+        n = 101
+    if n % 2 == 0:
+        n += 1                       # always odd
+
+    return n
 
 
 # =============================================================================
@@ -56,8 +87,7 @@ def solve_fdm(points, edges, fixed_indices, force_densities, loads=None):
     Parameters
     ----------
     points : list of (x, y, z) or (n, 3) array
-        Initial node coordinates. Used to determine which nodes are
-        fixed and as a starting point for free nodes.
+        Initial node coordinates.
     edges : list of (i, j)
         Each edge connects node i to node j.
     fixed_indices : list of int
@@ -67,8 +97,7 @@ def solve_fdm(points, edges, fixed_indices, force_densities, loads=None):
         Otherwise, one value per edge in order.
     loads : (n, 3) array or None
         External load at each node in N. Zero for form-finding
-        under self-weight only.
-        Default: no load.
+        under self-weight only. Default: no load.
 
     Returns
     -------
@@ -155,7 +184,7 @@ def solve_fdm(points, edges, fixed_indices, force_densities, loads=None):
 
 
 # =============================================================================
-# SELF-TEST 1 - Flat mesh stays flat
+# SELF-TESTS
 # =============================================================================
 
 def _test_flat_mesh():
@@ -202,23 +231,6 @@ def _test_flat_mesh():
     }
 
 
-# =============================================================================
-# SELF-TEST 2 - Saddle from non-planar boundary
-# =============================================================================
-# The correct saddle test. The boundary itself must be a
-# non-planar saddle — not just the corners, but the edges
-# between them must also curve. Then the interior forms a
-# true saddle surface.
-#
-# Boundary:
-#   - Two opposite corners at +z = 0.5
-#   - Two opposite corners at -z = 0.5
-#   - The four boundary edges curve smoothly between the
-#     corners, following the shape of a real membrane edge.
-#
-# The interior must sit between the high and low boundaries,
-# with opposite quadrants alternating in sign. That is a saddle.
-
 def _test_hypar_saddle():
     """Verify FDM forms a saddle from a non-planar boundary."""
     nx = 7
@@ -233,20 +245,12 @@ def _test_hypar_saddle():
             y = side * j / (ny - 1.0)
             z = 0.0
 
-            # Corners: opposite pairs alternate
-            # Corner (0,0) and (nx-1, ny-1): +amp
-            # Corner (nx-1, 0) and (0, ny-1): -amp
-            # The boundary edges between corners follow a
-            # hypar-like curve: z = amp * sin(pi * t) * sign.
             on_boundary = (
                 i == 0 or i == nx - 1 or j == 0 or j == ny - 1
             )
             if on_boundary:
-                # Position along x and y in [0, 1]
                 xi = i / (nx - 1.0)
                 yj = j / (ny - 1.0)
-                # A bilinear shape: z = amp * (cos(pi*xi) * cos(pi*yj))
-                # At (0,0): +amp, (1,1): +amp, (1,0): -amp, (0,1): -amp
                 z = corner_amp * math.cos(math.pi * xi) * math.cos(math.pi * yj)
             points.append((x, y, z))
 
@@ -262,7 +266,6 @@ def _test_hypar_saddle():
             b = (j + 1) * nx + i
             edges.append((a, b))
 
-    # Fix all boundary nodes
     fixed = []
     for j in range(ny):
         for i in range(nx):
@@ -273,10 +276,6 @@ def _test_hypar_saddle():
     res = solve_fdm(points, edges, fixed, 1.0)
     coords = res["coordinates"]
 
-    # Check interior nodes. For a real saddle from FDM on a
-    # bilinear boundary, the interior should follow the
-    # bilinear interpolation. Its z-values vary in sign and
-    # in magnitude — that is the saddle.
     interior_zs = []
     for j in range(1, ny - 1):
         for i in range(1, nx - 1):
@@ -286,8 +285,6 @@ def _test_hypar_saddle():
     z_min = float(np.min(interior_zs))
     z_max = float(np.max(interior_zs))
 
-    # Signs matter: the interior must have both positive and
-    # negative z, and the range must be meaningful.
     has_positive = z_max > 1e-3
     has_negative = z_min < -1e-3
     range_ok = (z_max - z_min) > 1e-2
@@ -299,10 +296,6 @@ def _test_hypar_saddle():
         "saddle_ok": has_positive and has_negative and range_ok,
     }
 
-
-# =============================================================================
-# SELF-TEST GATE
-# =============================================================================
 
 def _verify_form_finding():
     """Run all form-finding self-tests. Returns a dict with results."""
@@ -329,10 +322,6 @@ def _verify_form_finding():
 
     return results
 
-
-# =============================================================================
-# ENTRY POINT
-# =============================================================================
 
 if __name__ == "__main__":
     print("engine/form_finding.py - Force Density Method")
