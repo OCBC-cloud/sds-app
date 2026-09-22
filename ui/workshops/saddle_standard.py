@@ -12,9 +12,12 @@
 #
 # Updated 2026-09-22:
 #   - Section 8 has an independent radio for edge cables (Yes/No).
-#   - Section 8 shows a max-panel-length input when Segmented is
-#     selected. The engine computes the segment count from the
-#     beam arc length and the max panel length.
+#   - Section 8 shows a "Cable Attachment Points per Beam" input
+#     when Segmented is selected. This is a STRUCTURAL input: it
+#     defines how many discrete support points the fabric edge has
+#     along the beam. Between attachment points, the fabric edge
+#     is a short cable segment that bows inward under the cable
+#     pretension from Section 5.
 # Updated 2026-09-20 (morning):
 #   - Viewer-strings block reads widget keys FIRST, session keys second.
 # Updated 2026-09-19 (evening):
@@ -84,7 +87,7 @@ def _init_defaults():
         # Section 8 - Attachment
         "ws_ss_attachment_type": "kader",
         "ws_ss_edge_cables": True,
-        "ws_ss_max_panel_length": 2.5,
+        "ws_ss_cable_attachment_count": 6,
         # Viewer strings
         "ws_ss_viewer_description": "Standard Saddle Span tensile membrane structure",
         "ws_ss_viewer_dimensions": "",
@@ -113,29 +116,6 @@ def _validate_geometry(span, apex, rise):
         elif ratio > 0.5:
             warnings.append("Rise / Span ratio is very high. Check anchor capacity.")
     return warnings
-
-
-def _beam_arc_length(span, rise, curve_type):
-    """Approximate arc length of a beam curve by numerical integration."""
-    n = 100
-    xs = [(-span / 2.0) + (span * i / n) for i in range(n + 1)]
-    total = 0.0
-    for i in range(n):
-        x0 = xs[i]
-        x1 = xs[i + 1]
-        if curve_type == "parabolic":
-            z0 = rise * (1.0 - (2.0 * x0 / span) ** 2)
-            z1 = rise * (1.0 - (2.0 * x1 / span) ** 2)
-        elif curve_type == "circular":
-            z0 = rise * (1.0 - (2.0 * x0 / span) ** 2)
-            z1 = rise * (1.0 - (2.0 * x1 / span) ** 2)
-        else:
-            z0 = rise * (1.0 - (2.0 * x0 / span) ** 2)
-            z1 = rise * (1.0 - (2.0 * x1 / span) ** 2)
-        dx = x1 - x0
-        dz = z1 - z0
-        total += math.sqrt(dx * dx + dz * dz)
-    return total
 
 
 # =============================================================================
@@ -339,7 +319,8 @@ def render_saddle_standard():
     with st.expander("5. Tie-down Cables and Pretension", expanded=False):
         section_header(
             "Tie-down Cables and Pretension",
-            "Structural cables from each beam down to ground anchors."
+            "Structural cables from each beam down to ground anchors, "
+            "and the target pretension for the membrane and cables."
         )
 
         td_options = [4, 8]
@@ -351,8 +332,8 @@ def render_saddle_standard():
             td_labels,
             index=td_idx,
             key="ws_ss_tiedown_radio",
-        )
-        st.session_state["ws_ss_tiedown_intervals"] = td_options[td_labels.index(td_choice)]
+       .session )
+        st.session_state_state["ws_ss_tiedown_inter["vals"] =ws td_options[td_labels.index_(td_choicess)]
 
         col1, col2 = st.columns(2)
         with col1:
@@ -372,7 +353,7 @@ def render_saddle_standard():
                 step=1,
                 key="ws_ss_spread_angle_slider",
             )
-            st.session_state["ws_ss_spread_angle"] = spread
+            st_spread_angle"] = spread
 
         col3, col4 = st.columns(2)
         with col3:
@@ -410,7 +391,11 @@ def render_saddle_standard():
 
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
-            '<strong>Pretension (Target Stress State)</strong>'
+            '<strong>Pretension (Target Stress State)</strong><br>'
+            'These values drive the form-finding engine. The membrane '
+            'and cable pretensions together determine the equilibrium '
+            'shape, including how much the fabric edge bows inward '
+            'between attachment points.'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -547,7 +532,7 @@ def render_saddle_standard():
         attach_options = ["kader", "segmented"]
         attach_labels = [
             "Kader Guider (continuous attachment)",
-            "Segmented Edge (discrete attachment)",
+            "Segmented Edge (discrete cable supports)",
         ]
         at_idx = attach_options.index(st.session_state["ws_ss_attachment_type"])
         at_choice = st.radio(
@@ -561,42 +546,44 @@ def render_saddle_standard():
         if st.session_state["ws_ss_attachment_type"] == "kader":
             preview_box(
                 "The fabric edge is continuously held in a track (keder) along "
-                "the beam. Tension is distributed evenly along the beam length."
+                "the beam. No discrete attachment points. No side cables."
             )
         else:
             info_box(
                 "<strong>Segmented Edge Attachment</strong><br>"
-                "The fabric is cut into panels and attached at discrete points "
-                "along the beam. The engine derives the number of panels from "
-                "the beam arc length and the maximum panel length below."
+                "The fabric edge is supported at discrete points along the "
+                "beam. Between any two adjacent points, the fabric edge is "
+                "a short cable segment that bows inward under the cable "
+                "pretension (Section 5)."
             )
 
-        # ---- Max panel length (only visible when Segmented)
+        # ---- Cable attachment points (only visible when Segmented)
         if st.session_state["ws_ss_attachment_type"] == "segmented":
-            max_panel = st.number_input(
-                "Maximum Panel Length (m)",
-                min_value=1.0, max_value=10.0,
-                value=float(st.session_state["ws_ss_max_panel_length"]),
-                step=0.5,
-                key="ws_ss_max_panel_input",
-                help="The fabric is cut into panels no longer than this. "
-                     "The number of attachment points follows from it.",
+            n_attach = st.number_input(
+                "Cable Attachment Points per Beam",
+                min_value=2, max_value=30,
+                value=int(st.session_state["ws_ss_cable_attachment_count"]),
+                step=1,
+                key="ws_ss_cable_attach_input",
+                help="How many discrete cable support points hold the fabric "
+                     "edge along each beam. More points means shorter cable "
+                     "segments between them, and a stiffer edge.",
             )
-            st.session_state["ws_ss_max_panel_length"] = max_panel
+            st.session_state["ws_ss_cable_attachment_count"] = n_attach
 
             _span_v = float(st.session_state.get("ws_ss_span", 10.0))
             _rise_v = float(st.session_state.get("ws_ss_rise", 6.2))
-            _curve_v = st.session_state.get("ws_ss_curve_type", "parabolic")
-            _arc = _beam_arc_length(_span_v, _rise_v, _curve_v)
-            _n_seg = max(2, int(math.ceil(_arc / max(0.5, max_panel))))
+            _approx_seg = _span_v / max(1, n_attach)
 
             preview_box(
-                'Beam arc length: <span class="num">'
-                + ("%.2f m" % _arc)
+                'Attachment points per beam: <span class="num">'
+                + str(n_attach)
                 + '</span><br>'
-                'Panels per beam: <span class="num">'
-                + str(_n_seg)
-                + '</span>'
+                'Approximate spacing between attachments: <span class="num">'
+                + ("%.2f m" % _approx_seg)
+                + '</span><br>'
+                'Cable bow between attachments is controlled by the '
+                'cable pretension in Section 5.'
             )
 
         # ---- Edge cables toggle
@@ -663,8 +650,3 @@ def render_saddle_standard():
         ):
             st.session_state.page = "results"
             st.rerun()
-
-
-
-
-
