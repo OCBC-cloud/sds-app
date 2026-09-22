@@ -6,7 +6,16 @@
 #
 # Membrane (updated 2026-09-22):
 #   The membrane surface is form-found using the FDM kernel
-#   (engine/form_finding.py).
+#   (engine/form_finding.py), then drawn as a TRIANGULATED mesh
+#   (go.Mesh3d). This matches industry practice (RFEM, Easy,
+#   ixCube). Triangular elements are always flat, so the surface
+#   cannot warp or fold, regardless of how the free nodes move.
+#
+# Mesh size rule (updated 2026-09-22):
+#   The mesh density is chosen by engine.mesh_size_for_span():
+#   one node per metre, minimum 21, maximum 101, always odd.
+#   Odd numbers put a node on the mirror plane, keeping the
+#   solve symmetric for symmetric structures.
 #
 # Attachment method (updated 2026-09-22):
 #   ws_ss_attachment_type controls how the fabric meets the beams:
@@ -16,12 +25,7 @@
 #                    them, the beam-edge nodes are free and form
 #                    a chain of cable edges.
 #
-# Symmetry (updated 2026-09-22):
-#   nx and ny are odd so the mid-span and mid-width have a node
-#   on the mirror plane.
-#
-# Side-cable stiffness (updated 2026-09-22):
-#   SIDE_CABLE_STIFFNESS_FACTOR = 12.0
+# Side-cable stiffness: SIDE_CABLE_STIFFNESS_FACTOR = 12.0
 # =============================================================================
 
 import math
@@ -37,7 +41,7 @@ from viewers.figures._shared import (
     arclength_parametrisation,
     find_index_at_arclength_fraction,
 )
-from engine.form_finding import solve_fdm
+from engine.form_finding import solve_fdm, mesh_size_for_span
 
 
 SIDE_CABLE_STIFFNESS_FACTOR = 12.0
@@ -47,6 +51,15 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
                        membrane_pretension, cable_pretension,
                        attach_type, n_attach,
                        nx=21, ny=21):
+    """Build the FDM mesh and solve for the membrane shape.
+
+    Returns
+    -------
+    X, Y, Z : (nx, ny) arrays of node coordinates
+    edge_south, edge_north : (ny, 3) arrays of the two free-end edges
+    attach_i : list of int, the mesh indices that are fixed
+    nx, ny : int, the mesh dimensions actually used
+    """
     n_pts = len(x)
 
     node_xyz = np.zeros((nx, ny, 3))
@@ -154,6 +167,42 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     return X, Y, Z, edge_south, edge_north, attach_i
 
 
+def _grid_to_triangles(X, Y, Z):
+    """Convert a rectangular grid of nodes (nx x ny) into a triangulated
+    mesh suitable for go.Mesh3d.
+
+    Returns
+    -------
+    node_x, node_y, node_z : 1D arrays of node coordinates, flattened
+    tri_i, tri_j, tri_k : lists of triangle indices
+    """
+    nx, ny = X.shape
+
+    node_x = X.reshape(-1)
+    node_y = Y.reshape(-1)
+    node_z = Z.reshape(-1)
+
+    tri_i = []
+    tri_j = []
+    tri_k = []
+
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            a = i * ny + j
+            b = (i + 1) * ny + j
+            c = i * ny + (j + 1)
+            d = (i + 1) * ny + (j + 1)
+
+            tri_i.append(a)
+            tri_j.append(b)
+            tri_k.append(c)
+
+            tri_i.append(b)
+            tri_j.append(d)
+            tri_k.append(c)
+
+    return node_x, node_y, node_z, tri_i, tri_j, tri_k
+
 
 
 
@@ -192,6 +241,11 @@ def build_standard_saddle():
                            font=dict(color="#f39c12", size=16))
         return apply_common_layout(fig, 10.0)
 
+    # ---- Mesh size from the shared rule
+    n_mesh = mesh_size_for_span(span)
+    nx = n_mesh
+    ny = n_mesh
+
     n_pts = 200
     x = np.linspace(-span / 2.0, span / 2.0, n_pts)
     z_beam = beam_curve(x, span, rise, curve_type)
@@ -204,6 +258,7 @@ def build_standard_saddle():
 
     fig = go.Figure()
 
+    # ---- Beams
     fig.add_trace(go.Scatter3d(
         x=x, y=y1, z=z_beam,
         mode="lines",
@@ -217,21 +272,30 @@ def build_standard_saddle():
         name="Beam R",
     ))
 
+    # ---- FDM membrane
     X_surf, Y_surf, Z_surf, edge_south, edge_north, attach_i_list = _build_saddle_fdm(
         x, z_beam, y1, y2, span, apex,
         membrane_pre, cable_pre,
         attach_type, n_attach,
-        nx=21, ny=21,
+        nx=nx, ny=ny,
     )
 
-    fig.add_trace(go.Surface(
-        x=X_surf, y=Y_surf, z=Z_surf,
-        colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
+    # ---- Draw the membrane as a triangulated mesh
+    node_x, node_y, node_z, tri_i, tri_j, tri_k = _grid_to_triangles(
+        X_surf, Y_surf, Z_surf
+    )
+    fig.add_trace(go.Mesh3d(
+        x=node_x, y=node_y, z=node_z,
+        i=tri_i, j=tri_j, k=tri_k,
+        color="#4a7a9c",
         opacity=0.55,
-        showscale=False,
+        flatshading=True,
         name="Membrane",
+        showlegend=False,
+        hoverinfo="skip",
     ))
 
+    # ---- Attachment visual
     if attach_type == "segmented" and len(attach_i_list) > 0:
         dots_lx = X_surf[attach_i_list, 0].tolist()
         dots_ly = Y_surf[attach_i_list, 0].tolist()
@@ -256,6 +320,7 @@ def build_standard_saddle():
             hoverinfo="skip",
         ))
 
+        # Side cables along the free edges of the FDM result
         fig.add_trace(go.Scatter3d(
             x=X_surf[:, 0], y=Y_surf[:, 0], z=Z_surf[:, 0],
             mode="lines",
@@ -275,6 +340,7 @@ def build_standard_saddle():
         _add_kader_track(fig, x, z_beam, y1, show_legend=True)
         _add_kader_track(fig, x, z_beam, y2, show_legend=False)
 
+    # ---- Edge cables on the two short ends
     if edge_cables_on:
         fig.add_trace(go.Scatter3d(
             x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
@@ -290,6 +356,7 @@ def build_standard_saddle():
             showlegend=False,
         ))
 
+    # ---- Tie-down cables
     if n_intervals == 4:
         per_beam_fractions = [0.175, 0.825]
     elif n_intervals == 8:
@@ -339,6 +406,7 @@ def build_standard_saddle():
                 hoverinfo="skip",
             ))
 
+    # ---- Ground supports
     fig.add_trace(go.Scatter3d(
         x=[-span / 2.0, span / 2.0],
         y=[0, 0],
@@ -348,6 +416,7 @@ def build_standard_saddle():
         name="Ground supports",
     ))
 
+    # ---- Legend dummy for tie-downs
     fig.add_trace(go.Scatter3d(
         x=[None], y=[None], z=[None],
         mode="lines",
