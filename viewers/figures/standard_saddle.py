@@ -20,9 +20,6 @@
 #   nx and ny are odd so the mid-span and mid-width have a node
 #   on the mirror plane.
 #
-# Attachment dots (updated 2026-09-22):
-#   Dots are drawn at the actual fixed mesh nodes.
-#
 # Side-cable stiffness (updated 2026-09-22):
 #   SIDE_CABLE_STIFFNESS_FACTOR = 12.0
 # =============================================================================
@@ -159,6 +156,8 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
 
 
 
+
+
 def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
     fig.add_trace(go.Scatter3d(
         x=x, y=y_beam, z=z_beam,
@@ -276,10 +275,7 @@ def build_standard_saddle():
         _add_kader_track(fig, x, z_beam, y1, show_legend=True)
         _add_kader_track(fig, x, z_beam, y2, show_legend=False)
 
-
-
-
-if edge_cables_on:
+    if edge_cables_on:
         fig.add_trace(go.Scatter3d(
             x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
             mode="lines",
@@ -360,6 +356,7 @@ if edge_cables_on:
     ))
 
     return apply_common_layout(fig, rise)
+
 
 
 
