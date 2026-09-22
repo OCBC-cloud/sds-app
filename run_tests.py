@@ -8,6 +8,7 @@
 import sys
 
 from engine.membrane import _verify_mesh_handling
+from engine.form_finding import _verify_form_finding
 
 
 def test_membrane_mesh():
@@ -27,11 +28,30 @@ def test_membrane_mesh():
         return False
 
 
+def test_form_finding():
+    """Run the FDM form-finding test. Returns True if pass."""
+    print("=" * 60)
+    print("TEST: engine/form_finding.py - FDM kernel")
+    print("=" * 60)
+    res = _verify_form_finding()
+    for key, val in res.items():
+        print("  " + str(key) + ": " + str(val))
+    print("-" * 60)
+    if res["pass"]:
+        print("RESULT: PASS")
+        return True
+    else:
+        print("RESULT: FAIL")
+        return False
+
+
 def main():
     all_pass = True
 
     # Add new test calls here as we build more modules
     if not test_membrane_mesh():
+        all_pass = False
+    if not test_form_finding():
         all_pass = False
 
     print()
