@@ -24,11 +24,7 @@
 #   Dots are drawn at the actual fixed mesh nodes.
 #
 # Side-cable stiffness (updated 2026-09-22):
-#   Factor raised from 6.0 to 12.0 to reduce the visible bow
-#   and return the membrane toward a saddle shape.
-#
-# Edge cables (updated 2026-09-22):
-#   ws_ss_edge_cables is an independent toggle.
+#   SIDE_CABLE_STIFFNESS_FACTOR = 12.0
 # =============================================================================
 
 import math
@@ -47,24 +43,13 @@ from viewers.figures._shared import (
 from engine.form_finding import solve_fdm
 
 
-# =============================================================================
-# CONSTANTS
-# =============================================================================
-
-# The side cable is stiffer than the fabric edge. A higher force
-# density keeps the fabric edge close to the beam.
 SIDE_CABLE_STIFFNESS_FACTOR = 12.0
 
-
-# =============================================================================
-# FDM MEMBRANE MESH
-# =============================================================================
 
 def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
                        membrane_pretension, cable_pretension,
                        attach_type, n_attach,
                        nx=21, ny=21):
-    """Build the FDM mesh and solve for the membrane shape."""
     n_pts = len(x)
 
     node_xyz = np.zeros((nx, ny, 3))
@@ -101,20 +86,20 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
                 edges.append((k, i * ny + (j + 1)))
 
     if attach_type == "segmented":
-        n_attach = max(2, int(n_attach))
+        n_attach_int = max(2, int(n_attach))
         attach_i = []
-        for k in range(n_attach):
-            frac = k / (n_attach - 1.0)
+        for k in range(n_attach_int):
+            frac = k / (n_attach_int - 1.0)
             ii = int(round(frac * (nx - 1)))
             ii = max(0, min(nx - 1, ii))
             attach_i.append(ii)
         attach_i = sorted(set(attach_i))
-
         fixed_indices = []
         for i in attach_i:
             fixed_indices.append(i * ny + 0)
             fixed_indices.append(i * ny + (ny - 1))
     else:
+        attach_i = []
         fixed_indices = []
         for i in range(nx):
             fixed_indices.append(i * ny + 0)
@@ -139,20 +124,18 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         ib = b // ny
         ja = a % ny
         jb = b % ny
+        L_e = float(np.linalg.norm(points[b] - points[a]))
+        if L_e < 1e-9:
+            L_e = L_avg
+
         if (ia == 0 or ia == nx - 1) or (ib == 0 or ib == nx - 1):
-            L_e = float(np.linalg.norm(points[b] - points[a]))
-            if L_e < 1e-9:
-                L_e = L_avg
             q[k] = T_cab * 1000.0 / L_e
         elif attach_type == "segmented":
             on_beam = (ja == 0 or ja == ny - 1) and (jb == 0 or jb == ny - 1)
             if on_beam:
-                L_e = float(np.linalg.norm(points[b] - points[a]))
-                L if L_e < 1e-9:
-                    L_e_e = L_
+                q[k] = SIDE_CABLE_STIFFNESS_FACTOR * T_cab * 1000.0 / L_e
 
-avg
-                q   [k] = SIDE res_CABLE_STIFFNESS_FACTOR * T_cab * 1000.0 / = solve_fdm(points, edges, fixed_indices, q)
+    res = solve_fdm(points, edges, fixed_indices, q)
     coords = res["coordinates"]
 
     X = np.zeros((nx, ny))
@@ -171,24 +154,11 @@ avg
         edge_south[j] = coords[0 * ny + j]
         edge_north[j] = coords[(nx - 1) * ny + j]
 
-    if attach_type == "segmented":
-        attach_i_list = []
-        n_attach_int = max(2, int(n_attach))
-        for k in range(n_attach_int):
-            frac = k / (n_attach_int - 1.0)
-            ii = int(round(frac * (nx - 1)))
-            ii = max(0, min(nx - 1, ii))
-            attach_i_list.append(ii)
-        attach_i_list = sorted(set(attach_i_list))
-    else:
-        attach_i_list = []
-
-    return X, Y, Z, edge_south, edge_north, attach_i_list
+    return X, Y, Z, edge_south, edge_north, attach_i
 
 
-# =============================================================================
-# KADER TRACK
-# =============================================================================
+
+
 
 def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
     fig.add_trace(go.Scatter3d(
@@ -200,10 +170,6 @@ def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
         hoverinfo="skip",
     ))
 
-
-# =============================================================================
-# PUBLIC FUNCTION
-# =============================================================================
 
 def build_standard_saddle():
     """Standard Saddle: two curved beams, membrane, tie-downs, anchors."""
@@ -268,7 +234,7 @@ def build_standard_saddle():
         name="Membrane",
     ))
 
-    if attach_type == "segmented":
+    if attach_type == "segmented" and len(attach_i_list) > 0:
         dots_lx = X_surf[attach_i_list, 0].tolist()
         dots_ly = Y_surf[attach_i_list, 0].tolist()
         dots_lz = Z_surf[attach_i_list, 0].tolist()
@@ -311,7 +277,11 @@ def build_standard_saddle():
         _add_kader_track(fig, x, z_beam, y1, show_legend=True)
         _add_kader_track(fig, x, z_beam, y2, show_legend=False)
 
-    if edge_cables_on:
+
+
+
+
+if edge_cables_on:
         fig.add_trace(go.Scatter3d(
             x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
             mode="lines",
