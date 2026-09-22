@@ -34,9 +34,13 @@
 #   the widget KEY each time we want a fresh render. A counter in
 #   session state drives this. The user sees only the values change.
 #
+# Updated 2026-09-22:
+#   - Section 8 now has a separate radio for edge cables on the
+#     free ends (Yes/No). Independent of the attachment method.
+#     The viewer reads ws_ss_edge_cables to decide whether to draw
+#     short-end cables.
 # Updated 2026-09-20 (morning):
 #   - Viewer-strings block reads widget keys FIRST, session keys second.
-#     Same fix as saddle_leaf.py.
 # Updated 2026-09-19 (evening):
 #   - _init_defaults() writes two viewer strings used by the Results
 #     page under the 3D chart.
@@ -102,6 +106,7 @@ def _init_defaults():
         "ws_ss_design_standard": "MY",
         # Section 8 - Attachment
         "ws_ss_attachment_type": "kader",
+        "ws_ss_edge_cables": True,
         # ---- Viewer strings for the Results page (below the 3D chart)
         "ws_ss_viewer_description": "Standard Saddle Span tensile membrane structure",
         "ws_ss_viewer_dimensions": "",
@@ -142,7 +147,6 @@ def render_saddle_standard():
     st.markdown(WORKSHOP_CSS, unsafe_allow_html=True)
     _init_defaults()
 
-    # Generation counter drives widget keys in Section 6.
     gen = int(st.session_state.get("ws_ss_found_widget_generation", 0))
 
     project_name = st.session_state.get("project_info", {}).get("name", "") or "Untitled Project"
@@ -567,7 +571,8 @@ def render_saddle_standard():
     with st.expander("8. Membrane-to-Beam Attachment", expanded=False):
         section_header(
             "Membrane-to-Beam Attachment",
-            "How the fabric edge is attached to the curved beams."
+            "How the fabric edge is attached to the curved beams, and "
+            "whether edge cables are drawn along the free ends."
         )
 
         attach_options = ["kader", "segmented"]
@@ -599,14 +604,39 @@ def render_saddle_standard():
                 "No fixed spacing input required."
             )
 
+        # ---- Independent toggle: edge cables on the free ends
+        st.markdown(
+            '<div class="ws-section-help" style="margin-top:1rem;">'
+            '<strong>Edge Cables on the Free Ends</strong>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        edge_choice = st.radio(
+            "Edge cables on the free ends",
+            ["Yes", "No"],
+            index=0 if st.session_state.get("ws_ss_edge_cables", True) else 1,
+            key="ws_ss_edge_cables_radio",
+            help="Independent of the attachment method. When Yes, cables "
+                 "are drawn along the free ends of the membrane.",
+        )
+        st.session_state["ws_ss_edge_cables"] = (edge_choice == "Yes")
+
+        if st.session_state["ws_ss_edge_cables"]:
+            preview_box(
+                "Cables are drawn along the two free ends of the membrane, "
+                "bowing inward under the membrane tension. Four corner "
+                "markers are shown where the cables meet the beams."
+            )
+        else:
+            preview_box(
+                "No cables along the free ends. The membrane edge simply "
+                "spans between the beam tips."
+            )
+
     # =========================================================================
     # VIEWER STRINGS (rebuilt live, read by the Results page)
     # =========================================================================
-    # Total height = rise (apex of the beam above the ground supports).
-    #
-    # IMPORTANT: read the WIDGET key first (ws_ss_rise_input), not the
-    # semantic key (ws_ss_rise). Streamlit reruns on page switch can
-    # overwrite the semantic key with the widget default.
 
     _total_h = float(st.session_state.get(
         "ws_ss_rise_input",
@@ -639,3 +669,8 @@ def render_saddle_standard():
         ):
             st.session_state.page = "results"
             st.rerun()
+
+
+
+
+
