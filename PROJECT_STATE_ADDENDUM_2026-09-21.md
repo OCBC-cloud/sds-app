@@ -576,7 +576,305 @@ Both are correct. Both are now recorded above.
 
 ---
 
+# SDSe — PROJECT STATE
+
+Date: 2026-09-23 (evening, amended)
+Branch: modular-v10
+App URL: sds-modular-preview.streamlit.app (aka ew.streamlit.app)
+Status: Working. Stable. One wrong test built. Corrected plan recorded below.
+
+---
+
+# 1. WHAT IS LIVE AND WORKING
+
+Structures with working viewers and workshops:
+
+- Cable Supported Saddle
+- Beam Supported Saddle
+- Cantilever Leaf
+- Cantilever Hypar
+
+Engines:
+
+- engine/form_finding.py — FDM solver. Rewritten today.
+- engine/nfdm.py — NFDM kernel. NEW today. Experimental. Incorrect.
+- engine/leaf_arrangement.py — unchanged.
+- engine/render_prompts.py — unchanged.
+
+Viewers:
+
+- viewers/results_viewer.py — unchanged.
+- viewers/figures/standard_saddle.py — unchanged today.
+
+Workshops:
+
+- ui/workshops/saddle_standard.py — unchanged today.
+- ui/workshops/tester_nfdm.py — NEW today. Experimental.
+
+UI:
+
+- ui/landing.py — one temporary button: "Open NFDM Tester".
+- core/navigation.py — one route: "tester_nfdm".
+
+---
+
+# 2. WHAT WAS COMMITTED TODAY (2026-09-23)
+
+Morning:
+- engine/form_finding.py — full rewrite.
+  - mesh_size_for_shape(span_m, n_sides, n_corners) added.
+  - mesh_size_for_span(span_m) kept as rectangle wrapper.
+  - z-only test gate corrected.
+
+Afternoon:
+- Repository OCBC-cloud/sds-nfdm-lab created (research lab).
+
+Evening (in sds-app, on modular-v10):
+- engine/nfdm.py — NFDM kernel. Iterative. Wrong. See Section 10.
+- ui/workshops/tester_nfdm.py — tester page.
+- core/navigation.py — tester_nfdm route added.
+- ui/landing.py — temporary "Open NFDM Tester" button added.
+
+---
+
+# 3. THE STATE OF THE PROBLEM
+
+## 3.1 The fold is still present
+
+In the shipping Saddle viewer, on the current modular-v10, the
+membrane still folds onto itself near the base. Two dark voids
+visible in the 3D view.
+
+The fold persists whether the edge-cables toggle is on or off.
+
+This is not solved. It is the original problem from this morning.
+
+## 3.2 The NFDM tester runs, but does not converge
+
+The tester is deployed. The button works. The kernel runs. The
+result, on both benchmarks:
+
+- Reduced catenoid: CHECK. Does not converge. Interior collapses
+  into a twisted ribbon. reason = max_iter. negative_q large.
+- Settled hypar: NOT COMPLETED. Streamlit Cloud throttled CPU.
+
+## 3.3 Streamlit Cloud throttled the app
+
+At ~20:30 on 2026-09-23, Streamlit Cloud reduced the app's CPU
+because the kernel exceeded the free tier's per-hour budget.
+Throttle lifts at 23:32 on the same date.
+
+At the time, this appeared to mean NFDM cannot run in the free
+tier. Section 10 corrects that reading.
+
+---
+
+# 4. THE CORRECTED ARCHITECTURE
+
+Agreed between the Chief and the AI, evening of 2026-09-23.
+Supersedes the handoff assumption that NFDM would form-find.
+
+## 4.1 Two stages, two jobs
+
+STAGE 1 — FORM FINDING (classical FDM)
+
+  Job: settle the shape of the membrane.
+  Method: solve_fdm — linear, one matrix solve, milliseconds.
+  Output: coordinates of the equilibrium shape.
+  Properties: taut, smooth, no fold.
+
+STAGE 2 — PHYSICS REFINEMENT (NFDM)
+
+  Job: take the FDM shape and compute the real physics.
+  Method: subdivide into triangles, apply biaxial prestress
+          and self-weight, solve for the stress state.
+  Output: same shape, with membrane forces and stress resultants.
+
+## 4.2 What this means for NFDM
+
+NFDM is NOT for forming the shape.
+
+NFDM is for turning an already-settled FDM shape into a
+physical membrane model, for the BoQ and member sizing.
+
+## 4.3 What this means for the tester
+
+The tester built today tests the WRONG thing. It asks NFDM to
+form-find from a cold start. It must be rebuilt as:
+
+  FDM input (span, apex, rise, pretension, self-weight)
+       |
+       v
+  FDM shape (settled, taut, smooth)
+       |
+       v
+  NFDM refinement (triangular mesh, real stresses)
+       |
+       v
+  Coordinates + membrane forces + cable forces
+
+---
+
+# 5. OPEN QUESTIONS
+
+1. Is the fold in the shipping Saddle viewer fixable by tuning
+   the FDM mesh and side-cable stiffness alone? The Cantilever
+   Hypar suggests yes. Test before committing to NFDM.
+
+2. What is the minimum NFDM mesh size that runs cleanly and
+   quickly? Depends on Section 10 rewrite.
+
+3. Warp and weft pretenses: separate inputs, or single biaxial
+   value for now? The Saddle workshop currently exposes one.
+
+4. Keep the temporary landing-page tester button? Recommendation:
+   keep until the rebuilt tester is in place.
+
+---
+
+# 6. WHAT IS NOT DONE
+
+- The NFDM tester has NOT produced a clean result.
+- The Saddle viewer fold is NOT fixed.
+- The FDM → NFDM pipeline is NOT built.
+- BoQ is NOT wired to NFDM.
+- The temporary landing-page button is present.
+- The lab repository (sds-nfdm-lab) is orphaned.
+
+---
+
+# 7. NEXT SESSION — FIRST STEPS
+
+1. Read Section 10 first. It changes what NFDM is.
+2. Decide: is the Saddle fold a mesh-tuning problem in FDM?
+   If yes, tune the mesh and side-cable stiffness first.
+3. Replace solve_nfdm with the published linear formulation.
+4. Rebuild the tester as FDM-shape → NFDM-refinement.
+5. Only then: decide whether BoQ reads NFDM output.
+
+---
+
+# 8. DOCTRINES PRESERVED TODAY
+
+- Preservation before evolution.
+- Research first.
+- The membrane is the hero. Steel follows.
+- The Chief at the side.
+- Language separation: untouched.
+- Complete files only. No surgical edits to shipping code.
+
+---
+
+# 9. THE CHIEF'S NOTES
+
+Two observations from the Chief, 2026-09-23 evening:
+
+1. The FDM skeleton must come first. NFDM is the refiner,
+   not the form-finder.
+
+2. The Cantilever Hypar already produces a smooth taut
+   saddle in milliseconds. That is the target. Any method
+   that takes minutes is doing the wrong job.
+
+Both are correct. Both are now recorded above.
+
+---
+
+# 10. THE CRITICAL CORRECTION — NFDM IS LINEAR
+
+Amended 2026-09-23, evening. Based on a search of the actual
+professional tools and papers.
+
+## 10.1 What the professional tools do
+
+ixCube 4-10:
+  Uses BOTH FDM and NFDM. FDM first for the cable network.
+  NFDM for the membrane refinement. Not from a cold start.
+
+Easy (Technet GmbH):
+  Uses FDM alone for form-finding. The Easy.Form page states:
+  "The force density method guarantees a linear calculation
+  without approximate values. Our algorithms are optimized
+  and guarantee a fast calculation, even for very large
+  structures." Nonlinear FE is used only for load analysis
+  afterward.
+
+BATS (University of São Paulo):
+  Uses FDM for cables, NFDM for membranes. The authors report
+  "gains in performance compared to other available tools,
+  due to the linear nature of FDM and NFDM, as well as the
+  use of optimized linear solvers."
+
+## 10.2 The finding
+
+FDM and NFDM are BOTH essentially LINEAR methods. Each is a
+matrix solve, not an iterative nonlinear solver.
+
+## 10.3 Our mistake
+
+engine/nfdm.py, as built today, runs Newton-Raphson with a
+line search. That is an ITERATIVE NONLINEAR solver. That is
+not what published NFDM is.
+
+That is why it is slow. That is why it did not converge. That
+is why Streamlit Cloud throttled us.
+
+The published NFDM is a LINEAR method. One solve, not 120.
+
+## 10.4 What this means for mobile hosting
+
+Once solve_nfdm is rewritten as the published LINEAR
+formulation:
+
+- FDM: milliseconds. Runs on a phone.
+- NFDM: seconds at most. Runs on a phone.
+- Nonlinear FE (load analysis): heavy. Runs on a server only.
+
+The mobile hosting question is not a hardware question. It is
+an algorithm question. Once the algorithm is correct, mobile
+hosting is not a problem.
+
+## 10.5 Next step, concretely
+
+Replace solve_nfdm with the published linear formulation.
+
+Read: Pauletti, R. M. O. — Natural Force Density Method.
+Read: BATS implementation notes from the Pauletti group.
+Then rewrite engine/nfdm.py.
+
+Only then does the FDM → NFDM pipeline make sense.
+
+---
+
+# 11. WHAT WE NOW KNOW ABOUT MEMBRANE FORM-FINDING, IN ONE PAGE
+
+For the next session and for any future reader:
+
+1. A membrane is a tension surface. It is not draped.
+
+2. FDM forms the shape. FDM is linear. FDM is fast.
+
+3. NFDM refines the shape into a physical membrane model.
+   NFDM is also linear. NFDM is also fast.
+
+4. Nonlinear FE is for load analysis only. It does not
+   belong on the critical path for shape. It does not
+   belong on a phone.
+
+5. Professional software uses exactly this pipeline.
+   ixCube. Easy. BATS. All the same.
+
+6. Mobile hosting is possible because FDM and NFDM are
+   linear. The heavy work — nonlinear FE — is deferred
+   to the server, or to a paid compute tier.
+
+7. Our task is not to invent this. Our task is to
+   implement it correctly, small, and honest.
+
+---
+
 End of document.
+
 
 
 
