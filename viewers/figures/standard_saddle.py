@@ -1,430 +1,399 @@
 # =============================================================================
-# SDSe - Standard Saddle Figure Builder
+# SDSe Engine - Form Finding
 # =============================================================================
-# Builds the 3D figure for the Standard Saddle variant.
-# Called by viewers/results_viewer.py dispatcher.
+# Link 1 of the engine chain. See engine/SPEC_engine_chain.md.
 #
-# Membrane (updated 2026-09-22):
-#   The membrane surface is form-found using the FDM kernel
-#   (engine/form_finding.py), then drawn as a TRIANGULATED mesh
-#   (go.Mesh3d). This matches industry practice (RFEM, Easy,
-#   ixCube). Triangular elements are always flat, so the surface
-#   cannot warp or fold, regardless of how the free nodes move.
+# Purpose: find the equilibrium shape of a membrane or cable mesh.
 #
-# Mesh size rule (updated 2026-09-22):
-#   The mesh density is chosen by engine.mesh_size_for_span():
-#   one node per metre, minimum 21, maximum 101, always odd.
-#   Odd numbers put a node on the mirror plane, keeping the
-#   solve symmetric for symmetric structures.
+# Method: Force Density Method (FDM).
+#   Each edge (i, j) has a force density q = T / L. At every free
+#   node, the sum of forces from the edges connected to it must
+#   equal the external load on that node. This gives a linear
+#   system in the free-node coordinates: K * x = p.
 #
-# Attachment method (updated 2026-09-22):
-#   ws_ss_attachment_type controls how the fabric meets the beams:
-#     "kader"      - continuous track line along each beam.
-#     "segmented"  - discrete cable attachment points.
-#                    Only the attachment nodes are fixed. Between
-#                    them, the beam-edge nodes are free and form
-#                    a chain of cable edges.
+# Node constraints:
+#   - fixed_indices: node cannot move at all (x, y, z fixed).
+#   - z_only_indices: node can move in z only. Its x and y stay at
+#     their initial values. Use this for nodes on a rigid beam edge,
+#     where the beam does not move in plan but the fabric can pull
+#     the edge up or down.
+#   - All other nodes: free in all three directions.
 #
-# Side-cable stiffness: SIDE_CABLE_STIFFNESS_FACTOR = 12.0
+# Reference:
+#   Schek, H.-J. (1974). The force density method for form-finding
+#   and computation of general networks.
+#
+# Units: m, N, N/m.
+#
+# History:
+#   2026-09-22 - First build with flat and saddle self-tests.
+#   2026-09-22 - mesh_size_for_span() added.
+#   2026-09-23 - z_only_indices argument added.
 # =============================================================================
 
 import math
 
 import numpy as np
-import plotly.graph_objects as go
-
-import streamlit as st
-
-from viewers.figures._shared import (
-    apply_common_layout,
-    beam_curve,
-    arclength_parametrisation,
-    find_index_at_arclength_fraction,
-)
-from engine.form_finding import solve_fdm, mesh_size_for_span
 
 
-SIDE_CABLE_STIFFNESS_FACTOR = 12.0
+# =============================================================================
+# MESH SIZE RULE
+# =============================================================================
+# One node per metre of the span, minimum 21, maximum 101, always odd.
+
+def mesh_size_for_span(span_m):
+    """Return the recommended mesh size along the given span, in nodes."""
+    if span_m is None or span_m <= 0:
+        return 21
+    n = int(round(span_m))
+    if n < 21:
+        n = 21
+    if n > 101:
+        n = 101
+    if n % 2 == 0:
+        n += 1
+    return n
 
 
-def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
-                       membrane_pretension, cable_pretension,
-                       attach_type, n_attach,
-                       nx=21, ny=21):
-    """Build the FDM mesh and solve for the membrane shape.
+# =============================================================================
+# FDM SOLVER
+# =============================================================================
+
+def solve_fdm(points, edges, fixed_indices, force_densities,
+              loads=None, z_only_indices=None):
+    """
+    Solve the Force Density Method equilibrium.
+
+    Parameters
+    ----------
+    points : (n, 3) array of node coordinates
+    edges : list of (i, j) edge pairs
+    fixed_indices : list of int
+        Nodes fixed in x, y, z.
+    force_densities : float or (m,) array
+        Scalar applies the same q to all edges.
+    loads : (n, 3) array or None
+        External load at each node in N. Default: no load.
+    z_only_indices : list of int or None
+        Nodes that can move only in z. Their x and y are fixed
+        at the values in points. Default: None.
 
     Returns
     -------
-    X, Y, Z : (nx, ny) arrays of node coordinates
-    edge_south, edge_north : (ny, 3) arrays of the two free-end edges
-    attach_i : list of int, the mesh indices that are fixed
-    nx, ny : int, the mesh dimensions actually used
+    result : dict
+        coordinates, residual_norm, n_free, n_fixed
     """
-    n_pts = len(x)
+    points = np.asarray(points, dtype=float)
+    edges = list(edges)
+    fixed_indices = list(fixed_indices)
+    if z_only_indices is None:
+        z_only_indices = []
+    else:
+        z_only_indices = list(z_only_indices)
 
-    node_xyz = np.zeros((nx, ny, 3))
-    for i in range(nx):
-        xi = -span / 2.0 + span * i / (nx - 1.0)
-        idx = int((xi + span / 2.0) / span * (n_pts - 1))
-        idx = max(0, min(n_pts - 1, idx))
-        bx = x[idx]
-        bz = z_beam[idx]
-        y_left = y1[idx]
-        y_right = y2[idx]
-        for j in range(ny):
-            v = j / (ny - 1.0)
-            y_pos = y_left * (1.0 - v) + y_right * v
-            z_init = bz - 0.15 * (1.0 - (2.0 * v - 1.0) ** 2) * (apex * 0.5)
-            node_xyz[i, j, 0] = bx
-            node_xyz[i, j, 1] = y_pos
-            node_xyz[i, j, 2] = z_init
+    n = points.shape[0]
+    m = len(edges)
 
-    n_nodes = nx * ny
-    points = np.zeros((n_nodes, 3))
-    for i in range(nx):
-        for j in range(ny):
-            k = i * ny + j
-            points[k] = node_xyz[i, j]
+    if n == 0:
+        raise ValueError("No nodes supplied.")
+    if m == 0:
+        raise ValueError("No edges supplied.")
+
+    if np.isscalar(force_densities):
+        q = np.full(m, float(force_densities))
+    else:
+        q = np.asarray(force_densities, dtype=float)
+        if q.shape[0] != m:
+            raise ValueError(
+                "force_densities length %d does not match edges %d"
+                % (q.shape[0], m)
+            )
+
+    if loads is None:
+        loads = np.zeros((n, 3), dtype=float)
+    else:
+        loads = np.asarray(loads, dtype=float)
+        if loads.shape != (n, 3):
+            raise ValueError("loads must have shape (n, 3)")
+
+    # ---- Build masks
+    fixed_mask = np.zeros(n, dtype=bool)
+    for i in fixed_indices:
+        if i < 0 or i >= n:
+            raise ValueError("fixed index %d out of range" % i)
+        fixed_mask[i] = True
+
+    z_only_mask = np.zeros(n, dtype=bool)
+    for i in z_only_indices:
+        if i < 0 or i >= n:
+            raise ValueError("z_only index %d out of range" % i)
+        if fixed_mask[i]:
+            # A fixed node is not z_only. Fixed wins.
+            continue
+        z_only_mask[i] = True
+
+    # ---- Assemble the global K matrix
+    K = np.zeros((n, n), dtype=float)
+    for k, (i, j) in enumerate(edges):
+        qk = q[k]
+        K[i, i] += qk
+        K[j, j] += qk
+        K[i, j] -= qk
+        K[j, i] -= qk
+
+    X = points.copy()
+
+    # ---- Solve for free DOFs, one axis at a time.
+    # For x and y axes:
+    #   free nodes (not fixed, not z_only) participate.
+    #   z_only nodes are FIXED in this axis.
+    # For z axis:
+    #   free nodes and z_only nodes participate.
+    #   Only truly fixed nodes are fixed in this axis.
+
+    def _solve_axis(axis, mask_free):
+        idx = np.where(mask_free)[0]
+        idx_fixed = np.where(~mask_free)[0]
+        if len(idx) == 0:
+            return
+        K_ff = K[np.ix_(idx, idx)]
+        K_fx = K[np.ix_(idx, idx_fixed)]
+        rhs = loads[idx, axis].copy()
+        rhs -= K_fx @ points[idx_fixed, axis]
+        X[idx, axis] = np.linalg.solve(K_ff, rhs)
+
+    # ---- x and y axes: only truly free nodes participate
+    free_xy = (~fixed_mask) & (~z_only_mask)
+    _solve_axis(0, free_xy)
+    _solve_axis(1, free_xy)
+
+    # ---- z axis: free + z_only participate
+    free_z = (~fixed_mask)
+    _solve_axis(2, free_z)
+
+    residual = K @ X - loads
+    free_all = ~fixed_mask
+    residual_norm = float(np.linalg.norm(residual[free_all]))
+
+    return {
+        "coordinates": X,
+        "residual_norm": residual_norm,
+        "n_free": int(free_all.sum()),
+        "n_fixed": int(fixed_mask.sum()),
+    }
+
+
+# =============================================================================
+# SELF-TESTS
+# =============================================================================
+
+def _test_flat_mesh():
+    """Verify FDM keeps a flat mesh flat."""
+    nx = 4
+    ny = 4
+    points = []
+    for j in range(ny):
+        for i in range(nx):
+            x = i / (nx - 1.0)
+            y = j / (ny - 1.0)
+            points.append((x, y, 0.0))
 
     edges = []
-    for i in range(nx):
-        for j in range(ny):
-            k = i * ny + j
-            if i + 1 < nx:
-                edges.append((k, (i + 1) * ny + j))
-            if j + 1 < ny:
-                edges.append((k, i * ny + (j + 1)))
-
-    if attach_type == "segmented":
-        n_attach_int = max(2, int(n_attach))
-        attach_i = []
-        for k in range(n_attach_int):
-            frac = k / (n_attach_int - 1.0)
-            ii = int(round(frac * (nx - 1)))
-            ii = max(0, min(nx - 1, ii))
-            attach_i.append(ii)
-        attach_i = sorted(set(attach_i))
-        fixed_indices = []
-        for i in attach_i:
-            fixed_indices.append(i * ny + 0)
-            fixed_indices.append(i * ny + (ny - 1))
-    else:
-        attach_i = []
-        fixed_indices = []
+    for j in range(ny):
+        for i in range(nx - 1):
+            a = j * nx + i
+            b = j * nx + (i + 1)
+            edges.append((a, b))
+    for j in range(ny - 1):
         for i in range(nx):
-            fixed_indices.append(i * ny + 0)
-            fixed_indices.append(i * ny + (ny - 1))
+            a = j * nx + i
+            b = (j + 1) * nx + i
+            edges.append((a, b))
 
-    L_avg = 1.0
-    if len(edges) > 0:
-        total_len = 0.0
-        for (a, b) in edges:
-            total_len += float(np.linalg.norm(points[b] - points[a]))
-        L_avg = total_len / max(1, len(edges))
-    if L_avg < 1e-9:
-        L_avg = 1.0
+    fixed = []
+    for j in range(ny):
+        for i in range(nx):
+            idx = j * nx + i
+            if i == 0 or i == nx - 1 or j == 0 or j == ny - 1:
+                fixed.append(idx)
 
-    T_mem = max(0.1, float(membrane_pretension))
-    T_cab = max(0.1, float(cable_pretension))
-    q_mem = T_mem * 1000.0 / L_avg
+    res = solve_fdm(points, edges, fixed, 1.0)
 
-    q = np.full(len(edges), q_mem)
-    for k, (a, b) in enumerate(edges):
-        ia = a // ny
-        ib = b // ny
-        ja = a % ny
-        jb = b % ny
-        L_e = float(np.linalg.norm(points[b] - points[a]))
-        if L_e < 1e-9:
-            L_e = L_avg
+    coords = res["coordinates"]
+    z_max = float(np.max(np.abs(coords[:, 2])))
+    xy_shift = float(np.max(np.abs(coords[:, :2] - np.asarray(points)[:, :2])))
 
-        if (ia == 0 or ia == nx - 1) or (ib == 0 or ib == nx - 1):
-            q[k] = T_cab * 1000.0 / L_e
-        elif attach_type == "segmented":
-            on_beam = (ja == 0 or ja == ny - 1) and (jb == 0 or jb == ny - 1)
-            if on_beam:
-                q[k] = SIDE_CABLE_STIFFNESS_FACTOR * T_cab * 1000.0 / L_e
+    return {
+        "converged": res["residual_norm"] < 1e-9,
+        "z_max_deviation": z_max,
+        "xy_max_deviation": xy_shift,
+        "flat_ok": z_max < 1e-9 and xy_shift < 1e-9,
+    }
 
-    res = solve_fdm(points, edges, fixed_indices, q)
+
+def _test_hypar_saddle():
+    """Verify FDM forms a saddle from a non-planar boundary."""
+    nx = 7
+    ny = 7
+    side = 2.0
+    corner_amp = 0.5
+
+    points = []
+    for j in range(ny):
+        for i in range(nx):
+            x = side * i / (nx - 1.0)
+            y = side * j / (ny - 1.0)
+            z = 0.0
+            on_boundary = (
+                i == 0 or i == nx - 1 or j == 0 or j == ny - 1
+            )
+            if on_boundary:
+                xi = i / (nx - 1.0)
+                yj = j / (ny - 1.0)
+                z = corner_amp * math.cos(math.pi * xi) * math.cos(math.pi * yj)
+            points.append((x, y, z))
+
+    edges = []
+    for j in range(ny):
+        for i in range(nx - 1):
+            a = j * nx + i
+            b = j * nx + (i + 1)
+            edges.append((a, b))
+    for j in range(ny - 1):
+        for i in range(nx):
+            a = j * nx + i
+            b = (j + 1) * nx + i
+            edges.append((a, b))
+
+    fixed = []
+    for j in range(ny):
+        for i in range(nx):
+            idx = j * nx + i
+            if i == 0 or i == nx - 1 or j == 0 or j == ny - 1:
+                fixed.append(idx)
+
+    res = solve_fdm(points, edges, fixed, 1.0)
     coords = res["coordinates"]
 
-    X = np.zeros((nx, ny))
-    Y = np.zeros((nx, ny))
-    Z = np.zeros((nx, ny))
-    for i in range(nx):
-        for j in range(ny):
-            k = i * ny + j
-            X[i, j] = coords[k, 0]
-            Y[i, j] = coords[k, 1]
-            Z[i, j] = coords[k, 2]
+    interior_zs = []
+    for j in range(1, ny - 1):
+        for i in range(1, nx - 1):
+            idx = j * nx + i
+            interior_zs.append(coords[idx, 2])
 
-    edge_south = np.zeros((ny, 3))
-    edge_north = np.zeros((ny, 3))
-    for j in range(ny):
-        edge_south[j] = coords[0 * ny + j]
-        edge_north[j] = coords[(nx - 1) * ny + j]
+    z_min = float(np.min(interior_zs))
+    z_max = float(np.max(interior_zs))
 
-    return X, Y, Z, edge_south, edge_north, attach_i
+    has_positive = z_max > 1e-3
+    has_negative = z_min < -1e-3
+    range_ok = (z_max - z_min) > 1e-2
 
-
-def _grid_to_triangles(X, Y, Z):
-    """Convert a rectangular grid of nodes (nx x ny) into a triangulated
-    mesh suitable for go.Mesh3d.
-
-    Returns
-    -------
-    node_x, node_y, node_z : 1D arrays of node coordinates, flattened
-    tri_i, tri_j, tri_k : lists of triangle indices
-    """
-    nx, ny = X.shape
-
-    node_x = X.reshape(-1)
-    node_y = Y.reshape(-1)
-    node_z = Z.reshape(-1)
-
-    tri_i = []
-    tri_j = []
-    tri_k = []
-
-    for i in range(nx - 1):
-        for j in range(ny - 1):
-            a = i * ny + j
-            b = (i + 1) * ny + j
-            c = i * ny + (j + 1)
-            d = (i + 1) * ny + (j + 1)
-
-            tri_i.append(a)
-            tri_j.append(b)
-            tri_k.append(c)
-
-            tri_i.append(b)
-            tri_j.append(d)
-            tri_k.append(c)
-
-    return node_x, node_y, node_z, tri_i, tri_j, tri_k
+    return {
+        "converged": res["residual_norm"] < 1e-9,
+        "interior_z_min": z_min,
+        "interior_z_max": z_max,
+        "saddle_ok": has_positive and has_negative and range_ok,
+    }
 
 
+def _test_z_only_constraint():
+    """Verify that a z_only node moves only in z."""
+    # 3 nodes in a row along x, with the two ends fixed.
+    points = [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+    ]
+    edges = [(0, 1), (1, 2)]
+    fixed = [0, 2]
+    # Middle node: z-only.
+    z_only = [1]
+    loads = np.array([
+        [0.0, 0.0, 0.0],
+        [0.0, 1000.0, 1000.0],   # pull node 1 in y and z
+        [0.0, 0.0, 0.0],
+    ])
+    res = solve_fdm(points, edges, fixed, 1.0,
+                    loads=loads, z_only_indices=z_only)
+    coords = res["coordinates"]
+
+    # x should not have moved.
+    x_moved = abs(coords[1, 0] - 1.0)
+    # y should not have moved (z_only in y too).
+    y_moved = abs(coords[1, 1] - 0.0)
+    # z should have moved.
+    z_moved = abs(coords[1, 2] - 0.0)
+
+    return {
+        "converged": res["residual_norm"] < 1e-6,
+        "x_moved": x_moved,
+        "y_moved": y_moved,
+        "z_moved": z_moved,
+        "z_only_ok": x_moved < 1e-9 and y_moved < 1e-9 and z_moved > 1e-3,
+    }
 
 
+def _verify_form_finding():
+    """Run all form-finding self-tests. Returns a dict with results."""
+    results = {}
 
-def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
-    fig.add_trace(go.Scatter3d(
-        x=x, y=y_beam, z=z_beam,
-        mode="lines",
-        line=dict(color="#f39c12", width=2),
-        showlegend=show_legend,
-        name="Kader track" if show_legend else None,
-        hoverinfo="skip",
-    ))
+    t1 = _test_flat_mesh()
+    results["flat_converged"] = t1["converged"]
+    results["flat_z_max_dev"] = t1["z_max_deviation"]
+    results["flat_xy_max_dev"] = t1["xy_max_deviation"]
+    results["flat_ok"] = t1["flat_ok"]
+
+    t2 = _test_hypar_saddle()
+    results["saddle_converged"] = t2["converged"]
+    results["saddle_z_min"] = t2["interior_z_min"]
+    results["saddle_z_max"] = t2["interior_z_max"]
+    results["saddle_ok"] = t2["saddle_ok"]
+
+    t3 = _test_z_only_constraint()
+    results["z_only_converged"] = t3["converged"]
+    results["z_only_x_moved"] = t3["x_moved"]
+    results["z_only_y_moved"] = t3["y_moved"]
+    results["z_only_z_moved"] = t3["z_moved"]
+    results["z_only_ok"] = t3["z_only_ok"]
+
+    results["pass"] = all([
+        results["flat_converged"],
+        results["flat_ok"],
+        results["saddle_converged"],
+        results["saddle_ok"],
+        results["z_only_converged"],
+        results["z_only_ok"],
+    ])
+
+    return results
 
 
-def build_standard_saddle():
-    """Standard Saddle: two curved beams, membrane, tie-downs, anchors."""
-    span = float(st.session_state.get("ws_ss_span", 10.0))
-    apex = float(st.session_state.get("ws_ss_apex", 15.0))
-    rise = float(st.session_state.get("ws_ss_rise", 6.2))
-    curve_type = st.session_state.get("ws_ss_curve_type", "parabolic")
-    n_intervals = int(st.session_state.get("ws_ss_tiedown_intervals", 2))
-    uplift = float(st.session_state.get("ws_ss_uplift_angle", 45))
-    spread = float(st.session_state.get("ws_ss_spread_angle", 30))
-    membrane_pre = float(st.session_state.get("ws_ss_membrane_pretension", 2.0))
-    cable_pre = float(st.session_state.get("ws_ss_cable_pretension", 5.0))
-    attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
-    edge_cables_on = bool(st.session_state.get("ws_ss_edge_cables", True))
-    n_attach = int(st.session_state.get("ws_ss_cable_attachment_count", 6))
+if __name__ == "__main__":
+    print("engine/form_finding.py - Force Density Method")
+    print("-" * 70)
 
-    if span <= 0 or apex <= 0 or rise <= 0:
-        fig = go.Figure()
-        fig.add_annotation(text="Invalid geometry - check inputs",
-                           xref="paper", yref="paper",
-                           x=0.5, y=0.5, showarrow=False,
-                           font=dict(color="#f39c12", size=16))
-        return apply_common_layout(fig, 10.0)
+    res = _verify_form_finding()
 
-    # ---- Mesh size from the shared rule
-    n_mesh = mesh_size_for_span(span)
-    nx = n_mesh
-    ny = n_mesh
-
-    n_pts = 200
-    x = np.linspace(-span / 2.0, span / 2.0, n_pts)
-    z_beam = beam_curve(x, span, rise, curve_type)
-
-    s, total = arclength_parametrisation(x, z_beam)
-
-    base_width = apex * 0.5
-    y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
-    y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
-
-    fig = go.Figure()
-
-    # ---- Beams
-    fig.add_trace(go.Scatter3d(
-        x=x, y=y1, z=z_beam,
-        mode="lines",
-        line=dict(color="#FF6B6B", width=8),
-        name="Beam L",
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=x, y=y2, z=z_beam,
-        mode="lines",
-        line=dict(color="#FF6B6B", width=8),
-        name="Beam R",
-    ))
-
-    # ---- FDM membrane
-    X_surf, Y_surf, Z_surf, edge_south, edge_north, attach_i_list = _build_saddle_fdm(
-        x, z_beam, y1, y2, span, apex,
-        membrane_pre, cable_pre,
-        attach_type, n_attach,
-        nx=nx, ny=ny,
-    )
-
-    # ---- Draw the membrane as a triangulated mesh
-    node_x, node_y, node_z, tri_i, tri_j, tri_k = _grid_to_triangles(
-        X_surf, Y_surf, Z_surf
-    )
-    fig.add_trace(go.Mesh3d(
-        x=node_x, y=node_y, z=node_z,
-        i=tri_i, j=tri_j, k=tri_k,
-        color="#4a7a9c",
-        opacity=0.55,
-        flatshading=True,
-        name="Membrane",
-        showlegend=False,
-        hoverinfo="skip",
-    ))
-
-    # ---- Attachment visual
-    if attach_type == "segmented" and len(attach_i_list) > 0:
-        dots_lx = X_surf[attach_i_list, 0].tolist()
-        dots_ly = Y_surf[attach_i_list, 0].tolist()
-        dots_lz = Z_surf[attach_i_list, 0].tolist()
-        fig.add_trace(go.Scatter3d(
-            x=dots_lx, y=dots_ly, z=dots_lz,
-            mode="markers",
-            marker=dict(color="#f39c12", size=7, symbol="circle"),
-            showlegend=True,
-            name="Cable attach points",
-            hoverinfo="skip",
-        ))
-
-        dots_rx = X_surf[attach_i_list, -1].tolist()
-        dots_ry = Y_surf[attach_i_list, -1].tolist()
-        dots_rz = Z_surf[attach_i_list, -1].tolist()
-        fig.add_trace(go.Scatter3d(
-            x=dots_rx, y=dots_ry, z=dots_rz,
-            mode="markers",
-            marker=dict(color="#f39c12", size=7, symbol="circle"),
-            showlegend=False,
-            hoverinfo="skip",
-        ))
-
-        # Side cables along the free edges of the FDM result
-        fig.add_trace(go.Scatter3d(
-            x=X_surf[:, 0], y=Y_surf[:, 0], z=Z_surf[:, 0],
-            mode="lines",
-            line=dict(color="#f1c40f", width=4),
-            showlegend=True,
-            name="Side cables",
-            hoverinfo="skip",
-        ))
-        fig.add_trace(go.Scatter3d(
-            x=X_surf[:, -1], y=Y_surf[:, -1], z=Z_surf[:, -1],
-            mode="lines",
-            line=dict(color="#f1c40f", width=4),
-            showlegend=False,
-            hoverinfo="skip",
-        ))
-    else:
-        _add_kader_track(fig, x, z_beam, y1, show_legend=True)
-        _add_kader_track(fig, x, z_beam, y2, show_legend=False)
-
-    # ---- Edge cables on the two short ends
-    if edge_cables_on:
-        fig.add_trace(go.Scatter3d(
-            x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
-            mode="lines",
-            line=dict(color="#f1c40f", width=5),
-            showlegend=True,
-            name="Edge cables",
-        ))
-        fig.add_trace(go.Scatter3d(
-            x=edge_north[:, 0], y=edge_north[:, 1], z=edge_north[:, 2],
-            mode="lines",
-            line=dict(color="#f1c40f", width=5),
-            showlegend=False,
-        ))
-
-    # ---- Tie-down cables
-    if n_intervals == 4:
-        per_beam_fractions = [0.175, 0.825]
-    elif n_intervals == 8:
-        per_beam_fractions = [0.175, 0.225, 0.775, 0.825]
-    else:
-        per_beam_fractions = [0.175, 0.825]
-
-    for frac in per_beam_fractions:
-        idx = find_index_at_arclength_fraction(s, total, frac)
-        x_tie = x[idx]
-        beam_z = z_beam[idx]
-
-        for side, y_beam in ((-1, y1[idx]), (+1, y2[idx])):
-            drop = beam_z
-            if drop <= 0:
-                drop = 0.5
-
-            horizontal = drop / math.tan(math.radians(uplift)) if uplift > 0 else drop
-
-            x_offset = horizontal * 0.5
-            y_offset = horizontal * 0.5 * math.tan(math.radians(spread))
-
-            if x_tie < 0:
-                anchor_x = x_tie - x_offset
-            elif x_tie > 0:
-                anchor_x = x_tie + x_offset
-            else:
-                anchor_x = x_tie + x_offset
-
-            anchor_y = y_beam + side * y_offset
-
-            fig.add_trace(go.Scatter3d(
-                x=[x_tie, anchor_x],
-                y=[y_beam, anchor_y],
-                z=[beam_z, 0],
-                mode="lines",
-                line=dict(color="#f1c40f", width=2, dash="dot"),
-                showlegend=False,
-                hoverinfo="skip",
-            ))
-
-            fig.add_trace(go.Scatter3d(
-                x=[anchor_x], y=[anchor_y], z=[0],
-                mode="markers",
-                marker=dict(color="#f1c40f", size=5, symbol="square"),
-                showlegend=False,
-                hoverinfo="skip",
-            ))
-
-    # ---- Ground supports
-    fig.add_trace(go.Scatter3d(
-        x=[-span / 2.0, span / 2.0],
-        y=[0, 0],
-        z=[0, 0],
-        mode="markers",
-        marker=dict(color="#2ecc71", size=10, symbol="diamond"),
-        name="Ground supports",
-    ))
-
-    # ---- Legend dummy for tie-downs
-    fig.add_trace(go.Scatter3d(
-        x=[None], y=[None], z=[None],
-        mode="lines",
-        line=dict(color="#f1c40f", width=2, dash="dot"),
-        name="Tie-down cables",
-    ))
-
-    return apply_common_layout(fig, rise)
+    print("Test 1 - Flat mesh")
+    print("  converged        :", res["flat_converged"])
+    print("  z max deviation  : %.6e" % res["flat_z_max_dev"])
+    print("  xy max deviation : %.6e" % res["flat_xy_max_dev"])
+    print("  flat_ok          :", res["flat_ok"])
+    print()
+    print("Test 2 - Saddle from non-planar boundary")
+    print("  converged        :", res["saddle_converged"])
+    print("  interior z min   : %.6f" % res["saddle_z_min"])
+    print("  interior z max   : %.6f" % res["saddle_z_max"])
+    print("  saddle_ok        :", res["saddle_ok"])
+    print()
+    print("Test 3 - z_only constraint")
+    print("  converged        :", res["z_only_converged"])
+    print("  x moved          : %.6e" % res["z_only_x_moved"])
+    print("  y moved          : %.6e" % res["z_only_y_moved"])
+    print("  z moved          : %.6f" % res["z_only_z_moved"])
+    print("  z_only_ok        :", res["z_only_ok"])
+    print("-" * 70)
+    print("GATE:", "PASS" if res["pass"] else "FAIL")
 
 
 
