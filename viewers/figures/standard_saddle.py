@@ -18,6 +18,17 @@
 #   The beam-edge nodes between them are free.
 #
 # Side-cable stiffness: SIDE_CABLE_STIFFNESS_FACTOR = 12.0
+#
+# Updated 2026-09-23 (late):
+#   - DIAGNOSTICS added. Below the 3D view, the viewer now records
+#     and prints:
+#       a) initial triangle area statistics (min, max, and the
+#          indices of the smallest 10 triangles)
+#       b) per-node displacement from initial to solved, sorted,
+#          with the top 20 largest displacements and their (i,j)
+#       c) the residual norm and n_free / n_fixed from solve_fdm
+#     This is a temporary instrumentation block. It does not change
+#     the shape. It reports what the solver did.
 # =============================================================================
 
 import math
@@ -43,7 +54,10 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
                        membrane_pretension, cable_pretension,
                        attach_type, n_attach,
                        nx=21, ny=21):
-    """Build the FDM mesh and solve for the membrane shape."""
+    """
+    Build the FDM mesh, solve for the membrane shape, and return
+    both the solution and diagnostic information.
+    """
     n_pts = len(x)
 
     node_xyz = np.zeros((nx, ny, 3))
@@ -69,6 +83,8 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         for j in range(ny):
             k = i * ny + j
             points[k] = node_xyz[i, j]
+
+    points_initial = points.copy()
 
     edges = []
     for i in range(nx):
@@ -132,6 +148,68 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     res = solve_fdm(points, edges, fixed_indices, q)
     coords = res["coordinates"]
 
+    # ---- Diagnostics: initial triangle areas -------------------------------
+    initial_areas = []
+    initial_area_tri = []
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            a = i * ny + j
+            b = (i + 1) * ny + j
+            c = i * ny + (j + 1)
+            d = (i + 1) * ny + (j + 1)
+            for tri in ((a, b, c), (b, d, c)):
+                p0 = points_initial[tri[0]]
+                p1 = points_initial[tri[1]]
+                p2 = points_initial[tri[2]]
+                area = 0.5 * float(np.linalg.norm(np.cross(p1 - p0, p2 - p0)))
+                initial_areas.append(area)
+                initial_area_tri.append(tri)
+    initial_areas = np.array(initial_areas)
+
+    # ---- Diagnostics: per-node displacement --------------------------------
+    disp = np.linalg.norm(coords - points_initial, axis=1)
+
+    # ---- Diagnostics: sorted largest displacements -------------------------
+    order = np.argsort(disp)[::-1]
+    top_n = 20
+    top_disp = []
+    for rank, k in enumerate(order[:top_n]):
+        i_idx = int(k // ny)
+        j_idx = int(k % ny)
+        top_disp.append({
+            "rank": rank + 1,
+            "node": int(k),
+            "i": i_idx,
+            "j": j_idx,
+            "disp": float(disp[k]),
+            "z_initial": float(points_initial[k, 2]),
+            "z_solved": float(coords[k, 2]),
+        })
+
+    # ---- Diagnostics: smallest initial triangles ---------------------------
+    order_a = np.argsort(initial_areas)
+    top_small = []
+    for rank, idx in enumerate(order_a[:10]):
+        tri = initial_area_tri[idx]
+        top_small.append({
+            "rank": rank + 1,
+            "nodes": (int(tri[0]), int(tri[1]), int(tri[2])),
+            "area": float(initial_areas[idx]),
+        })
+
+    diagnostics = {
+        "initial_area_min": float(initial_areas.min()),
+        "initial_area_max": float(initial_areas.max()),
+        "initial_area_mean": float(initial_areas.mean()),
+        "residual_norm": float(res["residual_norm"]),
+        "n_free": int(res["n_free"]),
+        "n_fixed": int(res["n_fixed"]),
+        "top_displacements": top_disp,
+        "smallest_initial_triangles": top_small,
+        "edge_count": len(edges),
+        "node_count": n_nodes,
+    }
+
     X = np.zeros((nx, ny))
     Y = np.zeros((nx, ny))
     Z = np.zeros((nx, ny))
@@ -148,7 +226,7 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         edge_south[j] = coords[0 * ny + j]
         edge_north[j] = coords[(nx - 1) * ny + j]
 
-    return X, Y, Z, edge_south, edge_north, attach_i
+    return X, Y, Z, edge_south, edge_north, attach_i, diagnostics
 
 
 def _grid_to_triangles(X, Y, Z):
@@ -178,9 +256,6 @@ def _grid_to_triangles(X, Y, Z):
             tri_k.append(c)
 
     return node_x, node_y, node_z, tri_i, tri_j, tri_k
-
-
-
 
 
 def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
@@ -246,7 +321,7 @@ def build_standard_saddle():
         name="Beam R",
     ))
 
-    X_surf, Y_surf, Z_surf, edge_south, edge_north, attach_i_list = _build_saddle_fdm(
+    X_surf, Y_surf, Z_surf, edge_south, edge_north, attach_i_list, diag = _build_saddle_fdm(
         x, z_beam, y1, y2, span, apex,
         membrane_pre, cable_pre,
         attach_type, n_attach,
@@ -390,7 +465,56 @@ def build_standard_saddle():
         name="Tie-down cables",
     ))
 
-    return apply_common_layout(fig, rise)
+    fig = apply_common_layout(fig, rise)
+
+    # ---- Diagnostics panel -------------------------------------------------
+    with st.expander("FDM diagnostics (temporary)", expanded=True):
+        st.markdown(
+            "**Initial mesh triangle area** — before solve_fdm:"
+        )
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Min area", "%.6e" % diag["initial_area_min"])
+        c2.metric("Mean area", "%.6e" % diag["initial_area_mean"])
+        c3.metric("Max area", "%.6f" % diag["initial_area_max"])
+
+        st.markdown(
+            "**FDM solver residual** — after solve_fdm:"
+        )
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Residual", "%.4e" % diag["residual_norm"])
+        d2.metric("Free nodes", diag["n_free"])
+        d3.metric("Fixed nodes", diag["n_fixed"])
+
+        st.markdown(
+            "**Top 20 largest node displacements** (initial → solved):"
+        )
+        rows = []
+        for entry in diag["top_displacements"]:
+            rows.append(
+                "rank " + str(entry["rank"]) +
+                "  node " + str(entry["node"]) +
+                "  (i=" + str(entry["i"]) + ", j=" + str(entry["j"]) + ")" +
+                "  disp=" + ("%.4f" % entry["disp"]) +
+                "  z_init=" + ("%.4f" % entry["z_initial"]) +
+                "  z_solved=" + ("%.4f" % entry["z_solved"])
+            )
+        st.code("\n".join(rows), language="text")
+
+        st.markdown(
+            "**Smallest 10 initial triangles** (before solve):"
+        )
+        rows2 = []
+        for entry in diag["smallest_initial_triangles"]:
+            rows2.append(
+                "rank " + str(entry["rank"]) +
+                "  nodes " + str(entry["nodes"]) +
+                "  area=" + ("%.6e" % entry["area"])
+            )
+        st.code("\n".join(rows2), language="text")
+
+    return fig
+
+
 
 
 
