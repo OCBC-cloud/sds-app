@@ -5,6 +5,10 @@
 #
 # Updated 2026-09-15:
 #   - Added leaf_room route for Rib Length Adjustment room
+# Updated 2026-09-23:
+#   - Added tester_nfdm route (experimental). URL-triggered only.
+#     Reached via ?tester=1. Delete this file's route + the tester
+#     workshop + engine/nfdm.py to remove entirely.
 # =============================================================================
 
 import streamlit as st
@@ -60,6 +64,11 @@ def _render_guided():
         st.rerun()
 
 
+def _render_tester_nfdm():
+    from ui.workshops.tester_nfdm import render_tester_nfdm
+    render_tester_nfdm()
+
+
 PAGE_RENDERERS = {
     "landing": _render_landing,
     "studio": _render_studio,
@@ -68,13 +77,21 @@ PAGE_RENDERERS = {
     "results": _render_results,
     "leaf_room": _render_leaf_room,
     "guided": _render_guided,
+    "tester_nfdm": _render_tester_nfdm,
 }
 
 
 def render_current_page():
+    if st.query_params.get("tester") == "1":
+        st.session_state.page = "tester_nfdm"
     page = st.session_state.get("page", DEFAULT_PAGE)
     renderer = PAGE_RENDERERS.get(page, None)
     if renderer is None:
         st.session_state.page = DEFAULT_PAGE
         renderer = PAGE_RENDERERS[DEFAULT_PAGE]
     renderer()
+
+
+
+
+
