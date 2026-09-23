@@ -4,23 +4,18 @@
 # Builds the 3D figure for the Standard Saddle variant.
 # Called by viewers/results_viewer.py dispatcher.
 #
-# Membrane (updated 2026-09-23):
+# Membrane (updated 2026-09-22):
 #   The membrane surface is form-found using the FDM kernel
 #   (engine/form_finding.py), then drawn as a TRIANGULATED mesh
-#   (go.Mesh3d).
-#
-# Node constraints (updated 2026-09-23):
-#   In Segmented mode, the free beam-edge nodes between attachment
-#   points are constrained to move only in z. Their x and y are
-#   fixed at their initial values. This is the correct physical
-#   model: the beam does not move in plan; the cable along the
-#   beam does not move in plan; only the fabric pulls the edge
-#   up or down.
+#   (go.Mesh3d). This matches industry practice (RFEM, Easy,
+#   ixCube).
 #
 # Mesh size rule: engine.mesh_size_for_span() — one node per metre,
 #   min 21, max 101, always odd.
 #
 # Attachment method: ws_ss_attachment_type — "kader" or "segmented".
+#   In segmented mode, only the cable attachment points are fixed.
+#   The beam-edge nodes between them are free.
 #
 # Side-cable stiffness: SIDE_CABLE_STIFFNESS_FACTOR = 12.0
 # =============================================================================
@@ -93,28 +88,16 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             ii = max(0, min(nx - 1, ii))
             attach_i.append(ii)
         attach_i = sorted(set(attach_i))
-
-        attach_set = set(attach_i)
-
         fixed_indices = []
         for i in attach_i:
             fixed_indices.append(i * ny + 0)
             fixed_indices.append(i * ny + (ny - 1))
-
-        # z-only nodes: the beam-edge nodes that are NOT attachment points.
-        z_only_indices = []
-        for i in range(nx):
-            if i in attach_set:
-                continue
-            z_only_indices.append(i * ny + 0)
-            z_only_indices.append(i * ny + (ny - 1))
     else:
         attach_i = []
         fixed_indices = []
         for i in range(nx):
             fixed_indices.append(i * ny + 0)
             fixed_indices.append(i * ny + (ny - 1))
-        z_only_indices = []
 
     L_avg = 1.0
     if len(edges) > 0:
@@ -146,8 +129,7 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             if on_beam:
                 q[k] = SIDE_CABLE_STIFFNESS_FACTOR * T_cab * 1000.0 / L_e
 
-    res = solve_fdm(points, edges, fixed_indices, q,
-                    z_only_indices=z_only_indices)
+    res = solve_fdm(points, edges, fixed_indices, q)
     coords = res["coordinates"]
 
     X = np.zeros((nx, ny))
