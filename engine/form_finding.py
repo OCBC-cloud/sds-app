@@ -29,6 +29,8 @@
 #   2026-09-22 - First build with flat and saddle self-tests.
 #   2026-09-22 - mesh_size_for_span() added.
 #   2026-09-23 - z_only_indices argument added.
+#   2026-09-23 - mesh_size_for_shape() added. Mesh divisibility rule.
+#                mesh_size_for_span() kept as a rectangle wrapper.
 # =============================================================================
 
 import math
@@ -39,20 +41,95 @@ import numpy as np
 # =============================================================================
 # MESH SIZE RULE
 # =============================================================================
-# One node per metre of the span, minimum 21, maximum 101, always odd.
+# The mesh must divide the shape's sides evenly, after the corners
+# are removed.
+#
+#   n = N * k + C
+#
+#   N = number of sides
+#   C = number of corners
+#   k = any positive integer
+#
+# Examples:
+#   Rectangle, square, rhombus (N=4, C=4): 8, 12, 16, 20, 24, 28, ...
+#   Triangle (N=3, C=3):                   6, 9, 12, 15, 18, 21, 24, ...
+#   Hexagon (N=6, C=6):                    12, 18, 24, 30, ...
+#
+# The mesh size must be one of these values. It must be at least 21
+# nodes along the span, and at most 101.
+
+MESH_MIN = 21
+MESH_MAX = 101
+
+
+def mesh_size_for_shape(span_m, n_sides, n_corners):
+    """
+    Return the recommended mesh size along the span, in nodes.
+
+    The result belongs to the series n = n_sides * k + n_corners,
+    bounded between MESH_MIN and MESH_MAX.
+
+    Parameters
+    ----------
+    span_m : float
+        The span along which the mesh size is being computed.
+        If None or <= 0, the smallest valid value is returned.
+    n_sides : int
+        Number of sides of the shape (4 for rectangle, 3 for
+        triangle, 6 for hexagon).
+    n_corners : int
+        Number of corners of the shape (usually equal to n_sides
+        for a simple polygon).
+    """
+    if n_sides is None or n_corners is None:
+        raise ValueError("n_sides and n_corners must be provided.")
+    if n_sides <= 0 or n_corners < 0:
+        raise ValueError("n_sides must be positive; n_corners >= 0.")
+
+    # Nominal target: one node per metre, clamped to [MESH_MIN, MESH_MAX].
+    if span_m is None or span_m <= 0:
+        nominal = MESH_MIN
+    else:
+        nominal = int(round(span_m))
+        if nominal < MESH_MIN:
+            nominal = MESH_MIN
+        if nominal > MESH_MAX:
+            nominal = MESH_MAX
+
+    # Find the valid value in the series nearest to the nominal target.
+    # Series: n = n_sides * k + n_corners, for k = 0, 1, 2, ...
+    # Since n_corners is usually equal to n_sides, the series starts
+    # at n_sides * 1 + n_corners in practice, but we allow k = 0 for
+    # degenerate shapes. We restrict candidates to [MESH_MIN, MESH_MAX].
+    best = None
+    best_dist = None
+    k = 0
+    # Cap k at a reasonable ceiling so we do not loop forever.
+    k_max = (MESH_MAX // n_sides) + 2
+    while k <= k_max:
+        candidate = n_sides * k + n_corners
+        if MESH_MIN <= candidate <= MESH_MAX:
+            dist = abs(candidate - nominal)
+            if best is None or dist < best_dist:
+                best = candidate
+                best_dist = dist
+        k += 1
+
+    if best is None:
+        # No valid value in range. Fall back to the smallest valid
+        # value in the series, even if it is below MESH_MIN.
+        # This should not happen for the shapes SDSe supports.
+        best = n_sides * 1 + n_corners
+
+    return best
+
 
 def mesh_size_for_span(span_m):
-    """Return the recommended mesh size along the given span, in nodes."""
-    if span_m is None or span_m <= 0:
-        return 21
-    n = int(round(span_m))
-    if n < 21:
-        n = 21
-    if n > 101:
-        n = 101
-    if n % 2 == 0:
-        n += 1
-    return n
+    """
+    Backward-compatible wrapper. Rectangular shapes only (N=4, C=4).
+    New code should call mesh_size_for_shape directly.
+    """
+    return mesh_size_for_shape(span_m, 4, 4)
 
 
 # =============================================================================
@@ -181,6 +258,8 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         "n_free": int(free_all.sum()),
         "n_fixed": int(fixed_mask.sum()),
     }
+
+
 
 
 # =============================================================================
@@ -333,6 +412,50 @@ def _test_z_only_constraint():
     }
 
 
+def _test_mesh_size_for_shape():
+    """Verify the mesh divisibility rule returns valid values."""
+    # Rectangle: N=4, C=4 -> series 8, 12, 16, 20, 24, 28, ...
+    r1 = mesh_size_for_shape(25.0, 4, 4)
+    r2 = mesh_size_for_shape(28.0, 4, 4)
+    r3 = mesh_size_for_shape(50.0, 4, 4)
+    r4 = mesh_size_for_shape(None, 4, 4)
+
+    # Triangle: N=3, C=3 -> series 6, 9, 12, 15, 18, 21, 24, ...
+    t1 = mesh_size_for_shape(22.0, 3, 3)
+
+    # Every result must be in the series and in range.
+    def in_series(n, sides, corners):
+        if n < corners:
+            return False
+        return (n - corners) % sides == 0
+
+    rect_ok = all([
+        in_series(r1, 4, 4),
+        in_series(r2, 4, 4),
+        in_series(r3, 4, 4),
+        in_series(r4, 4, 4),
+        MESH_MIN <= r1 <= MESH_MAX,
+        MESH_MIN <= r2 <= MESH_MAX,
+        MESH_MIN <= r3 <= MESH_MAX,
+        MESH_MIN <= r4 <= MESH_MAX,
+    ])
+    tri_ok = all([
+        in_series(t1, 3, 3),
+        MESH_MIN <= t1 <= MESH_MAX,
+    ])
+
+    return {
+        "rect_near_25": r1,
+        "rect_near_28": r2,
+        "rect_near_50": r3,
+        "rect_none": r4,
+        "tri_near_22": t1,
+        "rect_series_ok": rect_ok,
+        "tri_series_ok": tri_ok,
+        "mesh_rule_ok": rect_ok and tri_ok,
+    }
+
+
 def _verify_form_finding():
     """Run all form-finding self-tests. Returns a dict with results."""
     results = {}
@@ -356,6 +479,14 @@ def _verify_form_finding():
     results["z_only_z_moved"] = t3["z_moved"]
     results["z_only_ok"] = t3["z_only_ok"]
 
+    t4 = _test_mesh_size_for_shape()
+    results["mesh_rect_near_25"] = t4["rect_near_25"]
+    results["mesh_rect_near_28"] = t4["rect_near_28"]
+    results["mesh_rect_near_50"] = t4["rect_near_50"]
+    results["mesh_rect_none"] = t4["rect_none"]
+    results["mesh_tri_near_22"] = t4["tri_near_22"]
+    results["mesh_rule_ok"] = t4["mesh_rule_ok"]
+
     results["pass"] = all([
         results["flat_converged"],
         results["flat_ok"],
@@ -363,6 +494,7 @@ def _verify_form_finding():
         results["saddle_ok"],
         results["z_only_converged"],
         results["z_only_ok"],
+        results["mesh_rule_ok"],
     ])
 
     return results
@@ -392,6 +524,14 @@ if __name__ == "__main__":
     print("  y moved          : %.6e" % res["z_only_y_moved"])
     print("  z moved          : %.6f" % res["z_only_z_moved"])
     print("  z_only_ok        :", res["z_only_ok"])
+    print()
+    print("Test 4 - Mesh divisibility rule")
+    print("  rect near 25 m   :", res["mesh_rect_near_25"])
+    print("  rect near 28 m   :", res["mesh_rect_near_28"])
+    print("  rect near 50 m   :", res["mesh_rect_near_50"])
+    print("  rect span None   :", res["mesh_rect_none"])
+    print("  tri  near 22 m   :", res["mesh_tri_near_22"])
+    print("  mesh_rule_ok     :", res["mesh_rule_ok"])
     print("-" * 70)
     print("GATE:", "PASS" if res["pass"] else "FAIL")
 
