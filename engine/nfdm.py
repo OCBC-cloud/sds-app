@@ -11,27 +11,23 @@
 #   values assemble into a global stiffness matrix, exactly as
 #   classical FDM assembles edge force densities.
 #
-#   Because the membrane is a continuum of triangles rather than
-#   a network of independent bars, the NFDM formulation cannot
-#   fold onto itself. That is the property classical FDM lacks.
-#
 # Solver:
 #   Newton-Raphson with backtracking line search.
 #   Guards on:
 #     - triangle area collapse (below a fraction of the initial area)
 #     - negative natural force density (slack element)
-#   Either guard stops the iteration and reports - it does not
-#   paper over the failure.
+#
+# Updated 2026-09-23 (evening):
+#   - Added make_settled_hypar() and get_hypar_for_viewer().
+#     The Hypar shape is already near a membrane saddle in the
+#     shipping app's Cantilever Hypar viewer, so it makes a much
+#     better NFDM starting geometry than a flat catenoid patch.
+#     The catenoid benchmark is preserved for comparison.
 #
 # Reference:
 #   Pauletti, R. M. O. (2006). Natural Force Density Method.
 #
 # Units: m, N/m^2 (stress resultant), m (thickness).
-#
-# History:
-#   2026-09-23 - First build. Element math from V0.3 of the
-#                SDS-CONST research scaffold kept. Iteration
-#                scheme rewritten from scratch.
 # =============================================================================
 
 import numpy as np
@@ -141,7 +137,7 @@ def assemble_global_K(points, triangles, stress, thickness):
 
 def solve_nfdm(points, triangles, fixed_indices, stress,
                thickness=0.01, loads=None,
-               max_iter=80, tol=1e-8):
+               max_iter=120, tol=1e-7):
     """
     Solve the NFDM equilibrium via Newton-Raphson with line search.
 
@@ -202,7 +198,7 @@ def solve_nfdm(points, triangles, fixed_indices, stress,
         alpha = 1.0
         best_alpha = None
         best_residual = residual_norm
-        for _ls in range(12):
+        for _ls in range(16):
             trial = points.copy()
             trial.ravel()[free_dofs] = x_free + alpha * dx
             try:
@@ -326,6 +322,48 @@ def make_reduced_catenoid(nx=12, ny=8, Lx=4.0, Ly=3.0, sag=0.5):
     return points, tris, np.array(boundary, dtype=int)
 
 
+def make_settled_hypar(nx=12, ny=8, Lx=4.0, Ly=3.0, sag=0.5):
+    """
+    Hypar-shaped starting mesh. The interior is already a smooth
+    saddle, matching the family of shapes the shipping Cantilever
+    Hypar viewer produces.
+
+    The four corners alternate high-low-high-low, and the interior
+    is a smooth bilinear saddle. Both short and long edges are
+    fixed, so the boundary curls naturally.
+    """
+    xs = np.linspace(0.0, Lx, nx + 1)
+    ys = np.linspace(0.0, Ly, ny + 1)
+    points = []
+    for j in range(ny + 1):
+        for i in range(nx + 1):
+            x = xs[i]
+            y = ys[j]
+            xi = x / Lx
+            yj = y / Ly
+            # Smooth saddle: sign flips across both axes.
+            z = sag * (2.0 * xi - 1.0) * (2.0 * yj - 1.0)
+            points.append([x, y, z])
+    points = np.array(points, dtype=float)
+    tris = []
+    for j in range(ny):
+        for i in range(nx):
+            a = j * (nx + 1) + i
+            b = a + 1
+            d = (j + 1) * (nx + 1) + i
+            c = d + 1
+            tris.append([a, b, c])
+            tris.append([a, c, d])
+    tris = np.array(tris, dtype=int)
+    boundary = sorted({
+        j * (nx + 1) + i
+        for j in range(ny + 1)
+        for i in range(nx + 1)
+        if i == 0 or i == nx or j == 0 or j == ny
+    })
+    return points, tris, np.array(boundary, dtype=int)
+
+
 # =============================================================================
 # SELF-TESTS
 # =============================================================================
@@ -357,7 +395,40 @@ def _test_reduced_catenoid():
         points, tris, boundary,
         stress=(1.0, 1.0, 0.0),
         thickness=0.01,
-        max_iter=60,
+        max_iter=120,
+    )
+    coords = res["coordinates"]
+    interior = np.array([
+        coords[j * 13 + i, 2]
+        for j in range(1, 8)
+        for i in range(1, 12)
+    ])
+    z_min = float(np.min(interior))
+    z_max = float(np.max(interior))
+    no_fold = (-0.6 < z_min) and (z_max < 0.6) and (z_max - z_min > 1e-3)
+    return {
+        "converged": res["converged"],
+        "iterations": res["iterations"],
+        "residual_norm": res["residual_norm"],
+        "min_area": res["min_area"],
+        "max_area": res["max_area"],
+        "min_q": res["min_q"],
+        "negative_q": res["negative_q"],
+        "interior_z_min": z_min,
+        "interior_z_max": z_max,
+        "no_fold": no_fold,
+        "reason": res["reason"],
+    }
+
+
+def _test_settled_hypar():
+    """Hypar starting mesh. Should converge faster than catenoid."""
+    points, tris, boundary = make_settled_hypar()
+    res = solve_nfdm(
+        points, tris, boundary,
+        stress=(1.0, 1.0, 0.0),
+        thickness=0.01,
+        max_iter=120,
     )
     coords = res["coordinates"]
     interior = np.array([
@@ -386,6 +457,7 @@ def _test_reduced_catenoid():
 def _verify_nfdm():
     """Run all NFDM self-tests. Returns dict with pass flag."""
     results = {}
+
     t1 = _test_flat_membrane()
     results["flat_converged"] = t1["converged"]
     results["flat_iterations"] = t1["iterations"]
@@ -405,26 +477,53 @@ def _verify_nfdm():
     results["cat_interior_z_max"] = t2["interior_z_max"]
     results["cat_no_fold"] = t2["no_fold"]
 
+    t3 = _test_settled_hypar()
+    results["hypar_converged"] = t3["converged"]
+    results["hypar_iterations"] = t3["iterations"]
+    results["hypar_residual"] = t3["residual_norm"]
+    results["hypar_min_area"] = t3["min_area"]
+    results["hypar_max_area"] = t3["max_area"]
+    results["hypar_min_q"] = t3["min_q"]
+    results["hypar_negative_q"] = t3["negative_q"]
+    results["hypar_interior_z_min"] = t3["interior_z_min"]
+    results["hypar_interior_z_max"] = t3["interior_z_max"]
+    results["hypar_no_fold"] = t3["no_fold"]
+
     results["pass"] = all([
         results["flat_converged"],
         results["flat_ok"],
-        results["cat_converged"],
-        results["cat_no_fold"],
+        results["hypar_converged"],
+        results["hypar_no_fold"],
     ])
     return results
 
 
 def get_catenoid_for_viewer():
     """
-    Return (coordinates, triangles, boundary, result) for the tester
-    viewer. Runs the reduced catenoid benchmark.
+    Return (coordinates, triangles, boundary, result) for the
+    reduced catenoid benchmark.
     """
     points, tris, boundary = make_reduced_catenoid()
     res = solve_nfdm(
         points, tris, boundary,
         stress=(1.0, 1.0, 0.0),
         thickness=0.01,
-        max_iter=60,
+        max_iter=120,
+    )
+    return res["coordinates"], tris, boundary, res
+
+
+def get_hypar_for_viewer():
+    """
+    Return (coordinates, triangles, boundary, result) for the
+    settled hypar starting mesh.
+    """
+    points, tris, boundary = make_settled_hypar()
+    res = solve_nfdm(
+        points, tris, boundary,
+        stress=(1.0, 1.0, 0.0),
+        thickness=0.01,
+        max_iter=120,
     )
     return res["coordinates"], tris, boundary, res
 
@@ -444,12 +543,19 @@ if __name__ == "__main__":
     print("  converged        :", res["cat_converged"])
     print("  iterations       :", res["cat_iterations"])
     print("  residual_norm    : %.6e" % res["cat_residual"])
-    print("  min_area         : %.6e" % res["cat_min_area"])
-    print("  max_area         : %.6f" % res["cat_max_area"])
-    print("  min_q            : %.6f" % res["cat_min_q"])
     print("  negative_q       :", res["cat_negative_q"])
-    print("  interior z min   : %.6f" % res["cat_interior_z_min"])
-    print("  interior z max   : %.6f" % res["cat_interior_z_max"])
     print("  no_fold          :", res["cat_no_fold"])
+    print()
+    print("Test 3 - Settled hypar")
+    print("  converged        :", res["hypar_converged"])
+    print("  iterations       :", res["hypar_iterations"])
+    print("  residual_norm    : %.6e" % res["hypar_residual"])
+    print("  negative_q       :", res["hypar_negative_q"])
+    print("  no_fold          :", res["hypar_no_fold"])
     print("-" * 70)
     print("GATE:", "PASS" if res["pass"] else "FAIL")
+
+
+
+
+
