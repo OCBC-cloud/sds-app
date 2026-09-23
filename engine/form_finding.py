@@ -19,6 +19,13 @@
 #     the edge up or down.
 #   - All other nodes: free in all three directions.
 #
+# Note on residual:
+#   residual_norm is computed over all non-fixed nodes. For a
+#   z-only node loaded in a direction it is not free to move in,
+#   the residual in that direction is the constrained reaction —
+#   it is correct and it must not be zero. Do not gate tests on
+#   residual_norm when a constrained-direction load is present.
+#
 # Reference:
 #   Schek, H.-J. (1974). The force density method for form-finding
 #   and computation of general networks.
@@ -31,6 +38,8 @@
 #   2026-09-23 - z_only_indices argument added.
 #   2026-09-23 - mesh_size_for_shape() added. Mesh divisibility rule.
 #                mesh_size_for_span() kept as a rectangle wrapper.
+#   2026-09-23 - z-only test: residual check dropped from gate.
+#                Constraint check (x,y fixed; z free) is the gate.
 # =============================================================================
 
 import math
@@ -98,13 +107,9 @@ def mesh_size_for_shape(span_m, n_sides, n_corners):
 
     # Find the valid value in the series nearest to the nominal target.
     # Series: n = n_sides * k + n_corners, for k = 0, 1, 2, ...
-    # Since n_corners is usually equal to n_sides, the series starts
-    # at n_sides * 1 + n_corners in practice, but we allow k = 0 for
-    # degenerate shapes. We restrict candidates to [MESH_MIN, MESH_MAX].
     best = None
     best_dist = None
     k = 0
-    # Cap k at a reasonable ceiling so we do not loop forever.
     k_max = (MESH_MAX // n_sides) + 2
     while k <= k_max:
         candidate = n_sides * k + n_corners
@@ -118,7 +123,6 @@ def mesh_size_for_shape(span_m, n_sides, n_corners):
     if best is None:
         # No valid value in range. Fall back to the smallest valid
         # value in the series, even if it is below MESH_MIN.
-        # This should not happen for the shapes SDSe supports.
         best = n_sides * 1 + n_corners
 
     return best
@@ -159,6 +163,14 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
     -------
     result : dict
         coordinates, residual_norm, n_free, n_fixed
+
+    Note
+    ----
+    residual_norm is computed over all non-fixed nodes. For a
+    z-only node loaded in x or y, the residual in that axis is
+    the constrained reaction. It is correct and must not be
+    zero. Do not use residual_norm as a convergence gate when a
+    constrained-direction load is present.
     """
     points = np.asarray(points, dtype=float)
     edges = list(edges)
@@ -205,7 +217,6 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         if i < 0 or i >= n:
             raise ValueError("z_only index %d out of range" % i)
         if fixed_mask[i]:
-            # A fixed node is not z_only. Fixed wins.
             continue
         z_only_mask[i] = True
 
@@ -220,14 +231,6 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
 
     X = points.copy()
 
-    # ---- Solve for free DOFs, one axis at a time.
-    # For x and y axes:
-    #   free nodes (not fixed, not z_only) participate.
-    #   z_only nodes are FIXED in this axis.
-    # For z axis:
-    #   free nodes and z_only nodes participate.
-    #   Only truly fixed nodes are fixed in this axis.
-
     def _solve_axis(axis, mask_free):
         idx = np.where(mask_free)[0]
         idx_fixed = np.where(~mask_free)[0]
@@ -239,12 +242,10 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         rhs -= K_fx @ points[idx_fixed, axis]
         X[idx, axis] = np.linalg.solve(K_ff, rhs)
 
-    # ---- x and y axes: only truly free nodes participate
     free_xy = (~fixed_mask) & (~z_only_mask)
     _solve_axis(0, free_xy)
     _solve_axis(1, free_xy)
 
-    # ---- z axis: free + z_only participate
     free_z = (~fixed_mask)
     _solve_axis(2, free_z)
 
@@ -258,6 +259,7 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         "n_free": int(free_all.sum()),
         "n_fixed": int(fixed_mask.sum()),
     }
+
 
 
 
@@ -376,8 +378,15 @@ def _test_hypar_saddle():
 
 
 def _test_z_only_constraint():
-    """Verify that a z_only node moves only in z."""
-    # 3 nodes in a row along x, with the two ends fixed.
+    """
+    Verify that a z_only node moves only in z.
+
+    The gate is the constraint itself: x fixed, y fixed, z free.
+    The residual is NOT a gate here, because the y-load is a
+    constrained reaction — it must not be resolved by node motion,
+    so residual_norm stays non-zero. The residual is reported for
+    information only.
+    """
     points = [
         (0.0, 0.0, 0.0),
         (1.0, 0.0, 0.0),
@@ -385,45 +394,43 @@ def _test_z_only_constraint():
     ]
     edges = [(0, 1), (1, 2)]
     fixed = [0, 2]
-    # Middle node: z-only.
     z_only = [1]
     loads = np.array([
         [0.0, 0.0, 0.0],
-        [0.0, 1000.0, 1000.0],   # pull node 1 in y and z
+        [0.0, 1000.0, 1000.0],
         [0.0, 0.0, 0.0],
     ])
     res = solve_fdm(points, edges, fixed, 1.0,
                     loads=loads, z_only_indices=z_only)
     coords = res["coordinates"]
 
-    # x should not have moved.
     x_moved = abs(coords[1, 0] - 1.0)
-    # y should not have moved (z_only in y too).
     y_moved = abs(coords[1, 1] - 0.0)
-    # z should have moved.
     z_moved = abs(coords[1, 2] - 0.0)
 
+    constraint_ok = (
+        x_moved < 1e-9
+        and y_moved < 1e-9
+        and z_moved > 1e-3
+    )
+
     return {
-        "converged": res["residual_norm"] < 1e-6,
+        "residual_norm": res["residual_norm"],
         "x_moved": x_moved,
         "y_moved": y_moved,
         "z_moved": z_moved,
-        "z_only_ok": x_moved < 1e-9 and y_moved < 1e-9 and z_moved > 1e-3,
+        "z_only_ok": constraint_ok,
     }
 
 
 def _test_mesh_size_for_shape():
     """Verify the mesh divisibility rule returns valid values."""
-    # Rectangle: N=4, C=4 -> series 8, 12, 16, 20, 24, 28, ...
     r1 = mesh_size_for_shape(25.0, 4, 4)
     r2 = mesh_size_for_shape(28.0, 4, 4)
     r3 = mesh_size_for_shape(50.0, 4, 4)
     r4 = mesh_size_for_shape(None, 4, 4)
-
-    # Triangle: N=3, C=3 -> series 6, 9, 12, 15, 18, 21, 24, ...
     t1 = mesh_size_for_shape(22.0, 3, 3)
 
-    # Every result must be in the series and in range.
     def in_series(n, sides, corners):
         if n < corners:
             return False
@@ -473,7 +480,7 @@ def _verify_form_finding():
     results["saddle_ok"] = t2["saddle_ok"]
 
     t3 = _test_z_only_constraint()
-    results["z_only_converged"] = t3["converged"]
+    results["z_only_residual"] = t3["residual_norm"]
     results["z_only_x_moved"] = t3["x_moved"]
     results["z_only_y_moved"] = t3["y_moved"]
     results["z_only_z_moved"] = t3["z_moved"]
@@ -492,7 +499,6 @@ def _verify_form_finding():
         results["flat_ok"],
         results["saddle_converged"],
         results["saddle_ok"],
-        results["z_only_converged"],
         results["z_only_ok"],
         results["mesh_rule_ok"],
     ])
@@ -519,7 +525,7 @@ if __name__ == "__main__":
     print("  saddle_ok        :", res["saddle_ok"])
     print()
     print("Test 3 - z_only constraint")
-    print("  converged        :", res["z_only_converged"])
+    print("  residual_norm    : %.6e  (info only)" % res["z_only_residual"])
     print("  x moved          : %.6e" % res["z_only_x_moved"])
     print("  y moved          : %.6e" % res["z_only_y_moved"])
     print("  z moved          : %.6f" % res["z_only_z_moved"])
