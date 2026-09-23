@@ -14,6 +14,12 @@
 #   - Button is the only Streamlit widget on the page
 #   - No flexbox, no vh units, no min-height
 #   - Layout adapts to any phone screen naturally
+#
+# Updated 2026-09-23:
+#   - Added temporary NFDM Tester button. Experimental. Reachable
+#     only from this landing page. Delete this button + the tester
+#     workshop + engine/nfdm.py + the tester_nfdm route in
+#     core/navigation.py to remove the tester entirely.
 # =============================================================================
 
 import streamlit as st
@@ -97,6 +103,16 @@ LANDING_CSS = """
         text-align: center;
         margin-top: 1rem;
     }
+
+    .landing-test-label {
+        font-size: 0.7rem;
+        color: #7a8fa8;
+        letter-spacing: 1px;
+        text-align: center;
+        margin-top: 1.4rem;
+        margin-bottom: 0.3rem;
+        text-transform: uppercase;
+    }
     </style>
 """
 
@@ -112,7 +128,7 @@ def render_landing():
     """
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    # ---- One single HTML block for everything except the button
+    # ---- One single HTML block for everything except the buttons
     landing_html = (
         '<div class="landing-block">'
         '<div class="landing-logo">SDSe</div>'
@@ -124,7 +140,7 @@ def render_landing():
     )
     st.markdown(landing_html, unsafe_allow_html=True)
 
-    # ---- The one and only button on this page
+    # ---- Primary button
     if st.button(
         "Enter The Studio",
         key="landing_enter",
@@ -134,8 +150,27 @@ def render_landing():
         st.session_state.page = "studio"
         st.rerun()
 
+    # ---- Temporary experimental button: NFDM tester
+    st.markdown(
+        '<div class="landing-test-label">Experimental</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        "Open NFDM Tester",
+        key="landing_tester",
+        use_container_width=True,
+        type="secondary",
+    ):
+        st.session_state.page = "tester_nfdm"
+        st.rerun()
+
     # ---- Footer
     st.markdown(
         '<div class="landing-footer">All Major Building Code</div>',
         unsafe_allow_html=True,
     )
+
+
+
+
+
