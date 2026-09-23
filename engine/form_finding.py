@@ -6,31 +6,29 @@
 # Purpose: find the equilibrium shape of a membrane or cable mesh.
 #
 # Method: Force Density Method (FDM).
-#   Each edge (i, j) has a force density q = T / L, where T is the
-#   tension in the edge and L is its length. At every free node,
-#   the sum of forces from the edges connected to it must equal the
-#   external load on that node. This gives a linear system in the
-#   free-node coordinates:
+#   Each edge (i, j) has a force density q = T / L. At every free
+#   node, the sum of forces from the edges connected to it must
+#   equal the external load on that node. This gives a linear
+#   system in the free-node coordinates: K * x = p.
 #
-#       K * x = p
-#
-#   where K is assembled from the force densities, x is the
-#   unknown coordinates, and p is the load. Solve once. That is
-#   the equilibrium shape.
+# Node constraints:
+#   - fixed_indices: node cannot move at all (x, y, z fixed).
+#   - z_only_indices: node can move in z only. Its x and y stay at
+#     their initial values. Use this for nodes on a rigid beam edge,
+#     where the beam does not move in plan but the fabric can pull
+#     the edge up or down.
+#   - All other nodes: free in all three directions.
 #
 # Reference:
 #   Schek, H.-J. (1974). The force density method for form-finding
 #   and computation of general networks.
 #
-# Units:
-#   Length: m
-#   Force: N
-#   Force density: N/m
+# Units: m, N, N/m.
 #
 # History:
 #   2026-09-22 - First build with flat and saddle self-tests.
-#   2026-09-22 - mesh_size_for_span() added. Shared rule for mesh
-#                density, used by all FDM viewers.
+#   2026-09-22 - mesh_size_for_span() added.
+#   2026-09-23 - z_only_indices argument added.
 # =============================================================================
 
 import math
@@ -41,38 +39,19 @@ import numpy as np
 # =============================================================================
 # MESH SIZE RULE
 # =============================================================================
-# One node per metre of the span, minimum 21, maximum 100, always odd.
-# Odd numbers put a node on the mirror plane, keeping the FDM solve
-# symmetric for symmetric structures.
-#
-# Minimum 21 keeps a small structure detailed enough to look smooth.
-# Maximum 100 keeps the interactive viewer responsive on a phone.
+# One node per metre of the span, minimum 21, maximum 101, always odd.
 
 def mesh_size_for_span(span_m):
-    """
-    Return the recommended mesh size along the given span, in nodes.
-
-    Parameters
-    ----------
-    span_m : float
-        Characteristic span of the surface, in metres.
-
-    Returns
-    -------
-    n : int
-        Odd number of nodes, between 21 and 101.
-    """
+    """Return the recommended mesh size along the given span, in nodes."""
     if span_m is None or span_m <= 0:
         return 21
-
-    n = int(round(span_m))          # one node per metre
+    n = int(round(span_m))
     if n < 21:
         n = 21
     if n > 101:
         n = 101
     if n % 2 == 0:
-        n += 1                       # always odd
-
+        n += 1
     return n
 
 
@@ -80,38 +59,38 @@ def mesh_size_for_span(span_m):
 # FDM SOLVER
 # =============================================================================
 
-def solve_fdm(points, edges, fixed_indices, force_densities, loads=None):
+def solve_fdm(points, edges, fixed_indices, force_densities,
+              loads=None, z_only_indices=None):
     """
     Solve the Force Density Method equilibrium.
 
     Parameters
     ----------
-    points : list of (x, y, z) or (n, 3) array
-        Initial node coordinates.
-    edges : list of (i, j)
-        Each edge connects node i to node j.
+    points : (n, 3) array of node coordinates
+    edges : list of (i, j) edge pairs
     fixed_indices : list of int
-        Node indices that are fixed (boundary). Cannot move.
-    force_densities : float or list of float
-        Scalar applies the same force density to every edge.
-        Otherwise, one value per edge in order.
+        Nodes fixed in x, y, z.
+    force_densities : float or (m,) array
+        Scalar applies the same q to all edges.
     loads : (n, 3) array or None
-        External load at each node in N. Zero for form-finding
-        under self-weight only. Default: no load.
+        External load at each node in N. Default: no load.
+    z_only_indices : list of int or None
+        Nodes that can move only in z. Their x and y are fixed
+        at the values in points. Default: None.
 
     Returns
     -------
     result : dict
-        {
-          "coordinates": (n, 3) array of new node coordinates,
-          "residual_norm": float, residual after solution,
-          "n_free": int, number of free nodes solved,
-          "n_fixed": int, number of fixed nodes,
-        }
+        coordinates, residual_norm, n_free, n_fixed
     """
     points = np.asarray(points, dtype=float)
     edges = list(edges)
     fixed_indices = list(fixed_indices)
+    if z_only_indices is None:
+        z_only_indices = []
+    else:
+        z_only_indices = list(z_only_indices)
+
     n = points.shape[0]
     m = len(edges)
 
@@ -137,23 +116,23 @@ def solve_fdm(points, edges, fixed_indices, force_densities, loads=None):
         if loads.shape != (n, 3):
             raise ValueError("loads must have shape (n, 3)")
 
+    # ---- Build masks
     fixed_mask = np.zeros(n, dtype=bool)
     for i in fixed_indices:
         if i < 0 or i >= n:
             raise ValueError("fixed index %d out of range" % i)
         fixed_mask[i] = True
 
-    free_idx = np.where(~fixed_mask)[0]
-    n_free = len(free_idx)
+    z_only_mask = np.zeros(n, dtype=bool)
+    for i in z_only_indices:
+        if i < 0 or i >= n:
+            raise ValueError("z_only index %d out of range" % i)
+        if fixed_mask[i]:
+            # A fixed node is not z_only. Fixed wins.
+            continue
+        z_only_mask[i] = True
 
-    if n_free == 0:
-        return {
-            "coordinates": points.copy(),
-            "residual_norm": 0.0,
-            "n_free": 0,
-            "n_fixed": n,
-        }
-
+    # ---- Assemble the global K matrix
     K = np.zeros((n, n), dtype=float)
     for k, (i, j) in enumerate(edges):
         qk = q[k]
@@ -162,24 +141,45 @@ def solve_fdm(points, edges, fixed_indices, force_densities, loads=None):
         K[i, j] -= qk
         K[j, i] -= qk
 
-    K_ff = K[np.ix_(free_idx, free_idx)]
-    K_fx = K[np.ix_(free_idx, fixed_indices)]
-
     X = points.copy()
 
-    for d in range(3):
-        rhs = loads[free_idx, d].copy()
-        rhs -= K_fx @ points[fixed_indices, d]
-        X[free_idx, d] = np.linalg.solve(K_ff, rhs)
+    # ---- Solve for free DOFs, one axis at a time.
+    # For x and y axes:
+    #   free nodes (not fixed, not z_only) participate.
+    #   z_only nodes are FIXED in this axis.
+    # For z axis:
+    #   free nodes and z_only nodes participate.
+    #   Only truly fixed nodes are fixed in this axis.
+
+    def _solve_axis(axis, mask_free):
+        idx = np.where(mask_free)[0]
+        idx_fixed = np.where(~mask_free)[0]
+        if len(idx) == 0:
+            return
+        K_ff = K[np.ix_(idx, idx)]
+        K_fx = K[np.ix_(idx, idx_fixed)]
+        rhs = loads[idx, axis].copy()
+        rhs -= K_fx @ points[idx_fixed, axis]
+        X[idx, axis] = np.linalg.solve(K_ff, rhs)
+
+    # ---- x and y axes: only truly free nodes participate
+    free_xy = (~fixed_mask) & (~z_only_mask)
+    _solve_axis(0, free_xy)
+    _solve_axis(1, free_xy)
+
+    # ---- z axis: free + z_only participate
+    free_z = (~fixed_mask)
+    _solve_axis(2, free_z)
 
     residual = K @ X - loads
-    residual_norm = float(np.linalg.norm(residual[free_idx]))
+    free_all = ~fixed_mask
+    residual_norm = float(np.linalg.norm(residual[free_all]))
 
     return {
         "coordinates": X,
         "residual_norm": residual_norm,
-        "n_free": n_free,
-        "n_fixed": n - n_free,
+        "n_free": int(free_all.sum()),
+        "n_fixed": int(fixed_mask.sum()),
     }
 
 
@@ -244,7 +244,6 @@ def _test_hypar_saddle():
             x = side * i / (nx - 1.0)
             y = side * j / (ny - 1.0)
             z = 0.0
-
             on_boundary = (
                 i == 0 or i == nx - 1 or j == 0 or j == ny - 1
             )
@@ -297,6 +296,43 @@ def _test_hypar_saddle():
     }
 
 
+def _test_z_only_constraint():
+    """Verify that a z_only node moves only in z."""
+    # 3 nodes in a row along x, with the two ends fixed.
+    points = [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+    ]
+    edges = [(0, 1), (1, 2)]
+    fixed = [0, 2]
+    # Middle node: z-only.
+    z_only = [1]
+    loads = np.array([
+        [0.0, 0.0, 0.0],
+        [0.0, 1000.0, 1000.0],   # pull node 1 in y and z
+        [0.0, 0.0, 0.0],
+    ])
+    res = solve_fdm(points, edges, fixed, 1.0,
+                    loads=loads, z_only_indices=z_only)
+    coords = res["coordinates"]
+
+    # x should not have moved.
+    x_moved = abs(coords[1, 0] - 1.0)
+    # y should not have moved (z_only in y too).
+    y_moved = abs(coords[1, 1] - 0.0)
+    # z should have moved.
+    z_moved = abs(coords[1, 2] - 0.0)
+
+    return {
+        "converged": res["residual_norm"] < 1e-6,
+        "x_moved": x_moved,
+        "y_moved": y_moved,
+        "z_moved": z_moved,
+        "z_only_ok": x_moved < 1e-9 and y_moved < 1e-9 and z_moved > 1e-3,
+    }
+
+
 def _verify_form_finding():
     """Run all form-finding self-tests. Returns a dict with results."""
     results = {}
@@ -313,11 +349,20 @@ def _verify_form_finding():
     results["saddle_z_max"] = t2["interior_z_max"]
     results["saddle_ok"] = t2["saddle_ok"]
 
+    t3 = _test_z_only_constraint()
+    results["z_only_converged"] = t3["converged"]
+    results["z_only_x_moved"] = t3["x_moved"]
+    results["z_only_y_moved"] = t3["y_moved"]
+    results["z_only_z_moved"] = t3["z_moved"]
+    results["z_only_ok"] = t3["z_only_ok"]
+
     results["pass"] = all([
         results["flat_converged"],
         results["flat_ok"],
         results["saddle_converged"],
         results["saddle_ok"],
+        results["z_only_converged"],
+        results["z_only_ok"],
     ])
 
     return results
@@ -340,6 +385,13 @@ if __name__ == "__main__":
     print("  interior z min   : %.6f" % res["saddle_z_min"])
     print("  interior z max   : %.6f" % res["saddle_z_max"])
     print("  saddle_ok        :", res["saddle_ok"])
+    print()
+    print("Test 3 - z_only constraint")
+    print("  converged        :", res["z_only_converged"])
+    print("  x moved          : %.6e" % res["z_only_x_moved"])
+    print("  y moved          : %.6e" % res["z_only_y_moved"])
+    print("  z moved          : %.6f" % res["z_only_z_moved"])
+    print("  z_only_ok        :", res["z_only_ok"])
     print("-" * 70)
     print("GATE:", "PASS" if res["pass"] else "FAIL")
 
