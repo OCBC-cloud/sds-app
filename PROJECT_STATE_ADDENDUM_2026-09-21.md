@@ -344,6 +344,244 @@ so the addendum is self-contained.
 
 End of addendum.
 
+# SDSe — PROJECT STATE
+
+Date: 2026-09-23 (evening)
+Branch: modular-v10
+App URL: sds-modular-preview.streamlit.app (aka ew.streamlit.app)
+Status: Working. Stable. One wrong test built. Corrected plan recorded below.
+
+---
+
+# 1. WHAT IS LIVE AND WORKING
+
+Structures with working viewers and workshops:
+
+- Cable Supported Saddle
+- Beam Supported Saddle
+- Cantilever Leaf
+- Cantilever Hypar
+
+Engines:
+
+- engine/form_finding.py — FDM solver. Rewritten today.
+- engine/nfdm.py — NFDM kernel. NEW today. Experimental.
+- engine/leaf_arrangement.py — unchanged.
+- engine/render_prompts.py — unchanged.
+
+Viewers:
+
+- viewers/results_viewer.py — unchanged.
+- viewers/figures/standard_saddle.py — unchanged today (touched earlier in the week).
+
+Workshops:
+
+- ui/workshops/saddle_standard.py — unchanged today.
+- ui/workshops/tester_nfdm.py — NEW today. Experimental. Reached from landing page button.
+
+UI:
+
+- ui/landing.py — one temporary button added today: "Open NFDM Tester".
+- core/navigation.py — one route added today: "tester_nfdm".
+
+---
+
+# 2. WHAT WAS COMMITTED TODAY (2026-09-23)
+
+Morning:
+- engine/form_finding.py — full rewrite.
+  - mesh_size_for_shape(span_m, n_sides, n_corners) added.
+  - mesh_size_for_span(span_m) kept as rectangle wrapper.
+  - z-only test gate corrected: constraint is the gate, not residual.
+
+Afternoon:
+- Repository OCBC-cloud/sds-nfdm-lab created (research lab, separate).
+- engine/nfdm.py written into the lab first.
+
+Evening (in sds-app, on modular-v10):
+- engine/nfdm.py — NFDM kernel.
+  - triangle_natural_force_densities()
+  - ke_from_q()
+  - assemble_global_K()
+  - solve_nfdm() — Newton-Raphson with backtracking line search.
+  - make_flat_grid(), make_reduced_catenoid(), make_settled_hypar().
+  - get_catenoid_for_viewer(), get_hypar_for_viewer().
+- ui/workshops/tester_nfdm.py — tester page.
+- core/navigation.py — tester_nfdm route added.
+- ui/landing.py — temporary "Open NFDM Tester" button added.
+
+---
+
+# 3. THE STATE OF THE PROBLEM
+
+## 3.1 The fold is still present
+
+In the shipping Saddle viewer, on the current modular-v10, the
+membrane still folds onto itself near the base. Two dark voids
+visible in the 3D view.
+
+The fold persists whether the edge-cables toggle is on or off.
+
+This is not solved. It is the original problem from this morning.
+
+## 3.2 The NFDM tester runs, but does not converge
+
+The tester is deployed and reachable. The button works. The
+kernel runs. The result, on both benchmarks:
+
+- Reduced catenoid: CHECK. Does not converge. The interior
+  collapses into a twisted ribbon instead of forming a saddle.
+  reason = max_iter. negative_q large.
+- Settled hypar: NOT COMPLETED. Streamlit Cloud throttled the
+  app's CPU mid-solve. The kernel did not finish.
+
+## 3.3 Streamlit Cloud throttles iterative solvers
+
+The free tier of Streamlit Cloud has a CPU budget per hour. A
+NFDM solve that runs 60-120 Newton iterations with a
+576x576 matrix assembly each iteration exceeds that budget.
+The app was throttled at ~20:30 on 2026-09-23. Throttle lifts
+at 23:32 on the same date.
+
+Implication: NFDM as currently set up cannot run in the free
+tier in production. This constrains how NFDM can be used.
+
+---
+
+# 4. THE CORRECTED ARCHITECTURE
+
+The following was agreed between the Chief and the AI on the
+evening of 2026-09-23. It supersedes the assumption in the
+original handoff that NFDM would form-find the shape.
+
+## 4.1 Two stages, two jobs
+
+STAGE 1 — FORM FINDING (classical FDM)
+
+  Job: produce the settled shape of the membrane.
+  Method: solve_fdm — linear, one matrix solve, milliseconds.
+  Output: coordinates of the equilibrium shape.
+  Properties: taut, smooth, no fold — as proven by the
+              shipping Cantilever Hypar viewer.
+
+STAGE 2 — PHYSICS REFINEMENT (NFDM)
+
+  Job: take the FDM shape and compute the real physics.
+  Method: subdivide the FDM shape into a triangular mesh,
+          apply the biaxial (warp / weft) prestress and
+          self-weight, and solve for the stress state.
+  Output: the same shape, but with real membrane forces,
+          cable forces, and stress resultants — the numbers
+          needed for the BoQ.
+  Constraint: must be fast enough to run inside the free tier.
+
+## 4.2 What this means for NFDM
+
+NFDM is NOT for forming the shape.
+
+NFDM is for turning an already-settled FDM shape into a
+physical membrane model, with real stresses, so that the
+BoQ, member sizing, and cable forces can be computed.
+
+## 4.3 What this means for the tester
+
+The tester built today tests the WRONG thing. It asks NFDM to
+form-find from a cold start. That is not its job in our design.
+
+The tester must be rebuilt to test the correct pipeline:
+
+  FDM input (span, apex, rise, pretension, self-weight)
+       |
+       v
+  FDM shape (settled, taut, smooth)
+       |
+       v
+  NFDM refinement (triangular mesh, real stresses)
+       |
+       v
+  Coordinates + membrane forces + cable forces
+
+---
+
+# 5. OPEN QUESTIONS
+
+1. Is the fold in the shipping Saddle viewer fixable by
+   tuning the FDM mesh and the side-cable stiffness factor
+   alone? The Cantilever Hypar suggests yes. This needs to be
+   tested before committing to NFDM for the Saddle.
+
+2. What is the minimum NFDM mesh size that runs inside the
+   Streamlit Cloud free tier? The current 192-triangle mesh
+   is too heavy. A coarser mesh may be enough for the physics.
+
+3. Should warp/weft prestresses be separate inputs, or a
+   single biaxial value for now? The shipping Saddle workshop
+   currently exposes a single membrane pretension.
+
+4. Should the temporary tester button on the landing page be
+   kept until the rebuilt tester is in place? Recommendation:
+   yes, keep it, replace the contents of tester_nfdm.py.
+
+---
+
+# 6. WHAT IS NOT DONE
+
+- The NFDM tester has NOT produced a clean converged result.
+- The Saddle viewer fold is NOT fixed.
+- The FDM → NFDM pipeline is NOT built.
+- The BoQ is NOT wired to NFDM.
+- The temporary landing-page button is still present.
+- The lab repository (sds-nfdm-lab) is orphaned for now; the
+  kernel lives in sds-app only.
+
+---
+
+# 7. NEXT SESSION — FIRST STEPS
+
+1. Decide whether the Saddle fold is a mesh-tuning problem
+   in FDM, before building anything more on NFDM.
+2. If yes: tune the Saddle viewer mesh and the side-cable
+   stiffness. Test. Iterate until the fold is gone.
+3. If no: rebuild the tester as the correct pipeline —
+   FDM shape first, NFDM refinement second. Coarse mesh.
+4. Only then: decide whether the BoQ stage reads NFDM output.
+
+---
+
+# 8. DOCTRINES PRESERVED TODAY
+
+- Preservation before evolution: no shipping viewer, workshop,
+  or engine file was deleted or repurposed.
+- Research first: NFDM was explored in isolation, not in the
+  shipping path.
+- The membrane is the hero. Steel follows.
+- The Chief at the side.
+- Language separation: untouched this session.
+- Complete files only. No surgical edits to shipping code.
+
+---
+
+# 9. THE CHIEF'S NOTES
+
+Two observations from the Chief, 2026-09-23 evening:
+
+1. The FDM skeleton must come first. NFDM is the refiner,
+   not the form-finder.
+
+2. The Cantilever Hypar already produces a smooth taut
+   saddle in milliseconds. That is the target. Any method
+   that takes minutes is doing the wrong job.
+
+Both are correct. Both are now recorded above.
+
+---
+
+End of document.
+
+
+
+
+
 
 
 
