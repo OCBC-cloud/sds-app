@@ -13,7 +13,7 @@ It sits alongside:
   - MARKETING_RENDER_WORKFLOW.md — Render feature design
   - APP_MAP.md                  — Repo structure
 
-Last updated: 2026-09-19
+Last updated: 2026-09-24
 
 ---
 
@@ -99,10 +99,6 @@ Nothing more. Nothing less.
 SDSe lets a user design a tensile membrane structure — including
 a full stadium roof — on a phone, and receive back a concept
 package that is good enough to sell, quote, and hand off.
-
-
-
-
 
 ---
 
@@ -223,11 +219,6 @@ The scope is deliberately narrow. Membrane and steel. That's it.
 This narrow scope is what makes the tool powerful. It does
 one thing well. It does not try to do everything.
 
-
-
-
-
-
 ---
 
 
@@ -337,11 +328,6 @@ The user takes the SDSe package to their fabricator. The
 fabricator produces the fabrication package. The chain is
 complete.
 
-
-
-
-
-
 ---
 
 
@@ -391,16 +377,64 @@ Solved with:
 
     scipy.sparse.linalg.spsolve(D, RHS)
 
-Because real membranes deform significantly under load, the
-solution is iterated:
+### 13.1 Form-finding is a single linear solve
 
-  1. Solve linear FDM with current force densities
-  2. Compute new edge lengths
-  3. Update force densities
-  4. Re-solve
-  5. Repeat until convergence
+FDM is a LINEAR method. Once the topology, the boundary
+conditions, and the force densities q are known, the
+equilibrium coordinates are found in ONE matrix solve.
 
-This is well-published engineering. Not a research project.
+There is no iteration to convergence in the form-finding
+step. The q values are inputs. The coordinates are the
+output. One shot.
+
+This is why FDM is fast — milliseconds even on a phone.
+
+### 13.2 NFDM is also linear
+
+The Natural Force Density Method (NFDM) — Pauletti, 2006 —
+extends FDM to membrane structures by treating the surface
+as a continuum of triangles instead of a network of
+independent bars.
+
+NFDM is also a LINEAR method. It takes the FDM shape, or a
+suitable initial mesh, subdivides it into triangles, applies
+the target biaxial stress, and solves ONCE for the natural
+force densities and the refined coordinates.
+
+NFDM is not an iterative nonlinear solver. It is a linear
+solve, like FDM.
+
+### 13.3 Iteration belongs to nonlinear FE
+
+Iterating to convergence — Newton-Raphson, line search,
+residual checks — is what NONLINEAR FINITE ELEMENT ANALYSIS
+does. That is the load-analysis stage, not the form-finding
+stage.
+
+Nonlinear FE runs after form-finding. It applies wind, snow,
+dead load, and other external actions to the form-found
+shape, and iterates to find the displaced equilibrium.
+
+It is heavy. It belongs on a server, not on a phone.
+
+### 13.4 The pipeline, in one page
+
+  STAGE 1 — FORM FINDING (FDM)
+    Linear solve. Milliseconds.
+    Runs on-device.
+
+  STAGE 2 — PHYSICS REFINEMENT (NFDM)
+    Linear solve. Seconds at most.
+    Runs on-device.
+    Produces: membrane forces, stress resultants —
+    the physics needed for the BoQ.
+
+  STAGE 3 — LOAD ANALYSIS (nonlinear FE)
+    Iterative. Heavy.
+    Runs on a server.
+    Produces: deflections, load-case responses.
+
+The three stages are separate. Do not confuse them.
 
 ## 14. Published References
 
@@ -415,6 +449,10 @@ Key references:
   - Maurin, B. & Motro, R. (1998). The surface stress density
     method for form finding of tensile membranes.
 
+  - Pauletti, R.M.O. (2006). Natural Force Density Method.
+    The original NFDM paper. Extends FDM to membranes while
+    retaining the linear form of the equilibrium system.
+
   - Pauletti, R.M.O. & Pimenta, P.M. (2008). The natural force
     density method for the form finding of three-dimensional
     networks.
@@ -427,17 +465,30 @@ Key references:
     strategy for the form finding of prestressed membrane
     structures.
 
-Working applications that use FDM:
+Working applications that use FDM and NFDM:
 
-  - Easy / Formfinder — used for the Expo Axis, Shanghai
-  - ixCube 4.10 — commercial membrane engineering software
+  - Easy / Formfinder — used for the Expo Axis, Shanghai.
+    FDM only. Linear. Fast.
+
+  - ixCube 4.10 — commercial membrane engineering software.
+    Uses FDM for form-finding AND NFDM for membrane
+    refinement. Both linear.
+
+  - BATS (Basic Analysis of Taut Structures) — Pauletti's
+    group, University of São Paulo. Open-source FDM + NFDM.
+    Its authors report "gains in performance compared to
+    other available tools, due to the linear nature of FDM
+    and NFDM, as well as the use of optimized linear solvers."
+
   - RFEM with RF-FORM-FINDING — general FEA with membrane
-    form-finding
-  - RhinoMembrane — Grasshopper plugin
-  - COMPAS FormFinder — open-source Python implementation
+    form-finding.
 
-SDSe does not invent anything. It implements a published,
-validated algorithm.
+  - RhinoMembrane — Grasshopper plugin.
+
+  - COMPAS FormFinder — open-source Python implementation.
+
+SDSe does not invent anything. It implements published,
+validated algorithms.
 
 ## 15. Scope and Time
 
@@ -650,3 +701,8 @@ The vision is clear. The path is documented. The work continues.
 ---
 
 *End of PROJECT_VISION.md*
+
+
+
+
+
