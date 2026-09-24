@@ -3,13 +3,20 @@
 # =============================================================================
 # Input page for the Standard Saddle variant of the Saddle Span family.
 #
+# Updated 2026-09-24:
+#   - Section 5 pretension inputs replaced. The workshop now collects
+#     three separate pretensions: WARP (along the span), WEFT (across
+#     the membrane), and EDGE CABLE (along the free ends).
+#     Convention: warp runs along the beam (i-direction); weft runs
+#     between the two beams (j-direction). This is fixed and is
+#     stated in the help text.
+#   - Section 8: the "Edge cables on the free ends" toggle has been
+#     REMOVED. The free-end cable is a mandatory part of the Cable
+#     Supported Saddle geometry. It is not a user option. Its
+#     pretension is set in Section 5.
 # Updated 2026-09-22:
-#   - Section 8 has an independent radio for edge cables (Yes/No).
 #   - Section 8 shows "Cable Attachment Points per Beam" when
-#     Segmented is selected. This is a STRUCTURAL input: how many
-#     discrete support points the fabric edge has along the beam.
-#     Between them, the fabric edge is a short cable segment that
-#     bows inward under the cable pretension from Section 5.
+#     Segmented is selected.
 # Updated 2026-09-20:
 #   - Viewer-strings block reads widget keys FIRST.
 # Updated 2026-09-19:
@@ -52,8 +59,9 @@ def _init_defaults():
         "ws_ss_cable_type": "6x19",
         "ws_ss_cable_material": "galvanised",
         "ws_ss_anchor_type": "pinned",
-        "ws_ss_membrane_pretension": 2.0,
-        "ws_ss_cable_pretension": 5.0,
+        "ws_ss_warp_pretension": 2.0,
+        "ws_ss_weft_pretension": 2.0,
+        "ws_ss_edge_cable_pretension": 5.0,
         "ws_ss_soil_bearing": 150.0,
         "ws_ss_soil_type": "sand",
         "ws_ss_water_table": 3.0,
@@ -62,7 +70,6 @@ def _init_defaults():
         "ws_ss_add_payload": 0.0,
         "ws_ss_design_standard": "MY",
         "ws_ss_attachment_type": "kader",
-        "ws_ss_edge_cables": True,
         "ws_ss_cable_attachment_count": 6,
         "ws_ss_viewer_description": "Standard Saddle Span tensile membrane structure",
         "ws_ss_viewer_dimensions": "",
@@ -202,11 +209,7 @@ def render_saddle_standard():
             )
             st.session_state["ws_ss_fabric_grade"] = grade
 
-
-
-
-
-# SECTION 3 - MEMBERS
+    # SECTION 3 - MEMBERS
     with st.expander("3. Member Construction", expanded=False):
         section_header(
             "Member Construction",
@@ -347,33 +350,45 @@ def render_saddle_standard():
         st.markdown(
             '<div class="ws-section-help" style="margin-top:1rem;">'
             '<strong>Pretension (Target Stress State)</strong><br>'
-            'These values drive the form-finding engine. The membrane '
-            'and cable pretensions together determine the equilibrium '
-            'shape, including how much the fabric edge bows inward '
-            'between attachment points.'
+            'Warp runs along the span (the long direction, following the '
+            'beams). Weft runs across the membrane (between the two beams). '
+            'The edge cable runs along the two free ends. These values drive '
+            'the form-finding engine. The shape is a consequence of the '
+            'target stress state, not a control.'
             '</div>',
             unsafe_allow_html=True,
         )
 
         col5, col6 = st.columns(2)
         with col5:
-            mem_pre = st.slider(
-                "Membrane Pretension (kN/m)",
+            warp_pre = st.slider(
+                "Warp Pretension (kN/m)",
                 min_value=0.5, max_value=8.0,
-                value=float(st.session_state["ws_ss_membrane_pretension"]),
+                value=float(st.session_state["ws_ss_warp_pretension"]),
                 step=0.1,
-                key="ws_ss_mem_pre_slider",
+                key="ws_ss_warp_pre_slider",
             )
-            st.session_state["ws_ss_membrane_pretension"] = mem_pre
+            st.session_state["ws_ss_warp_pretension"] = warp_pre
         with col6:
-            cab_pre = st.slider(
-                "Cable Pretension (kN)",
-                min_value=0.5, max_value=50.0,
-                value=float(st.session_state["ws_ss_cable_pretension"]),
-                step=0.5,
-                key="ws_ss_cab_pre_slider",
+            weft_pre = st.slider(
+                "Weft Pretension (kN/m)",
+                min_value=0.5, max_value=8.0,
+                value=float(st.session_state["ws_ss_weft_pretension"]),
+                step=0.1,
+                key="ws_ss_weft_pre_slider",
             )
-            st.session_state["ws_ss_cable_pretension"] = cab_pre
+            st.session_state["ws_ss_weft_pretension"] = weft_pre
+
+        col7 = st.columns(1)[0]
+        with col7:
+            edge_pre = st.slider(
+                "Edge Cable Pretension (kN)",
+                min_value=0.5, max_value=50.0,
+                value=float(st.session_state["ws_ss_edge_cable_pretension"]),
+                step=0.5,
+                key="ws_ss_edge_pre_slider",
+            )
+            st.session_state["ws_ss_edge_cable_pretension"] = edge_pre
 
 
 
@@ -479,7 +494,8 @@ def render_saddle_standard():
     with st.expander("8. Membrane-to-Beam Attachment", expanded=False):
         section_header(
             "Membrane-to-Beam Attachment",
-            "How the fabric meets the beams, and how the free ends are supported."
+            "How the fabric meets the beams. The free-end cable is part "
+            "of the structure, not an option."
         )
 
         attach_options = ["kader", "segmented"]
@@ -506,8 +522,8 @@ def render_saddle_standard():
                 "<strong>Segmented Edge Attachment</strong><br>"
                 "The fabric edge is supported at discrete points along the "
                 "beam. Between any two adjacent points, the fabric edge is "
-                "a short cable segment that bows inward under the cable "
-                "pretension (Section 5)."
+                "a short cable segment that bows inward under the edge "
+                "cable pretension (Section 5)."
             )
 
         if st.session_state["ws_ss_attachment_type"] == "segmented":
@@ -534,36 +550,17 @@ def render_saddle_standard():
                 + ("%.2f m" % _approx_seg)
                 + '</span><br>'
                 + 'Cable bow between attachments is controlled by the '
-                + 'cable pretension in Section 5.'
+                + 'edge cable pretension in Section 5.'
             )
 
-        st.markdown(
-            '<div class="ws-section-help" style="margin-top:1rem;">'
-            '<strong>Edge Cables on the Free Ends</strong>'
-            '</div>',
-            unsafe_allow_html=True,
+        info_box(
+            "<strong>Free-End Cable</strong><br>"
+            "The two free ends of the membrane are supported by a cable "
+            "that runs from one beam tip to the other, bowing inward under "
+            "the membrane tension. This cable is a mandatory part of the "
+            "Cable Supported Saddle geometry, not a user option. Its "
+            "pretension is set in Section 5."
         )
-
-        edge_choice = st.radio(
-            "Edge cables on the free ends",
-            ["Yes", "No"],
-            index=0 if st.session_state.get("ws_ss_edge_cables", True) else 1,
-            key="ws_ss_edge_cables_radio",
-            help="Independent of the attachment method. When Yes, cables "
-                 "are drawn along the free ends of the membrane.",
-        )
-        st.session_state["ws_ss_edge_cables"] = (edge_choice == "Yes")
-
-        if st.session_state["ws_ss_edge_cables"]:
-            preview_box(
-                "Cables are drawn along the two free ends of the membrane, "
-                "bowing inward under the membrane tension."
-            )
-        else:
-            preview_box(
-                "No cables along the free ends. The membrane edge simply "
-                "spans between the beam tips."
-            )
 
     # VIEWER STRINGS
     _total_h = float(st.session_state.get(
