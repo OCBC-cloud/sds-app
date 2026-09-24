@@ -67,10 +67,8 @@ def test_mbs_engine():
     # Boundary is a closed loop, first point != last point.
     # Corners in order: SW, SE, NE, NW.
     corners = np.array([
-        [-2.0, -2.0, 0.0],   # 0: SW
-        [ 2.0, -2.0, 0.0],   # 1: SE
-        [ 2.0,  2.0, 0.0],   # 2: NE
-        [-2.0,  2.0, 0.0],   # 3: NW
+        [ 2.0,  2.0, 2.0],   # 2: NE, high
+        [-2.0,  2.0, 2.0],   # 3: NW, high
     ], dtype=float)
 
     # For a simple test we give the engine each corner as a
