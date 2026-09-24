@@ -873,6 +873,321 @@ For the next session and for any future reader:
 
 ---
 
+# SDSe — PROJECT STATE
+
+Date: 2026-09-24 (early morning)
+Branch: modular-v10
+App URL: sds-modular-preview.streamlit.app (aka ew.streamlit.app)
+Status: Stable. Fold cause measured. Fix planned for morning.
+
+---
+
+# 0. READ THIS FIRST
+
+If a new session opens tomorrow, read this file completely
+before doing anything.
+
+The fold in the Cable Supported Saddle viewer is NOT a solver
+problem. It is a MESH GENERATION problem. The cause has been
+measured. The fix is one change to one file. The plan is
+recorded in Section 3.
+
+Do not re-investigate. Do not open a new research thread. Apply
+the fix first. Then verify. Then decide what comes next.
+
+---
+
+# 1. WHAT IS LIVE AND WORKING
+
+Structures with working viewers and workshops:
+
+- Cable Supported Saddle     (viewer: FDM, has fold)
+- Beam Supported Saddle      (viewer: drawn only, no FDM, no fold)
+- Cantilever Leaf
+- Cantilever Hypar           (viewer: FDM, no fold)
+
+Engines:
+
+- engine/form_finding.py     — FDM solver. Rewritten 2026-09-23.
+- engine/nfdm.py             — NFDM kernel. NEW 2026-09-23. Uses an
+                               iterative nonlinear solver that is
+                               NOT the published linear NFDM.
+                               Do not rely on it.
+- engine/leaf_arrangement.py — unchanged.
+- engine/render_prompts.py   — unchanged.
+
+Viewers:
+
+- viewers/results_viewer.py                 — unchanged.
+- viewers/figures/standard_saddle.py        — INSTRUMENTED 2026-09-23.
+                                              Has diagnostics block.
+- viewers/figures/beam_supported…           — draws only, no FDM.
+
+Workshops:
+
+- ui/workshops/saddle_standard.py           — unchanged.
+- ui/workshops/tester_nfdm.py               — NEW, experimental.
+
+UI:
+
+- ui/landing.py             — temporary button "Open NFDM Tester".
+- core/navigation.py        — route "tester_nfdm".
+
+---
+
+# 2. WHAT WAS COMMITTED 2026-09-23
+
+Morning:
+- engine/form_finding.py — full rewrite.
+  - mesh_size_for_shape(span_m, n_sides, n_corners) added.
+  - mesh_size_for_span(span_m) kept as rectangle wrapper.
+  - z-only test gate corrected.
+
+Afternoon:
+- Repository OCBC-cloud/sds-nfdm-lab created (research lab).
+
+Evening (in sds-app, on modular-v10):
+- engine/nfdm.py                 — NFDM kernel (wrong formulation).
+- ui/workshops/tester_nfdm.py    — tester page.
+- core/navigation.py             — tester route.
+- ui/landing.py                  — tester button.
+- PROJECT_STATE.md               — first version.
+
+Late evening:
+- viewers/figures/standard_saddle.py — diagnostic instrumentation.
+  Records: initial triangle areas, per-node displacement,
+  residual. Printed in a temporary expander below the 3D view.
+- PROJECT_STATE.md               — this version.
+
+---
+
+# 3. THE MEASURED FINDING — THE FOLD IS A MESH PROBLEM
+
+## 3.1 What was measured
+
+The diagnostic block was run on the Cable Supported Saddle
+viewer, twice: once with edge cables on, once with edge cables
+off. The initial mesh statistics (before solve_fdm runs) were
+identical in both runs.
+
+## 3.2 The numbers
+
+Smallest initial triangles (before solve_fdm):
+
+    rank 1  nodes (11, 35, 12)    area = 0.000000e+00
+    rank 2  nodes (563, 564, 540) area = 0.000000e+00
+    rank 3  nodes (12, 36, 13)    area = 3.446440e-03
+    rank 4  nodes (10, 34, 11)    area = 3.652979e-03
+    rank 5  nodes (562, 563, 539) area = 3.876932e-03
+
+Two triangles have ZERO area. They are degenerate — points in a
+line, not a triangle.
+
+Largest node displacements (initial to solved):
+
+    With edge cables ON:
+      rank 1  node 528  (i=22, j=0)   disp=3.32  z_init=1.07  z_solved=3.08
+      rank 5  node 564  (i=23, j=12)  disp=2.89  z_init=-1.12 z_solved=1.45
+
+    With edge cables OFF:
+      rank 1  node 563  (i=23, j=11)  disp=3.35  z_init=-1.12 z_solved=1.81
+      rank 13 node 551  (i=22, j=23)  disp=3.25  z_init=1.07  z_solved=3.05
+
+Displacements of 3 m on a 10 m span — about 30 percent.
+
+## 3.3 The cause
+
+The mesh is generated with UNIFORM SPACING IN X:
+
+    xi = -span/2 + span * i / (nx - 1)
+    idx = int((xi + span/2) / span * (n_pts - 1))
+
+The beam, however, is a parabola. Its ARC LENGTH is not
+uniform in x. At the ends of the beam — where the parabola is
+steepest — each x-step covers a much longer arc length.
+
+Result: at the four beam corners, the mesh nodes are packed
+much more densely along the arc than in the middle of the beam.
+The triangles there collapse. Two of them collapse to zero
+area.
+
+FDM is then given this broken mesh. The two zero-area nodes at
+the corners are unconstrained in any meaningful way. The
+surrounding q values pull them upward by 3 m. That is the
+fold.
+
+## 3.4 Why only at the corners, and not everywhere
+
+Because only at the corners do three things coincide:
+- the beam is steepest (arc length per x-step largest),
+- the mesh is compressed (nodes nearly collinear),
+- the sag term in z_init is zero (v = 0 or v = 1 at the
+  corners, so the sag term vanishes).
+
+Everywhere else, the triangles are well-shaped.
+
+## 3.5 Why the edge-cables toggle does not fix it
+
+Because the fold is in the initial mesh. Toggling the edge
+cables changes the q values assigned to some edges, and
+therefore changes the final displacement field slightly. But
+the degenerate triangles are still there. The fold persists.
+The toggle only moves WHICH node is worst.
+
+---
+
+# 4. THE FIX
+
+## 4.1 The change
+
+Replace the mesh generation in
+viewers/figures/standard_saddle.py, function _build_saddle_fdm.
+
+Change the x-node placement from uniform-in-x to
+uniform-in-arc-length along the beam.
+
+The helper already exists:
+
+    viewers/figures/_shared.py
+      arclength_parametrisation(x, z_beam)  →  s, total
+
+Use it to place the nx nodes at equal arc-length intervals
+along the beam, instead of equal x intervals.
+
+## 4.2 What the fix should change
+
+- Minimum initial triangle area: should no longer be zero.
+- The corner triangles should be well-shaped.
+- The fold should disappear.
+- The edge-cables toggle should then change only the drawing,
+  not the fold.
+
+## 4.3 What to verify after the fix
+
+1. Re-run the Cable Supported Saddle viewer.
+2. Open the diagnostics expander.
+3. Check: initial_area_min should be much larger than zero.
+4. Check: the 3D view should not have the two dark voids.
+5. Check: toggling edge cables should no longer change the
+   fold, only the drawing.
+
+If all three hold — the fold is fixed.
+
+If not — record what changed, and we look again.
+
+## 4.4 What not to change
+
+- Do not touch the solver.
+- Do not touch the q assignment.
+- Do not remove the diagnostics block yet — it is still useful.
+- Do not touch engine/nfdm.py or the NFDM tester tonight.
+
+---
+
+# 5. THE TWO VIEWERS ARE NOT THE SAME KIND OF THING
+
+Confirmed by reading the code 2026-09-23.
+
+- Cable Supported Saddle viewer: calls solve_fdm. The membrane
+  is form-found. This is why it can show a fold.
+- Beam Supported Saddle viewer: draws the surface with
+  go.Surface from a fixed bilinear formula. It does NOT call
+  solve_fdm. It never had a fold because it never solved.
+
+Implication:
+- The Beam viewer needs to be migrated to FDM so it actually
+  form-finds. This is a real task, but is NOT the current task.
+- Recorded here for the future.
+
+---
+
+# 6. OPEN QUESTIONS
+
+1. After the mesh fix, is the fold gone?
+2. Is the Beam viewer migrated to FDM next, or is the NFDM
+   pipeline resumed first?
+3. Is the edge-cables toggle kept, removed, or made honest?
+   The handoff note said it only changes the legend. After the
+   mesh fix, we will see what it actually does.
+4. Should the diagnostics block stay in
+   viewers/figures/standard_saddle.py, or be removed after the
+   fold is fixed?
+
+---
+
+# 7. NEXT SESSION — FIRST STEPS
+
+1. Read Section 3 and Section 4 of this file.
+2. Apply the fix in Section 4 to
+   viewers/figures/standard_saddle.py.
+3. Commit.
+4. Wait for Streamlit Cloud to redeploy.
+5. Open the Cable Supported Saddle viewer.
+6. Open the diagnostics expander.
+7. Compare the new minimum initial triangle area to the old
+   (was 0.000000e+00).
+8. Look at the 3D view. Is the fold gone?
+9. Report back. Then decide the next task.
+
+---
+
+# 8. DOCTRINES PRESERVED TODAY
+
+- Preservation before evolution.
+- Research first.
+- The membrane is the hero. Steel follows.
+- The Chief at the side.
+- Language separation: untouched.
+- Complete files only. No surgical edits to shipping code.
+
+---
+
+# 9. THE CHIEF'S NOTES
+
+From 2026-09-23:
+
+1. The FDM skeleton must come first. NFDM is the refiner,
+   not the form-finder.
+
+2. The Cantilever Hypar already produces a smooth taut saddle
+   in milliseconds. That is the target.
+
+3. When asked why the fold only appears at certain nodes,
+   the Chief insisted on a concrete answer, not a hypothesis.
+   The diagnostic block was written in response, and it found
+   the cause. The Chief was right to insist.
+
+4. The Chief asked: does FDM at a free edge between fixed
+   support points allow the edge nodes to fold past the
+   straight line? The measured answer: yes, in this mesh,
+   at the four corners, because the initial mesh there is
+   degenerate. The mechanism is a mesh problem, not a solver
+   setting.
+
+---
+
+# 10. WHAT WAS LEARNED ABOUT NFDM (CORRECTED)
+
+NFDM as built in engine/nfdm.py is an ITERATIVE NONLINEAR
+solver. That is not what published NFDM is.
+
+Published NFDM (Pauletti) and the tools that use it
+(ixCube, Easy, BATS) are essentially LINEAR methods. FDM is
+linear. NFDM is linear. The heavy work — nonlinear FE — is
+reserved for load analysis, not shape finding.
+
+The NFDM tester built on 2026-09-23 runs an iterative solver
+that is not the published method. It is slow, does not
+converge, and caused the Streamlit Cloud throttle.
+
+The correct NFDM must be rewritten as a linear solve.
+That is a future task. Not the current task.
+
+Do not confuse this with the fold. The fold is a mesh problem.
+NFDM is a separate research thread.
+
+---
+
 End of document.
 
 
