@@ -4,45 +4,31 @@
 # Builds the 3D figure for the Standard Saddle variant.
 # Called by viewers/results_viewer.py dispatcher.
 #
-# Membrane (updated 2026-09-22):
+# Membrane:
 #   The membrane surface is form-found using the FDM kernel
 #   (engine/form_finding.py), then drawn as a TRIANGULATED mesh
-#   (go.Mesh3d). This matches industry practice (RFEM, Easy,
-#   ixCube).
+#   (go.Mesh3d).
 #
 # Mesh size rule: engine.mesh_size_for_span() — one node per metre,
 #   min 21, max 101, always odd.
 #
 # Attachment method: ws_ss_attachment_type — "kader" or "segmented".
-#   In segmented mode, only the cable attachment points are fixed.
-#   The beam-edge nodes between them are free.
 #
 # Side-cable stiffness: SIDE_CABLE_STIFFNESS_FACTOR = 12.0
 #
-# Updated 2026-09-23 (late):
-#   - DIAGNOSTICS added. Below the 3D view, the viewer now records
-#     and prints:
-#       a) initial triangle area statistics (min, max, and the
-#          indices of the smallest 10 triangles)
-#       b) per-node displacement from initial to solved, sorted,
-#          with the top 20 largest displacements and their (i,j)
-#       c) the residual norm and n_free / n_fixed from solve_fdm
-#
-# Updated 2026-09-24 (morning):
-#   - FIX 1 of 3. Mesh node placement along the beam (nx
-#     direction) is now UNIFORM IN ARC LENGTH, not uniform in x.
-#     The y-direction placement (ny) remains uniform between the
-#     two beams.
-#     Reason: with uniform-x placement, the parabola's steepest
-#     sections (the beam ends) packed nodes too densely along
-#     the arc. Two triangles at the corners collapsed to zero
-#     area BEFORE solve_fdm ran. FDM then dragged those collapsed
-#     nodes 3 m upward, producing the fold.
-#     With arc-length-uniform placement, the corner triangles
-#     should no longer be degenerate.
-#   - Fixes 2 and 3 (attachment placement by arc length, and
-#     SIDE_CABLE_STIFFNESS_FACTOR back to 6.0) are NOT applied
-#     yet. One variable at a time. Measure after each.
+# History:
+#   2026-09-23 - DIAGNOSTICS added. Below the 3D view, records
+#                initial triangle areas, per-node displacement,
+#                and the residual.
+#   2026-09-24 - FIX 1 of 2. Mesh nodes along the beam (nx
+#                direction) placed by uniform ARC LENGTH, not
+#                uniform x. Did NOT fix the fold. Retained as it
+#                is harmless and slightly more correct.
+#   2026-09-24 - FIX B. Hold the two central free-end nodes at
+#                each end. These four nodes were collapsing into
+#                zero-area triangles. This is a MESH CONSTRAINT,
+#                not a STRUCTURAL CONNECTION (see PROJECT_STATE.md
+#                Part V).
 # =============================================================================
 
 import math
@@ -72,30 +58,27 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     Build the FDM mesh, solve for the membrane shape, and return
     both the solution and diagnostic information.
 
-    Fix 1 (2026-09-24): mesh nodes along the beam (nx direction)
-    are placed at equal arc-length intervals, not equal x
-    intervals. The ny direction remains uniform between the
-    two beams.
+    Mesh node placement along the beam (nx direction) is uniform
+    in arc length.
+
+    Fix B (2026-09-24): the two central nodes of each free-end
+    column are held. They are a mesh constraint that prevents the
+    free-end degenerate triangles. They are NOT a statement that
+    the structure has a rigid connection at the free-end mid-span.
     """
     n_pts = len(x)
 
     # ---- Arc length of the beam curve
     s, total = arclength_parametrisation(x, z_beam)
     if total <= 0:
-        # Fallback: uniform in x, as before
         s = np.linspace(0.0, 1.0, n_pts)
         total = 1.0
 
-    # ---- Fix 1: nx nodes at uniform arc-length fractions
-    # For each mesh index i, target arc length = (i/(nx-1)) * total
-    # Interpolate to get bx and bz at that arc length.
+    # ---- nx nodes at uniform arc-length fractions
     arc_targets = np.linspace(0.0, total, nx)
     bx_arr = np.interp(arc_targets, s, x)
     bz_arr = np.interp(arc_targets, s, z_beam)
 
-    # For y1, y2, we also need the beam half-widths at those x points.
-    # y1 and y2 are functions of x through the parabola:
-    #   y = ±base_width * (1 - (2x/span)^2)
     base_width = apex * 0.5
     y1_arr = -base_width * (1.0 - (2.0 * bx_arr / span) ** 2)
     y2_arr = base_width * (1.0 - (2.0 * bx_arr / span) ** 2)
@@ -133,6 +116,7 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             if j + 1 < ny:
                 edges.append((k, i * ny + (j + 1)))
 
+    # ---- Fixed nodes: beam edges
     if attach_type == "segmented":
         n_attach_int = max(2, int(n_attach))
         attach_i = []
@@ -152,6 +136,17 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         for i in range(nx):
             fixed_indices.append(i * ny + 0)
             fixed_indices.append(i * ny + (ny - 1))
+
+    # ---- Fix B: hold the two central free-end nodes at each end.
+    # These four nodes were collapsing into zero-area triangles.
+    # This is a MESH CONSTRAINT, not a STRUCTURAL CONNECTION.
+    # See PROJECT_STATE.md Part V.
+    j_mid = (ny - 1) // 2
+    fixed_indices.append(0 * ny + j_mid)
+    fixed_indices.append(0 * ny + (j_mid + 1))
+    fixed_indices.append((nx - 1) * ny + j_mid)
+    fixed_indices.append((nx - 1) * ny + (j_mid + 1))
+    fixed_indices = sorted(set(fixed_indices))
 
     L_avg = 1.0
     if len(edges) > 0:
@@ -186,7 +181,7 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     res = solve_fdm(points, edges, fixed_indices, q)
     coords = res["coordinates"]
 
-    # ---- Diagnostics: initial triangle areas -------------------------------
+    # ---- Diagnostics: initial triangle areas
     initial_areas = []
     initial_area_tri = []
     for i in range(nx - 1):
@@ -502,7 +497,6 @@ def build_standard_saddle():
 
     fig = apply_common_layout(fig, rise)
 
-    # ---- Diagnostics panel -------------------------------------------------
     with st.expander("FDM diagnostics (temporary)", expanded=True):
         st.markdown(
             "**Initial mesh triangle area** — before solve_fdm:"
@@ -548,8 +542,3 @@ def build_standard_saddle():
         st.code("\n".join(rows2), language="text")
 
     return fig
-
-
-
-
-
