@@ -225,21 +225,29 @@ def _boundary_as_four_sides(boundary, anchor_indices, edge_types):
     cable_run = _longest(cable_runs)
 
     if beam_run is None and cable_run is not None:
-        # All cable. Take two most distant anchors as top corners.
-        corners_idx = _two_furthest_anchors(boundary, anchor_indices)
-        c0 = anchor_indices[corners_idx[0]]
-        c2 = anchor_indices[corners_idx[1]]
-        c1 = anchor_indices[(corners_idx[0] + n_anchors // 2) % n_anchors]
-        c3 = anchor_indices[(corners_idx[1] + n_anchors // 2) % n_anchors]
-        corners = [c0, c1, c2, c3]
+        # All cable. Use the anchors directly as corners.
+        if n_anchors == 4:
+            corners = [anchor_indices[0], anchor_indices[1],
+                       anchor_indices[2], anchor_indices[3]]
+        else:
+            corners_idx = _two_furthest_anchors(boundary, anchor_indices)
+            c0 = anchor_indices[corners_idx[0]]
+            c2 = anchor_indices[corners_idx[1]]
+            c1 = anchor_indices[(corners_idx[0] + n_anchors // 2) % n_anchors]
+            c3 = anchor_indices[(corners_idx[1] + n_anchors // 2) % n_anchors]
+            corners = [c0, c1, c2, c3]
     elif cable_run is None and beam_run is not None:
-        # All beam. Take two most distant anchors as top corners.
-        corners_idx = _two_furthest_anchors(boundary, anchor_indices)
-        c0 = anchor_indices[corners_idx[0]]
-        c2 = anchor_indices[corners_idx[1]]
-        c1 = anchor_indices[(corners_idx[0] + n_anchors // 2) % n_anchors]
-        c3 = anchor_indices[(corners_idx[1] + n_anchors // 2) % n_anchors]
-        corners = [c0, c1, c2, c3]
+        # All beam. Use the anchors directly as corners.
+        if n_anchors == 4:
+            corners = [anchor_indices[0], anchor_indices[1],
+                       anchor_indices[2], anchor_indices[3]]
+        else:
+            corners_idx = _two_furthest_anchors(boundary, anchor_indices)
+            c0 = anchor_indices[corners_idx[0]]
+            c2 = anchor_indices[corners_idx[1]]
+            c1 = anchor_indices[(corners_idx[0] + n_anchors // 2) % n_anchors]
+            c3 = anchor_indices[(corners_idx[1] + n_anchors // 2) % n_anchors]
+            corners = [c0, c1, c2, c3]
     else:
         # Mixed. Beam corners and cable corners.
         c0 = anchor_indices[beam_run[0]]
