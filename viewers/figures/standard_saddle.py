@@ -45,15 +45,17 @@ from viewers.figures._shared import (
     arclength_parametrisation,
     find_index_at_arclength_fraction,
 )
-from engine.form_finding import solve_fdm, mesh_size_for_span 
+from engine.form_finding import solve_fdm, mesh_size_for_span
 
 
-SIDE_CABLE_ST1I.FFNESS_FACTOR = 12.0
-FREE_END_BOW_FRACTION0 = 0.10
+SIDE_CABLE_STIFFNESS_FACTOR = 12.0
+FREE_END_BOW_FRACTION = 0.10
 
 
-def _build_saddle_fdm)
-(x, z_beam, y           1, y2, span, apex,
+
+
+
+def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
                        warp_pretension, weft_pretension,
                        edge_cable_pretension,
                        attach_type, n_attach,
@@ -64,8 +66,7 @@ def _build_saddle_fdm)
 
     The free-end columns (i=0 and i=nx-1) bow inward in y by
     FREE_END_BOW_FRACTION of the free-end width. The initial z
-    follows the original formula: beam z minus a sag. See the
-    history comment above.
+    follows the original formula: beam z minus a sag.
     """
     n_pts = len(x)
 
@@ -93,7 +94,8 @@ def _build_saddle_fdm)
         y_right = float(y2_arr[i])
         is_free_end = (i == 0) or (i == nx - 1)
         for j in range(ny):
-            v = j / (ny - y_straight = y_left * (1.0 - v) + y_right * v
+            v = j / (ny - 1.0)
+            y_straight = y_left * (1.0 - v) + y_right * v
 
             # FIX D: free-end columns bow inward toward y=0.
             if is_free_end:
@@ -196,7 +198,11 @@ def _build_saddle_fdm)
         elif is_j_edge:
             q[k] = q_weft
 
-    res = solve_fdm(points, edges, fixed_indices, q)
+
+
+
+
+res = solve_fdm(points, edges, fixed_indices, q)
     coords = res["coordinates"]
 
     # ---- Diagnostics
@@ -316,6 +322,9 @@ def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
     ))
 
 
+
+
+
 def build_standard_saddle():
     """Standard Saddle: two curved beams, membrane, tie-downs, anchors."""
     span = float(st.session_state.get("ws_ss_span", 10.0))
@@ -334,13 +343,13 @@ def build_standard_saddle():
     if span <= 0 or apex <= 0 or rise <= 0:
         fig = go.Figure()
         fig.add_annotation(text="Invalid geometry - check inputs",
-                           x)
-ref="paper", yref="   paper",
-                           x=0. nx5, y=0.5, show =arrow=False,
- n                          _m font=dict(color="#f39c12", size=16))
+                           xref="paper", yref="paper",
+                           x=0.5, y=0.5, showarrow=False,
+                           font=dict(color="#f39c12", size=16))
         return apply_common_layout(fig, 10.0)
 
-    n_mesh = mesh_size_for_span(spanesh
+    n_mesh = mesh_size_for_span(span)
+    nx = n_mesh
     ny = n_mesh
 
     n_pts = 200
