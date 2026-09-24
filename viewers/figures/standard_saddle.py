@@ -27,8 +27,22 @@
 #       b) per-node displacement from initial to solved, sorted,
 #          with the top 20 largest displacements and their (i,j)
 #       c) the residual norm and n_free / n_fixed from solve_fdm
-#     This is a temporary instrumentation block. It does not change
-#     the shape. It reports what the solver did.
+#
+# Updated 2026-09-24 (morning):
+#   - FIX 1 of 3. Mesh node placement along the beam (nx
+#     direction) is now UNIFORM IN ARC LENGTH, not uniform in x.
+#     The y-direction placement (ny) remains uniform between the
+#     two beams.
+#     Reason: with uniform-x placement, the parabola's steepest
+#     sections (the beam ends) packed nodes too densely along
+#     the arc. Two triangles at the corners collapsed to zero
+#     area BEFORE solve_fdm ran. FDM then dragged those collapsed
+#     nodes 3 m upward, producing the fold.
+#     With arc-length-uniform placement, the corner triangles
+#     should no longer be degenerate.
+#   - Fixes 2 and 3 (attachment placement by arc length, and
+#     SIDE_CABLE_STIFFNESS_FACTOR back to 6.0) are NOT applied
+#     yet. One variable at a time. Measure after each.
 # =============================================================================
 
 import math
@@ -57,18 +71,42 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     """
     Build the FDM mesh, solve for the membrane shape, and return
     both the solution and diagnostic information.
+
+    Fix 1 (2026-09-24): mesh nodes along the beam (nx direction)
+    are placed at equal arc-length intervals, not equal x
+    intervals. The ny direction remains uniform between the
+    two beams.
     """
     n_pts = len(x)
 
+    # ---- Arc length of the beam curve
+    s, total = arclength_parametrisation(x, z_beam)
+    if total <= 0:
+        # Fallback: uniform in x, as before
+        s = np.linspace(0.0, 1.0, n_pts)
+        total = 1.0
+
+    # ---- Fix 1: nx nodes at uniform arc-length fractions
+    # For each mesh index i, target arc length = (i/(nx-1)) * total
+    # Interpolate to get bx and bz at that arc length.
+    arc_targets = np.linspace(0.0, total, nx)
+    bx_arr = np.interp(arc_targets, s, x)
+    bz_arr = np.interp(arc_targets, s, z_beam)
+
+    # For y1, y2, we also need the beam half-widths at those x points.
+    # y1 and y2 are functions of x through the parabola:
+    #   y = ±base_width * (1 - (2x/span)^2)
+    base_width = apex * 0.5
+    y1_arr = -base_width * (1.0 - (2.0 * bx_arr / span) ** 2)
+    y2_arr = base_width * (1.0 - (2.0 * bx_arr / span) ** 2)
+
+    # ---- Build the node grid
     node_xyz = np.zeros((nx, ny, 3))
     for i in range(nx):
-        xi = -span / 2.0 + span * i / (nx - 1.0)
-        idx = int((xi + span / 2.0) / span * (n_pts - 1))
-        idx = max(0, min(n_pts - 1, idx))
-        bx = x[idx]
-        bz = z_beam[idx]
-        y_left = y1[idx]
-        y_right = y2[idx]
+        bx = float(bx_arr[i])
+        bz = float(bz_arr[i])
+        y_left = float(y1_arr[i])
+        y_right = float(y2_arr[i])
         for j in range(ny):
             v = j / (ny - 1.0)
             y_pos = y_left * (1.0 - v) + y_right * v
@@ -166,10 +204,8 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
                 initial_area_tri.append(tri)
     initial_areas = np.array(initial_areas)
 
-    # ---- Diagnostics: per-node displacement --------------------------------
     disp = np.linalg.norm(coords - points_initial, axis=1)
 
-    # ---- Diagnostics: sorted largest displacements -------------------------
     order = np.argsort(disp)[::-1]
     top_n = 20
     top_disp = []
@@ -186,7 +222,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             "z_solved": float(coords[k, 2]),
         })
 
-    # ---- Diagnostics: smallest initial triangles ---------------------------
     order_a = np.argsort(initial_areas)
     top_small = []
     for rank, idx in enumerate(order_a[:10]):
@@ -486,7 +521,7 @@ def build_standard_saddle():
         d3.metric("Fixed nodes", diag["n_fixed"])
 
         st.markdown(
-            "**Top 20 largest node displacements** (initial → solved):"
+            "**Top 20 largest node displacements** (initial to solved):"
         )
         rows = []
         for entry in diag["top_displacements"]:
@@ -513,8 +548,6 @@ def build_standard_saddle():
         st.code("\n".join(rows2), language="text")
 
     return fig
-
-
 
 
 
