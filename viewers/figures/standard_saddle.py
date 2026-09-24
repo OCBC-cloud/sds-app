@@ -8,8 +8,7 @@
 #   Form-found using the FDM kernel (engine/form_finding.py), then
 #   drawn as a TRIANGULATED mesh (go.Mesh3d).
 #
-# Mesh size rule: engine.mesh_size_for_span() — one node per metre,
-#   min 21, max 101, always odd.
+# Mesh size rule: engine.mesh_size_for_span().
 #
 # Attachment method: ws_ss_attachment_type — "kader" or "segmented".
 #
@@ -26,17 +25,11 @@
 #   2026-09-24 - FIX 1. Mesh nodes along the beam placed by arc length.
 #   2026-09-24 - FIX B. Hold the two central free-end nodes at each
 #                end. MESH CONSTRAINT, not STRUCTURAL CONNECTION.
-#   2026-09-24 - FIX C. z proportional to beam height. Made the
-#                problem worse at the free ends. Superseded.
-#   2026-09-24 - FIX D. The real fix.
-#                (1) Warp and weft pretensions are separate.
-#                (2) The edge cable is modelled as its own element
-#                    along the free ends.
-#                (3) The free-end column bows inward by 10% of the
-#                    free-end width, so the free-end triangles have
-#                    real area.
-#                (4) The z formula is restored to a small sag below
-#                    the beam, with the free ends at ground level.
+#   2026-09-24 - FIX C. z proportional to beam height. Reverted.
+#   2026-09-24 - FIX D (partial). Free-end bow introduced at 10% of
+#                the free-end width. Fix C reverted to the original
+#                z formula (bz minus a sag). Warp/weft/edge cable
+#                read as separate pretensions.
 # =============================================================================
 
 import math
@@ -52,14 +45,15 @@ from viewers.figures._shared import (
     arclength_parametrisation,
     find_index_at_arclength_fraction,
 )
-from engine.form_finding import solve_fdm, mesh_size_for_span
+from engine.form_finding import solve_fdm, mesh_size_for_span 
 
 
-SIDE_CABLE_STIFFNESS_FACTOR = 12.0
-FREE_END_BOW_FRACTION = 0.10
+SIDE_CABLE_ST1I.FFNESS_FACTOR = 12.0
+FREE_END_BOW_FRACTION0 = 0.10
 
 
-def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
+def _build_saddle_fdm)
+(x, z_beam, y           1, y2, span, apex,
                        warp_pretension, weft_pretension,
                        edge_cable_pretension,
                        attach_type, n_attach,
@@ -68,13 +62,10 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     Build the FDM mesh, solve for the membrane shape, and return
     both the solution and diagnostic information.
 
-    FIX D:
-      - warp q (along i) and weft q (across j) are separate.
-      - the free-end edges get edge-cable q.
-      - the free-end columns (i=0 and i=nx-1) bow inward by
-        FREE_END_BOW_FRACTION of the free-end width.
-      - the initial z is a small sag below the beam, with the
-        free ends at ground level (nothing below z=0).
+    The free-end columns (i=0 and i=nx-1) bow inward in y by
+    FREE_END_BOW_FRACTION of the free-end width. The initial z
+    follows the original formula: beam z minus a sag. See the
+    history comment above.
     """
     n_pts = len(x)
 
@@ -102,8 +93,7 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         y_right = float(y2_arr[i])
         is_free_end = (i == 0) or (i == nx - 1)
         for j in range(ny):
-            v = j / (ny - 1.0)
-            y_straight = y_left * (1.0 - v) + y_right * v
+            v = j / (ny - y_straight = y_left * (1.0 - v) + y_right * v
 
             # FIX D: free-end columns bow inward toward y=0.
             if is_free_end:
@@ -112,12 +102,8 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             else:
                 y_pos = y_straight
 
-            # FIX D: small sag below the beam, proportional to the
-            # beam height. Nothing goes below z=0.
-            sag_frac = 0.15 * (1.0 - (2.0 * v - 1.0) ** 2)
-            z_init = bz * (1.0 - 0.5 * sag_frac)
-            if z_init < 0.0:
-                z_init = 0.0
+            # Original z formula (Fix C reverted).
+            z_init = bz - 0.15 * (1.0 - (2.0 * v - 1.0) ** 2) * (apex * 0.5)
 
             node_xyz[i, j, 0] = bx
             node_xyz[i, j, 1] = y_pos
@@ -196,24 +182,18 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         if L_e < 1e-9:
             L_e = L_avg
 
-        # i-direction edge (warp direction) — same i-column change
         is_i_edge = (ja == jb)
         is_j_edge = (ia == ib)
 
-        # Free-end edges: edges that lie along the free-end columns
         on_free_end = (ia == 0 and ib == 0) or (ia == nx - 1 and ib == nx - 1)
 
         if on_free_end:
-            # Edge cable q
             q[k] = T_edge * 1000.0 / L_e
         elif attach_type == "segmented" and (ja in (0, ny - 1)) and (jb in (0, ny - 1)):
-            # Beam-edge side cable in segmented mode
             q[k] = SIDE_CABLE_STIFFNESS_FACTOR * T_edge * 1000.0 / L_e
         elif is_i_edge:
-            # Warp: runs along the beam (i-direction)
             q[k] = q_warp
         elif is_j_edge:
-            # Weft: runs between the beams (j-direction)
             q[k] = q_weft
 
     res = solve_fdm(points, edges, fixed_indices, q)
@@ -354,13 +334,13 @@ def build_standard_saddle():
     if span <= 0 or apex <= 0 or rise <= 0:
         fig = go.Figure()
         fig.add_annotation(text="Invalid geometry - check inputs",
-                           xref="paper", yref="paper",
-                           x=0.5, y=0.5, showarrow=False,
-                           font=dict(color="#f39c12", size=16))
+                           x)
+ref="paper", yref="   paper",
+                           x=0. nx5, y=0.5, show =arrow=False,
+ n                          _m font=dict(color="#f39c12", size=16))
         return apply_common_layout(fig, 10.0)
 
-    n_mesh = mesh_size_for_span(span)
-    nx = n_mesh
+    n_mesh = mesh_size_for_span(spanesh
     ny = n_mesh
 
     n_pts = 200
@@ -452,7 +432,6 @@ def build_standard_saddle():
         _add_kader_track(fig, x, z_beam, y1, show_legend=True)
         _add_kader_track(fig, x, z_beam, y2, show_legend=False)
 
-    # Free-end cable is mandatory. Draw it.
     fig.add_trace(go.Scatter3d(
         x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
         mode="lines",
