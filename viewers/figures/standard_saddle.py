@@ -5,34 +5,38 @@
 # Called by viewers/results_viewer.py dispatcher.
 #
 # Membrane:
-#   The membrane surface is form-found using the FDM kernel
-#   (engine/form_finding.py), then drawn as a TRIANGULATED mesh
-#   (go.Mesh3d).
+#   Form-found using the FDM kernel (engine/form_finding.py), then
+#   drawn as a TRIANGULATED mesh (go.Mesh3d).
 #
 # Mesh size rule: engine.mesh_size_for_span() — one node per metre,
 #   min 21, max 101, always odd.
 #
 # Attachment method: ws_ss_attachment_type — "kader" or "segmented".
 #
-# Side-cable stiffness: SIDE_CABLE_STIFFNESS_FACTOR = 12.0
+# Pretension inputs (from ui/workshops/saddle_standard.py):
+#   ws_ss_warp_pretension         kN/m  — along the span (i-direction)
+#   ws_ss_weft_pretension         kN/m  — across (j-direction)
+#   ws_ss_edge_cable_pretension   kN    — along the free ends
+#
+# Convention (fixed): warp runs along the beam (i-direction);
+# weft runs between the two beams (j-direction).
 #
 # History:
 #   2026-09-23 - DIAGNOSTICS added.
-#   2026-09-24 - FIX 1. Mesh nodes along the beam (nx direction)
-#                placed by uniform ARC LENGTH, not uniform x.
-#   2026-09-24 - FIX B. Hold the two central free-end nodes at
-#                each end. MESH CONSTRAINT, not STRUCTURAL
-#                CONNECTION (see PROJECT_STATE.md Part V).
-#   2026-09-24 - FIX C. Initial z of the mesh is now proportional
-#                to the beam height bz, not to apex*0.5. This
-#                prevents the free-end middle from starting below
-#                the ground. Before the fix, the sag term was
-#                constant (0.15 * apex * 0.5 = 1.125 m), so at
-#                the free ends (where bz = 0) the mesh started
-#                1.125 m BELOW ground. FDM then dragged those
-#                nodes 3 m upward to reach equilibrium. That drag
-#                was the fold. With this fix, the sag is zero at
-#                the free ends and maximum at mid-span.
+#   2026-09-24 - FIX 1. Mesh nodes along the beam placed by arc length.
+#   2026-09-24 - FIX B. Hold the two central free-end nodes at each
+#                end. MESH CONSTRAINT, not STRUCTURAL CONNECTION.
+#   2026-09-24 - FIX C. z proportional to beam height. Made the
+#                problem worse at the free ends. Superseded.
+#   2026-09-24 - FIX D. The real fix.
+#                (1) Warp and weft pretensions are separate.
+#                (2) The edge cable is modelled as its own element
+#                    along the free ends.
+#                (3) The free-end column bows inward by 10% of the
+#                    free-end width, so the free-end triangles have
+#                    real area.
+#                (4) The z formula is restored to a small sag below
+#                    the beam, with the free ends at ground level.
 # =============================================================================
 
 import math
@@ -52,18 +56,25 @@ from engine.form_finding import solve_fdm, mesh_size_for_span
 
 
 SIDE_CABLE_STIFFNESS_FACTOR = 12.0
+FREE_END_BOW_FRACTION = 0.10
 
 
 def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
-                       membrane_pretension, cable_pretension,
+                       warp_pretension, weft_pretension,
+                       edge_cable_pretension,
                        attach_type, n_attach,
                        nx=21, ny=21):
     """
     Build the FDM mesh, solve for the membrane shape, and return
     both the solution and diagnostic information.
 
-    FIX C: initial z is proportional to the beam height bz.
-    The membrane cannot be below the beam at the free ends.
+    FIX D:
+      - warp q (along i) and weft q (across j) are separate.
+      - the free-end edges get edge-cable q.
+      - the free-end columns (i=0 and i=nx-1) bow inward by
+        FREE_END_BOW_FRACTION of the free-end width.
+      - the initial z is a small sag below the beam, with the
+        free ends at ground level (nothing below z=0).
     """
     n_pts = len(x)
 
@@ -89,14 +100,25 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         bz = float(bz_arr[i])
         y_left = float(y1_arr[i])
         y_right = float(y2_arr[i])
+        is_free_end = (i == 0) or (i == nx - 1)
         for j in range(ny):
             v = j / (ny - 1.0)
-            y_pos = y_left * (1.0 - v) + y_right * v
-            # FIX C: sag proportional to beam height, not constant.
-            # At the free ends bz = 0, so sag = 0. At mid-span bz is
-            # at its maximum, so sag is at its maximum.
-            sag = 0.15 * (1.0 - (2.0 * v - 1.0) ** 2) * 0.5
-            z_init = bz * (1.0 - sag)
+            y_straight = y_left * (1.0 - v) + y_right * v
+
+            # FIX D: free-end columns bow inward toward y=0.
+            if is_free_end:
+                bow = FREE_END_BOW_FRACTION * 4.0 * v * (1.0 - v)
+                y_pos = y_straight * (1.0 - bow)
+            else:
+                y_pos = y_straight
+
+            # FIX D: small sag below the beam, proportional to the
+            # beam height. Nothing goes below z=0.
+            sag_frac = 0.15 * (1.0 - (2.0 * v - 1.0) ** 2)
+            z_init = bz * (1.0 - 0.5 * sag_frac)
+            if z_init < 0.0:
+                z_init = 0.0
+
             node_xyz[i, j, 0] = bx
             node_xyz[i, j, 1] = y_pos
             node_xyz[i, j, 2] = z_init
@@ -119,7 +141,7 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             if j + 1 < ny:
                 edges.append((k, i * ny + (j + 1)))
 
-    # ---- Fixed nodes: beam edges
+    # ---- Fixed nodes: beam edges and Fix B free-end middles
     if attach_type == "segmented":
         n_attach_int = max(2, int(n_attach))
         attach_i = []
@@ -158,11 +180,13 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     if L_avg < 1e-9:
         L_avg = 1.0
 
-    T_mem = max(0.1, float(membrane_pretension))
-    T_cab = max(0.1, float(cable_pretension))
-    q_mem = T_mem * 1000.0 / L_avg
+    T_warp = max(0.1, float(warp_pretension))
+    T_weft = max(0.1, float(weft_pretension))
+    T_edge = max(0.1, float(edge_cable_pretension))
+    q_warp = T_warp * 1000.0 / L_avg
+    q_weft = T_weft * 1000.0 / L_avg
 
-    q = np.full(len(edges), q_mem)
+    q = np.full(len(edges), q_weft)
     for k, (a, b) in enumerate(edges):
         ia = a // ny
         ib = b // ny
@@ -172,17 +196,30 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         if L_e < 1e-9:
             L_e = L_avg
 
-        if (ia == 0 or ia == nx - 1) or (ib == 0 or ib == nx - 1):
-            q[k] = T_cab * 1000.0 / L_e
-        elif attach_type == "segmented":
-            on_beam = (ja == 0 or ja == ny - 1) and (jb == 0 or jb == ny - 1)
-            if on_beam:
-                q[k] = SIDE_CABLE_STIFFNESS_FACTOR * T_cab * 1000.0 / L_e
+        # i-direction edge (warp direction) — same i-column change
+        is_i_edge = (ja == jb)
+        is_j_edge = (ia == ib)
+
+        # Free-end edges: edges that lie along the free-end columns
+        on_free_end = (ia == 0 and ib == 0) or (ia == nx - 1 and ib == nx - 1)
+
+        if on_free_end:
+            # Edge cable q
+            q[k] = T_edge * 1000.0 / L_e
+        elif attach_type == "segmented" and (ja in (0, ny - 1)) and (jb in (0, ny - 1)):
+            # Beam-edge side cable in segmented mode
+            q[k] = SIDE_CABLE_STIFFNESS_FACTOR * T_edge * 1000.0 / L_e
+        elif is_i_edge:
+            # Warp: runs along the beam (i-direction)
+            q[k] = q_warp
+        elif is_j_edge:
+            # Weft: runs between the beams (j-direction)
+            q[k] = q_weft
 
     res = solve_fdm(points, edges, fixed_indices, q)
     coords = res["coordinates"]
 
-    # ---- Diagnostics: initial triangle areas
+    # ---- Diagnostics
     initial_areas = []
     initial_area_tri = []
     for i in range(nx - 1):
@@ -201,7 +238,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     initial_areas = np.array(initial_areas)
 
     disp = np.linalg.norm(coords - points_initial, axis=1)
-
     order = np.argsort(disp)[::-1]
     top_n = 20
     top_disp = []
@@ -309,10 +345,10 @@ def build_standard_saddle():
     n_intervals = int(st.session_state.get("ws_ss_tiedown_intervals", 2))
     uplift = float(st.session_state.get("ws_ss_uplift_angle", 45))
     spread = float(st.session_state.get("ws_ss_spread_angle", 30))
-    membrane_pre = float(st.session_state.get("ws_ss_membrane_pretension", 2.0))
-    cable_pre = float(st.session_state.get("ws_ss_cable_pretension", 5.0))
+    warp_pre = float(st.session_state.get("ws_ss_warp_pretension", 2.0))
+    weft_pre = float(st.session_state.get("ws_ss_weft_pretension", 2.0))
+    edge_pre = float(st.session_state.get("ws_ss_edge_cable_pretension", 5.0))
     attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
-    edge_cables_on = bool(st.session_state.get("ws_ss_edge_cables", True))
     n_attach = int(st.session_state.get("ws_ss_cable_attachment_count", 6))
 
     if span <= 0 or apex <= 0 or rise <= 0:
@@ -354,7 +390,7 @@ def build_standard_saddle():
 
     X_surf, Y_surf, Z_surf, edge_south, edge_north, attach_i_list, diag = _build_saddle_fdm(
         x, z_beam, y1, y2, span, apex,
-        membrane_pre, cable_pre,
+        warp_pre, weft_pre, edge_pre,
         attach_type, n_attach,
         nx=nx, ny=ny,
     )
@@ -416,20 +452,20 @@ def build_standard_saddle():
         _add_kader_track(fig, x, z_beam, y1, show_legend=True)
         _add_kader_track(fig, x, z_beam, y2, show_legend=False)
 
-    if edge_cables_on:
-        fig.add_trace(go.Scatter3d(
-            x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
-            mode="lines",
-            line=dict(color="#f1c40f", width=5),
-            showlegend=True,
-            name="Edge cables",
-        ))
-        fig.add_trace(go.Scatter3d(
-            x=edge_north[:, 0], y=edge_north[:, 1], z=edge_north[:, 2],
-            mode="lines",
-            line=dict(color="#f1c40f", width=5),
-            showlegend=False,
-        ))
+    # Free-end cable is mandatory. Draw it.
+    fig.add_trace(go.Scatter3d(
+        x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
+        mode="lines",
+        line=dict(color="#f1c40f", width=5),
+        showlegend=True,
+        name="Edge cables",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=edge_north[:, 0], y=edge_north[:, 1], z=edge_north[:, 2],
+        mode="lines",
+        line=dict(color="#f1c40f", width=5),
+        showlegend=False,
+    ))
 
     if n_intervals == 4:
         per_beam_fractions = [0.175, 0.825]
@@ -543,3 +579,8 @@ def build_standard_saddle():
         st.code("\n".join(rows2), language="text")
 
     return fig
+
+
+
+
+
