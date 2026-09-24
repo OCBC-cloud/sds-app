@@ -10,12 +10,12 @@
 #
 # Mesh size rule: engine.mesh_size_for_span().
 #
-# Attachment method: ws_ss_attachment_type — "kader" or "segmented".
+# Attachment method: ws_ss_attachment_type - "kader" or "segmented".
 #
 # Pretension inputs (from ui/workshops/saddle_standard.py):
-#   ws_ss_warp_pretension         kN/m  — along the span (i-direction)
-#   ws_ss_weft_pretension         kN/m  — across (j-direction)
-#   ws_ss_edge_cable_pretension   kN    — along the free ends
+#   ws_ss_warp_pretension         kN/m  - along the span (i-direction)
+#   ws_ss_weft_pretension         kN/m  - across (j-direction)
+#   ws_ss_edge_cable_pretension   kN    - along the free ends
 #
 # Convention (fixed): warp runs along the beam (i-direction);
 # weft runs between the two beams (j-direction).
@@ -28,8 +28,8 @@
 #   2026-09-24 - FIX C. z proportional to beam height. Reverted.
 #   2026-09-24 - FIX D (partial). Free-end bow introduced at 10% of
 #                the free-end width. Fix C reverted to the original
-#                z formula (bz minus a sag). Warp/weft/edge cable
-#                read as separate pretensions.
+#                z formula. Warp/weft/edge cable read as separate
+#                pretensions.
 # =============================================================================
 
 import math
@@ -52,31 +52,19 @@ SIDE_CABLE_STIFFNESS_FACTOR = 12.0
 FREE_END_BOW_FRACTION = 0.10
 
 
-
-
-
 def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
                        warp_pretension, weft_pretension,
                        edge_cable_pretension,
                        attach_type, n_attach,
                        nx=21, ny=21):
-    """
-    Build the FDM mesh, solve for the membrane shape, and return
-    both the solution and diagnostic information.
-
-    The free-end columns (i=0 and i=nx-1) bow inward in y by
-    FREE_END_BOW_FRACTION of the free-end width. The initial z
-    follows the original formula: beam z minus a sag.
-    """
+    """Build the FDM mesh, solve for the membrane shape."""
     n_pts = len(x)
 
-    # ---- Arc length of the beam curve
     s, total = arclength_parametrisation(x, z_beam)
     if total <= 0:
         s = np.linspace(0.0, 1.0, n_pts)
         total = 1.0
 
-    # ---- nx nodes at uniform arc-length fractions
     arc_targets = np.linspace(0.0, total, nx)
     bx_arr = np.interp(arc_targets, s, x)
     bz_arr = np.interp(arc_targets, s, z_beam)
@@ -85,7 +73,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     y1_arr = -base_width * (1.0 - (2.0 * bx_arr / span) ** 2)
     y2_arr = base_width * (1.0 - (2.0 * bx_arr / span) ** 2)
 
-    # ---- Build the node grid
     node_xyz = np.zeros((nx, ny, 3))
     for i in range(nx):
         bx = float(bx_arr[i])
@@ -97,14 +84,12 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             v = j / (ny - 1.0)
             y_straight = y_left * (1.0 - v) + y_right * v
 
-            # FIX D: free-end columns bow inward toward y=0.
             if is_free_end:
                 bow = FREE_END_BOW_FRACTION * 4.0 * v * (1.0 - v)
                 y_pos = y_straight * (1.0 - bow)
             else:
                 y_pos = y_straight
 
-            # Original z formula (Fix C reverted).
             z_init = bz - 0.15 * (1.0 - (2.0 * v - 1.0) ** 2) * (apex * 0.5)
 
             node_xyz[i, j, 0] = bx
@@ -129,7 +114,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             if j + 1 < ny:
                 edges.append((k, i * ny + (j + 1)))
 
-    # ---- Fixed nodes: beam edges and Fix B free-end middles
     if attach_type == "segmented":
         n_attach_int = max(2, int(n_attach))
         attach_i = []
@@ -150,8 +134,6 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             fixed_indices.append(i * ny + 0)
             fixed_indices.append(i * ny + (ny - 1))
 
-    # ---- Fix B: hold the two central free-end nodes at each end.
-    # MESH CONSTRAINT, not STRUCTURAL CONNECTION.
     j_mid = (ny - 1) // 2
     fixed_indices.append(0 * ny + j_mid)
     fixed_indices.append(0 * ny + (j_mid + 1))
@@ -198,14 +180,9 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         elif is_j_edge:
             q[k] = q_weft
 
-
-
-
-
-res = solve_fdm(points, edges, fixed_indices, q)
+    res = solve_fdm(points, edges, fixed_indices, q)
     coords = res["coordinates"]
 
-    # ---- Diagnostics
     initial_areas = []
     initial_area_tri = []
     for i in range(nx - 1):
@@ -225,9 +202,8 @@ res = solve_fdm(points, edges, fixed_indices, q)
 
     disp = np.linalg.norm(coords - points_initial, axis=1)
     order = np.argsort(disp)[::-1]
-    top_n = 20
     top_disp = []
-    for rank, k in enumerate(order[:top_n]):
+    for rank, k in enumerate(order[:20]):
         i_idx = int(k // ny)
         j_idx = int(k % ny)
         top_disp.append({
@@ -283,7 +259,6 @@ res = solve_fdm(points, edges, fixed_indices, q)
 
 
 def _grid_to_triangles(X, Y, Z):
-    """Convert a rectangular grid of nodes (nx x ny) into a triangulated mesh."""
     nx, ny = X.shape
     node_x = X.reshape(-1)
     node_y = Y.reshape(-1)
@@ -320,9 +295,6 @@ def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
         name="Kader track" if show_legend else None,
         hoverinfo="skip",
     ))
-
-
-
 
 
 def build_standard_saddle():
@@ -523,25 +495,19 @@ def build_standard_saddle():
     fig = apply_common_layout(fig, rise)
 
     with st.expander("FDM diagnostics (temporary)", expanded=True):
-        st.markdown(
-            "**Initial mesh triangle area** — before solve_fdm:"
-        )
+        st.markdown("**Initial mesh triangle area** - before solve_fdm:")
         c1, c2, c3 = st.columns(3)
         c1.metric("Min area", "%.6e" % diag["initial_area_min"])
         c2.metric("Mean area", "%.6e" % diag["initial_area_mean"])
         c3.metric("Max area", "%.6f" % diag["initial_area_max"])
 
-        st.markdown(
-            "**FDM solver residual** — after solve_fdm:"
-        )
+        st.markdown("**FDM solver residual** - after solve_fdm:")
         d1, d2, d3 = st.columns(3)
         d1.metric("Residual", "%.4e" % diag["residual_norm"])
         d2.metric("Free nodes", diag["n_free"])
         d3.metric("Fixed nodes", diag["n_fixed"])
 
-        st.markdown(
-            "**Top 20 largest node displacements** (initial to solved):"
-        )
+        st.markdown("**Top 20 largest node displacements:**")
         rows = []
         for entry in diag["top_displacements"]:
             rows.append(
@@ -554,9 +520,7 @@ def build_standard_saddle():
             )
         st.code("\n".join(rows), language="text")
 
-        st.markdown(
-            "**Smallest 10 initial triangles** (before solve):"
-        )
+        st.markdown("**Smallest 10 initial triangles:**")
         rows2 = []
         for entry in diag["smallest_initial_triangles"]:
             rows2.append(
