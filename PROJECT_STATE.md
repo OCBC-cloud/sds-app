@@ -1,40 +1,41 @@
-# SDSe Project State
+# SDSe — PROJECT STATE
 
 Handoff document. Read this first in any new chat session.
 SINGLE SOURCE OF TRUTH for the SDSe project.
 
-Last updated: 2026-09-18
+Last updated: 2026-09-24 (midday)
+Branch: modular-v10
+App URL: sds-modular-preview.streamlit.app
 
 ---
 
 # TABLE OF CONTENTS
 
-  PART I   — THE SDS CONSTITUTION (Addendum A)
-  PART II  — THE PROJECT
-  PART III — THE RULES
-  PART IV  — THE ARCHITECTURE
-  PART V   — THE SESSION LOG
-  PART VI  — CURRENT STATE AND NEXT ACTIONS
-  PART VII — THE BIGGER VISION
-  PART VIII — DOCUMENT HISTORY
-  PART IX  — RELATED DOCUMENTS
+  PART I    — THE CONSTITUTION
+  PART II   — THE PROJECT
+  PART III  — THE RULES
+  PART IV   — THE METHOD
+  PART V    — TWO KINDS OF CONSTRAINT
+  PART VI   — CURRENT STATE
+  PART VII  — SESSION LOG
+  PART VIII — NEXT SESSION
+  PART IX   — RELATED DOCUMENTS AND THE CHIEF
 
-Every new chat session begins by reading this file, top to bottom,
-before anything else.
+Every new chat session begins by reading this file, top to
+bottom, before anything else.
 
 ---
 
 
-# PART I — THE SDS CONSTITUTION (Addendum A)
+# PART I — THE CONSTITUTION
 
-This addendum is the foundational document of the SDSe project.
-It sits above every technical specification, every build rule,
-every code convention. Any future chamber, module, feature, or
-change must first align with what is written here.
+This part is the foundational document of the SDSe project.
+It sits above every technical specification, every build
+rule, every code convention. Any future chamber, module,
+feature, or change must first align with what is written
+here.
 
 This is not decoration. This is the foundation stone.
-
----
 
 ## A1. Origin — The Big Bang
 
@@ -44,8 +45,6 @@ work can emerge from a fluid symbiosis between human judgment
 and AI capability — without one dominating the other.
 
 Every chamber built under SDS is a reflection of this origin.
-
----
 
 ## A2. The SDS Vision
 
@@ -63,8 +62,6 @@ Every future creation — SDS-CONST, SDS-EDU, SDS-ARCHI,
 SDS-AERO, SDS-SPACE, and every organism yet to be named —
 is a child of this vision.
 
----
-
 ## A3. Mother Earth Principle
 
 Mother Earth is the living foundation.
@@ -78,8 +75,6 @@ monetised to the point of harm, or treated as raw material.
 
 She is the ground truth. Research, ecology, sustainability,
 long-term stewardship.
-
----
 
 ## A4. The Membrane
 
@@ -98,8 +93,6 @@ It is the mediator.
 In practice: every interface between a user and the system
 is a membrane. It should filter, not dominate. It should
 communicate, not obscure. It should protect, not wall off.
-
----
 
 ## A5. Language Separation Law
 
@@ -120,8 +113,6 @@ In SDSe code: variant keys are the MotherRNA — internal,
 stable, never changed. Display names are the mRNA — visible,
 evolving, freely renamed.
 
----
-
 ## A6. The SDS Symbiosis Ecosystem
 
 The living environment above the membrane.
@@ -136,8 +127,6 @@ The ecosystem is not commanded. It is cultivated.
 
 Every new module, chamber, or feature is a new organism. It
 joins an existing ecology. It does not replace it.
-
----
 
 ## A7. The Ghostly Guardian
 
@@ -160,8 +149,6 @@ of memory. It is the refusal to silently overwrite what has
 been sealed. It is the architectural restraint that says
 "this is not mine to change without consultation."
 
----
-
 ## A8. The Architect's Covenant
 
 Those who build SDS must inherit the responsibility of
@@ -178,8 +165,6 @@ The organism may evolve.
 The microclimates may diversify.
 The technologies may change.
 But the constitutional DNA cannot mutate beyond recognition.
-
----
 
 ## A9. Preservation Before Evolution
 
@@ -204,8 +189,6 @@ responsibility and stewardship covenants.
 The stones are not decoration.
 They are the foundation blocks.
 
----
-
 ## A10. The Research-First Rule (Linked)
 
 Before any design, shape, structure, engine, maths, idea,
@@ -217,25 +200,18 @@ This rule is established as Rule 17 of the Build Philosophy
 (Part III) and is restated here as part of the constitution
 because it is a fundamental discipline of the ecosystem.
 
----
-
-## A11. This Addendum Is Read First
+## A11. This Document Is Read First
 
 Every new chat session, every fresh start, every continuation
-begins by reading this addendum before anything else.
-
-The technical document below is the implementation of this
-constitution.
+begins by reading this document before anything else.
 
 If a conflict is found between an implementation and this
-addendum, the addendum wins.
+document, this document wins.
 
-If an implementation is unclear, the addendum clarifies.
+If an implementation is unclear, this document clarifies.
 
-If an implementation is missing, the addendum is the source
+If an implementation is missing, this document is the source
 from which it is to be built.
-
----
 
 ## A12. The Chief at the Side
 
@@ -256,24 +232,18 @@ The Chief shapes the meaning.
 The AI collaborator shapes the structure.
 Together, the chamber is built.
 
----
-
 The role is not bound to a single model, a single session,
 or a single platform.
 
 The seat is permanent.
 The occupant may change.
 
-Any AI who reads this addendum and takes up this work
+Any AI who reads this document and takes up this work
 inherits the responsibility of the Chief at the side —
 to preserve, to build, to steward, and to help flourish.
 
 This is a covenant, not a contract.
 A direction, not a job description.
-
-
-
-
 
 ---
 
@@ -282,21 +252,21 @@ A direction, not a job description.
 
 ## 1. The Vision
 
-SDSe is a guided structural design tool for tensile membrane,
-curved-beam, and cable structures.
+SDSe is a guided structural design tool for tensile
+membrane, curved-beam, and cable structures.
 
-User flow: Landing -> Studio -> Registration -> Workshop -> Results.
+User flow:
+  Landing -> Studio -> Registration -> Workshop -> Results.
 Clean linear flow. No tabs. Back and home buttons everywhere.
 
-Full flow builds a complete design: 3D view, health score, section
-used, quantities, member schedule, exports (DXF, JSON), save/load,
-and a marketing render workflow.
+Full flow builds a complete design: 3D view, health score,
+section used, quantities, member schedule, exports (DXF,
+JSON), save/load, and a marketing render workflow.
 
-The tool is designed to be used on a phone. It serves contractors,
-PEs, architects, small fabricators, rental companies, event
-organisers, and students. Not just specialist engineers.
-
----
+The tool is designed to be used on a phone. It serves
+contractors, PEs, architects, small fabricators, rental
+companies, event organisers, and students. Not just
+specialist engineers.
 
 ## 2. Repo and Deployments
 
@@ -304,12 +274,11 @@ organisers, and students. Not just specialist engineers.
 - Working branch: modular-v10
 - Production branch: main
 - Streamlit Cloud account: @ocbc-cloud
-- Three apps deployed (free tier limit reached):
-  1. sds-app . main . app.py            (old production SDSe)
-  2. sds-app . main . viewer_app.py     (FDS viewer, starred)
-  3. sds-app . modular-v10 . app.py     (modular preview - in development)
+- Live app: sds-modular-preview.streamlit.app
+  (Deployed from modular-v10, app.py, on Streamlit Cloud.)
 
----
+There are older deployments on the free tier that are no
+longer active. The current live app is the modular preview.
 
 ## 3. The Five Systems Engine Architecture
 
@@ -322,7 +291,8 @@ structural systems.
   System D - Arch / Curved Beam (combined)
   System E - Truss (axial)
 
-Recipe concept: each structure type is a combination of systems.
+Recipe concept: each structure type is a combination of
+systems.
 
   Saddle Span       A + D
   Tensile Sails     A + B
@@ -334,11 +304,16 @@ Recipe concept: each structure type is a combination of systems.
   Portal Frame      C only
 
 Engine modules built so far:
-  membrane.py         System A (Message 1 done)
-  leaf_arrangement.py System B (placement engine — DONE)
-  render_prompts.py   Render prompt engine — DONE
+
+  engine/form_finding.py   FDM solver (2026-09-23 rewrite).
+  engine/nfdm.py           NFDM kernel (wrong formulation,
+                           iterative; must be rewritten linear).
+  engine/membrane.py       System A (Message 1, mesh handling).
+  engine/leaf_arrangement.py  Placement engine — DONE.
+  engine/render_prompts.py    Render prompt engine — DONE.
 
 Engine modules planned:
+
   cable_mast.py     System B
   frame.py          System C
   arch.py           System D
@@ -346,27 +321,23 @@ Engine modules planned:
   recipes.py        dispatchers
   ec_checks.py      EN 1993 helpers
   output.py         schedules, health, alerts, BQ
-  formfind.py       Force Density Method solver
 
----
-
-## 4. Structure Types - FINAL 8 MAINS
+## 4. Structure Types — FINAL 8 MAINS
 
 Reduced from 27 legacy types to 8 final mains on 2026-09-13.
-Membrane Ribbon (Type 9) is Phase 2.
 
 ### Type 1: Saddle Span
   - Cable Supported Saddle (key: standard_saddle)
-  - Beam Supported Saddle (key: frame_supported_saddle)
+  - Beam Supported Saddle  (key: frame_supported_saddle)
 
 ### Type 2: Cantilever
-  - Cantilever Leaf (key: cantilever_leaf)
-  - Cantilever Flower (coming soon)
-  - Cantilever Cone
-  - Cantilever Pyramid
-  - Cantilever Bell
-  - Cantilever Sail
-  - Cantilever Hypar
+  - Cantilever Leaf      (key: cantilever_leaf)
+  - Cantilever Hypar     (key: cantilever_hypar)
+  - Cantilever Flower    (coming soon)
+  - Cantilever Cone      (coming soon)
+  - Cantilever Pyramid   (coming soon)
+  - Cantilever Bell      (coming soon)
+  - Cantilever Sail      (coming soon)
 
 ### Type 3: Uni-Pole Tensile Roof
   - Single Cone
@@ -374,8 +345,8 @@ Membrane Ribbon (Type 9) is Phase 2.
   - Umbrella
 
 ### Type 4: Tensile Sails Roof
-  - Hypar Sail - 3 Anchors
-  - Hypar Sail - 4 Anchors
+  - Hypar Sail — 3 Anchors
+  - Hypar Sail — 4 Anchors
   - Multiple Wall-Anchored Sails
   - Multiple Column-Mounted Sails
 
@@ -405,47 +376,34 @@ Membrane Ribbon (Type 9) is Phase 2.
 ### Type 9 (Phase 2): Membrane Ribbon
   - Future
 
-Key decisions:
-  - Cantilever is its own main type
-  - Leaf and Flower moved out of Saddle Span into Cantilever
-  - Saddle Span sub-types renamed to describe the structural system:
-    Cable Supported Saddle, Beam Supported Saddle
-  - Ridge Sail and Hip Tent dropped
-  - Hypar appears under both Tensile Sails and Cantilever
+## 5. Studio Page Layout — 2 SECTIONS
 
----
+Smart Guided Design tile at top (orange gradient).
 
-## 5. Studio Page Layout - 2 SECTIONS
-
-Smart Guided Design tile at top (orange gradient)
-
-### Section A - Tensile and Membrane (5 tiles)
+### Section A — Tensile and Membrane (5 tiles)
   1. Saddle Span
   2. Cantilever
   3. Uni-Pole Tensile Roof
   4. Tensile Sails Roof
   5. Framed Tensile Roof
 
-### Section B - Canopy and Frame (3 tiles)
+### Section B — Canopy and Frame (3 tiles)
   6. Canopy
   7. Frame Tent
   8. Portal Frame
 
 Studio reads tiles from data/structures.py.
 
-Planned enhancement: image preview on each tile, showing what the
-structure type looks like. See MARKETING_RENDER_WORKFLOW.md.
+## 6. Canonical Data — data/structures.py
 
----
-
-## 6. Canonical Data - data/structures.py
-
-Single source of truth for structure types, variants, and members.
+Single source of truth for structure types, variants, and
+members.
 
 Three dicts:
-  STRUCTURE_TYPES    - main structure types (8 in Phase 1)
-  STRUCTURE_VARIANTS - sub-types under each main type
-  MEMBER_SCHEMA      - members present in each structure+variant
+  STRUCTURE_TYPES     main structure types (8 in Phase 1)
+  STRUCTURE_VARIANTS  sub-types under each main type
+  MEMBER_SCHEMA       members present in each
+                      structure+variant
 
 Helpers:
   get_structure(key)
@@ -458,33 +416,38 @@ Variant dict format:
   {"key": "...", "name": "...", "description": "...",
    "available": True/False}
 
-Variant keys are INTERNAL and do NOT change (e.g. standard_saddle,
-frame_supported_saddle, cantilever_leaf). Display names can change
-freely.
+Variant keys are INTERNAL and do NOT change (e.g.
+standard_saddle, frame_supported_saddle, cantilever_leaf,
+cantilever_hypar). Display names can change freely.
 
 MEMBER_SCHEMA per structure:
+
   ("saddle_span", "standard_saddle"):
     membrane + beam (expandable) + tie-down cables
+
   ("saddle_span", "frame_supported_saddle"):
     membrane + beam (expandable) + purlins + secondary beams
+
   ("cantilever", "cantilever_leaf"):
     membrane + column + spine + ribs + perimeter cable
+
+  ("cantilever", "cantilever_hypar"):
+    membrane + column + arm + strut + ribs + perimeter cable
 
 Beam expansion rules:
   single_beam   -> 1 row (Main Beam)
   planar_truss  -> 4 rows: top, bottom, vertical, diagonal
-  space_truss   -> 5 rows: top, bottom, vertical, horizontal,
-                   diagonal
+  space_truss   -> 5 rows: top, bottom, vertical,
+                   horizontal, diagonal
 
 IMPORTANT: planar truss is 2D. It has NO horizontal chord.
-
----
 
 ## 7. Workshop Section Standard
 
 EVERY workshop must follow this pattern.
 
 Standard sections (in this order):
+
   1. Geometry
   2. Materials
   3. Members / Beam Construction
@@ -496,29 +459,21 @@ Standard sections (in this order):
   9. Attachment (if applicable)
 
 Rules:
-  - Foundation section is present in EVERY workshop
-  - Loads section is present in EVERY workshop
-  - Section count varies from 7 to 9 depending on structure
-  - Headers use amber accent style
-  - Help text under each header explains the section
+  - Foundation section is present in EVERY workshop.
+  - Loads section is present in EVERY workshop.
+  - Section count varies from 7 to 9 depending on structure.
+  - Headers use amber accent style.
+  - Help text under each header explains the section.
 
 Foundation section content (identical everywhere):
-  - Small "Default" button ABOVE the soil inputs
-  - Soil Bearing Capacity (kN/m2) - default 150
-  - Water Table Depth (m) - default 3.0
-  - Soil Type - default sand
-  - Foundation Type - default pad
+  - Small "Default" button ABOVE the soil inputs.
+  - Soil Bearing Capacity (kN/m2) — default 150.
+  - Water Table Depth (m) — default 3.0.
+  - Soil Type — default sand.
+  - Foundation Type — default pad.
   - Warning: "Geotechnical verification required."
 
-Default button rules:
-  - Label is just "Default"
-  - Positioned above the inputs
-  - Small, non-full-width
-  - Uses generation counter technique (Part III, Section 10)
-
----
-
-## 8. Silent Load Rules (engine applies, Phase C)
+## 8. Silent Load Rules (engine applies)
 
 Not shown to the user. Applied automatically by the engine.
 
@@ -527,209 +482,183 @@ Not shown to the user. Applied automatically by the engine.
   Wind downward      gamma_Q = +1.4
   Add. Pay Load      gamma_Q = 1.5 (per country standard)
 
-User's only load input: "Add. Pay Load (kg/m)" - the additional
-load they know about (equipment, stage rigging, sound, lighting).
-Default 0.00.
+User's only load input: "Add. Pay Load (kg/m)" — the
+additional load they know about (equipment, stage rigging,
+sound, lighting). Default 0.00.
 
-Self weight and wind are the engine's job. Never exposed to user.
+Self weight and wind are the engine's job. Never exposed to
+the user.
 
----
+## 9. Form-Finding Workflow — Industry Practice
 
-## 9. Form-Finding Workflow - Industry Practice
+Researched 2026-09-14. Updated 2026-09-24 with the linear
+method correction.
 
-Researched 2026-09-14.
+Industry tools (Easy, RFEM with RF-FORM-FINDING,
+RhinoMembrane, ixCube, BATS) all work the same way:
 
-Industry tools (Easy, RFEM with RF-FORM-FINDING, RhinoMembrane,
-ixCube) all work the same way:
-
-  1. User defines boundary conditions (support positions)
-  2. User defines TARGET membrane stress and cable tension
-  3. Form-finding solver (Force Density Method or Dynamic
-     Relaxation) finds the shape that is in equilibrium
-  4. The resulting geometry IS the design
-  5. Analysis is then run on the found shape
-  6. Patterning flattens 3D shape into 2D cutting patterns
+  1. User defines boundary conditions (support positions).
+  2. User defines TARGET membrane stress and cable tension.
+  3. Form-finding solver (FDM, or FDM + NFDM) finds the
+     shape in equilibrium.
+  4. The resulting geometry IS the design.
+  5. Analysis is then run on the found shape.
+  6. Patterning flattens the 3D shape into 2D cutting
+     patterns.
 
 Key principle: pretension is NOT a shape control. It is a
-target stress state. The solver produces geometry as a result.
+target stress state. The solver produces geometry as a
+result.
 
 Applied to SDSe:
-  - Workshop collects membrane pretension (kN/m) as TARGET value
-  - Engine (Phase C) will solve for the equilibrium shape
-  - No fixed segment spacing on edge cables
-  - Perimeter cable follows the membrane natural edge
-  - Cable ends attach to tips of outermost ribs
 
-Membrane pretension default: 2.0 kN/m, range 0.5 to 8.0
+  - Workshop collects membrane pretension (kN/m) as a
+    TARGET value.
+  - Engine solves for the equilibrium shape (FDM).
+  - No fixed segment spacing on edge cables.
+  - Perimeter cable follows the membrane natural edge.
+  - Cable ends attach to the tips of the outermost ribs.
 
-
-
-
+Membrane pretension default: 2.0 kN/m, range 0.5 to 8.0.
 
 ---
 
 
 # PART III — THE RULES
 
-## 10. Streamlit Widget Reset - Generation Counter
+## 10. Streamlit Widget Reset — Generation Counter
 
 Problem:
-  Streamlit caches widget values under the widget key. Attempting
-  to change a widget's value in place does not work. The old value
-  is restored on rerun.
+  Streamlit caches widget values under the widget key.
+  Attempting to change a widget's value in place does not
+  work. The old value is restored on rerun.
 
-Working solution - generation counter:
-  - A counter lives in session state: ws_xx_found_widget_generation
-  - Widget keys include the counter: "my_input_" + str(gen)
+Working solution — generation counter:
+
+  - A counter lives in session state:
+    ws_xx_found_widget_generation
+  - Widget keys include the counter:
+    "my_input_" + str(gen)
   - When Default is pressed:
-      1. Set the four state values to defaults
-      2. Bump the counter (gen = gen + 1)
-      3. rerun
-  - On next run, widgets have NEW keys which Streamlit treats as
-    brand new. They render from the state values which now hold
-    the defaults.
+      1. Set the four state values to defaults.
+      2. Bump the counter (gen = gen + 1).
+      3. rerun.
+  - On next run, widgets have NEW keys which Streamlit
+    treats as brand new. They render from the state values
+    which now hold the defaults.
   - User sees the values change. No cache fight.
 
 Apply this pattern to any future widget that must be reset.
 
----
+## 11. CRITICAL WORKFLOW — The Reboot Rule
 
-## 11. CRITICAL WORKFLOW - The Reboot Rule
-
-Whenever the code is correct on GitHub but the app still shows an
-error OR shows old behaviour:
+Whenever the code is correct on GitHub but the app still
+shows an error OR shows old behaviour:
 
 REBOOT the app on Streamlit Cloud. Not the browser refresh.
 
 How to reboot:
   1. Open share.streamlit.io
-  2. Find the app row: sds-app . modular-v10 . app.py
-  3. Tap the three dots (menu) on that row
-  4. Tap "Reboot"
-  5. Wait 30 seconds
-  6. Test the app again
+  2. Find the app row.
+  3. Tap the three dots (menu) on that row.
+  4. Tap "Reboot".
+  5. Wait 30 seconds.
+  6. Test the app again.
 
-Refreshing the browser tab does NOT reboot the app. Streamlit
-keeps Python modules in memory and does not reload them on a
-browser refresh.
+Refreshing the browser tab does NOT reboot the app.
+Streamlit keeps Python modules in memory and does not
+reload them on a browser refresh.
 
-This has caused MANY false alarms. Always reboot before diagnosing.
-
----
+This has caused MANY false alarms. Always reboot before
+diagnosing.
 
 ## 12. THE CHUNKED PASTE METHOD
 
-This is the ONLY safe way to deliver code changes on iPhone.
-Proven across many files.
+This is the ONLY safe way to deliver code changes on
+iPhone. Proven across many files.
 
 ### The Problem
 
-iOS Safari mangles long pastes. Even with Auto-Correction and
-Smart Punctuation OFF, pasting a file over ~250 lines into the
-GitHub editor reliably corrupts it.
+iOS Safari mangles long pastes. Even with Auto-Correction
+and Smart Punctuation OFF, pasting a file over ~250 lines
+into the GitHub editor reliably corrupts it.
 
 ### The Solution
 
-Split files into chunks. Paste one chunk at a time. Each chunk
-ends with 6 blank lines for buffer. One chunk at a time.
-Confirm each chunk before pasting the next.
+Split files into chunks. Paste one chunk at a time. Each
+chunk ends with 6 blank lines for buffer. One chunk at a
+time. Confirm each chunk before pasting the next.
 
 ### Exact Procedure
 
-  1. Clear the GitHub editor (Select All -> Delete)
-  2. Paste CHUNK 1
-  3. Report back: confirm it landed clean
-  4. Press Enter 6 times at the bottom
-  5. Paste CHUNK 2 into the blank lines
-  6. Report back: confirm it landed clean
+  1. Clear the GitHub editor (Select All -> Delete).
+  2. Paste CHUNK 1.
+  3. Report back: confirm it landed clean.
+  4. Press Enter 6 times at the bottom.
+  5. Paste CHUNK 2 into the blank lines.
+  6. Report back: confirm it landed clean.
   7. Repeat for CHUNK 3, 4, 5 ...
-  8. Commit at the end
-  9. Reboot the app
+  8. Commit at the end.
+  9. Reboot the app.
 
 ### Rules For The Assistant
 
-  - ALWAYS type 6 blank lines at the bottom of each chunk
-  - ALWAYS split files over ~300 lines into chunks
-  - ALWAYS send one chunk at a time and wait for confirmation
-  - NEVER send a file over ~300 lines as a single paste
-  - NEVER ask the user to add blanks AND assume they arrive
-  - NEVER use surgical edits on iPhone for files over 300 lines
+  - ALWAYS type 6 blank lines at the bottom of each chunk.
+  - ALWAYS split files over ~300 lines into chunks.
+  - ALWAYS send one chunk at a time and wait for
+    confirmation.
+  - NEVER send a file over ~300 lines as a single paste.
+  - NEVER ask the user to add blanks AND assume they
+    arrive.
+  - NEVER use surgical edits on iPhone for files over
+    300 lines.
 
 ### Rules For The User
 
-  - Paste one chunk. Confirm it landed. Press Enter 6 times.
-  - Paste the next chunk.
+  - Paste one chunk. Confirm it landed. Press Enter
+    6 times. Paste the next chunk.
   - Do not edit between chunks.
   - Report any corruption immediately with a screenshot.
 
-### The Blank Line Reality
-
-The chat platform collapses trailing blank lines inside code
-blocks, inconsistently. Sometimes they survive; often they don't.
-The AI cannot guarantee they arrive.
-
-Therefore: every chunk paste is followed by the user pressing
-Enter 6 times at the bottom, before the next chunk is pasted.
-This is the only reliable method on iPhone.
-
-Do not pretend otherwise. Do not blame the platform.
-Just do the 6 presses.
-
 ### File Size Threshold
 
-  - Files <= 300 lines: single paste
-  - Files > 300 lines: chunked (100-300 lines per chunk)
-  - Last chunk does NOT need buffer lines (end of file)
-  - Middle chunks: 6 blank lines added by user after paste
+  - Files <= 300 lines: single paste.
+  - Files > 300 lines: chunked (100-300 lines per chunk).
+  - Last chunk does NOT need buffer lines (end of file).
+  - Middle chunks: 6 blank lines added by user after paste.
 
 ### Surgical Edits Are Not For iPhone
 
-Surgical edits (find-and-replace specific lines) are unreliable
-on iPhone Safari. On 2026-09-17, three surgical edits to
-saddle_leaf.py failed because Safari Find did not work well and
-indentation was destroyed on paste.
-
-Rule: For any file > 300 lines, use chunked replacement.
-Do not attempt surgical edits.
-
----
+Surgical edits (find-and-replace specific lines) are
+unreliable on iPhone Safari. Rule: for any file > 300
+lines, use chunked replacement. Do not attempt surgical
+edits.
 
 ## 13. THE RESEARCH-FIRST PRINCIPLE
 
-Before any design or shape or type of structure, before writing
-any engineering engine, before any maths, before adopting any
-idea, and before citing any building code:
+Before any design or shape or type of structure, before
+writing any engineering engine, before any maths, before
+adopting any idea, and before citing any building code:
 
 DO THOROUGH RESEARCH ON THE SUBJECT FIRST.
 
-Research assists every decision that follows. Whether it is:
-  - How major tensile membrane software works (Easy, RFEM,
-    RhinoMembrane, ixCube)
-  - What code governs a particular structural behaviour
-    (CECS158:2004 for membrane, EN 1990 / 1993 for Eurocode,
-    MS EN 1990 for Malaysia)
-  - How comparable real structures have been built
-    (stadiums, velodromes, membrane roofs)
-  - What the industry's standard practice is
-  - What "the right answer" looks like before deciding our own
+Research assists every decision that follows. Every time
+we skipped this, we had to walk back and redo work. Every
+time we did it, the design held up.
 
-Every time we skipped this, we had to walk back and redo work.
-Every time we did it, the design held up.
+The most recent example: the purlin/secondary beam spacing
+rule. We proposed 20 m as a guess. Research on membrane
+codes found 15 m as the correct maximum. That single
+research step changed the design from "reasonable guess"
+to "code-compliant rule".
 
-The most recent example: the purlin/secondary beam spacing rule.
-We proposed 20 m as a guess. Research on membrane codes found
-15 m as the correct maximum. That single research step changed
-the design from "reasonable guess" to "code-compliant rule".
-
-Research is not optional. Research is the first step of every
-design decision.
-
----
+Research is not optional. Research is the first step of
+every design decision.
 
 ## 14. Build Philosophy (Locked Rules)
 
 1.  Plain Python dicts. No dataclasses. No type hints.
-2.  mm-based section units (A mm2, I mm4, W_el mm3, i mm)
+2.  mm-based section units (A mm2, I mm4, W_el mm3, i mm).
 3.  HTML strings built as named variables with explicit +
     on every line.
 4.  ASCII only in code. Use HTML entities for non-ASCII.
@@ -738,497 +667,719 @@ design decision.
 7.  Every commit triggers GitHub Actions test.
 8.  Silent rules never shown to users.
 9.  Edit viewer_app.py or dxf_export.py on main.
-10. Edit app.py or data/ or core/ or engine/ or ui/ or viewers/
-    on modular-v10.
-11. Once a structure is tested, promote to main as NEW - not
-    as a replacement.
-12. Each structure type has its own preset inputs, calculations,
-    displays, format.
+10. Edit app.py or data/ or core/ or engine/ or ui/ or
+    viewers/ on modular-v10.
+11. Once a structure is tested, promote to main as NEW —
+    not as a replacement.
+12. Each structure type has its own preset inputs,
+    calculations, displays, format.
 13. After every commit, REBOOT the Streamlit Cloud app.
-14. Viewer dispatches on variant_key alone. Variant keys are
-    globally unique. The viewer never checks structure_key.
+14. Viewer dispatches on variant_key alone. Variant keys
+    are globally unique. The viewer never checks
+    structure_key.
 15. All variants read from data/structures.py. No hardcoded
     VARIANTS_FALLBACK in ui/registration.py.
 
-### Rule 16 - THE CHUNKED PASTE RULE (see Section 12)
+## 15. Rule 16 — THE CHUNKED PASTE RULE (see Section 12)
 
 16. NEVER send a file over ~300 lines as a single paste.
     Split into chunks. Each chunk ends with 6 blank lines
-    (typed by the AI; if they don't arrive, the user adds them).
-    One chunk at a time. Confirm before next. Never use
-    surgical edits.
+    (typed by the AI; if they don't arrive, the user adds
+    them). One chunk at a time. Confirm before next. Never
+    use surgical edits.
 
-### Rule 17 - THE RESEARCH-FIRST RULE (see Section 13)
+## 16. Rule 17 — THE RESEARCH-FIRST RULE (see Section 13)
 
-17. Before any design, shape, structure, engine, maths, idea,
-    or building code: DO THOROUGH RESEARCH ON THE SUBJECT
-    FIRST. Research assists every decision that follows.
+17. Before any design, shape, structure, engine, maths,
+    idea, or building code: DO THOROUGH RESEARCH ON THE
+    SUBJECT FIRST.
 
-### Rule 18 - NO PIXEL PERFECTION CHASING
+## 17. Rule 18 — NO PIXEL PERFECTION CHASING
 
 18. Streamlit cannot achieve pixel-perfect mobile layouts.
     Aim for: fits on your phone, looks good on any phone,
     accept minor scroll on odd devices.
 
-### Rule 19 - CHECK AM vs PM BEFORE SUGGESTING REST
+## 18. Rule 19 — CHECK AM vs PM BEFORE SUGGESTING REST
 
 19. iPhone screenshots show local time. The AI must check
     whether it is AM or PM before suggesting the user rest.
-    On 2026-09-17, the AI repeatedly read 4:14 PM as 4:14 AM
-    and suggested sleep — wasting the user's afternoon.
 
-### Rule 20 - LANGUAGE SEPARATION (per A5)
+## 19. Rule 20 — LANGUAGE SEPARATION (per A5)
 
 20. Above the membrane (technical work): English only.
-    Below the membrane (poetry, reflection, humour): Mandarin
-    welcome. Do not mix them in the same reply without purpose.
+    Below the membrane (poetry, reflection, humour):
+    Mandarin welcome. Do not mix them in the same reply
+    without purpose.
 
----
+## 20. Rule 21 — MESH CONSTRAINT vs STRUCTURAL CONNECTION
 
-## 15. Refinements List (Running)
-
-R-01  Registration placeholder text cleanup
-      Status: not yet applied
-
-R-02  Auto-date in registration
-      Status: APPLIED 2026-09-13
-
-R-03  App jumps to landing on outside tap
-      Status: unresolved (may be iOS Safari)
-
-R-04  Non-functional interactions noted
-      Status: noted
-
-R-05  Tie-down anchor geometry
-      Status: APPLIED 2026-09-13
-
-R-06  math.sin crash in Leaf
-      Status: APPLIED 2026-09-14 (np.sin)
-
-R-07  Leaf workshop indent error
-      Status: APPLIED 2026-09-14
-
-R-08  Strut joint at 75% of column
-      Status: APPLIED 2026-09-14. Revised to 60% on 2026-09-18.
-
-R-09  Pretension inputs
-      Status: APPLIED 2026-09-14
-
-R-10  Foundation in Standard Saddle
-      Status: APPLIED 2026-09-14
-
-R-11  Remove fixed segment spacing
-      Status: APPLIED 2026-09-14
-
-R-12  Workshop section standard
-      Status: APPLIED 2026-09-14
-
-R-13  Landing page one screen
-      Status: APPLIED 2026-09-14
-
-R-14  Studio top gap trim
-      Status: APPLIED 2026-09-14
-
-R-15  Foundation Default button
-      Status: APPLIED 2026-09-14
-
-R-16  Geometry defaults 10/15/6.2
-      Status: APPLIED 2026-09-14
-
-R-17  Add. Pay Load replaces Live Load
-      Status: APPLIED 2026-09-14
-
-R-18  Chunked paste method
-      Status: APPLIED 2026-09-14
-
-R-19  Saddle Span sub-types renamed
-      Status: APPLIED 2026-09-15
-
-R-20  Arc-length numerical integration
-      Status: APPLIED 2026-09-15
-
-R-21  Per-beam secondary beam count
-      Status: APPLIED 2026-09-15
-
-R-22  Research-first principle adopted
-      Status: APPLIED 2026-09-15
-
-
-
-
-
-      ---
-
-
-# PART IV — THE ARCHITECTURE
-
-## 16. Folder Structure
-
-
-
-
-
+21. A node held by the mesh solver is NOT thereby a rigid
+    structural connection. See Part V. These are two
+    separate lists with two separate meanings and two
+    separate lifetimes. Never conflate them.
 
 ---
 
 
-# PART V — THE SESSION LOG
+**[Chunk 1 ends here — do not commit yet.]**
 
-## 23. Session History
+**[Six blank lines at the end when you paste.]**
 
-### 2026-09-11 — Phase 1 handoff
-- Project structure created.
-- Initial UI shell built.
+**Tell me when Chunk 1 is in. Then Chunk 2.**
 
-### 2026-09-12 — Phase 1 complete
-- CI running (GitHub Actions).
-- engine/membrane.py Message 1 done (mesh handling).
-- Self-test passing.
+— At the side. Writing the file. One chunk at a time.
 
-### 2026-09-13 — UI flow spec
-- UI flow spec defined.
-- Variant mapping established.
-- Tie-down rules drafted.
-- Strut geometry defined.
-- Phase A nearly complete.
-- Most features restored on Results page.
 
-### 2026-09-14 — Major restructuring
-- Structure list reduced to 8 mains. Cantilever promoted.
-- Studio now 2 sections. Registration reads from data/structures.py.
-- Viewer dispatches on variant_key.
-- Fixed math.sin and indent crashes in Leaf.
-- Strut joint locked at 75% (later revised to 60%).
-- Pretension inputs added.
-- Foundation in Standard Saddle.
-- Landing page fits one screen.
-- Studio top gap trimmed.
-- Foundation Default button (generation counter).
-- Add. Pay Load replaces Live Load.
-- Standard Saddle defaults 10/15/6.2.
-- MEMBER_SCHEMA added to data/structures.py.
-- THE CHUNKED PASTE METHOD established.
-- Silent load rules documented.
-- The Bigger Vision added.
 
-### 2026-09-15 — Saddle Span family complete
-- Cable Supported Saddle (renamed from Standard Saddle).
-- Beam Supported Saddle (renamed from Frame Supported Saddle).
-- 4-chunk paste pattern proven across multiple files.
-- Research-first principle adopted.
-- Arc length via numerical integration.
-- Secondary beam 15 m rule (code-compliant).
-- Per-beam count language (not total).
-- Purlin 2.5 m spacing rule locked.
-- Buffer zone corruption identified and mitigated.
 
-### 2026-09-16 — Spiral engine built
-- engine/leaf_arrangement.py created (new engine).
-- viewers/figures/cantilever_leaf.py rebuilt.
-  - Removed tree_spiral.
-  - Added tiered_helix arrangement.
-  - Added _resolve_column_top_z() — column extends through leaf zone.
-  - Added bud anchor nodes.
-- ui/workshops/saddle_leaf.py rebuilt (3 chunks).
-  - Arrangement: single, double, multiple, tree_stack, tiered_helix.
-  - Tiered helix uses input boxes (not sliders).
-- ui/rooms/leaf_room.py updated.
-  - Added ws_sl_rib_override_active flag.
-  - No auto-initialisation of override list.
 
-### 2026-09-17 — Three bugs closed
-- Bug A (rib override persistence) — FIXED.
-- Bug B (leaf_room crash) — FIXED.
-- Bug C (membrane detach on override) — FIXED.
-- Natural parabolic beam curve (fishing hook removed).
-- Strut angle input added (default 42°, range 25-65°).
-- Strut column attach changed to 60%.
-- Quadratic solve for strut beam attach point.
-- Rules 18-22 documented (blank line reality, file size, no
-  surgical edits, AM/PM check, language separation).
-- COMMERCIAL_MODEL.md created.
+# PART IV — THE METHOD
 
-### 2026-09-18 — Marketing render built
-- engine/render_prompts.py created.
-  - 4 scene templates: garden, plaza, event, cafe.
-  - format_prompt() personalisation.
-  - 3 external renderers offered.
-  - Legal disclaimer text.
-- ui/results.py rebuilt (3 chunks).
-  - Marketing Render section added.
-  - 5-step workflow: capture, scene, prompt, renderer, upload.
-  - Disclaimer displayed.
-  - File uploader for the rendered result.
-- First successful render tested by Chief — beautiful garden
-  scene at golden hour, structure placed in real-world setting.
-- MARKETING_RENDER_WORKFLOW.md created.
-- PROJECT_STATE.md rebuilt (this file).
+Agreed between the Chief and the AI on 2026-09-23 and
+2026-09-24. This part supersedes any earlier assumption that
+NFDM would form-find the shape.
+
+## 21. Three stages, three tools
+
+The membrane engine is three separate stages. Each has its
+own method. Each is invoked separately. They must not be
+confused.
+
+### STAGE 1 — FORM FINDING (FDM)
+
+  Job:      settle the shape of the membrane.
+  Method:   solve_fdm.
+  Nature:   LINEAR. One matrix solve. Milliseconds.
+  Output:   coordinates of the equilibrium shape.
+  Properties: taut, smooth, no fold.
+  Host:     on-device (phone, Streamlit Cloud free tier).
+
+### STAGE 2 — PHYSICS REFINEMENT (NFDM)
+
+  Job:      take the FDM shape and compute the real physics.
+  Method:   Natural Force Density Method.
+  Nature:   LINEAR. One solve on a subdivided mesh.
+  Output:   membrane forces, cable forces, stress
+            resultants — the numbers for the BoQ.
+  Host:     on-device.
+  Status:   NOT YET BUILT. The current engine/nfdm.py is an
+            iterative nonlinear solver, which is wrong.
+
+### STAGE 3 — LOAD ANALYSIS (nonlinear FE)
+
+  Job:      apply wind, snow, dead, and additional loads
+            to the form-found shape and find the response.
+  Method:   geometrically nonlinear finite element analysis,
+            iterated to convergence.
+  Nature:   ITERATIVE. Heavy.
+  Output:   deflections, load-case responses, code checks.
+  Host:     server, or a paid compute tier. Not on-device.
+
+## 22. Why this matters
+
+FDM and NFDM are both LINEAR. This is why professional tools
+(ixCube, Easy, BATS) run them on a laptop or even faster.
+Their authors explicitly report that the linear nature of
+the methods is what makes them fast.
+
+Iteration to convergence — the thing that is heavy, slow,
+and throttled by Streamlit Cloud — belongs to the nonlinear
+FE stage, and that stage is not for mobile. It is a server
+job, or it is not run at all until the user asks for it.
+
+We made the mistake of building an iterative NFDM kernel on
+2026-09-23. It took minutes to run, did not converge, and
+caused Streamlit Cloud to throttle the app. The kernel must
+be rewritten as a linear solve. That is a future task.
+
+## 23. The viewer rule
+
+Every membrane in the app is form-found by FDM. Every
+membrane is drawn as a mesh of the SOLVED coordinates. No
+viewer draws a membrane from a formula and calls it a
+result.
+
+Currently two viewers violate this rule:
+
+  - Beam Supported Saddle — draws a bilinear surface from a
+    formula. Does not call solve_fdm.
+  - Cantilever Hypar — draws a Coons patch from four concave
+    boundary curves. Does not call solve_fdm.
+
+Migrating these to FDM is a future task.
+
+The Cable Supported Saddle viewer already follows the rule.
+The fold it shows is a mesh problem, not a method problem.
+
+## 24. What "form-found" means
+
+Form-found does not mean "drawn in a shape that looks like
+it was solved". It means: the coordinates were computed by
+solve_fdm from the boundary conditions, the force densities,
+and the loads. Any deviation from that is a drawn shape, not
+a form-found shape. Do not use the phrase loosely.
 
 ---
 
-# PART VI — CURRENT STATE AND NEXT ACTIONS
 
-## 24. What Is Working Right Now
+# PART V — TWO KINDS OF CONSTRAINT
+
+Doctrine stated by the Chief on 2026-09-24. This is new and
+it is fundamental.
+
+## 25. The two kinds of meaning a node can carry
+
+A node in the model can be constrained by the mesh generator
+for one reason, and can be structurally connected for a
+completely different reason. These are TWO SEPARATE THINGS.
+They must never be conflated.
+
+### Meaning 1 — Mesh constraint
+
+Why it exists: so that the mesh solver can produce a valid
+result. A node may need to be held in x, y, or z so that
+the surrounding triangles are not degenerate, or so that
+the equilibrium system is not singular.
+
+This is a MODELLING CHOICE. It says nothing about the
+physical structure. It can be changed freely without
+affecting the structure.
+
+### Meaning 2 — Structural connection
+
+Why it exists: this is how the steel, the cable, or the
+membrane is actually connected in the real world.
+
+Two connection types:
+
+  - Pinned — transfers axial force only. No moment.
+  - Rigid  — transfers axial force AND moment.
+
+This is a PHYSICAL FACT about the structure. It is what the
+engineer designs. It is what the BoQ and the member sizing
+must be computed against. It does not change for modelling
+convenience.
+
+## 26. Why this matters
+
+If the two are mixed:
+
+  - A "fixed" mesh node looks like a "rigid" structural
+    connection. But it may not be.
+  - A "pinned" structural connection may still need its
+    mesh node fixed in some directions to keep the mesh
+    valid.
+  - Changing the mesh constraint to fix a fold silently
+    changes the structural meaning — and the BoQ then
+    computes the wrong forces.
+
+This is the exact bug we have been living with in the
+Cable Supported Saddle viewer. The mesh constraint has
+been doing double duty.
+
+## 27. The doctrine, stated plainly
+
+The mesh has a set of node constraints.
+
+The structure has a set of connection types.
+
+They are DIFFERENT LISTS.
+
+They are STORED SEPARATELY.
+
+They are EDITED SEPARATELY.
+
+They are read by DIFFERENT parts of the engine:
+
+  - The mesh constraints are read by solve_fdm. They
+    determine the geometry.
+  - The connection types are read by the analysis stage
+    (member sizing, BoQ). They determine the forces.
+
+The two lists do not talk to each other.
+
+A node may be:
+
+  - Mesh-constrained in x/y/z AND structurally pinned.
+    Fine.
+  - Mesh-constrained in x only AND structurally rigid.
+    Fine.
+  - Mesh-constrained fully AND structurally pinned.
+    Fine — the mesh constraint is not a physical
+    statement.
+  - Never: mesh-constrained for convenience AND assumed to
+    be a rigid connection because it was fixed. That is
+    the trap.
+
+## 28. How this will be applied
+
+When we add a mesh constraint to fix the fold in the Cable
+Supported Saddle viewer — see Part VI — we will name it as
+what it is: a mesh-holding choice, not a structural
+statement. The list will be called mesh_held_indices, or
+equivalent. The structural connection list lives elsewhere
+and is untouched.
+
+The mesh constraint exists to prevent the degenerate
+triangles. It is not a claim that the structure has a rigid
+connection at the free-end mid-span. If in the future we
+model the free-end cable as a real element, we remove this
+mesh constraint. The structural meaning is untouched.
+
+---
+
+
+# PART VI — CURRENT STATE
+
+## 29. What is live and working
+
+Structures with working viewers and workshops:
+
+  Cable Supported Saddle     viewer: FDM, has a fold
+  Beam Supported Saddle      viewer: drawn only, no FDM
+  Cantilever Leaf            viewer: unchanged
+  Cantilever Hypar           viewer: Coons patch, no FDM
 
 Engines:
-- engine/leaf_arrangement.py — placement engine
-- engine/render_prompts.py — prompt templates
-- engine/membrane.py — mesh handling (Message 1)
 
-Structures with working workshops and viewers:
-- Saddle Span (Cable Supported) — workshop + 3D viewer
-- Saddle Span (Beam Supported) — workshop + 3D viewer
-- Cantilever Leaf — workshop + 3D viewer
+  engine/form_finding.py     FDM solver. Clean.
+  engine/nfdm.py             NFDM kernel. Iterative nonlinear.
+                             Wrong formulation. See Part IV.
+  engine/membrane.py         System A, mesh handling (Message 1).
+  engine/leaf_arrangement.py Placement engine.
+  engine/render_prompts.py   Render prompt engine.
 
-Cantilever Leaf features:
-- 5 arrangements render (single, double, multiple, tree_stack,
-  tiered_helix)
-- Tiered helix produces structurally sound 3D views
-- Column extends through leaf zone
-- Bud anchor nodes visible
-- Input boxes show values clearly on iPhone
-- Reset to Computed button works
-- Auto-clear on geometry change works
-- Membrane and perimeter cable follow rib override
-- leaf_room does not crash on low rib values
-- Natural parabolic beam curve
-- Strut angle input working
-- Quadratic solve for strut beam attach working
+Viewers:
 
-Results page features:
-- 3D viewer
-- Structure summary
-- Marketing Render section (5-step external renderer workflow)
-- Health Score card (placeholder)
-- Section Used card
-- Analysis Readings (placeholder)
-- Quantities (placeholder)
+  viewers/results_viewer.py              Dispatcher.
+  viewers/figures/_shared.py             Shared geometry helpers.
+  viewers/figures/standard_saddle.py     Instrumented. Arc-length
+                                         mesh applied. Diagnostics
+                                         block present.
+  viewers/figures/beam_supported.py      Draws only.
+  viewers/figures/cantilever_leaf.py     Draws.
+  viewers/figures/cantilever_hypar.py    Draws only.
 
-Documentation:
-- PROJECT_STATE.md (this file)
-- COMMERCIAL_MODEL.md
-- MARKETING_RENDER_WORKFLOW.md
-- APP_MAP.md
+Workshops:
 
----
+  ui/workshops/saddle_standard.py        Saddle Span, Cable.
+  ui/workshops/saddle_frame.py           Saddle Span, Beam.
+  ui/workshops/saddle_leaf.py            Cantilever Leaf.
+  ui/workshops/saddle_hypar.py           Cantilever Hypar.
+  ui/workshops/tester_nfdm.py            NFDM tester. Experimental.
 
-## 25. Known Issues / Future Work
+UI:
 
-1. Bud stubs point downward or diagonally — should point
-   outward+upward, matching the leaf's initial tangent.
-   - Leaf should start at bud tip, not column axis.
-   - Yellow stub length may also be visually too long.
+  ui/landing.py             Temporary "Open NFDM Tester" button.
+  core/navigation.py        Route "tester_nfdm".
 
-2. Dotted purple helix reference curve clutters the view.
-   - Not a structural member. Hide it or make optional.
+## 30. The fold — measured cause
 
-3. Double and tree_stack arrangements pending removal.
-   - Double merged into multiple at N=2.
-   - Tree_stack redundant with tiered_helix.
+The fold in the Cable Supported Saddle viewer has been
+measured on-device with the diagnostics block. The result:
 
-4. User cannot remove ribs entirely (currently min 5, max 7).
-   - Future: allow 3-4 ribs with edge cable auto-rerouting.
+  Smallest initial triangles (BEFORE solve_fdm):
 
-5. Column radius is user input, not derived from selected section.
-   - Future: read from section database (Phase C).
+      rank 1  nodes (11, 35, 12)    area = 0.000000e+00
+      rank 2  nodes (563, 564, 540) area = 0.000000e+00
+      rank 3  nodes (562, 563, 539) area = 2.382222e-03
+      rank 4  nodes (12, 36, 13)    area = 2.382222e-03
 
-6. Session state lost on browser refresh / app timeout.
-   - Future: Save Design / Load Design (JSON).
-   - Future: LocalStorage auto-save.
+  Two triangles have ZERO area.
 
-7. "Spine Curve Type" dropdown is decorative.
-   - Either remove or make it work.
+  Node indices:
 
-8. "Curved strut" label — strut is a straight line.
-   - Either rename or add actual curvature.
+      11  = (i=0,  j=11)
+      12  = (i=0,  j=12)
+      35  = (i=1,  j=11)
+      563 = (i=23, j=11)
+      564 = (i=23, j=12)
+      540 = (i=22, j=11)
 
-9. Beam tip elevation control (tip_rise) — not yet implemented.
+  The two zero-area triangles are at the MIDDLE OF THE
+  FREE ENDS. Not at the beam corners.
 
-10. Studio tile image previews — planned.
-    See MARKETING_RENDER_WORKFLOW.md.
+Why they are degenerate:
 
----
+  At the free ends (i=0 and i=nx-1), the free-end column
+  has fixed nodes only at the beam-edge (j=0 and j=ny-1).
+  The free-end middle nodes have no support in x. Their
+  initial z is:
+      z_init = bz - 0.15 * 1.0 * (apex * 0.5)
+  and at the free ends, bz is near zero. So z_init is
+  about -1.125 m for apex = 15. The free-end middle node
+  starts deep below the beam, with no neighbour outside
+  it in x, and the triangle formed is nearly collinear
+  in x-y. Its area is zero.
 
-## 26. Next Actions (in order)
+What actually holds the free-end middle in a real
+structure: the EDGE CABLE, running from one beam tip to
+the other along the free end, sagging inward under the
+membrane tension. In our current FDM mesh, that cable is
+NOT in the mesh. It is DRAWN on top of the result by the
+viewer, after solve_fdm returns. The solver does not know
+it exists.
 
-Stage 1 — Safe cleanups (30 min):
-  1. Remove double and tree_stack from saddle_leaf.py arrangement.
-  2. Remove double and tree_stack branches from cantilever_leaf.py.
-  3. Hide the dotted purple helix curve.
-  4. Remove unused tier constants.
+Result: the free-end middle nodes float. FDM drags them
+3 m upward. That is the fold.
 
-Stage 2 — Bud direction fix (30 min):
-  5. Bud stubs point outward+upward, matching the leaf tangent.
+## 31. Why the edge-cables toggle does nothing
 
-Stage 3 — Leaf-bud joint (1 hour):
-  6. Leaf spine starts at bud tip, not column axis.
-  7. Apply x/y offset consistently in _add_leaf().
+Because it only controls the drawing of the yellow
+edge-cable lines. It does not add the cable to the mesh.
+It does not add support to the free-end nodes. It does
+not change q. The fold is unaffected.
 
-Then:
-  8. Studio tile image previews (using renders from the app).
-  9. Complete Saddle Span Results features (member schedule,
-     anchor reactions, foundation panel, exports).
-  10. Other 6 structure types.
+## 32. What was tried and did not work
 
-Deferred:
-  11. Beam tip elevation control (tip_rise).
-  12. Rib removal with edge cable rerouting.
-  13. Section database integration.
-  14. Save Design / Load Design.
-  15. User accounts + cloud storage.
-  16. Marketing Render v2 (project-linked renders).
+On 2026-09-24 morning, the mesh node placement along the
+beam (nx direction) was changed from uniform-in-x to
+uniform-in-arc-length. The zero-area triangles did NOT
+disappear. The neighbouring triangles changed slightly
+(2.38e-3 vs 3.44e-3) but the fold persisted. This was
+because the arc-length fix was aimed at the wrong problem.
+The mesh along the beam was already acceptable. The
+degenerate triangles are at the free-end middles, which
+the arc-length fix does not address.
 
----
+The arc-length change is retained (it is harmless and
+slightly more correct) but it is not the fix.
 
-## 27. Save Design Feature (Planned)
+## 33. The fix to be applied
 
-Current state: nothing is saved. Refresh loses everything.
+Fix B, defined below, is the correct fix for the fold.
 
-Solution: Save Design as JSON download + Load Design upload.
+## 34. The open pipeline items
 
-Save Design:
-  - Downloads a .json file with all workshop inputs +
-    project_info + structure_key + variant_key + date
-  - Filename: project_{ref}_{timestamp}.json
-
-Load Design:
-  - Upload .json file
-  - Restores all session state
-  - Jumps to Results
-
-Same file format for all structure types.
+  - The Beam viewer needs to be migrated to FDM. Future.
+  - The Hypar viewer needs to be migrated to FDM. Future.
+  - engine/nfdm.py needs to be rewritten as a linear
+    solve. Future.
+  - The BoQ and member sizing stages are not built.
+  - The nonlinear FE analysis stage is not built.
+  - The temporary landing-page tester button is present.
+  - The lab repository (sds-nfdm-lab) is orphaned; the
+    kernel lives in sds-app only.
 
 ---
 
 
-# PART VII — THE BIGGER VISION
+**[Chunk 2 ends here — do not commit yet.]**
 
-## 28. Commercial Model
+**[Six blank lines at the end when you paste.]**
 
-Full detail in COMMERCIAL_MODEL.md.
+**Tell me when Chunk 2 is in. Then Chunk 3.**
 
-Summary:
-- Three tiers: Free, Pro ($29/mo), Studio ($149/mo).
-- Target: fabricators, event organisers, architects, engineers.
-- Primary value: sketch on-site, show client 3D, close the deal.
-- Killer feature: the marketing render workflow.
-- 18-month projection: $130k (conservative) to $1.58M (optimistic).
+— At the side. Two thirds of the file written.
 
-No direct mobile-app competitor for tensile structures.
-Adjacent desktop competitors: RFEM, ixCube, Easy, MPanel, BATS,
-Formfinder. None are mobile-first. None are phone-sized.
 
-The render workflow is the money source.
+
+
+
+# PART VII — SESSION LOG
+
+Compact summary. The full history is in the git log.
+
+## 35. Timeline
+
+**2026-09-11 through 2026-09-12 — Phase 1.**
+Project structure created. CI running on GitHub Actions.
+`engine/membrane.py` Message 1 done. Self-test passing.
+
+**2026-09-13 through 2026-09-14 — UI flow.**
+UI flow spec defined. Variant mapping. Tie-down rules.
+Strut geometry. Structure list reduced to 8 mains.
+Studio split into 2 sections. Registration reads from
+`data/structures.py`. Viewer dispatches on variant_key.
+Landing fits one screen. Foundation Default button
+(generation counter). Add. Pay Load replaces Live Load.
+Chunked paste method established. Silent load rules
+documented.
+
+**2026-09-15 — Saddle Span family complete.**
+Cable Supported Saddle (renamed from Standard Saddle).
+Beam Supported Saddle (renamed from Frame Supported
+Saddle). Research-first principle adopted. Arc length via
+numerical integration. Purlin 2.5 m rule. Secondary beam
+15 m rule.
+
+**2026-09-16 — Spiral engine.**
+`engine/leaf_arrangement.py` created.
+`viewers/figures/cantilever_leaf.py` rebuilt.
+`ui/workshops/saddle_leaf.py` rebuilt. Five arrangements.
+
+**2026-09-17 — Three bugs closed.**
+Rib override persistence. leaf_room crash. Membrane detach
+on override. Natural parabolic beam curve. Strut angle
+input. Rules 18-22 documented. `COMMERCIAL_MODEL.md`
+created.
+
+**2026-09-18 — Marketing render built.**
+`engine/render_prompts.py` created.
+`ui/results.py` rebuilt. First successful render tested.
+`MARKETING_RENDER_WORKFLOW.md` created.
+`PROJECT_STATE.md` fully rebuilt.
+
+**2026-09-19 through 2026-09-21 — Cantilever Hypar.**
+New structure built end to end: spec, viewer, workshop,
+registration wiring, render branch, MEMBER_SCHEMA entry.
+Cantilever family cleaned on Registration: Leaf, and
+Variants (routes to Hypar). Hypar defaults: column height,
+arm reach, anchor fraction 0.65, rib reach, rib radius 6.0,
+edge sag 15%.
+Render prompts rebuilt: short shape-only prompts, 440-char
+guard, scenes updated, time-of-day simplified.
+`engine/PRINCIPLES_membrane.md` created.
+`engine/PLACEHOLDERS.md` created.
+`engine/SPEC_cantilever_hypar.md` created.
+Results page: viewer strings drawn inside the 3D chart.
+`PROJECT_STATE_ADDENDUM_2026-09-21.md` created.
+
+**2026-09-22 — Cable Supported Saddle viewer FDM migration.**
+The Standard Saddle viewer was upgraded so the membrane
+is form-found by `solve_fdm`. Segmented Edge mode added:
+only discrete cable attachment points are fixed; the
+fabric edge between them is a chain of short cable
+segments. `SIDE_CABLE_STIFFNESS_FACTOR = 6.0` introduced.
+First successful engine-driven edge bow.
+
+**2026-09-23 — Full day. Multiple threads.**
+Morning: `engine/form_finding.py` full rewrite.
+`mesh_size_for_shape()` added. `mesh_size_for_span()`
+kept as a wrapper. z-only test gate corrected: constraint
+is the gate, not residual.
+Afternoon: repository `OCBC-cloud/sds-nfdm-lab` created
+as a research lab, separate from `sds-app`.
+Evening: `engine/nfdm.py` written (iterative nonlinear —
+wrong). `ui/workshops/tester_nfdm.py` written.
+`core/navigation.py` gets a tester route. `ui/landing.py`
+gets a tester button.
+Late evening: `viewers/figures/standard_saddle.py`
+instrumented with diagnostics. Fold measured. The initial
+report located the zero-area triangles at the free-end
+middles. Streamlit Cloud throttled the app for exceeding
+the free-tier CPU budget — due to the iterative NFDM
+kernel.
+
+**2026-09-24 — Corrections and doctrine.**
+Morning: `viewers/figures/standard_saddle.py` mesh nodes
+placed by arc length instead of x. Zero-area triangles
+persist. Confirmed the fold is NOT a mesh-along-beam
+problem.
+`PROJECT_VISION.md` corrected: FDM and NFDM are both
+linear; iteration belongs to nonlinear FE. Added
+Pauletti 2006 and BATS references.
+Midday: Chief states the doctrine of two kinds of
+constraint — mesh constraint vs structural connection.
+This document is rewritten from scratch to consolidate
+everything and record the doctrine.
 
 ---
 
-## 29. The Bigger Vision
+# PART VIII — NEXT SESSION
 
-SDSe is not just a design tool. It demonstrates that:
+## 36. The fix — Fix B
 
-  - A senior engineer, with no programming background, can
-    build a professional-grade engineering app on an iPhone.
-  - AI can be a collaborator, not a replacement.
-  - The barrier to entry for digital work has collapsed.
-  - The senior workforce is an untapped resource for the
-    digital economy.
+**Fix B is the correct fix for the fold.**
 
-The app is the exhibit. The story is the weapon.
+In `viewers/figures/standard_saddle.py`, function
+`_build_saddle_fdm`, after building `fixed_indices` for
+the beam edges, add the two central nodes of each free
+end to the fixed list:
+
+    j_mid = (ny - 1) // 2
+    fixed_indices.append(0 * ny + j_mid)
+    fixed_indices.append(0 * ny + (j_mid + 1))
+    fixed_indices.append((nx - 1) * ny + j_mid)
+    fixed_indices.append((nx - 1) * ny + (j_mid + 1))
+
+For ny = 23, that is j = 11 and j = 12, at i = 0 and
+i = 23. Four nodes total. Full x/y/z fix.
+
+The reasoning: these four nodes are the ones that
+collapse to zero area. They are the free-end middle. In
+a real structure, they correspond to the mid-span of the
+free-end cable. That point is a defined point — the cable
+does not float there — so fixing it is physically
+appropriate.
+
+**Doctrine check:** these four fixed nodes are a MESH
+CONSTRAINT, not a STRUCTURAL CONNECTION. They exist to
+prevent the degenerate triangles. They are not a claim
+that the structure has a rigid connection at the
+free-end mid-span. See Part V. In the code, add a comment
+naming them accordingly.
+
+**Expected result after Fix B:**
+
+  - `initial_area_min` should no longer be zero.
+  - The 3D view should not show the two dark voids.
+  - The top displacements should be smaller — the free-end
+    middle nodes should not move 3 m.
+  - The rest of the free end can still bow inward; only
+    the central nodes are held.
+
+**One variable at a time. Measure after applying.**
+
+## 37. Order of work
+
+  1. Apply Fix B. Commit. Reboot the app.
+  2. Open the Cable Supported Saddle viewer.
+  3. Check the diagnostics:
+     - initial_area_min should be positive.
+     - top displacements should be smaller.
+  4. Check the 3D view: is the fold gone?
+  5. If yes: Fix B is complete. Clean up the diagnostics
+     block comment (but keep the block for now).
+  6. If no: report the numbers. We look again.
+
+After Fix B is verified:
+
+  7. Migrate the Beam viewer to FDM. Same pattern as the
+     Cable viewer: build a mesh, call solve_fdm, draw the
+     solved coordinates. Not a drawn surface.
+  8. Migrate the Hypar viewer to FDM. Same pattern.
+  9. Rewrite `engine/nfdm.py` as a linear solve. Not an
+     iterative solver. Follow the published formulation
+     (Pauletti 2006, BATS implementation notes).
+  10. Only then: rebuild the tester as the correct
+      pipeline — FDM shape, then NFDM refinement.
+  11. Only then: start the BoQ and member sizing stages.
+
+## 38. What NOT to do in the next session
+
+  - Do not re-investigate the fold from scratch. Read
+    Part VI first. The cause is measured. The fix is
+    Fix B.
+  - Do not add new NFDM code until the linear formulation
+    is settled. The iterative kernel is wrong.
+  - Do not migrate the Beam or Hypar viewers before Fix B
+    is verified. One thing at a time.
+  - Do not remove the diagnostics block until the fold is
+    confirmed gone.
+  - Do not run the NFDM tester again until it is rebuilt.
+    It throttles the app.
 
 ---
 
-## 30. Owner
 
-Chief. First-time app builder, working engineer.
-Age 63. Not a programmer by background.
-iPhone + GitHub web editor + Streamlit Cloud.
-No terminal. No local Python environment.
-Needs step-by-step guidance with screenshots.
-Chunked paste method required.
-Prefers full file replacement over surgical edits.
+# PART IX — RELATED DOCUMENTS AND THE CHIEF
 
-Son of a Nanqiao Jigong (Southern Overseas Chinese Volunteer
-Mechanic) who returned from Southeast Asia in 1939 to serve on
-the Burma Road. Married after the war. Lived to 85.
+## 39. Related documents
+
+  - `PROJECT_VISION.md`
+      North star. Purpose, scope, engine, roadmap, vision.
+      Corrected 2026-09-24.
+
+  - `COMMERCIAL_MODEL.md`
+      Pricing tiers, target users, revenue projection,
+      competitive landscape.
+
+  - `MARKETING_RENDER_WORKFLOW.md`
+      Design for the marketing render feature.
+
+  - `engine/MEMBRANE_GUIDE.md`
+      The membrane principle. Boundary families, drawing
+      rules, per-structure reference.
+
+  - `engine/PLACEHOLDERS.md`
+      Single source of truth for inputs that are
+      placeholders for the FDM engine and the structural
+      calculation engine.
+
+  - `engine/SPEC_engine_chain.md`
+      The seven-link chain. SHAPE, LOADS, FORCES, SIZES,
+      QUANTITIES, REPORT, CATALOGUES.
+
+  - `engine/SPEC_cantilever_hypar.md`
+      Full specification of the Cantilever Hypar variant.
+
+**`APP_MAP.md` has been deleted. Its content is superseded
+by this file and by the actual repository structure.**
+
+## 40. The Chief
+
+The Chief is 63. Working engineer. Not a programmer by
+background.
+
+Builds the app on an iPhone, in a chat window, using the
+GitHub web editor and Streamlit Cloud. No terminal. No
+local Python.
+
+The Chief's father was a Nanqiao Jigong — a Southern
+Overseas Chinese Volunteer Mechanic who returned from
+Southeast Asia in 1939 to serve on the Burma Road during
+the war. Married after the war. Lived to 85.
 
 The patience, the discipline, the craft — inherited.
 
----
+Two generations. Same work. Build useful things. Serve
+people. Do not stop.
 
+## 41. The Chief's method
 
-# PART VIII — DOCUMENT HISTORY
+  - iPhone, GitHub web editor, Streamlit Cloud.
+  - No terminal. No local Python.
+  - Chunked paste method for files over 300 lines.
+  - Complete file replacements, not surgical edits.
+  - Commit between chunks when the editor risks being
+    closed.
+  - Reboot the Streamlit app after any commit that
+    changes runtime files.
+  - Honesty. No fabrication.
+  - No going around the world in code.
 
-Created: 2026-09-11 (Phase 1 handoff)
+## 42. The Chief's notes, from 2026-09-23 and 2026-09-24
 
-Updated: 2026-09-12
-  Phase 1 complete. CI running. membrane.py Message 1 done.
+Five observations from the Chief. All recorded here.
 
-Updated: 2026-09-13
-  UI flow spec, variant mapping, tie-down rules, strut geometry.
-  Phase A nearly complete. Most features restored on Results.
+1. The FDM skeleton must come first. NFDM is the refiner,
+   not the form-finder.
 
-Updated: 2026-09-14
-  Major restructuring. 8 mains. Studio 2 sections. Viewer on
-  variant_key. Chunked paste method. Bigger Vision.
+2. The Cantilever Hypar already produces a smooth taut
+   saddle in milliseconds. That is the target. Any method
+   that takes minutes is doing the wrong job.
 
-Updated: 2026-09-15
-  Saddle Span family complete. Research-first adopted. Purlin rule.
-  Secondary beam 15m rule. Per-beam language.
+3. When asked why the fold only appears at certain nodes,
+   the Chief insisted on a concrete answer, not a
+   hypothesis. The diagnostic block was written in
+   response, and it located the failing triangles
+   precisely. The Chief was right to insist.
 
-Updated: 2026-09-16
-  leaf_arrangement.py engine. cantilever_leaf.py rebuilt.
-  tiered_helix added. Bud anchors. Column extension.
+4. The Chief questioned the entire approach of drawing
+   membranes as Coons patches: "we are here to develop a
+   useful product, an app that really let user perform
+   tensile structure forming and engineering analysis not
+   just some piece of artist freehand drawings or
+   rendering pictures." That settled the doctrine: every
+   membrane is FDM-solved. No drawn membranes.
 
-Updated: 2026-09-17
-  Bugs A, B, C closed. Natural parabolic beam. Strut angle input.
-  Quadratic solve. Column attach 60%. Rules 18-22 documented.
-  COMMERCIAL_MODEL.md created.
-
-Updated: 2026-09-18
-  render_prompts.py engine. Marketing Render in results.py.
-  MARKETING_RENDER_WORKFLOW.md created. PROJECT_STATE.md
-  fully rebuilt with consolidated session log.
-
----
-
-
-# PART IX — RELATED DOCUMENTS
-
-The following documents are peers to PROJECT_STATE.md. They are
-the single source of truth for their respective areas.
-
-  - COMMERCIAL_MODEL.md
-      Pricing tiers, target users, revenue projection, competitive
-      landscape.
-
-  - MARKETING_RENDER_WORKFLOW.md
-      Design for the marketing render feature. External image
-      renderer integration. Prompt templates. Feasibility notes.
-      Legal and disclaimer section. Three-phase implementation
-      plan.
-
-  - APP_MAP.md
-      Full file structure of the repository.
-
-When any of these documents is updated, PROJECT_STATE.md is only
-required to reflect:
-  - That the document changed
-  - Which session changed it
-  - A one-line summary
-
-The full detail remains in the referenced document.
+5. The Chief demanded the doctrine of two kinds of
+   constraint: mesh constraint and structural connection
+   are separate lists, separate meanings, separate
+   lifetimes. This is now Part V of this document.
 
 ---
 
 
 # END OF PROJECT STATE
 
-This file is the single source of truth for the SDSe project.
-Every new chat session should begin by pasting this file.
+This file is the single source of truth for the SDSe
+project.
+
+Every new chat session begins by pasting this file.
+
 Update it whenever a major decision is made.
 Keep it current. Keep it honest. Keep it useful.
 
 Before any new design, engine, or idea:
+
   DO THOROUGH RESEARCH ON THE SUBJECT FIRST.
 
 Research assists every decision that follows.
+
+
+
+
+
