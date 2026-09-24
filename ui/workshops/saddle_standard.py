@@ -4,23 +4,12 @@
 # Input page for the Standard Saddle variant of the Saddle Span family.
 #
 # Updated 2026-09-24:
-#   - Section 5 pretension inputs replaced. The workshop now collects
-#     three separate pretensions: WARP (along the span), WEFT (across
-#     the membrane), and EDGE CABLE (along the free ends).
-#     Convention: warp runs along the beam (i-direction); weft runs
-#     between the two beams (j-direction). This is fixed and is
-#     stated in the help text.
-#   - Section 8: the "Edge cables on the free ends" toggle has been
-#     REMOVED. The free-end cable is a mandatory part of the Cable
-#     Supported Saddle geometry. It is not a user option. Its
-#     pretension is set in Section 5.
-# Updated 2026-09-22:
-#   - Section 8 shows "Cable Attachment Points per Beam" when
-#     Segmented is selected.
-# Updated 2026-09-20:
-#   - Viewer-strings block reads widget keys FIRST.
-# Updated 2026-09-19:
-#   - _init_defaults() writes two viewer strings.
+#   - Section 5 pretension inputs are NUMBER FIELDS, not sliders,
+#     to match the geometry inputs at the top of the workshop.
+#     Three values: WARP (along the span), WEFT (across the membrane),
+#     EDGE CABLE (along the free ends).
+#   - Section 8: the "Edge cables on the free ends" toggle is REMOVED.
+#     The free-end cable is a mandatory part of the geometry.
 # =============================================================================
 
 import streamlit as st
@@ -295,21 +284,21 @@ def render_saddle_standard():
 
         col1, col2 = st.columns(2)
         with col1:
-            uplift = st.slider(
+            uplift = st.number_input(
                 "Anchor Uplift Angle (deg)",
                 min_value=20, max_value=75,
                 value=int(st.session_state["ws_ss_uplift_angle"]),
                 step=1,
-                key="ws_ss_uplift_angle_slider",
+                key="ws_ss_uplift_angle_input",
             )
             st.session_state["ws_ss_uplift_angle"] = uplift
         with col2:
-            spread = st.slider(
+            spread = st.number_input(
                 "Anchor Spread Angle (deg)",
                 min_value=0, max_value=60,
                 value=int(st.session_state["ws_ss_spread_angle"]),
                 step=1,
-                key="ws_ss_spread_angle_slider",
+                key="ws_ss_spread_angle_input",
             )
             st.session_state["ws_ss_spread_angle"] = spread
 
@@ -361,34 +350,32 @@ def render_saddle_standard():
 
         col5, col6 = st.columns(2)
         with col5:
-            warp_pre = st.slider(
+            warp_pre = st.number_input(
                 "Warp Pretension (kN/m)",
                 min_value=0.5, max_value=8.0,
                 value=float(st.session_state["ws_ss_warp_pretension"]),
                 step=0.1,
-                key="ws_ss_warp_pre_slider",
+                key="ws_ss_warp_pre_input",
             )
             st.session_state["ws_ss_warp_pretension"] = warp_pre
         with col6:
-            weft_pre = st.slider(
+            weft_pre = st.number_input(
                 "Weft Pretension (kN/m)",
                 min_value=0.5, max_value=8.0,
                 value=float(st.session_state["ws_ss_weft_pretension"]),
                 step=0.1,
-                key="ws_ss_weft_pre_slider",
+                key="ws_ss_weft_pre_input",
             )
             st.session_state["ws_ss_weft_pretension"] = weft_pre
 
-        col7 = st.columns(1)[0]
-        with col7:
-            edge_pre = st.slider(
-                "Edge Cable Pretension (kN)",
-                min_value=0.5, max_value=50.0,
-                value=float(st.session_state["ws_ss_edge_cable_pretension"]),
-                step=0.5,
-                key="ws_ss_edge_pre_slider",
-            )
-            st.session_state["ws_ss_edge_cable_pretension"] = edge_pre
+        edge_pre = st.number_input(
+            "Edge Cable Pretension (kN)",
+            min_value=0.5, max_value=50.0,
+            value=float(st.session_state["ws_ss_edge_cable_pretension"]),
+            step=0.5,
+            key="ws_ss_edge_pre_input",
+        )
+        st.session_state["ws_ss_edge_cable_pretension"] = edge_pre
 
 
 
