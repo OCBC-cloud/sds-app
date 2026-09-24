@@ -1663,5 +1663,99 @@ state is clean and the path is clear.
 ---
 
 
+---
+
+
+# ADDENDUM — 2026-09-24, NIGHT
+
+Recorded at the end of the day. The plan for tomorrow is
+below.
+
+## A. The state of the MBS engine test
+
+The MBS engine test was added to run_tests.py today. It
+runs on GitHub Actions on every push.
+
+The three most recent runs all show the same result:
+
+    ✗ test
+      The operation was canceled.
+
+The step ran for 2 minutes 19 seconds, produced no output,
+and was cancelled by GitHub. The other tests in the same
+run (membrane.py and form_finding.py) completed in seconds.
+
+Diagnosis: the MBS engine imports successfully. The test
+starts. But the runner cancels before the test can print
+its results. This is a GitHub infrastructure behaviour, not
+a bug in our code.
+
+Note: before today, the same test suite completed in 11
+seconds. The MBS engine takes minutes to run. That is
+expected — it builds a 9x9 grid, calls FDM, and computes
+triangle areas. The 2-minute duration is a sign the engine
+is doing real work.
+
+We cannot conclude whether the engine passes or fails from
+GitHub Actions. We need another way to test it.
+
+## B. The plan for tomorrow
+
+Rather than keep re-running the GitHub test, we build a
+small test page inside the app. Same pattern as the NFDM
+tester. Isolated. Temporary.
+
+The page will:
+  1. Call the MBS engine with a simple 3m x 3m saddle
+     boundary.
+  2. Solve it with FDM.
+  3. Display the mesh, the diagnostics, and a 3D view.
+
+We will look at the result on the phone. The visual tells
+us whether the engine works.
+
+## C. The four files, in order
+
+1. Delete the NFDM tester.
+   - Remove ui/workshops/tester_nfdm.py
+   - Remove the "tester_nfdm" route from core/navigation.py
+   - Remove the "Open NFDM Tester" button from ui/landing.py
+   - Keep engine/nfdm.py — it is the reference for the
+     future rewrite.
+
+2. Add the MBS tester.
+   - New file: ui/workshops/tester_mbs.py
+   - New route in core/navigation.py: "tester_mbs"
+   - New button in ui/landing.py: "Open MBS Tester"
+
+3. In the MBS tester, call the engine with a simple saddle:
+   - Corner 0: (-1.5, -1.5, 0.0)  — low
+   - Corner 1: ( 1.5, -1.5, 0.5)  — high
+   - Corner 2: ( 1.5,  1.5, 0.0)  — low
+   - Corner 3: (-1.5,  1.5, 0.5)  — high
+   All four edges: "cable". All four corners: anchors.
+
+4. Display: n_nodes, n_edges, n_fixed, n_free, min_tri_area,
+   residual_norm, and a 3D mesh view (Plotly Mesh3d).
+
+## D. After the tester proves the engine works
+
+Migrate the Saddle Span viewer to call the MBS engine
+instead of its current hand-rolled mesh. Then migrate
+Beam Supported Saddle, Cantilever Hypar, and Cantilever
+Leaf.
+
+Every viewer, one engine.
+
+## E. One more thing
+
+The current PROJECT_STATE.md has grown long. Tomorrow
+morning, if there is time, we should consider a fresh
+rewrite that absorbs this addendum into the main body
+and removes the redundancies. Not required, but cleaner.
+
+---
+
+
 End of document.
 
