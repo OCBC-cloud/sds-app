@@ -1552,5 +1552,116 @@ Before any new design, engine, or idea:
 
 Research assists every decision that follows.
 
+---
 
+
+# ADDENDUM — 2026-09-24, LATE EVENING
+
+Recorded at the end of a long day. Read this after the main
+document.
+
+## A. What was built today
+
+The Membrane Boundary Schema (MBS) engine. `engine/membrane_boundary.py`.
+
+A universal engine for building the mesh of a membrane from its
+boundary. It knows nothing about shape names — lens, rectangle,
+triangle, polygon. It receives a closed boundary, a list of
+anchor indices, and a list of edge types ("beam" or "cable").
+It returns a mesh ready for `solve_fdm`.
+
+The schema:
+  1. A closed boundary — an ordered loop of 3D points.
+  2. Anchors — discrete points on the boundary.
+  3. Edges between anchors — "beam" (fixed) or "cable" (free).
+  4. The interior — filled by Transfinite Interpolation.
+
+The engine is called by the viewer. In time, every viewer calls
+the same engine.
+
+## B. What was tested today
+
+`run_tests.py` gained a new test: `test_mbs_engine()`. It builds
+a simple saddle boundary (four corners, two low, two high, all
+cable edges), calls the MBS engine, calls FDM, and reports.
+
+The first run failed:
+
+    n_fixed     : 2   (should be 4)
+    min_tri_area: 0.0 (should be positive)
+
+The fix: in `build_mesh`, we were fixing the four BOUNDARY
+indices instead of the four MESH NODE indices. Corrected to fix
+the four grid corners (nodes 0, ny-1, (nx-1)*ny, (nx-1)*ny+ny-1).
+
+The second run was cancelled by GitHub before completing. Not
+our code's fault. Infrastructure.
+
+The third run — after the corner fix — is in flight at the time
+of this note. Result unknown. Check the Actions tab.
+
+## C. What is not solved
+
+The fold in the Cable Supported Saddle viewer.
+
+We know its cause. It is a mesh topology error, not a solver
+problem. The mesh has been a rectangle where the membrane is a
+lens — two curved beams meeting at two tips.
+
+The viewer is still running the old mesh logic. It has not been
+migrated to the MBS engine. That is the next task.
+
+## D. The state of the code
+
+On `modular-v10`, committed:
+
+- engine/membrane_boundary.py   — MBS engine. New. Fix applied.
+- run_tests.py                  — MBS test added.
+- engine/form_finding.py        — FDM. Unchanged today.
+- engine/nfdm.py                — NFDM. Iterative nonlinear.
+                                  Wrong. Do not use. Future
+                                  rewrite to linear.
+- viewers/figures/standard_saddle.py — arc length mesh, Fix B,
+                                  Fix D (partial). Fold still
+                                  present.
+- ui/workshops/saddle_standard.py    — warp/weft/edge cable
+                                  number fields. Dishonest
+                                  toggle removed.
+- PROJECT_STATE.md              — this file.
+- PROJECT_VISION.md             — corrected. FDM and NFDM are
+                                  linear.
+
+Deleted today:
+- PROJECT_STATE_ADDENDUM_2026-09-21.md
+- APP_MAP.md
+
+## E. Where to start tomorrow
+
+1. Open the Actions tab. Find the newest MBS engine test run.
+2. If green: the engine is proven. Migrate the Saddle viewer.
+3. If red: read the log. The test found a bug. Fix it.
+
+Then, after the MBS engine is proven and the Saddle viewer
+migrated, apply the same engine to:
+
+- viewers/figures/beam_supported.py
+- viewers/figures/cantilever_hypar.py
+- viewers/figures/cantilever_leaf.py
+
+Every viewer, one engine.
+
+## F. A note about the day
+
+The MBS engine was built today, after several wrong turns.
+The Chief corrected the AI many times. Each correction was
+right. The doctrine "The Chief at the side" is not decoration;
+today it worked.
+
+Tomorrow starts with the test result. Whatever it says, the
+state is clean and the path is clear.
+
+---
+
+
+End of document.
 
