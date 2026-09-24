@@ -1381,5 +1381,176 @@ Research assists every decision that follows.
 
 
 
+---
+
+
+# ADDENDUM — 2026-09-24, MIDDAY
+
+Recorded after the morning's measurements. Read this before
+starting the next task.
+
+## A. What was tried this morning, and what each test showed
+
+Three changes were applied to the Cable Supported Saddle
+viewer, one at a time. None of them fixed the fold. Each
+taught us something.
+
+**Test 1 — Arc-length mesh placement.**
+Changed the mesh nodes along the beam (nx direction) from
+uniform in x to uniform in arc length. Result: the two
+zero-area triangles persisted. Not fixed. Retained — it is
+harmless and slightly more correct.
+
+**Test 2 — Fix B: hold the free-end middle nodes.**
+Added the two central nodes of each free end to the fixed
+list. Result: the zero-area triangles persisted, because
+they exist in the INITIAL mesh, before solve_fdm runs.
+Holding the nodes in the solve does not change the initial
+geometry. Not fixed. Retained — as a mesh constraint, not
+a structural statement.
+
+**Test 3 — Fix C: z proportional to beam height.**
+Changed the initial z formula from
+    bz - 0.15 * (1 - (2v-1)^2) * (apex * 0.5)
+to
+    bz * (1.0 - 0.15 * (1 - (2v-1)^2) * 0.5)
+so that the sag is proportional to the beam height instead
+of constant. Result: MADE THE PROBLEM WORSE. Now the
+entire free-end column (all nodes from j=0 to j=ny-1)
+collapses to zero area, instead of only the middle two.
+
+Smallish initial triangles after Fix C — all zero:
+
+    rank 1  nodes (0, 24, 1)     area = 0.000000e+00
+    rank 2  nodes (9, 33, 10)    area = 0.000000e+00
+    rank 3  nodes (11, 35, 12)   area = 0.000000e+00
+    rank 4  nodes (10, 34, 11)   area = 0.000000e+00
+    rank 5  nodes (13, 37, 14)   area = 0.000000e+00
+    ...
+
+Why: at the free ends, bz is nearly zero. So with Fix C,
+the entire free-end column sits at z near zero. And because
+the free-end column shares its x coordinate (all nodes on
+i=0 are at the same x), the triangles along that column
+are nearly flat in the i-y plane. Zero area.
+
+Fix C is NOT the fix. It revealed the real problem.
+
+## B. The real problem — identified
+
+The free-end column of the mesh is a straight line in the
+i-y plane. It has no bow. The membrane between the two
+beams is a surface, but the free-end edge of that surface
+has no shape of its own. It just runs straight from one
+beam tip to the other.
+
+A real Cable Supported Saddle has an EDGE CABLE running
+along each free end. That cable BOWS inward toward the
+membrane centre. The bow is what gives the free-end edge
+its shape, and it is what gives the free-end triangles
+their area.
+
+In our current mesh, the edge cable is not modelled. It is
+only drawn on top of the result, after solve_fdm returns.
+The solver does not know it exists.
+
+## C. The fix — Fix D
+
+Fix D is the correct fix. It is a real design change, not
+a one-line patch. It should be done with a fresh mind, not
+as an append to the current session.
+
+**Fix D — Remove the free-end toggle. Model the free-end
+cable as its own chain of nodes with an inward bow.**
+
+Two parts:
+
+**Part 1 — Remove the "Edge cables on the free ends" toggle
+from ui/workshops/saddle_standard.py.**
+
+The free-end cable is a MANDATORY part of a Cable
+Supported Saddle. A membrane cannot span freely between two
+beam tips without an edge cable — the fabric would tear.
+The toggle was dishonest. It changed only the drawing, not
+the physics. Remove it.
+
+The workshop should state that the free-end cable is part
+of the structure, not an option.
+
+**Part 2 — Give the free-end cable its own chain of nodes
+in the mesh.**
+
+In viewers/figures/standard_saddle.py, function
+_build_saddle_fdm:
+
+  - The free-end edge of the membrane becomes a curved
+    line, bowing inward by a sag amount (the same order
+    as the current 15% sag, or smaller).
+  - This is a chain of nodes, with its own edges, its own
+    q value (cable q, not membrane q), and its own shape.
+  - The membrane mesh connects to this chain at its
+    outer column. It does not share the free-end column
+    with it.
+  - Optionally: additional intermediate cable nodes to
+    give the bow more than one segment.
+
+**Expected result after Fix D:**
+
+  - The initial mesh triangles at the free ends have
+    normal positive area.
+  - The fold disappears.
+  - The free-end cable bows inward, as a real cable does.
+  - The user sees a real structure, not a degenerate one.
+
+**Doctrine check:** the free-end cable is a STRUCTURAL
+element, not a mesh constraint. It is a real tension
+element. Its nodes are not "held" — they are solved. See
+PROJECT_STATE.md Part V.
+
+## D. What is NOT the fix
+
+  - Arc-length mesh placement — tried, did not fix.
+  - Fix B (hold free-end middle nodes) — tried, did not
+    fix. Kept as a harmless mesh constraint.
+  - Fix C (z proportional to beam height) — tried, made
+    it worse.
+  - Adjusting SIDE_CABLE_STIFFNESS_FACTOR — not tried,
+    not relevant to the free-end collapse.
+  - Adding more fixed nodes — not the answer.
+
+The fix is Fix D. Nothing else.
+
+## E. What to do first after lunch
+
+1. Open PROJECT_STATE.md.
+2. Read this addendum.
+3. Design Fix D, Part 1 and Part 2, in one focused
+   session.
+4. Apply. Commit. Reboot. Measure.
+5. If the fold is gone, Fix D is proven. If not,
+   report the numbers.
+
+Do not patch. Do not guess. Design and apply once,
+correctly.
+
+---
+
+
+# END OF PROJECT STATE
+
+This file is the single source of truth for the SDSe
+project.
+
+Every new chat session begins by pasting this file.
+
+Update it whenever a major decision is made.
+Keep it current. Keep it honest. Keep it useful.
+
+Before any new design, engine, or idea:
+
+  DO THOROUGH RESEARCH ON THE SUBJECT FIRST.
+
+Research assists every decision that follows.
+
 
 
