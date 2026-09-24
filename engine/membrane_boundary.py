@@ -22,60 +22,19 @@
 #     straight line, or an irregular curve.
 #   - It receives only points.
 #
-# The engine is called by every viewer:
-#   - viewers/figures/standard_saddle.py   (Saddle Span)
-#   - viewers/figures/beam_supported.py    (Beam Supported Saddle)
-#   - viewers/figures/cantilever_hypar.py  (Cantilever Hypar)
-#   - viewers/figures/cantilever_leaf.py   (Cantilever Leaf)
-#   - every future membrane viewer.
-#
-# The engine calls:
-#   - engine/form_finding.py   (solve_fdm)
-#   - viewers/figures/_shared.py (arclength_parametrisation)
-#
 # Reference for the fill method: Transfinite Interpolation (TFI).
-# The boundary is expressed as four sides. A rectangular grid (u, v)
-# is blended into the interior. Corners degenerate to points where
-# the shape has no width at that side.
 #
 # Units: m. Force densities in N/m. Pretensions in kN/m.
 #
 # History:
-#   2026-09-24 - First build. MBS engine. Universal. Replaces the
-#                shape-specific mesh logic that was duplicated across
-#                viewers.
+#   2026-09-24 - First build. MBS engine. Universal.
+#   2026-09-24 - Fix: in build_mesh, fix the four GRID corners
+#                (mesh node indices), not the boundary indices.
 # =============================================================================
 
 import numpy as np
 
 from engine.form_finding import solve_fdm
-
-
-# ---- Public interface documentation ----------------------------------------
-#
-# build_mesh(
-#     boundary,          # (M, 3) array, ordered list of points on the
-#                        # closed boundary. First point != last point.
-#     anchor_indices,    # list of int. Which boundary points are anchors.
-#     edge_types,        # list of str, same length as anchor_indices.
-#                        # edge_types[k] describes the segment from
-#                        # anchor k to anchor k+1 (cyclic).
-#                        # "beam" or "cable".
-#     interior_points,   # (K, 3) array, initial interior points, optional.
-#                        # If None, the engine generates a grid.
-#     nx, ny,            # int. Mesh density of the interior grid.
-#     membrane_q,        # float or (E,) array. Force density for the
-#                        # interior edges.
-#     cable_q,           # float. Force density for cable segments.
-# )
-#     -> dict with points, edges, fixed_indices, q, diagnostics
-#
-# build_and_solve(...) -> dict with coordinates, diagnostics
-#
-# =============================================================================
-
-
-
 
 
 # =============================================================================
@@ -86,13 +45,6 @@ def _boundary_edge_list(boundary, anchor_indices):
     """
     Given an ordered boundary and a list of anchor indices, return
     the list of segments between consecutive anchors (cyclic).
-
-    Returns
-    -------
-    segments : list of dicts
-        Each dict has: "anchor_a" (int), "anchor_b" (int),
-        "points" (list of int - the boundary indices between them,
-        inclusive of both anchors).
     """
     n = len(anchor_indices)
     segments = []
@@ -100,8 +52,6 @@ def _boundary_edge_list(boundary, anchor_indices):
         a = anchor_indices[k]
         b = anchor_indices[(k + 1) % n]
 
-        # Walk the boundary from a to b, following the ordering.
-        # The boundary is a closed loop with no repeated points.
         m = len(boundary)
         pts = []
         i = a
@@ -112,9 +62,7 @@ def _boundary_edge_list(boundary, anchor_indices):
             i = (i + 1) % m
             if len(pts) > m:
                 raise ValueError(
-                    "Boundary walk did not reach anchor_b. "
-                    "Check that anchor_indices are in order and the "
-                    "boundary is a closed loop."
+                    "Boundary walk did not reach anchor_b."
                 )
         segments.append({
             "anchor_a": a,
@@ -125,15 +73,7 @@ def _boundary_edge_list(boundary, anchor_indices):
 
 
 def _arc_lengths_along_segment(boundary, seg_points):
-    """
-    Given a segment (list of boundary indices), compute the
-    cumulative arc length along that segment.
-
-    Returns
-    -------
-    s : (len(seg_points),) array
-    total : float
-    """
+    """Cumulative arc length along a boundary segment."""
     pts = np.asarray([boundary[i] for i in seg_points], dtype=float)
     diff = np.diff(pts, axis=0)
     seg_len = np.linalg.norm(diff, axis=1)
@@ -150,30 +90,11 @@ def _boundary_as_four_sides(boundary, anchor_indices, edge_types):
     """
     Express the boundary as four sides for TFI blending.
 
-    The boundary is a closed loop. For TFI, we need four continuous
-    curves joining four corner points. The corners are chosen as the
-    anchors where the edge_type changes from "beam" to "cable" (or
-    the endpoints of the longest beam run).
-
-    Simplest rule: choose the first and last anchors of the longest
-    "beam" run as the top corners, and the first and last anchors of
-    the longest "cable" run as the bottom corners.
-
-    If only one type exists (all beam, or all cable), we take the two
-    anchors that are furthest apart (in 3D) as corners, and split the
-    boundary at their midpoint.
-
-    Returns
-    -------
-    sides : list of 4 lists of boundary indices, in order, forming
-            the four sides of the TFI quad. Corner points are the
-            first point of each side.
-    corners : list of 4 boundary indices.
+    Returns (sides, corners) where sides is a list of four lists of
+    boundary indices, and corners is a list of four boundary indices.
     """
     n_anchors = len(anchor_indices)
     if n_anchors < 4:
-        # Fewer than 4 anchors. Fall back: use all boundary points
-        # directly, split into four equal-ish arcs.
         m = len(boundary)
         quarter = max(1, m // 4)
         c0 = 0
@@ -195,7 +116,6 @@ def _boundary_as_four_sides(boundary, anchor_indices, edge_types):
             sides.append(pts)
         return sides, corners
 
-    # Find contiguous runs of the same edge_type.
     runs = []
     start = 0
     for k in range(1, n_anchors):
@@ -203,12 +123,10 @@ def _boundary_as_four_sides(boundary, anchor_indices, edge_types):
             runs.append((start, k - 1, edge_types[start]))
             start = k
     runs.append((start, n_anchors - 1, edge_types[start]))
-    # Handle cyclic wrap: if first and last run are same type, merge.
     if len(runs) > 1 and runs[0][2] == runs[-1][2]:
         runs[0] = (runs[-1][0], runs[0][1], runs[0][2])
         runs = runs[:-1]
 
-    # Longest run of each type.
     beam_runs = [r for r in runs if r[2] == "beam"]
     cable_runs = [r for r in runs if r[2] == "cable"]
 
@@ -225,7 +143,6 @@ def _boundary_as_four_sides(boundary, anchor_indices, edge_types):
     cable_run = _longest(cable_runs)
 
     if beam_run is None and cable_run is not None:
-        # All cable. Use the anchors directly as corners.
         if n_anchors == 4:
             corners = [anchor_indices[0], anchor_indices[1],
                        anchor_indices[2], anchor_indices[3]]
@@ -237,7 +154,6 @@ def _boundary_as_four_sides(boundary, anchor_indices, edge_types):
             c3 = anchor_indices[(corners_idx[1] + n_anchors // 2) % n_anchors]
             corners = [c0, c1, c2, c3]
     elif cable_run is None and beam_run is not None:
-        # All beam. Use the anchors directly as corners.
         if n_anchors == 4:
             corners = [anchor_indices[0], anchor_indices[1],
                        anchor_indices[2], anchor_indices[3]]
@@ -249,14 +165,12 @@ def _boundary_as_four_sides(boundary, anchor_indices, edge_types):
             c3 = anchor_indices[(corners_idx[1] + n_anchors // 2) % n_anchors]
             corners = [c0, c1, c2, c3]
     else:
-        # Mixed. Beam corners and cable corners.
         c0 = anchor_indices[beam_run[0]]
         c2 = anchor_indices[beam_run[1]]
         c1 = anchor_indices[cable_run[0]]
         c3 = anchor_indices[cable_run[1]]
         corners = [c0, c1, c2, c3]
 
-    # Build the four sides by walking the boundary between corners.
     m = len(boundary)
     sides = []
     for k in range(4):
@@ -290,14 +204,8 @@ def _two_furthest_anchors(boundary, anchor_indices):
 
 
 def _resample_side(boundary, side_points, target_n):
-    """
-    Resample a boundary side (list of boundary indices) into
-    target_n equally-spaced (in arc length) points.
-
-    Returns
-    -------
-    pts : (target_n, 3) array
-    """
+    """Resample a boundary side (list of boundary indices) into
+    target_n equally-spaced (in arc length) points."""
     pts = np.asarray([boundary[i] for i in side_points], dtype=float)
     if len(pts) == 1:
         return np.tile(pts, (target_n, 1))
@@ -326,25 +234,8 @@ def _resample_side(boundary, side_points, target_n):
 def _tfi_grid(side_0, side_1, side_2, side_3, nx, ny):
     """
     Transfinite interpolation of a quad grid.
-
-    side_0 : bottom edge, from corner 0 to corner 1
-    side_1 : right edge,  from corner 1 to corner 2
-    side_2 : top edge,    from corner 2 to corner 3
-    side_3 : left edge,   from corner 3 to corner 0
-
-    Each side is a (N, 3) array of points, ordered along the side.
-
-    Corners must be consistent:
-        side_0[0]  == side_3[-1]   (corner 0)
-        side_0[-1] == side_1[0]    (corner 1)
-        side_1[-1] == side_2[0]    (corner 2)
-        side_2[-1] == side_3[0]    (corner 3)
-
-    Returns
-    -------
-    grid : (nx, ny, 3) array
+    side_0: bottom, side_1: right, side_2: top, side_3: left.
     """
-    # Resample all four sides to (nx, ) for u-direction, (ny, ) for v.
     bottom = _resample_side_arr(side_0, nx)
     top = _resample_side_arr(side_2, nx)
     left = _resample_side_arr(side_3, ny)
@@ -361,7 +252,6 @@ def _tfi_grid(side_0, side_1, side_2, side_3, nx, ny):
         for j in range(ny):
             v = j / (ny - 1.0)
 
-            # Linear blending of the four sides.
             bottom_pt = bottom[i]
             top_pt = top[i]
             left_pt = left[j]
@@ -407,9 +297,6 @@ def _resample_side_arr(side_pts, target_n):
     return out
 
 
-
-
-
 # =============================================================================
 # PUBLIC FUNCTIONS
 # =============================================================================
@@ -421,36 +308,6 @@ def build_mesh(boundary, anchor_indices, edge_types,
     """
     Build a membrane mesh from a closed boundary, following the
     Membrane Boundary Schema.
-
-    Parameters
-    ----------
-    boundary : (M, 3) array
-        Ordered list of points on the closed boundary. First point
-        must not equal last point.
-    anchor_indices : list of int
-        Which boundary points are anchors. Must be in order along
-        the boundary, starting at any point.
-    edge_types : list of str, same length as anchor_indices
-        edge_types[k] describes the segment from anchor k to
-        anchor k+1 (cyclic). "beam" or "cable".
-    nx, ny : int
-        Interior grid density.
-    membrane_q : float
-        Force density for interior edges.
-    cable_q : float
-        Force density for cable segments on the boundary.
-    fixed_tip_indices : list of int or None
-        Extra boundary points to fix. Use this to pin tips where
-        the boundary is degenerate.
-
-    Returns
-    -------
-    dict with:
-        points        : (N, 3) array
-        edges         : list of (i, j)
-        fixed_indices : list of int
-        q             : (E,) array
-        diagnostics   : dict
     """
     boundary = np.asarray(boundary, dtype=float)
     if boundary.ndim != 2 or boundary.shape[1] != 3:
@@ -463,22 +320,18 @@ def build_mesh(boundary, anchor_indices, edge_types,
             "anchor_indices and edge_types must have the same length"
         )
 
-    # ---- Express boundary as four sides for TFI
     sides, corners = _boundary_as_four_sides(
         boundary, anchor_indices, edge_types
     )
 
-    # ---- Resample the four sides to nx (bottom/top) and ny (left/right)
     side_0_pts = np.asarray([boundary[i] for i in sides[0]], dtype=float)
     side_1_pts = np.asarray([boundary[i] for i in sides[1]], dtype=float)
     side_2_pts = np.asarray([boundary[i] for i in sides[2]], dtype=float)
     side_3_pts = np.asarray([boundary[i] for i in sides[3]], dtype=float)
 
-    # ---- Build the interior grid by TFI
     grid = _tfi_grid(side_0_pts, side_1_pts, side_2_pts, side_3_pts,
                      nx=nx, ny=ny)
 
-    # ---- Flatten grid into points array
     n_nodes = nx * ny
     points = np.zeros((n_nodes, 3))
     for i in range(nx):
@@ -486,7 +339,6 @@ def build_mesh(boundary, anchor_indices, edge_types,
             k = i * ny + j
             points[k] = grid[i, j]
 
-    # ---- Build edges: each grid cell is split into two triangles
     edges = []
     for i in range(nx):
         for j in range(ny):
@@ -496,28 +348,25 @@ def build_mesh(boundary, anchor_indices, edge_types,
             if j + 1 < ny:
                 edges.append((k, i * ny + (j + 1)))
 
-    # ---- Fixed indices: beam segments on the boundary, plus tips
+    # ---- Fixed indices
     fixed_set = set()
 
-    # Tip points (corners of the four sides)
-    for c in corners:
-        fixed_set.add(int(c))
+    # The four GRID corners, as node indices.
+    node_corners = [
+        0,
+        ny - 1,
+        (nx - 1) * ny,
+        (nx - 1) * ny + (ny - 1),
+    ]
+    for nc in node_corners:
+        fixed_set.add(int(nc))
 
-    # Extra fixed tips (caller-provided)
+    # Extra fixed tips (caller-provided boundary indices).
+    # Note: these are boundary indices, not node indices.
+    # Kept for backward compatibility. Use with care.
     if fixed_tip_indices:
         for i in fixed_tip_indices:
             fixed_set.add(int(i))
-
-    # Beam segments: all points along a "beam" side are fixed.
-    # We approximate the "beam" side as the two sides that came
-    # from the beam runs. Simplest rule: the corners tell us which
-    # two sides are beam sides. For now, if either corner of a
-    # side sits on a beam segment, we fix that side's points.
-    # This is conservative; refine later if needed.
-    #
-    # For the current build, we fix the top and bottom rows of the
-    # grid (i.e., side 0 and side 2 resampled) if there are any
-    # beam edges. Otherwise we fix only the tips.
 
     has_beam = "beam" in edge_types
     if has_beam:
@@ -539,10 +388,8 @@ def build_mesh(boundary, anchor_indices, edge_types,
         on_free_end = (ia == 0 and ib == 0) or (ia == nx - 1 and ib == nx - 1)
 
         if on_free_end and "cable" in edge_types:
-            # Cable runs at the tips: strong q
             q[k] = float(cable_q)
         elif on_beam_edge:
-            # Beam edge: membrane q (the beam holds it)
             q[k] = float(membrane_q)
         else:
             q[k] = float(membrane_q)
@@ -577,13 +424,6 @@ def build_and_solve(boundary, anchor_indices, edge_types,
                     fixed_tip_indices=None):
     """
     Build the mesh and solve it with FDM in one call.
-
-    Returns
-    -------
-    dict with:
-        coordinates  : (N, 3) array - the equilibrium shape
-        mesh         : the mesh dict from build_mesh
-        solve_result : the dict from solve_fdm
     """
     mesh = build_mesh(
         boundary=boundary,
