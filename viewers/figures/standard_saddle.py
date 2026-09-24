@@ -17,18 +17,22 @@
 # Side-cable stiffness: SIDE_CABLE_STIFFNESS_FACTOR = 12.0
 #
 # History:
-#   2026-09-23 - DIAGNOSTICS added. Below the 3D view, records
-#                initial triangle areas, per-node displacement,
-#                and the residual.
-#   2026-09-24 - FIX 1 of 2. Mesh nodes along the beam (nx
-#                direction) placed by uniform ARC LENGTH, not
-#                uniform x. Did NOT fix the fold. Retained as it
-#                is harmless and slightly more correct.
+#   2026-09-23 - DIAGNOSTICS added.
+#   2026-09-24 - FIX 1. Mesh nodes along the beam (nx direction)
+#                placed by uniform ARC LENGTH, not uniform x.
 #   2026-09-24 - FIX B. Hold the two central free-end nodes at
-#                each end. These four nodes were collapsing into
-#                zero-area triangles. This is a MESH CONSTRAINT,
-#                not a STRUCTURAL CONNECTION (see PROJECT_STATE.md
-#                Part V).
+#                each end. MESH CONSTRAINT, not STRUCTURAL
+#                CONNECTION (see PROJECT_STATE.md Part V).
+#   2026-09-24 - FIX C. Initial z of the mesh is now proportional
+#                to the beam height bz, not to apex*0.5. This
+#                prevents the free-end middle from starting below
+#                the ground. Before the fix, the sag term was
+#                constant (0.15 * apex * 0.5 = 1.125 m), so at
+#                the free ends (where bz = 0) the mesh started
+#                1.125 m BELOW ground. FDM then dragged those
+#                nodes 3 m upward to reach equilibrium. That drag
+#                was the fold. With this fix, the sag is zero at
+#                the free ends and maximum at mid-span.
 # =============================================================================
 
 import math
@@ -58,13 +62,8 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
     Build the FDM mesh, solve for the membrane shape, and return
     both the solution and diagnostic information.
 
-    Mesh node placement along the beam (nx direction) is uniform
-    in arc length.
-
-    Fix B (2026-09-24): the two central nodes of each free-end
-    column are held. They are a mesh constraint that prevents the
-    free-end degenerate triangles. They are NOT a statement that
-    the structure has a rigid connection at the free-end mid-span.
+    FIX C: initial z is proportional to the beam height bz.
+    The membrane cannot be below the beam at the free ends.
     """
     n_pts = len(x)
 
@@ -93,7 +92,11 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
         for j in range(ny):
             v = j / (ny - 1.0)
             y_pos = y_left * (1.0 - v) + y_right * v
-            z_init = bz - 0.15 * (1.0 - (2.0 * v - 1.0) ** 2) * (apex * 0.5)
+            # FIX C: sag proportional to beam height, not constant.
+            # At the free ends bz = 0, so sag = 0. At mid-span bz is
+            # at its maximum, so sag is at its maximum.
+            sag = 0.15 * (1.0 - (2.0 * v - 1.0) ** 2) * 0.5
+            z_init = bz * (1.0 - sag)
             node_xyz[i, j, 0] = bx
             node_xyz[i, j, 1] = y_pos
             node_xyz[i, j, 2] = z_init
@@ -138,9 +141,7 @@ def _build_saddle_fdm(x, z_beam, y1, y2, span, apex,
             fixed_indices.append(i * ny + (ny - 1))
 
     # ---- Fix B: hold the two central free-end nodes at each end.
-    # These four nodes were collapsing into zero-area triangles.
-    # This is a MESH CONSTRAINT, not a STRUCTURAL CONNECTION.
-    # See PROJECT_STATE.md Part V.
+    # MESH CONSTRAINT, not STRUCTURAL CONNECTION.
     j_mid = (ny - 1) // 2
     fixed_indices.append(0 * ny + j_mid)
     fixed_indices.append(0 * ny + (j_mid + 1))
