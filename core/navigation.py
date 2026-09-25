@@ -7,7 +7,7 @@
 #   - Added leaf_room route for Rib Length Adjustment room
 # Updated 2026-09-25:
 #   - Removed tester_nfdm route (experimental).
-#     Tester page has been removed.
+#   - Added tester_mbs route (experimental, MBS engine test).
 # =============================================================================
 
 import streamlit as st
@@ -63,6 +63,11 @@ def _render_guided():
         st.rerun()
 
 
+def _render_tester_mbs():
+    from ui.workshops.tester_mbs import render_tester_mbs
+    render_tester_mbs()
+
+
 PAGE_RENDERERS = {
     "landing": _render_landing,
     "studio": _render_studio,
@@ -71,6 +76,7 @@ PAGE_RENDERERS = {
     "results": _render_results,
     "leaf_room": _render_leaf_room,
     "guided": _render_guided,
+    "tester_mbs": _render_tester_mbs,
 }
 
 
