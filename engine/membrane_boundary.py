@@ -273,7 +273,7 @@ def build_mesh(boundary, anchor_indices, edge_types,
         raise ValueError(
             "anchor_indices and edge_types must have the same length"
         )
-
+corners = None
     # ---- Decide the grid.
     if initial_points is not None:
         pts_in = np.asarray(initial_points, dtype=float)
