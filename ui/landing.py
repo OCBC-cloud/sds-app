@@ -16,8 +16,8 @@
 #   - Layout adapts to any phone screen naturally
 #
 # Updated 2026-09-25:
-#   - Removed the temporary NFDM Tester button.
-#     The tester page has been removed.
+#   - Removed NFDM tester button.
+#   - Added MBS tester button (experimental).
 # =============================================================================
 
 import streamlit as st
@@ -101,6 +101,16 @@ LANDING_CSS = """
         text-align: center;
         margin-top: 1rem;
     }
+
+    .landing-test-label {
+        font-size: 0.7rem;
+        color: #7a8fa8;
+        letter-spacing: 1px;
+        text-align: center;
+        margin-top: 1.4rem;
+        margin-bottom: 0.3rem;
+        text-transform: uppercase;
+    }
     </style>
 """
 
@@ -116,7 +126,7 @@ def render_landing():
     """
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    # ---- One single HTML block for everything except the button
+    # ---- One single HTML block for everything except the buttons
     landing_html = (
         '<div class="landing-block">'
         '<div class="landing-logo">SDSe</div>'
@@ -128,7 +138,7 @@ def render_landing():
     )
     st.markdown(landing_html, unsafe_allow_html=True)
 
-    # ---- The one and only button on this page
+    # ---- Primary button
     if st.button(
         "Enter The Studio",
         key="landing_enter",
@@ -136,6 +146,20 @@ def render_landing():
         type="primary",
     ):
         st.session_state.page = "studio"
+        st.rerun()
+
+    # ---- Temporary experimental button: MBS tester
+    st.markdown(
+        '<div class="landing-test-label">Experimental</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        "Open MBS Tester",
+        key="landing_tester_mbs",
+        use_container_width=True,
+        type="secondary",
+    ):
+        st.session_state.page = "tester_mbs"
         st.rerun()
 
     # ---- Footer
