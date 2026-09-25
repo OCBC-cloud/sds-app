@@ -3,15 +3,17 @@
 # =============================================================================
 # Temporary research page. Tests the Membrane Boundary Schema engine.
 #
-# Reached from the landing page button "Open MBS Tester".
-#
 # Two tests:
-#   Test 1 - Square boundary. Four corners. Minimal boundary.
-#   Test 2 - Lens boundary. Two beams, two tips. Built with
-#            engine/membrane_surface.py and passed to build_mesh
-#            as initial_points.
+#   Test 1 - Square boundary. Four corners.
+#   Test 2 - Lens boundary. Built with engine/membrane_surface.py
+#            and passed to build_mesh as initial_points.
 #
-# Status: EXPERIMENTAL. Not a shipping feature.
+# Digitised debug output:
+#   - Every grid coordinate, initial and solved.
+#   - Every triangle, three nodes, area.
+#   - Summary of areas.
+#
+# Status: EXPERIMENTAL.
 # =============================================================================
 
 import numpy as np
@@ -32,15 +34,8 @@ def _build_square_boundary():
 
 def _build_lens_surface(nx, ny, n_beam_samples=200):
     """
-    Build the lens surface and its boundary.
-
-    Returns (initial_points, boundary, anchor_indices, edge_types).
-
-    initial_points is (nx, ny, 3) — the drawn surface.
-    boundary is (2*nx, 3) — points around the perimeter, in order.
-    anchor_indices is the list of indices into the boundary that
-    are anchors.
-    edge_types is the list of edge types between consecutive anchors.
+    Build the lens surface and boundary. Returns
+    (initial_points, boundary, anchor_indices, edge_types).
     """
     from viewers.figures._shared import beam_curve
     from engine.membrane_surface import build_surface
@@ -50,7 +45,6 @@ def _build_lens_surface(nx, ny, n_beam_samples=200):
     rise = 1.5
     curve_type = "parabolic"
 
-    # Sample the beam curve densely.
     x_dense = np.linspace(-span / 2.0, span / 2.0, n_beam_samples)
     z_dense = beam_curve(x_dense, span, rise, curve_type)
 
@@ -58,7 +52,6 @@ def _build_lens_surface(nx, ny, n_beam_samples=200):
     y_L_dense = -base_width * (1.0 - (2.0 * x_dense / span) ** 2)
     y_R_dense = base_width * (1.0 - (2.0 * x_dense / span) ** 2)
 
-    # Ensure the endpoints converge at y=0 (tips).
     y_L_dense[0] = 0.0
     y_L_dense[-1] = 0.0
     y_R_dense[0] = 0.0
@@ -67,7 +60,6 @@ def _build_lens_surface(nx, ny, n_beam_samples=200):
     beam_L = np.column_stack((x_dense, y_L_dense, z_dense))
     beam_R = np.column_stack((x_dense, y_R_dense, z_dense))
 
-    # Build the surface grid with taper at the tips.
     grid = build_surface(
         beam_L_points=beam_L,
         beam_R_points=beam_R,
@@ -77,47 +69,32 @@ def _build_lens_surface(nx, ny, n_beam_samples=200):
         taper_ends=True,
     )
 
-    # Build the boundary.
-    # Perimeter in order (counter-clockwise seen from above):
-    #   Beam L, from left tip to right tip
-    #   Right tip (already part of Beam L, skip duplicate)
-    #   Beam R, from right tip back to left tip
-    #   Left tip (already the first point of Beam L, skip duplicate)
-    #
-    # Since taper_ends=True, at u=0 all v-nodes are the left tip.
-    # At u=nx-1 all v-nodes are the right tip.
-    # So the boundary is:
-    #   row u=0 is the left tip (single point)
-    #   for u=1..nx-2, the Beam L side is j=0
-    #   row u=nx-1 is the right tip (single point)
-    #   for u=nx-2..1, the Beam R side is j=ny-1
     boundary_list = []
-
-    # Left tip: just the u=0, j=0 point (all u=0 points are equal).
     boundary_list.append(grid[0, 0])
-
-    # Beam L: for u=1..nx-2, take j=0.
     for i in range(1, nx - 1):
         boundary_list.append(grid[i, 0])
-
-    # Right tip: just the u=nx-1, j=0 point.
     boundary_list.append(grid[nx - 1, 0])
-
-    # Beam R: for u=nx-2 down to u=1, take j=ny-1.
     for i in range(nx - 2, 0, -1):
         boundary_list.append(grid[i, ny - 1])
 
     boundary = np.array(boundary_list, dtype=float)
-
-    # Anchors: every boundary point.
     anchor_indices = list(range(len(boundary)))
-
-    # Edge types: all "beam" — every boundary point follows
-    # the beam contour, and the tips are single points held by
-    # the anchor.
     edge_types = ["beam"] * len(boundary)
-
     return grid, boundary, anchor_indices, edge_types
+
+
+def _build_triangles(nx, ny):
+    """Return the triangle list as (n_tris, 3) array of node indices."""
+    tri_i, tri_j, tri_k = [], [], []
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            a = i * ny + j
+            b = (i + 1) * ny + j
+            c = i * ny + (j + 1)
+            d = (i + 1) * ny + (j + 1)
+            tri_i.append(a); tri_j.append(b); tri_k.append(c)
+            tri_i.append(b); tri_j.append(d); tri_k.append(c)
+    return np.column_stack((tri_i, tri_j, tri_k))
 
 
 def _render_mesh_view(coords, tris, title):
@@ -140,10 +117,7 @@ def _render_mesh_view(coords, tris, title):
         fig.add_trace(go.Mesh3d(
             x=coords[:, 0], y=coords[:, 1], z=coords[:, 2],
             i=tris[:, 0], j=tris[:, 1], k=tris[:, 2],
-            color="#4a7a9c",
-            opacity=0.9,
-            flatshading=False,
-            name="Membrane",
+            color="#4a7a9c", opacity=0.9, flatshading=False,
             showscale=False,
             lighting=dict(ambient=0.6, diffuse=0.9,
                           specular=0.2, roughness=0.5),
@@ -157,15 +131,12 @@ def _render_mesh_view(coords, tris, title):
                            color="#888", range=yr, autorange=False),
                 zaxis=dict(title="Z (m)", gridcolor="#333",
                            color="#888", range=zr, autorange=False),
-                aspectmode="cube",
-                bgcolor="#0e1117",
+                aspectmode="cube", bgcolor="#0e1117",
                 camera=dict(eye=dict(x=1.6, y=1.6, z=1.2)),
             ),
-            paper_bgcolor="#0e1117",
-            plot_bgcolor="#0e1117",
+            paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
             font=dict(color="#ccc", size=11),
-            height=480,
-            margin=dict(l=0, r=0, b=0, t=30),
+            height=480, margin=dict(l=0, r=0, b=0, t=30),
             showlegend=False,
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -174,65 +145,89 @@ def _render_mesh_view(coords, tris, title):
         st.code(str(e), language="text")
 
 
-def _report_diagnostics(result, boundary, nx, ny):
-    mesh = result["mesh"]
-    solve = result["solve_result"]
+def _compute_tri_areas(coords, tris):
+    """Return areas of every triangle."""
+    areas = np.zeros(len(tris))
+    for k, tri in enumerate(tris):
+        p0 = coords[tri[0]]
+        p1 = coords[tri[1]]
+        p2 = coords[tri[2]]
+        areas[k] = 0.5 * float(np.linalg.norm(np.cross(p1 - p0, p2 - p0)))
+    return areas
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Nodes", mesh["diagnostics"]["n_nodes"])
-    c2.metric("Edges", mesh["diagnostics"]["n_edges"])
-    c3.metric("Fixed", mesh["diagnostics"]["n_fixed"])
-    c4.metric("Free", mesh["diagnostics"]["n_free"])
 
-    d1, d2 = st.columns(2)
-    d1.metric("FDM residual", "%.4e" % solve["residual_norm"])
-    d2.metric("Boundary points", len(boundary))
+def _render_debug(initial_points, coords, tris, nx, ny):
+    """
+    Digitised debug output. Coordinates and triangles, copy-able.
+    """
+    with st.expander("DIGITISED OUTPUT - COPY THIS", expanded=False):
+        st.markdown("#### Initial grid coordinates")
+        lines = []
+        flat0 = initial_points.reshape(-1, 3)
+        for k in range(len(flat0)):
+            i = k // ny
+            j = k % ny
+            lines.append(
+                "node %3d  (i=%2d,j=%2d)  x=%+9.5f  y=%+9.5f  z=%+9.5f"
+                % (k, i, j, flat0[k, 0], flat0[k, 1], flat0[k, 2])
+            )
+        st.code("\n".join(lines), language="text")
 
-    # Compute triangle areas.
-    points0 = mesh["points"]
-    tri_areas = []
-    tri_list = []
-    for i in range(nx - 1):
-        for j in range(ny - 1):
-            a = i * ny + j
-            b = (i + 1) * ny + j
-            c = i * ny + (j + 1)
-            d = (i + 1) * ny + (j + 1)
-            for tri in ((a, b, c), (b, d, c)):
-                p0 = points0[tri[0]]
-                p1 = points0[tri[1]]
-                p2 = points0[tri[2]]
-                area = 0.5 * float(np.linalg.norm(
-                    np.cross(p1 - p0, p2 - p0)))
-                tri_areas.append(area)
-                tri_list.append(tri)
+        st.markdown("#### Solved coordinates (after FDM)")
+        lines = []
+        for k in range(len(coords)):
+            i = k // ny
+            j = k % ny
+            lines.append(
+                "node %3d  (i=%2d,j=%2d)  x=%+9.5f  y=%+9.5f  z=%+9.5f"
+                % (k, i, j, coords[k, 0], coords[k, 1], coords[k, 2])
+            )
+        st.code("\n".join(lines), language="text")
 
-    tri_areas = np.array(tri_areas)
-    order = np.argsort(tri_areas)[:10]
-    rows = []
-    for rank, idx in enumerate(order):
-        tri = tri_list[idx]
-        rows.append(
-            "rank " + str(rank + 1) +
-            "  nodes " + str(tri) +
-            "  area=" + ("%.6e" % tri_areas[idx])
-        )
-    st.markdown("**Smallest 10 initial triangles:**")
-    st.code("\n".join(rows), language="text")
-    return tri_areas
+        st.markdown("#### Displacement per node (solved minus initial)")
+        lines = []
+        disp = np.linalg.norm(coords - flat0, axis=1)
+        for k in range(len(coords)):
+            i = k // ny
+            j = k % ny
+            lines.append(
+                "node %3d  (i=%2d,j=%2d)  disp=%9.5f"
+                % (k, i, j, disp[k])
+            )
+        st.code("\n".join(lines), language="text")
+
+        st.markdown("#### All triangles with areas")
+        areas = _compute_tri_areas(coords, tris)
+        lines = []
+        for k, tri in enumerate(tris):
+            lines.append(
+                "tri %3d  nodes (%3d,%3d,%3d)  area=%12.8e"
+                % (k, tri[0], tri[1], tri[2], areas[k])
+            )
+        st.code("\n".join(lines), language="text")
+
+        st.markdown("#### Summary")
+        st.write("Total triangles: %d" % len(tris))
+        st.write("Minimum area: %.8e" % float(areas.min()))
+        st.write("Maximum area: %.8e" % float(areas.max()))
+        st.write("Mean area: %.8e" % float(areas.mean()))
+        st.write("Zero-area count (< 1e-10): %d"
+                 % int(np.sum(areas < 1e-10)))
+        st.write("Near-zero count (< 1e-6): %d"
+                 % int(np.sum(areas < 1e-6)))
+        st.write("Positive count (>= 1e-6): %d"
+                 % int(np.sum(areas >= 1e-6)))
 
 
 def render_tester_mbs():
-    """Render the MBS engine tester page."""
-
     st.markdown(
         '<div style="background-color:#1f2a3a;border-left:4px solid #3498db;'
         'border-radius:8px;padding:1rem;margin-bottom:1.2rem;">'
         '<div style="color:#3498db;font-weight:700;font-size:1.05rem;'
         'margin-bottom:0.3rem;">EXPERIMENTAL - MBS TESTER</div>'
         '<div style="color:#c8d4e0;font-size:0.9rem;line-height:1.5;">'
-        'Research tool. Two tests: a four-corner square, and a '
-        'lens boundary built with the surface engine.'
+        'Digitised output enabled. Every coordinate, every triangle, '
+        'every area — copy-able.'
         '</div></div>',
         unsafe_allow_html=True,
     )
@@ -255,15 +250,13 @@ def render_tester_mbs():
     with col1:
         run_square = st.button(
             "Run square (4 corners)",
-            type="primary",
-            use_container_width=True,
+            type="primary", use_container_width=True,
             key="mbs_run_square",
         )
     with col2:
         run_lens = st.button(
             "Run lens (surface engine)",
-            type="primary",
-            use_container_width=True,
+            type="primary", use_container_width=True,
             key="mbs_run_lens",
         )
 
@@ -276,11 +269,11 @@ def render_tester_mbs():
                     anchor_indices=anchors,
                     edge_types=etypes,
                     nx=nx, ny=ny,
-                    membrane_q=1.0,
-                    cable_q=5.0,
+                    membrane_q=1.0, cable_q=5.0,
                 )
                 st.session_state["mbs_square"] = {
                     "result": result, "boundary": boundary,
+                    "initial": result["mesh"]["points"].copy(),
                 }
             except Exception as e:
                 st.error("Square test raised an error:")
@@ -296,12 +289,12 @@ def render_tester_mbs():
                     anchor_indices=anchors,
                     edge_types=etypes,
                     nx=nx, ny=ny,
-                    membrane_q=1.0,
-                    cable_q=1.0,
+                    membrane_q=1.0, cable_q=1.0,
                     initial_points=grid,
                 )
                 st.session_state["mbs_lens"] = {
                     "result": result, "boundary": boundary,
+                    "initial": grid.reshape(-1, 3).copy(),
                 }
             except Exception as e:
                 st.error("Lens test raised an error:")
@@ -318,51 +311,61 @@ def render_tester_mbs():
             st.rerun()
         return
 
+    tris = _build_triangles(nx, ny)
+
     if has_lens:
         st.markdown("### Test 2 — Lens (surface engine)")
         entry = st.session_state["mbs_lens"]
         result = entry["result"]
         boundary = entry["boundary"]
+        initial = entry["initial"]
         coords = result["coordinates"]
 
-        tri_i, tri_j, tri_k = [], [], []
-        for i in range(nx - 1):
-            for j in range(ny - 1):
-                a = i * ny + j
-                b = (i + 1) * ny + j
-                c = i * ny + (j + 1)
-                d = (i + 1) * ny + (j + 1)
-                tri_i.append(a); tri_j.append(b); tri_k.append(c)
-                tri_i.append(b); tri_j.append(d); tri_k.append(c)
-        tris = np.column_stack((tri_i, tri_j, tri_k))
-
         _render_mesh_view(coords, tris, "Lens boundary - MBS result")
-        _report_diagnostics(result, boundary, nx, ny)
-        st.markdown("---")
+
+        m = result["mesh"]["diagnostics"]
+        s = result["solve_result"]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Nodes", m["n_nodes"])
+        c2.metric("Edges", m["n_edges"])
+        c3.metric("Fixed", m["n_fixed"])
+        c4.metric("Free", m["n_free"])
+        d1, d2 = st.columns(2)
+        d1.metric("FDM residual", "%.4e" % s["residual_norm"])
+        d2.metric("Boundary points", len(boundary))
+
+        _render_debug(initial, coords, tris, nx, ny)
 
     if has_square:
         st.markdown("### Test 1 — Square (4 corners)")
         entry = st.session_state["mbs_square"]
         result = entry["result"]
         boundary = entry["boundary"]
+        initial = entry["initial"]
         coords = result["coordinates"]
 
-        tri_i, tri_j, tri_k = [], [], []
-        for i in range(nx - 1):
-            for j in range(ny - 1):
-                a = i * ny + j
-                b = (i + 1) * ny + j
-                c = i * ny + (j + 1)
-                d = (i + 1) * ny + (j + 1)
-                tri_i.append(a); tri_j.append(b); tri_k.append(c)
-                tri_i.append(b); tri_j.append(d); tri_k.append(c)
-        tris = np.column_stack((tri_i, tri_j, tri_k))
-
         _render_mesh_view(coords, tris, "Square boundary - MBS result")
-        _report_diagnostics(result, boundary, nx, ny)
-        st.markdown("---")
+
+        m = result["mesh"]["diagnostics"]
+        s = result["solve_result"]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Nodes", m["n_nodes"])
+        c2.metric("Edges", m["n_edges"])
+        c3.metric("Fixed", m["n_fixed"])
+        c4.metric("Free", m["n_free"])
+        d1, d2 = st.columns(2)
+        d1.metric("FDM residual", "%.4e" % s["residual_norm"])
+        d2.metric("Boundary points", len(boundary))
+
+        _render_debug(initial, coords, tris, nx, ny)
 
     if st.button("Back to Landing", use_container_width=True,
                  key="mbs_back_bottom"):
         st.session_state.page = "landing"
         st.rerun()
+
+
+
+
+
+                     
