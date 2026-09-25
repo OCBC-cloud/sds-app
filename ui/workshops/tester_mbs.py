@@ -13,6 +13,16 @@
 # structural anchor count from the mesh density, so the mesh
 # samples the beam curvature accurately.
 #
+# Anisotropic prestress:
+#   Warp runs along the beam (i-direction).
+#   Weft runs across the width (j-direction).
+#   A per-edge q array is built from the two tuning windows
+#   above the 3D view and passed to build_and_solve.
+#
+# Modes not yet supported (visible, disabled):
+#   Beam / Cable boundary toggle - awaiting engine support.
+#   Rigid / Flexible boundary toggle - Stage 2, not yet built.
+#
 # Status: EXPERIMENTAL.
 # =============================================================================
 
@@ -102,6 +112,24 @@ def _build_triangles(nx, ny):
             tri_i.append(a); tri_j.append(b); tri_k.append(c)
             tri_i.append(b); tri_j.append(d); tri_k.append(c)
     return np.column_stack((tri_i, tri_j, tri_k))
+
+
+def _build_per_edge_q(edges, ny, warp_q, weft_q):
+    """
+    Build a per-edge q array from warp and weft force densities.
+
+    warp_q  : q for edges running along the beam (i-direction).
+    weft_q  : q for edges running across the width (j-direction).
+    """
+    q = np.zeros(len(edges))
+    for k, (a, b) in enumerate(edges):
+        ia = a // ny
+        ib = b // ny
+        if ia != ib:
+            q[k] = float(warp_q)
+        else:
+            q[k] = float(weft_q)
+    return q
 
 
 def _render_mesh_view(coords, tris, title):
@@ -225,7 +253,70 @@ def _render_debug(initial_points, coords, tris, nx, ny,
                  % int(np.sum(areas >= 1e-6)))
 
 
-def render_tester_mbs():
+def _render_tuning_windows(default_warp=2.0, default_weft=2.0):
+    """
+    Three tuning inputs, directly above the 3D view.
+    Warp and weft are live. Beam/Cable is reserved, disabled.
+    """
+    st.markdown("#### Prestress tuning (kN/m)")
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        warp_q = st.number_input(
+            "Warp (along beam)",
+            min_value=0.01, max_value=50.0, value=float(default_warp),
+            step=0.1, format="%.2f",
+            key="mbs_warp_q",
+        )
+    with c2:
+        weft_q = st.number_input(
+            "Weft (across)",
+            min_value=0.01, max_value=50.0, value=float(default_weft),
+            step=0.1, format="%.2f",
+            key="mbs_weft_q",
+        )
+    with c3:
+        beam_cable_q = st.number_input(
+            "Beam / Cable (reserved)",
+            min_value=0.01, max_value=50.0, value=5.0,
+            step=0.1, format="%.2f",
+            key="mbs_beam_cable_q",
+            disabled=True,
+            help="Reserved. Awaiting engine support for "
+                 "beam/cable boundary modes.",
+        )
+
+    return warp_q, weft_q, beam_cable_q
+
+
+def _render_mode_toggles():
+    """
+    Mode toggles. Both are currently locked because the engine
+    does not yet support the corresponding modes.
+    """
+    st.markdown("#### Boundary mode")
+    m1, m2 = st.columns(2)
+    with m1:
+        st.selectbox(
+            "Beam / Cable",
+            options=["Beam (rigid)", "Cable (tensioned)"],
+            index=0,
+            key="mbs_mode_beam_cable",
+            disabled=True,
+            help="Awaiting engine support. Not yet active.",
+        )
+    with m2:
+        st.selectbox(
+            "Rigid / Flexible",
+            options=["Rigid (Stage 1)", "Flexible (Stage 2)"],
+            index=0,
+            key="mbs_mode_rigid_flex",
+            disabled=True,
+            help="Flexible boundary is Stage 2. Not yet built.",
+        )
+
+
+def _render_tester_header():
     st.markdown(
         '<div style="background-color:#1f2a3a;border-left:4px solid #3498db;'
         'border-radius:8px;padding:1rem;margin-bottom:1.2rem;">'
@@ -240,6 +331,10 @@ def render_tester_mbs():
         unsafe_allow_html=True,
     )
 
+
+def render_tester_mbs():
+    _render_tester_header()
+
     try:
         from engine.membrane_boundary import build_and_solve
     except Exception as e:
@@ -253,6 +348,12 @@ def render_tester_mbs():
 
     nx = ANCHORS_PER_BEAM + (ANCHORS_PER_BEAM - 1) * SUBDIVISIONS_PER_SEGMENT
     ny = NODES_ACROSS
+
+    # ---- Tuning windows (live) and mode toggles (locked).
+    warp_q, weft_q, _beam_cable_q = _render_tuning_windows()
+    _render_mode_toggles()
+
+    st.markdown("---")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -292,6 +393,25 @@ def render_tester_mbs():
             try:
                 grid, boundary, anchors, etypes = _build_lens_surface(
                     nx=nx, ny=ny)
+
+                # ---- Build per-edge q from warp and weft.
+                # Edge direction is decided by whether the two
+                # node indices differ in their i coordinate.
+                # Build a temporary mesh to know the edges.
+                from engine.membrane_boundary import build_mesh
+                mesh_preview = build_mesh(
+                    boundary=boundary,
+                    anchor_indices=anchors,
+                    edge_types=etypes,
+                    nx=nx, ny=ny,
+                    membrane_q=1.0, cable_q=1.0,
+                    initial_points=grid,
+                )
+                per_edge_q = _build_per_edge_q(
+                    mesh_preview["edges"], ny,
+                    warp_q=warp_q, weft_q=weft_q,
+                )
+
                 result = build_and_solve(
                     boundary=boundary,
                     anchor_indices=anchors,
@@ -299,6 +419,7 @@ def render_tester_mbs():
                     nx=nx, ny=ny,
                     membrane_q=1.0, cable_q=1.0,
                     initial_points=grid,
+                    per_edge_q=per_edge_q,
                 )
                 st.session_state["mbs_lens"] = {
                     "result": result, "boundary": boundary,
@@ -322,7 +443,7 @@ def render_tester_mbs():
     tris = _build_triangles(nx, ny)
 
     if has_lens:
-        st.markdown("### Test 2 — Lens (surface engine)")
+        st.markdown("### Test 2 - Lens (surface engine)")
         entry = st.session_state["mbs_lens"]
         result = entry["result"]
         boundary = entry["boundary"]
@@ -345,7 +466,7 @@ def render_tester_mbs():
         _render_debug(initial, coords, tris, nx, ny, skip_u=6)
 
     if has_square:
-        st.markdown("### Test 1 — Square (4 corners)")
+        st.markdown("### Test 1 - Square (4 corners)")
         entry = st.session_state["mbs_square"]
         result = entry["result"]
         boundary = entry["boundary"]
@@ -373,7 +494,11 @@ def render_tester_mbs():
         st.rerun()
 
 
+# =============================================================================
+# END OF ui/workshops/tester_mbs.py
+# =============================================================================
 
 
 
-                     
+
+
