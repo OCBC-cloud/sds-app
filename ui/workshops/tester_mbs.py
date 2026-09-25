@@ -226,8 +226,7 @@ def render_tester_mbs():
         '<div style="color:#3498db;font-weight:700;font-size:1.05rem;'
         'margin-bottom:0.3rem;">EXPERIMENTAL - MBS TESTER</div>'
         '<div style="color:#c8d4e0;font-size:0.9rem;line-height:1.5;">'
-        'Digitised output enabled. Every coordinate, every triangle, '
-        'every area — copy-able.'
+        'Digitised output enabled. nx = 9 — apex node captured.'
         '</div></div>',
         unsafe_allow_html=True,
     )
@@ -243,7 +242,10 @@ def render_tester_mbs():
             st.rerun()
         return
 
-    nx = 8
+    # nx = 9 puts a node exactly at x = 0 — the apex of the parabola.
+    # nx = 8 did not, so the top of the saddle was flat across two
+    # nodes at x = +/-0.39. With nx = 9, the apex is captured.
+    nx = 9
     ny = 8
 
     col1, col2 = st.columns(2)
