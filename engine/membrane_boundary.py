@@ -15,11 +15,20 @@
 #   - If initial_points is provided, use them directly.
 #   - If initial_points is None, use Transfinite Interpolation.
 #
+# Force densities q:
+#   - If per_edge_q is provided, use it verbatim (length must
+#     equal the number of mesh edges).
+#   - Otherwise, assign q from membrane_q and cable_q using the
+#     beam/cable classification of the boundary.
+#
 # History:
 #   2026-09-24 - First build.
 #   2026-09-24 - Fix grid corners, not boundary indices.
 #   2026-09-25 - Add initial_points argument.
 #   2026-09-25 - Init corners = None before grid decision.
+#   2026-09-26 - Add per_edge_q. Backward-compatible. Enables
+#                anisotropic prestress (warp vs weft) without
+#                changing existing callers.
 # =============================================================================
 
 import numpy as np
@@ -136,9 +145,6 @@ def _two_furthest_anchors(boundary, anchor_indices):
     return best
 
 
-
-
-
 def _resample_side_arr(side_pts, target_n):
     if len(side_pts) == 1:
         return np.tile(side_pts[0], (target_n, 1))
@@ -196,6 +202,11 @@ def _tfi_grid(side_0, side_1, side_2, side_3, nx, ny):
     return grid
 
 
+# =============================================================================
+# END OF CHUNK A1
+# =============================================================================
+
+
 
 
 
@@ -207,9 +218,44 @@ def build_mesh(boundary, anchor_indices, edge_types,
                nx=21, ny=21,
                membrane_q=1.0, cable_q=10.0,
                fixed_tip_indices=None,
-               initial_points=None):
+               initial_points=None,
+               per_edge_q=None):
     """
     Build a membrane mesh from a closed boundary.
+
+    Parameters
+    ----------
+    boundary : (M, 3) array
+        Closed loop of boundary points.
+    anchor_indices : list of int
+        Indices into boundary where the membrane is held.
+    edge_types : list of str
+        "beam" or "cable" for each anchor-to-anchor edge.
+    nx, ny : int
+        Mesh resolution along the two grid directions.
+    membrane_q : float
+        Default force density for membrane edges.
+    cable_q : float
+        Force density for free-end cable edges.
+    fixed_tip_indices : list of int, optional
+        Extra node indices to fix (tips).
+    initial_points : (nx, ny, 3) or (nx*ny, 3) array, optional
+        If provided, use these as the initial mesh coordinates
+        and skip the TFI interior fill.
+    per_edge_q : (n_edges,) array, optional
+        If provided, use these force densities verbatim.
+        The length must equal the number of mesh edges
+        produced by this function. If None, q is assigned
+        from membrane_q and cable_q as before.
+
+    Returns
+    -------
+    dict with keys:
+        points         : (n_nodes, 3)
+        edges          : list of (a, b)
+        fixed_indices  : sorted list of int
+        q              : (n_edges,) array
+        diagnostics    : dict
     """
     boundary = np.asarray(boundary, dtype=float)
     if boundary.ndim != 2 or boundary.shape[1] != 3:
@@ -298,24 +344,33 @@ def build_mesh(boundary, anchor_indices, edge_types,
             fixed_set.add((nx - 1) * ny + j)
 
     # ---- q assignment.
-    q = np.full(len(edges), float(membrane_q))
-    for k, (a, b) in enumerate(edges):
-        ia = a // ny
-        ib = b // ny
-        ja = a % ny
-        jb = b % ny
+    if per_edge_q is not None:
+        q_arr = np.asarray(per_edge_q, dtype=float)
+        if q_arr.shape != (len(edges),):
+            raise ValueError(
+                "per_edge_q must have length %d (got %d)"
+                % (len(edges), int(q_arr.size))
+            )
+        q = q_arr.copy()
+    else:
+        q = np.full(len(edges), float(membrane_q))
+        for k, (a, b) in enumerate(edges):
+            ia = a // ny
+            ib = b // ny
+            ja = a % ny
+            jb = b % ny
 
-        on_beam_edge = has_beam and (
-            (ja == 0 and jb == 0) or (ja == ny - 1 and jb == ny - 1)
-        )
-        on_free_end = (ia == 0 and ib == 0) or (ia == nx - 1 and ib == nx - 1)
+            on_beam_edge = has_beam and (
+                (ja == 0 and jb == 0) or (ja == ny - 1 and jb == ny - 1)
+            )
+            on_free_end = (ia == 0 and ib == 0) or (ia == nx - 1 and ib == nx - 1)
 
-        if on_free_end and "cable" in edge_types:
-            q[k] = float(cable_q)
-        elif on_beam_edge:
-            q[k] = float(membrane_q)
-        else:
-            q[k] = float(membrane_q)
+            if on_free_end and "cable" in edge_types:
+                q[k] = float(cable_q)
+            elif on_beam_edge:
+                q[k] = float(membrane_q)
+            else:
+                q[k] = float(membrane_q)
 
     fixed_indices = sorted(fixed_set)
 
@@ -334,6 +389,7 @@ def build_mesh(boundary, anchor_indices, edge_types,
         "has_cable": "cable" in edge_types,
         "corners": corners_out,
         "used_initial_points": initial_points is not None,
+        "used_per_edge_q": per_edge_q is not None,
     }
 
     return {
@@ -345,14 +401,33 @@ def build_mesh(boundary, anchor_indices, edge_types,
     }
 
 
+
+
+
 def build_and_solve(boundary, anchor_indices, edge_types,
                     nx=21, ny=21,
                     membrane_q=1.0, cable_q=10.0,
                     loads=None,
                     fixed_tip_indices=None,
-                    initial_points=None):
+                    initial_points=None,
+                    per_edge_q=None):
     """
     Build the mesh and solve it with FDM in one call.
+
+    Parameters
+    ----------
+    per_edge_q : (n_edges,) array, optional
+        If provided, used verbatim as the force densities.
+        Length must equal the number of edges in the mesh built
+        by build_mesh with the same arguments. If None, q is
+        assigned from membrane_q and cable_q.
+
+    Returns
+    -------
+    dict with keys:
+        coordinates   : (n_nodes, 3) solved coordinates
+        mesh          : the build_mesh output dict
+        solve_result  : the solve_fdm output dict
     """
     mesh = build_mesh(
         boundary=boundary,
@@ -363,6 +438,7 @@ def build_and_solve(boundary, anchor_indices, edge_types,
         cable_q=cable_q,
         fixed_tip_indices=fixed_tip_indices,
         initial_points=initial_points,
+        per_edge_q=per_edge_q,
     )
 
     res = solve_fdm(
