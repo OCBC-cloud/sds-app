@@ -6,18 +6,24 @@
 # Two tests:
 #   Test 1 - Square boundary. Four corners.
 #   Test 2 - Lens boundary. Built with engine/membrane_surface.py
-#            and passed to build_mesh as initial_points.
+#            using anchor + subdivision density.
 #
-# Digitised debug output:
-#   - Every grid coordinate, initial and solved.
-#   - Every triangle, three nodes, area.
-#   - Summary of areas.
+# K = 5 subdivisions per anchor segment. With 7 anchors, that is
+# n_u = 7 + 6*5 = 37 nodes along the beam. This decouples the
+# structural anchor count from the mesh density, so the mesh
+# samples the beam curvature accurately.
 #
 # Status: EXPERIMENTAL.
 # =============================================================================
 
 import numpy as np
 import streamlit as st
+
+
+# ---- Mesh density controls ------------------------------------------------
+ANCHORS_PER_BEAM = 7
+SUBDIVISIONS_PER_SEGMENT = 5
+NODES_ACROSS = 8
 
 
 def _build_square_boundary():
@@ -32,7 +38,7 @@ def _build_square_boundary():
     return corners, anchor_indices, edge_types
 
 
-def _build_lens_surface(nx, ny, n_beam_samples=200):
+def _build_lens_surface(nx, ny, n_beam_samples=400):
     """
     Build the lens surface and boundary. Returns
     (initial_points, boundary, anchor_indices, edge_types).
@@ -63,7 +69,8 @@ def _build_lens_surface(nx, ny, n_beam_samples=200):
     grid = build_surface(
         beam_L_points=beam_L,
         beam_R_points=beam_R,
-        n_u=nx,
+        n_anchors=ANCHORS_PER_BEAM,
+        subdivisions_per_segment=SUBDIVISIONS_PER_SEGMENT,
         n_v=ny,
         sag_fraction=0.10,
         taper_ends=True,
@@ -146,7 +153,6 @@ def _render_mesh_view(coords, tris, title):
 
 
 def _compute_tri_areas(coords, tris):
-    """Return areas of every triangle."""
     areas = np.zeros(len(tris))
     for k, tri in enumerate(tris):
         p0 = coords[tri[0]]
@@ -156,57 +162,57 @@ def _compute_tri_areas(coords, tris):
     return areas
 
 
-def _render_debug(initial_points, coords, tris, nx, ny):
+def _render_debug(initial_points, coords, tris, nx, ny,
+                  skip_u=6):
     """
-    Digitised debug output. Coordinates and triangles, copy-able.
+    Digitised debug output.
+
+    skip_u : print only every skip_u-th column along the beam.
+             Keeps the output manageable with the denser mesh.
+             All columns across the width are always printed.
     """
     with st.expander("DIGITISED OUTPUT - COPY THIS", expanded=False):
-        st.markdown("#### Initial grid coordinates")
-        lines = []
         flat0 = initial_points.reshape(-1, 3)
-        for k in range(len(flat0)):
-            i = k // ny
-            j = k % ny
-            lines.append(
-                "node %3d  (i=%2d,j=%2d)  x=%+9.5f  y=%+9.5f  z=%+9.5f"
-                % (k, i, j, flat0[k, 0], flat0[k, 1], flat0[k, 2])
-            )
-        st.code("\n".join(lines), language="text")
 
-        st.markdown("#### Solved coordinates (after FDM)")
+        st.markdown("#### Initial grid coordinates "
+                    "(every %d th column along beam)" % skip_u)
         lines = []
-        for k in range(len(coords)):
-            i = k // ny
-            j = k % ny
-            lines.append(
-                "node %3d  (i=%2d,j=%2d)  x=%+9.5f  y=%+9.5f  z=%+9.5f"
-                % (k, i, j, coords[k, 0], coords[k, 1], coords[k, 2])
-            )
+        for i in range(0, nx, skip_u):
+            for j in range(ny):
+                k = i * ny + j
+                lines.append(
+                    "node %3d  (i=%2d,j=%2d)  x=%+9.5f  y=%+9.5f  z=%+9.5f"
+                    % (k, i, j, flat0[k, 0], flat0[k, 1], flat0[k, 2])
+                )
         st.code("\n".join(lines), language="text")
 
-        st.markdown("#### Displacement per node (solved minus initial)")
+        st.markdown("#### Solved coordinates "
+                    "(every %d th column along beam)" % skip_u)
+        lines = []
+        for i in range(0, nx, skip_u):
+            for j in range(ny):
+                k = i * ny + j
+                lines.append(
+                    "node %3d  (i=%2d,j=%2d)  x=%+9.5f  y=%+9.5f  z=%+9.5f"
+                    % (k, i, j, coords[k, 0], coords[k, 1], coords[k, 2])
+                )
+        st.code("\n".join(lines), language="text")
+
+        st.markdown("#### Displacement per node "
+                    "(every %d th column along beam)" % skip_u)
         lines = []
         disp = np.linalg.norm(coords - flat0, axis=1)
-        for k in range(len(coords)):
-            i = k // ny
-            j = k % ny
-            lines.append(
-                "node %3d  (i=%2d,j=%2d)  disp=%9.5f"
-                % (k, i, j, disp[k])
-            )
-        st.code("\n".join(lines), language="text")
-
-        st.markdown("#### All triangles with areas")
-        areas = _compute_tri_areas(coords, tris)
-        lines = []
-        for k, tri in enumerate(tris):
-            lines.append(
-                "tri %3d  nodes (%3d,%3d,%3d)  area=%12.8e"
-                % (k, tri[0], tri[1], tri[2], areas[k])
-            )
+        for i in range(0, nx, skip_u):
+            for j in range(ny):
+                k = i * ny + j
+                lines.append(
+                    "node %3d  (i=%2d,j=%2d)  disp=%9.5f"
+                    % (k, i, j, disp[k])
+                )
         st.code("\n".join(lines), language="text")
 
         st.markdown("#### Summary")
+        areas = _compute_tri_areas(coords, tris)
         st.write("Total triangles: %d" % len(tris))
         st.write("Minimum area: %.8e" % float(areas.min()))
         st.write("Maximum area: %.8e" % float(areas.max()))
@@ -226,8 +232,11 @@ def render_tester_mbs():
         '<div style="color:#3498db;font-weight:700;font-size:1.05rem;'
         'margin-bottom:0.3rem;">EXPERIMENTAL - MBS TESTER</div>'
         '<div style="color:#c8d4e0;font-size:0.9rem;line-height:1.5;">'
-        'Digitised output enabled. nx = 9 — apex node captured.'
-        '</div></div>',
+        'Mesh density decoupled from anchor count. '
+        'Anchors=%d. Subdivisions=%d. Nodes along beam=%d.'
+        '</div></div>'
+        % (ANCHORS_PER_BEAM, SUBDIVISIONS_PER_SEGMENT,
+           ANCHORS_PER_BEAM + (ANCHORS_PER_BEAM - 1) * SUBDIVISIONS_PER_SEGMENT),
         unsafe_allow_html=True,
     )
 
@@ -242,11 +251,8 @@ def render_tester_mbs():
             st.rerun()
         return
 
-    # nx = 9 puts a node exactly at x = 0 — the apex of the parabola.
-    # nx = 8 did not, so the top of the saddle was flat across two
-    # nodes at x = +/-0.39. With nx = 9, the apex is captured.
-    nx = 9
-    ny = 8
+    nx = ANCHORS_PER_BEAM + (ANCHORS_PER_BEAM - 1) * SUBDIVISIONS_PER_SEGMENT
+    ny = NODES_ACROSS
 
     col1, col2 = st.columns(2)
     with col1:
@@ -336,7 +342,7 @@ def render_tester_mbs():
         d1.metric("FDM residual", "%.4e" % s["residual_norm"])
         d2.metric("Boundary points", len(boundary))
 
-        _render_debug(initial, coords, tris, nx, ny)
+        _render_debug(initial, coords, tris, nx, ny, skip_u=6)
 
     if has_square:
         st.markdown("### Test 1 — Square (4 corners)")
@@ -359,7 +365,7 @@ def render_tester_mbs():
         d1.metric("FDM residual", "%.4e" % s["residual_norm"])
         d2.metric("Boundary points", len(boundary))
 
-        _render_debug(initial, coords, tris, nx, ny)
+        _render_debug(initial, coords, tris, nx, ny, skip_u=6)
 
     if st.button("Back to Landing", use_container_width=True,
                  key="mbs_back_bottom"):
