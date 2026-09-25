@@ -1,35 +1,32 @@
 # =============================================================================
 # SDSe Engine - Membrane Boundary Schema (MBS)
 # =============================================================================
-# A universal engine for building the mesh of a membrane from its boundary.
+# A universal engine for building the mesh of a membrane from its
+# boundary.
 #
 # The schema:
 #   1. A closed boundary. An ordered list of 3D points forming a loop.
-#   2. Anchors. Discrete points on the boundary where the membrane is held.
+#   2. Anchors. Discrete points on the boundary where the membrane is
+#      held.
 #   3. Edges between anchors. Each edge is either:
 #        - "beam" : the boundary follows the shape and contour of a
-#                   structural member. The points along that edge are
-#                   FIXED. They do not move in FDM.
-#        - "cable": the boundary is a cable between two anchors. The
-#                   points along that edge are FREE. They bow inward
-#                   under tension, and move in FDM.
-#   4. The interior. A grid that fills the boundary. Solved by FDM.
+#                   structural member. Points along that edge are FIXED.
+#        - "cable": the boundary is a cable between two anchors. Points
+#                   along that edge are FREE.
+#   4. The interior. A grid that fills the boundary.
 #
-# The schema is shape-agnostic and member-agnostic:
-#   - It does not know whether the boundary is a lens, a rectangle, a
-#     triangle, a polygon, or a circle.
-#   - It does not know whether the "beam" is a parabola, an arc, a
-#     straight line, or an irregular curve.
-#   - It receives only points.
-#
-# Reference for the fill method: Transfinite Interpolation (TFI).
-#
-# Units: m. Force densities in N/m. Pretensions in kN/m.
+# Two ways to fill the interior:
+#   - If initial_points is provided, use them directly. This is the
+#     preferred route: the caller draws a surface with engine/
+#     membrane_surface.py and hands the coordinates in.
+#   - If initial_points is None, use Transfinite Interpolation (TFI)
+#     to warp a rectangular grid onto the boundary.
 #
 # History:
-#   2026-09-24 - First build. MBS engine. Universal.
-#   2026-09-24 - Fix: in build_mesh, fix the four GRID corners
-#                (mesh node indices), not the boundary indices.
+#   2026-09-24 - First build.
+#   2026-09-24 - Fix: fix grid corners, not boundary indices.
+#   2026-09-25 - Add initial_points argument. If provided, use them
+#                as the grid. If not, use TFI as before.
 # =============================================================================
 
 import numpy as np
@@ -37,21 +34,14 @@ import numpy as np
 from engine.form_finding import solve_fdm
 
 
-# =============================================================================
-# BOUNDARY HELPERS
-# =============================================================================
-
 def _boundary_edge_list(boundary, anchor_indices):
-    """
-    Given an ordered boundary and a list of anchor indices, return
-    the list of segments between consecutive anchors (cyclic).
-    """
+    """Given an ordered boundary and a list of anchor indices,
+    return the list of segments between consecutive anchors."""
     n = len(anchor_indices)
     segments = []
     for k in range(n):
         a = anchor_indices[k]
         b = anchor_indices[(k + 1) % n]
-
         m = len(boundary)
         pts = []
         i = a
@@ -61,38 +51,13 @@ def _boundary_edge_list(boundary, anchor_indices):
                 break
             i = (i + 1) % m
             if len(pts) > m:
-                raise ValueError(
-                    "Boundary walk did not reach anchor_b."
-                )
-        segments.append({
-            "anchor_a": a,
-            "anchor_b": b,
-            "points": pts,
-        })
+                raise ValueError("Boundary walk did not reach anchor_b.")
+        segments.append({"anchor_a": a, "anchor_b": b, "points": pts})
     return segments
 
 
-def _arc_lengths_along_segment(boundary, seg_points):
-    """Cumulative arc length along a boundary segment."""
-    pts = np.asarray([boundary[i] for i in seg_points], dtype=float)
-    diff = np.diff(pts, axis=0)
-    seg_len = np.linalg.norm(diff, axis=1)
-    s = np.concatenate(([0.0], np.cumsum(seg_len)))
-    total = float(s[-1]) if len(s) > 0 else 0.0
-    return s, total
-
-
-# =============================================================================
-# INTERIOR GRID
-# =============================================================================
-
 def _boundary_as_four_sides(boundary, anchor_indices, edge_types):
-    """
-    Express the boundary as four sides for TFI blending.
-
-    Returns (sides, corners) where sides is a list of four lists of
-    boundary indices, and corners is a list of four boundary indices.
-    """
+    """Express the boundary as four sides for TFI blending."""
     n_anchors = len(anchor_indices)
     if n_anchors < 4:
         m = len(boundary)
@@ -203,74 +168,6 @@ def _two_furthest_anchors(boundary, anchor_indices):
     return best
 
 
-def _resample_side(boundary, side_points, target_n):
-    """Resample a boundary side (list of boundary indices) into
-    target_n equally-spaced (in arc length) points."""
-    pts = np.asarray([boundary[i] for i in side_points], dtype=float)
-    if len(pts) == 1:
-        return np.tile(pts, (target_n, 1))
-    diff = np.diff(pts, axis=0)
-    seg_len = np.linalg.norm(diff, axis=1)
-    s = np.concatenate(([0.0], np.cumsum(seg_len)))
-    total = float(s[-1])
-    if total < 1e-9:
-        return np.tile(pts[0], (target_n, 1))
-
-    out = np.zeros((target_n, 3))
-    for k in range(target_n):
-        target = (k / (target_n - 1.0)) * total
-        idx = int(np.searchsorted(s, target, side="right") - 1)
-        idx = max(0, min(idx, len(pts) - 2))
-        seg_start = s[idx]
-        seg_end = s[idx + 1]
-        if seg_end - seg_start < 1e-12:
-            out[k] = pts[idx]
-        else:
-            t = (target - seg_start) / (seg_end - seg_start)
-            out[k] = pts[idx] * (1.0 - t) + pts[idx + 1] * t
-    return out
-
-
-def _tfi_grid(side_0, side_1, side_2, side_3, nx, ny):
-    """
-    Transfinite interpolation of a quad grid.
-    side_0: bottom, side_1: right, side_2: top, side_3: left.
-    """
-    bottom = _resample_side_arr(side_0, nx)
-    top = _resample_side_arr(side_2, nx)
-    left = _resample_side_arr(side_3, ny)
-    right = _resample_side_arr(side_1, ny)
-
-    c0 = bottom[0]
-    c1 = bottom[-1]
-    c2 = top[-1]
-    c3 = top[0]
-
-    grid = np.zeros((nx, ny, 3))
-    for i in range(nx):
-        u = i / (nx - 1.0)
-        for j in range(ny):
-            v = j / (ny - 1.0)
-
-            bottom_pt = bottom[i]
-            top_pt = top[i]
-            left_pt = left[j]
-            right_pt = right[j]
-
-            S = bottom_pt * (1.0 - v) + top_pt * v
-            T = left_pt * (1.0 - u) + right_pt * u
-
-            corner_term = (
-                c0 * (1.0 - u) * (1.0 - v)
-                + c1 * u * (1.0 - v)
-                + c2 * u * v
-                + c3 * (1.0 - u) * v
-            )
-
-            grid[i, j] = S + T - corner_term
-    return grid
-
-
 def _resample_side_arr(side_pts, target_n):
     """Resample a pre-computed side (N, 3) array into target_n points."""
     if len(side_pts) == 1:
@@ -297,6 +194,39 @@ def _resample_side_arr(side_pts, target_n):
     return out
 
 
+def _tfi_grid(side_0, side_1, side_2, side_3, nx, ny):
+    """Transfinite interpolation of a quad grid."""
+    bottom = _resample_side_arr(side_0, nx)
+    top = _resample_side_arr(side_2, nx)
+    left = _resample_side_arr(side_3, ny)
+    right = _resample_side_arr(side_1, ny)
+
+    c0 = bottom[0]
+    c1 = bottom[-1]
+    c2 = top[-1]
+    c3 = top[0]
+
+    grid = np.zeros((nx, ny, 3))
+    for i in range(nx):
+        u = i / (nx - 1.0)
+        for j in range(ny):
+            v = j / (ny - 1.0)
+            bottom_pt = bottom[i]
+            top_pt = top[i]
+            left_pt = left[j]
+            right_pt = right[j]
+            S = bottom_pt * (1.0 - v) + top_pt * v
+            T = left_pt * (1.0 - u) + right_pt * u
+            corner_term = (
+                c0 * (1.0 - u) * (1.0 - v)
+                + c1 * u * (1.0 - v)
+                + c2 * u * v
+                + c3 * (1.0 - u) * v
+            )
+            grid[i, j] = S + T - corner_term
+    return grid
+
+
 # =============================================================================
 # PUBLIC FUNCTIONS
 # =============================================================================
@@ -304,10 +234,34 @@ def _resample_side_arr(side_pts, target_n):
 def build_mesh(boundary, anchor_indices, edge_types,
                nx=21, ny=21,
                membrane_q=1.0, cable_q=10.0,
-               fixed_tip_indices=None):
+               fixed_tip_indices=None,
+               initial_points=None):
     """
     Build a membrane mesh from a closed boundary, following the
     Membrane Boundary Schema.
+
+    Parameters
+    ----------
+    boundary : (M, 3) array
+    anchor_indices : list of int
+    edge_types : list of str
+    nx, ny : int
+        Grid density. If initial_points is provided, nx and ny must
+        match the shape of initial_points when reshaped.
+    membrane_q : float
+    cable_q : float
+    fixed_tip_indices : list of int or None
+        Boundary indices to fix. Note: these are BOUNDARY indices,
+        not mesh node indices.
+    initial_points : (nx * ny, 3) array or (nx, ny, 3) array or None
+        If provided, use these coordinates as the initial mesh grid.
+        If None, build the grid via Transfinite Interpolation.
+        This is the preferred route — hand in the coordinates
+        produced by engine/membrane_surface.py.
+
+    Returns
+    -------
+    dict with points, edges, fixed_indices, q, diagnostics.
     """
     boundary = np.asarray(boundary, dtype=float)
     if boundary.ndim != 2 or boundary.shape[1] != 3:
@@ -320,18 +274,38 @@ def build_mesh(boundary, anchor_indices, edge_types,
             "anchor_indices and edge_types must have the same length"
         )
 
-    sides, corners = _boundary_as_four_sides(
-        boundary, anchor_indices, edge_types
-    )
+    # ---- Decide the grid.
+    if initial_points is not None:
+        pts_in = np.asarray(initial_points, dtype=float)
+        if pts_in.ndim == 3:
+            if pts_in.shape != (nx, ny, 3):
+                raise ValueError(
+                    "initial_points shape %s does not match (nx, ny, 3)"
+                    % str(pts_in.shape)
+                )
+            grid = pts_in.copy()
+        elif pts_in.ndim == 2:
+            if pts_in.shape != (nx * ny, 3):
+                raise ValueError(
+                    "initial_points shape %s does not match (nx*ny, 3)"
+                    % str(pts_in.shape)
+                )
+            grid = pts_in.reshape((nx, ny, 3))
+        else:
+            raise ValueError("initial_points must be 2D or 3D array")
+    else:
+        sides, corners = _boundary_as_four_sides(
+            boundary, anchor_indices, edge_types
+        )
+        side_0_pts = np.asarray([boundary[i] for i in sides[0]], dtype=float)
+        side_1_pts = np.asarray([boundary[i] for i in sides[1]], dtype=float)
+        side_2_pts = np.asarray([boundary[i] for i in sides[2]], dtype=float)
+        side_3_pts = np.asarray([boundary[i] for i in sides[3]], dtype=float)
+        grid = _tfi_grid(side_0_pts, side_1_pts, side_2_pts, side_3_pts,
+                         nx=nx, ny=ny)
+        corners = None
 
-    side_0_pts = np.asarray([boundary[i] for i in sides[0]], dtype=float)
-    side_1_pts = np.asarray([boundary[i] for i in sides[1]], dtype=float)
-    side_2_pts = np.asarray([boundary[i] for i in sides[2]], dtype=float)
-    side_3_pts = np.asarray([boundary[i] for i in sides[3]], dtype=float)
-
-    grid = _tfi_grid(side_0_pts, side_1_pts, side_2_pts, side_3_pts,
-                     nx=nx, ny=ny)
-
+    # ---- Flatten into points.
     n_nodes = nx * ny
     points = np.zeros((n_nodes, 3))
     for i in range(nx):
@@ -339,6 +313,7 @@ def build_mesh(boundary, anchor_indices, edge_types,
             k = i * ny + j
             points[k] = grid[i, j]
 
+    # ---- Edges.
     edges = []
     for i in range(nx):
         for j in range(ny):
@@ -348,7 +323,7 @@ def build_mesh(boundary, anchor_indices, edge_types,
             if j + 1 < ny:
                 edges.append((k, i * ny + (j + 1)))
 
-    # ---- Fixed indices
+    # ---- Fixed indices.
     fixed_set = set()
 
     # The four GRID corners, as node indices.
@@ -362,19 +337,26 @@ def build_mesh(boundary, anchor_indices, edge_types,
         fixed_set.add(int(nc))
 
     # Extra fixed tips (caller-provided boundary indices).
-    # Note: these are boundary indices, not node indices.
-    # Kept for backward compatibility. Use with care.
     if fixed_tip_indices:
         for i in fixed_tip_indices:
             fixed_set.add(int(i))
 
+    # If any edge type is "beam", fix the top and bottom rows of the
+    # grid (the beam edges).
     has_beam = "beam" in edge_types
     if has_beam:
         for i in range(nx):
             fixed_set.add(i * ny + 0)
             fixed_set.add(i * ny + (ny - 1))
 
-    # ---- q assignment
+    # If initial_points came with taper_ends=True, all v-nodes at
+    # u=0 and u=n_u-1 collapse to a single point. Fix them all.
+    if initial_points is not None:
+        for j in range(ny):
+            fixed_set.add(0 * ny + j)
+            fixed_set.add((nx - 1) * ny + j)
+
+    # ---- q assignment.
     q = np.full(len(edges), float(membrane_q))
     for k, (a, b) in enumerate(edges):
         ia = a // ny
@@ -405,7 +387,8 @@ def build_mesh(boundary, anchor_indices, edge_types,
         "n_free": n_nodes - len(fixed_indices),
         "has_beam": has_beam,
         "has_cable": "cable" in edge_types,
-        "corners": [int(c) for c in corners],
+        "corners": [int(c) for c in corners] if corners else [],
+        "used_initial_points": initial_points is not None,
     }
 
     return {
@@ -421,7 +404,8 @@ def build_and_solve(boundary, anchor_indices, edge_types,
                     nx=21, ny=21,
                     membrane_q=1.0, cable_q=10.0,
                     loads=None,
-                    fixed_tip_indices=None):
+                    fixed_tip_indices=None,
+                    initial_points=None):
     """
     Build the mesh and solve it with FDM in one call.
     """
@@ -433,6 +417,7 @@ def build_and_solve(boundary, anchor_indices, edge_types,
         membrane_q=membrane_q,
         cable_q=cable_q,
         fixed_tip_indices=fixed_tip_indices,
+        initial_points=initial_points,
     )
 
     res = solve_fdm(
@@ -453,8 +438,3 @@ def build_and_solve(boundary, anchor_indices, edge_types,
 # =============================================================================
 # END OF engine/membrane_boundary.py
 # =============================================================================
-
-
-
-
-
