@@ -245,5 +245,105 @@ overwritten.
 
 
 
+## 2026-09-26 - Shape-Building Doctrine (Chief's instruction)
+
+### The problem
+We need the MBS Tester to be a shape laboratory, not a lens-only
+bench. The engine must accept user instructions for any shape
+(triangle, square, circle, arbitrary polygon), build the
+boundary, mesh it, solve it, and report - using the same nine-
+step pipeline as the proven lens test. Only the boundary recipe
+changes. The engine does not know shapes.
+
+### Segment count N
+The user supplies the number of segments N. N is what the user
+says. It is not divided, not multiplied, not reinterpreted.
+
+- A triangle has 3 edges. Each edge is divided into N segments.
+- A square has 4 edges. Same rule.
+- A circle is treated as a loop. N segments around the whole loop.
+- N defaults to 7. The user may enter any N >= 1.
+
+Nodes sit at segment ends. Corners are shared between adjacent
+edges. Node counts follow from N and the corner count. They are
+not a separate input.
+
+### Mesh density - two modes
+A second, independent input controls mesh density. Two modes:
+
+Mode A - Fixed subdivisions per segment (K).
+Same K on every shape. Default K = 5. Best for like-for-like
+comparison between shapes. This is the current lens behaviour.
+
+Mode B - Target node spacing (ds, in metres).
+K is derived per segment from its length:
+
+    K = max(1, round(segment_length / ds) - 1)
+
+Default ds = 0.5 m. Long segments get more nodes automatically.
+Best for realistic mesh quality on real structures.
+
+Same mode + same number on every shape = fair comparison.
+Different shapes have different edge lengths, so they produce
+different node counts. That is correct, not a violation of the
+"same parameters" doctrine. The parameters are inputs, not
+outputs.
+
+### Focal point (datum)
+Every shape has a datum point.
+
+Rule:
+- The x-y of the datum is the geometric centroid of the
+  boundary nodes.
+- The z of the datum is the solved membrane z at that point
+  (interpolated from the solved mesh).
+- Refinement of this rule (medial axis, curvature centre) is
+  deferred until the engine has been proven on multiple shapes.
+
+### Universal engine, many recipes
+The engine does not know shapes. It knows:
+
+  - a boundary (closed loop of 3D points),
+  - anchor indices,
+  - edge types ("beam" or "cable"),
+  - optional initial_points (a surface grid).
+
+Everything else is a shape recipe. A recipe produces the tuple
+above for one shape and one N. Recipes are added one at a time,
+each with the same signature. No engine change per shape.
+
+### Same parameters on all shapes
+Same N. Same K (or same ds). Same default prestress. Same
+solve. Same diagnostics. Same reaction report. Only the
+boundary changes.
+
+### What this means for the Tester
+The Tester gains:
+  - a shape selector (Lens, Triangle, Square, Circle, ...),
+  - a segment count N (default 7),
+  - a mesh-density mode selector (Mode A / Mode B),
+  - the K value (Mode A) or ds value (Mode B),
+  - unchanged tuning windows (Warp, Weft),
+  - unchanged disabled toggles (Beam/Cable, Rigid/Flexible),
+  - one Run button.
+
+Each shape's recipe is a function with the same signature. The
+Tester reads the user's shape choice and calls the right recipe.
+
+### Consequence
+If the engine produces a clean, symmetric, machine-zero-residual
+saddle for lens, triangle, square, and circle with the same
+parameters, then universality is proven - not by argument, but
+by the same code running on different boundaries. Then the
+engine is ready to be wired into real structures (Cable
+Supported Saddle, Beam Supported Saddle, Cantilever Hypar,
+Cantilever Leaf), each calling the same engine.
+
+### Stage 2 note
+Releasing the beam from rigid to flexible is Stage 2. It needs
+beam elements (EA, EI) and a coupled solver. Not in this
+session. The reaction report from Stage 1 provides the input
+to the Stage 2 beam-stiffness check. Not before.
+
 
 
