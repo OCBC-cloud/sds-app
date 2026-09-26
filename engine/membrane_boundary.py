@@ -11,29 +11,48 @@
 #   3. Edges between anchors. Each edge is "beam" or "cable".
 #   4. The interior. A grid that fills the boundary.
 #
-# Two ways to fill the interior:
-#   - If initial_points is provided, use them directly.
-#   - If initial_points is None, use Transfinite Interpolation.
-#
 # Force densities q:
-#   - If per_edge_q is provided, use it verbatim (length must
-#     equal the number of mesh edges).
-#   - Otherwise, assign q from membrane_q and cable_q using the
-#     beam/cable classification of the boundary.
+#   - If per_edge_q is provided, use it verbatim.
+#   - Otherwise, assign q from membrane_q and cable_q.
+#
+# Held edges (Stage 1 boundary control):
+#   - held_grid_edges : list of grid-edge names to fix.
+#     Valid names: "i_min", "i_max", "j_min", "j_max".
+#   - Default: all four. Current behaviour, unchanged.
+#   - Shapes with a free edge (e.g. the crown centre) pass a
+#     subset, leaving the others free for FDM to solve.
+#   - The "boundary" (anchor loop) is always held via the
+#     beam/cable classification. held_grid_edges controls only
+#     the rectangular-grid sides of the initial_points grid.
 #
 # History:
 #   2026-09-24 - First build.
-#   2026-09-24 - Fix grid corners, not boundary indices.
 #   2026-09-25 - Add initial_points argument.
-#   2026-09-25 - Init corners = None before grid decision.
-#   2026-09-26 - Add per_edge_q. Backward-compatible. Enables
-#                anisotropic prestress (warp vs weft) without
-#                changing existing callers.
+#   2026-09-26 - Add per_edge_q.
+#   2026-09-26 - Add held_grid_edges. Free centre for crown.
 # =============================================================================
 
 import numpy as np
 
 from engine.form_finding import solve_fdm
+
+
+_VALID_GRID_EDGES = ("i_min", "i_max", "j_min", "j_max")
+
+
+def _normalise_held_edges(held_grid_edges):
+    if held_grid_edges is None:
+        return list(_VALID_GRID_EDGES)
+    out = []
+    for name in held_grid_edges:
+        if name not in _VALID_GRID_EDGES:
+            raise ValueError(
+                "held_grid_edges must be a subset of %s (got %r)"
+                % (list(_VALID_GRID_EDGES), name)
+            )
+        if name not in out:
+            out.append(name)
+    return out
 
 
 def _boundary_as_four_sides(boundary, anchor_indices, edge_types):
@@ -204,7 +223,6 @@ def _tfi_grid(side_0, side_1, side_2, side_3, nx, ny):
 
 
 
-
 # =============================================================================
 # PUBLIC FUNCTIONS
 # =============================================================================
@@ -214,43 +232,31 @@ def build_mesh(boundary, anchor_indices, edge_types,
                membrane_q=1.0, cable_q=10.0,
                fixed_tip_indices=None,
                initial_points=None,
-               per_edge_q=None):
+               per_edge_q=None,
+               held_grid_edges=None):
     """
     Build a membrane mesh from a closed boundary.
 
     Parameters
     ----------
     boundary : (M, 3) array
-        Closed loop of boundary points.
     anchor_indices : list of int
-        Indices into boundary where the membrane is held.
     edge_types : list of str
-        "beam" or "cable" for each anchor-to-anchor edge.
     nx, ny : int
-        Mesh resolution along the two grid directions.
-    membrane_q : float
-        Default force density for membrane edges.
-    cable_q : float
-        Force density for free-end cable edges.
+    membrane_q, cable_q : float
     fixed_tip_indices : list of int, optional
-        Extra node indices to fix (tips).
     initial_points : (nx, ny, 3) or (nx*ny, 3) array, optional
-        If provided, use these as the initial mesh coordinates
-        and skip the TFI interior fill.
     per_edge_q : (n_edges,) array, optional
-        If provided, use these force densities verbatim.
-        The length must equal the number of mesh edges
-        produced by this function. If None, q is assigned
-        from membrane_q and cable_q as before.
+    held_grid_edges : list of str, optional
+        Which grid edges of the initial_points grid are held.
+        Names: "i_min", "i_max", "j_min", "j_max".
+        Default (None) = all four. Current behaviour.
+        Shapes with a free edge (e.g. crown centre) pass a subset.
 
     Returns
     -------
     dict with keys:
-        points         : (n_nodes, 3)
-        edges          : list of (a, b)
-        fixed_indices  : sorted list of int
-        q              : (n_edges,) array
-        diagnostics    : dict
+        points, edges, fixed_indices, q, diagnostics
     """
     boundary = np.asarray(boundary, dtype=float)
     if boundary.ndim != 2 or boundary.shape[1] != 3:
@@ -263,6 +269,7 @@ def build_mesh(boundary, anchor_indices, edge_types,
             "anchor_indices and edge_types must have the same length"
         )
 
+    held_set = _normalise_held_edges(held_grid_edges)
     corners = None
 
     # ---- Decide the grid.
@@ -327,16 +334,30 @@ def build_mesh(boundary, anchor_indices, edge_types,
         for i in fixed_tip_indices:
             fixed_set.add(int(i))
 
+    # ---- Beam edges on the boundary loop (the "sides" of the mesh).
     has_beam = "beam" in edge_types
     if has_beam:
         for i in range(nx):
             fixed_set.add(i * ny + 0)
             fixed_set.add(i * ny + (ny - 1))
 
+    # ---- Grid-edge holding.
+    # Only applies when initial_points is provided, because it controls
+    # the four sides of the (nx, ny) grid. For TFI-filled grids the beam
+    # rule above already holds the boundary; there is no free edge.
     if initial_points is not None:
-        for j in range(ny):
-            fixed_set.add(0 * ny + j)
-            fixed_set.add((nx - 1) * ny + j)
+        if "i_min" in held_set:
+            for j in range(ny):
+                fixed_set.add(0 * ny + j)
+        if "i_max" in held_set:
+            for j in range(ny):
+                fixed_set.add((nx - 1) * ny + j)
+        if "j_min" in held_set:
+            for i in range(nx):
+                fixed_set.add(i * ny + 0)
+        if "j_max" in held_set:
+            for i in range(nx):
+                fixed_set.add(i * ny + (ny - 1))
 
     # ---- q assignment.
     if per_edge_q is not None:
@@ -385,6 +406,7 @@ def build_mesh(boundary, anchor_indices, edge_types,
         "corners": corners_out,
         "used_initial_points": initial_points is not None,
         "used_per_edge_q": per_edge_q is not None,
+        "held_grid_edges": list(held_set),
     }
 
     return {
@@ -405,24 +427,25 @@ def build_and_solve(boundary, anchor_indices, edge_types,
                     loads=None,
                     fixed_tip_indices=None,
                     initial_points=None,
-                    per_edge_q=None):
+                    per_edge_q=None,
+                    held_grid_edges=None):
     """
     Build the mesh and solve it with FDM in one call.
 
     Parameters
     ----------
     per_edge_q : (n_edges,) array, optional
-        If provided, used verbatim as the force densities.
-        Length must equal the number of edges in the mesh built
-        by build_mesh with the same arguments. If None, q is
-        assigned from membrane_q and cable_q.
+        Force densities, applied verbatim if provided.
+    held_grid_edges : list of str, optional
+        Which grid edges of the initial_points grid are held.
+        Names: "i_min", "i_max", "j_min", "j_max".
+        Default (None) = all four. Current behaviour.
+        Shapes with a free edge (e.g. crown centre) pass a subset.
 
     Returns
     -------
     dict with keys:
-        coordinates   : (n_nodes, 3) solved coordinates
-        mesh          : the build_mesh output dict
-        solve_result  : the solve_fdm output dict
+        coordinates, mesh, solve_result
     """
     mesh = build_mesh(
         boundary=boundary,
@@ -434,6 +457,7 @@ def build_and_solve(boundary, anchor_indices, edge_types,
         fixed_tip_indices=fixed_tip_indices,
         initial_points=initial_points,
         per_edge_q=per_edge_q,
+        held_grid_edges=held_grid_edges,
     )
 
     res = solve_fdm(
@@ -454,6 +478,9 @@ def build_and_solve(boundary, anchor_indices, edge_types,
 # =============================================================================
 # END OF engine/membrane_boundary.py
 # =============================================================================
+
+
+
 
 
 
