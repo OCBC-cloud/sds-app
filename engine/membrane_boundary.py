@@ -322,13 +322,14 @@ def build_mesh(boundary, anchor_indices, edge_types,
     fixed_set = set()
 
     node_corners = [
-        0,
-        ny - 1,
-        (nx - 1) * ny,
-        (nx - 1) * ny + (ny - 1),
+        (0, "i_min", "j_min"),
+        (ny - 1, "i_min", "j_max"),
+        ((nx - 1) * ny, "i_max", "j_min"),
+        ((nx - 1) * ny + (ny - 1), "i_max", "j_max"),
     ]
-    for nc in node_corners:
-        fixed_set.add(int(nc))
+    for nc, ci, cj in node_corners:
+        if ci in held_set and cj in held_set:
+            fixed_set.add(int(nc))
 
     if fixed_tip_indices:
         for i in fixed_tip_indices:
