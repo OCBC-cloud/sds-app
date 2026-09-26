@@ -856,6 +856,11 @@ def render_tester_mbs():
                     warp_q=warp_q, weft_q=weft_q,
                 )
 
+                if shape_name == "Crown":
+                    held_edges = ["i_min", "i_max", "j_min"]
+                else:
+                    held_edges = None
+
                 result = build_and_solve(
                     boundary=boundary,
                     anchor_indices=anchors,
@@ -864,6 +869,7 @@ def render_tester_mbs():
                     membrane_q=1.0, cable_q=1.0,
                     initial_points=grid,
                     per_edge_q=per_edge_q,
+                    held_grid_edges=held_edges,
                 )
 
                 st.session_state["mbs_result"] = {
