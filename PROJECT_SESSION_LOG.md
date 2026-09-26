@@ -446,4 +446,93 @@ engine has proven it can do the job. The recipes show it.
 
 
 
+## 2026-09-27 - Three-Lobe Crown Milestone
+
+### What was built
+
+The Tester now has a four-shape family, all running through the
+same FDM kernel:
+
+  - Lens           - two beam curves meeting at two tips.
+  - Triangle       - three corners, three edges.
+  - Crown          - N parabolic beams on an imaginary ground
+                     circle, polar mesh, centre solved as a
+                     free point.
+  - Prototype-Lobe - one lobe of the crown. Frame A plus the
+                     radial path. Rectangular 37 x 12 grid with
+                     the innermost row collapsing to D.
+  - Crown-3Lobe    - three lobes, merged at their ridges and
+                     apex. The first non-rectangular mesh solved
+                     by the engine.
+
+### The merged crown
+
+The crown-3Lobe recipe:
+  - Builds three separate lobes, each rotated by 120 degrees.
+  - Each lobe: 37 columns x 11 rows + 1 apex = 408 nodes.
+  - Each lobe: 803 edges, 792 triangles.
+  - Merges shared nodes: three supports, thirty ridge
+    interiors, and the apex (three into one).
+  - Merged crown: 1189 nodes, 2376 edges, 108 fixed,
+    1081 free.
+  - Handed to solve_fdm directly, bypassing the rectangular
+    grid builder.
+
+### Result
+
+  - Nodes 1189, Edges 2376.
+  - Fixed 108, Free 1081.
+  - FDM residual 8.7855e-14. Machine-zero.
+  - Focal point (-0.0000, -0.0000, 3.9969). Symmetric.
+  - Zero-area triangles: 0. Every triangle has positive area.
+  - 3D shape: three lobes with curved frames, all ridges
+    meeting at a single centre node. No fan degeneracy, no
+    spike, no hole.
+
+### What this proves
+
+The FDM kernel (solve_fdm) is topology-agnostic. It accepts
+arbitrary node and edge lists. It does not care whether the mesh
+is a rectangular grid or a merged multi-panel surface.
+
+The engine can now build shapes from joined pieces. This is the
+pattern for every future membrane that is more than a single
+panel: a stadium roof, a market canopy, a multi-cone cluster,
+any N-lobe crown.
+
+### What was NOT done tonight
+
+  - Digitised output for the crown-3Lobe. The current debug
+    printer assumes (nx, ny) rectangular indexing. It will
+    need a new format for the merged mesh. Logged as a fix.
+  - Square and Circle recipes.
+  - NFDM rewrite.
+  - Stage 2 (beam release). Not touched.
+
+### Files touched this session
+
+  - ui/workshops/tester_mbs.py
+      - Added _build_crown_lobe_at_angle.
+      - Added _build_crown_three_lobe.
+      - Registered Crown-3Lobe in SHAPE_RECIPES.
+      - Wired the Tester run branch to call solve_fdm directly
+        for the crown-3Lobe.
+      - Updated the render branch to use pre-built triangles
+        when the shape provides them.
+
+  - engine/membrane_boundary.py (earlier in the session)
+      - Added held_grid_edges parameter.
+      - Made has_beam respect held_grid_edges.
+      - Made node_corners respect held_grid_edges.
+
+  - PROJECT_SESSION_LOG.md - this entry.
+  - PROJECT_STATE.md - updated in the same session.
+  - FILE_INVENTORY.md - updated in the same session.
+
+### Session note
+
+Chief drove the direction. The lobe topology was his design. The
+merged crown was his proposal. The AI provided the arithmetic
+and the code. This milestone belongs to the collaboration.
+
 
