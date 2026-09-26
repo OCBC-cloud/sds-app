@@ -385,6 +385,63 @@ def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
             grid[i, j] = base
 
     return grid, boundary, anchors, edge_types
+def _build_crown_lobe_prototype(R=8.0, H=6.0,
+                                 n_anchors=7, subdivisions=5,
+                                 nx=None, ny=12):
+    """
+    Prototype single-lobe of the crown.
+
+    Frame A: support 1 -> apex -> support 2, parabolic curve.
+    Radial path: support1 -> D (centre) -> support2, straight lines.
+    Mesh: (nx, ny) grid, barycentric-mapped onto the lobe triangle
+    with vertices at support1, support2, D.
+
+    Boundary held: only the frame (j=0 row).
+    Free: everything else, including D at j=ny-1.
+    """
+    import numpy as np
+
+    R = float(R)
+    H = float(H)
+
+    angle_1 = 0.0
+    angle_2 = 2.0 * np.pi / 3.0
+    angle_mid = 0.5 * (angle_1 + angle_2)
+
+    p_a1 = np.array([R * np.cos(angle_1), R * np.sin(angle_1), 0.0])
+    p_a7 = np.array([R * np.cos(angle_2), R * np.sin(angle_2), 0.0])
+    p_apex = np.array([R * np.cos(angle_mid), R * np.sin(angle_mid), H])
+    p_D = np.array([0.0, 0.0, H])
+
+    n_frame_pts = n_anchors + (n_anchors - 1) * subdivisions
+    t = np.linspace(0.0, 1.0, n_frame_pts)
+    p_lin = np.outer(1.0 - t, p_a1) + np.outer(t, p_a7)
+    middle = 0.5 * (p_a1 + p_a7)
+    lift = p_apex - middle
+    profile = 4.0 * t * (1.0 - t)
+    frame = p_lin + np.outer(profile, lift)
+
+    if nx is None:
+        nx = n_frame_pts
+
+    grid = np.zeros((nx, ny, 3))
+    for i in range(nx):
+        u = i / (nx - 1.0)
+        frame_pt = frame[int(round(u * (n_frame_pts - 1)))]
+        for j in range(ny):
+            v = j / (ny - 1.0)
+            base = frame_pt * (1.0 - v) + p_D * v
+            sag = 0.10 * H * (4.0 * v * (1.0 - v))
+            base = base.copy()
+            base[2] -= sag
+            grid[i, j] = base
+
+    boundary = frame.copy()
+    anchors = list(range(len(boundary)))
+    edge_types = ["beam"] * len(boundary)
+
+    return grid, boundary, anchors, edge_types
+
 
 
 # ---- Registry -------------------------------------------------------------
