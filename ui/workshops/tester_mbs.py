@@ -589,11 +589,11 @@ def _render_shape_controls():
     return shape_name, int(n_segments), mode_key, int(K_val), float(ds_val)
 
 
-def _render_cor,ner_inputs ((shape_name):
-label    params = {}
+def _render_corner_inputs(shape_name):
+    params = {}
 
-    if shape_name == ",Triangle":
-        st.markdown("#### Triangle corners d (user-editable)")
+    if shape_name == "Triangle":
+        st.markdown("#### Triangle corners (user-editable)")
         cols = st.columns(3)
         labels = ["A", "B", "C"]
         defaults = [TRI_A_DEFAULT, TRI_B_DEFAULT, TRI_C_DEFAULT]
