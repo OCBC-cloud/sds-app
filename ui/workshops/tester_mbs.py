@@ -1042,7 +1042,49 @@ def render_tester_mbs():
     if run_test:
         with st.spinner("Building %s and solving..." % shape_name):
             try:
-                if shape_name == "Lens":
+                if shape_name == "Crown-3Lobe":
+                    entry_data = _build_crown_three_lobe()
+                    points = entry_data["points"]
+                    edges = entry_data["edges"]
+                    fixed_indices = entry_data["fixed_indices"]
+                    edge_kind = entry_data["edge_kind"]
+                    triangles = entry_data["triangles"]
+                    boundary_arr = entry_data["boundary"]
+                    from engine.form_finding import solve_fdm
+                    q_arr = np.zeros(len(edges))
+                    for kq, kind in enumerate(edge_kind):
+                        if kind == "i":
+                            q_arr[kq] = float(warp_q)
+                        else:
+                            q_arr[kq] = float(weft_q)
+                    res = solve_fdm(points, edges, fixed_indices, q_arr)
+                    st.session_state["mbs_result"] = {
+                        "shape": shape_name,
+                        "result": {
+                            "coordinates": res["coordinates"],
+                            "mesh": {
+                                "diagnostics": {
+                                    "n_nodes": len(points),
+                                    "n_edges": len(edges),
+                                    "n_fixed": len(fixed_indices),
+                                    "n_free": len(points) - len(fixed_indices),
+                                },
+                            },
+                            "solve_result": {
+                                "residual_norm": res["residual_norm"],
+                            },
+                        },
+                        "boundary": boundary_arr,
+                        "initial": points.copy(),
+                        "nx": 0,
+                        "ny": 0,
+                        "triangles": triangles,
+                    }
+                    st.rerun()
+                elif shape_name == "Lens":
+                    grid, boundary, anchors, etypes = _build_lens_recipe(
+                        n_segments, mode_key, K_val, ds_val)
+                elif shape_name == "Lens":
                     grid, boundary, anchors, etypes = _build_lens_recipe(
                         n_segments, mode_key, K_val, ds_val)
                 elif shape_name == "Triangle":
@@ -1130,7 +1172,10 @@ def render_tester_mbs():
     nx = entry["nx"]
     ny = entry["ny"]
 
-    tris = _build_triangles(nx, ny)
+    if "triangles" in entry:
+        tris = entry["triangles"]
+    else:
+        tris = _build_triangles(nx, ny)
 
     st.markdown("### Result - %s" % entry["shape"])
     _render_mesh_view(coords, tris, "%s - MBS result" % entry["shape"])
