@@ -5,23 +5,17 @@
 # across multiple shapes using the same nine-step pipeline.
 #
 # Doctrine (2026-09-26):
-#   - The user supplies corners / parameters only. The engine derives
-#     everything else: edge nodes, interior grid, mesh, solve.
-#   - Segments N is the user's number of segments. Not converted.
+#   - The user supplies corners / parameters only.
+#   - Segments N is the user's number of segments.
 #   - Mesh density is Mode A (fixed K) or Mode B (target ds metres).
 #   - Focal point = centroid of boundary nodes in x-y, solved z.
 #   - Every boundary node is held rigid (Stage 1 doctrine).
-#   - Same parameters on every shape. Only the boundary changes.
 #
-# Shapes implemented in this file:
-#   Lens      - two beam curves meeting at two tips.
-#   Triangle  - three corners, three edges, user-editable corner xyz.
-#   Crown     - N parabolic beams on an imaginary ground circle, with
-#               a single membrane inside. Centre is a free point solved
-#               by FDM. Apex tilt angle controls lean outward/inward.
-#
-# Shapes deferred to later passes:
-#   Square, Circle, Tri-lobe with centre opening.
+# Shapes:
+#   Lens             - two beam curves meeting at two tips.
+#   Triangle         - three corners, three edges.
+#   Crown            - N parabolic beams on an imaginary ground circle.
+#   Prototype-Lobe   - one lobe of the crown.
 #
 # Status: EXPERIMENTAL.
 # =============================================================================
@@ -30,25 +24,21 @@ import numpy as np
 import streamlit as st
 
 
-# ---- Defaults -------------------------------------------------------------
 DEFAULT_SEGMENTS = 7
 DEFAULT_K = 5
 DEFAULT_DS = 0.5
 DEFAULT_WARP_Q = 2.0
 DEFAULT_WEFT_Q = 2.0
 
-# ---- Lens recipe constants ------------------------------------------------
 LENS_SPAN = 3.0
 LENS_APEX_WIDTH = 4.0
 LENS_RISE = 1.5
 LENS_SAG_FRACTION = 0.10
 
-# ---- Triangle defaults ----------------------------------------------------
 TRI_A_DEFAULT = (-1.5, -1.5, 0.0)
 TRI_B_DEFAULT = ( 1.5, -1.5, 0.0)
 TRI_C_DEFAULT = ( 0.0,  1.5, 1.5)
 
-# ---- Crown defaults -------------------------------------------------------
 CROWN_R_DEFAULT = 8.0
 CROWN_N_DEFAULT = 3
 CROWN_H_DEFAULT = 6.0
@@ -58,42 +48,26 @@ CROWN_CENTRE_RADIUS_DEFAULT = 0.0
 CROWN_SAG_DEFAULT = 0.10
 
 
-# =============================================================================
-# MESH DENSITY HELPERS
-# =============================================================================
-
 def _nodes_per_edge(n_segments, edge_length, mode, K, ds):
-    """
-    Return total nodes along one edge and their fractions.
-
-    The edge is divided into N equal segments. Each segment is then
-    subdivided according to mode:
-      Mode A (fixed K): K interior nodes per segment (K+1 sub-intervals).
-      Mode B (target ds): K_i = max(1, round(seg_len / ds) - 1).
-    """
     if n_segments < 1:
         n_segments = 1
     seg_len = float(edge_length) / float(n_segments)
-
     fractions = [0.0]
     for s in range(n_segments):
         if mode == "A":
             K_seg = max(1, int(K))
         else:
             K_seg = max(1, int(round(seg_len / float(ds))) - 1)
-
         n_sub = K_seg + 1
         seg_start = s / float(n_segments)
         for k in range(1, n_sub + 1):
             fractions.append(seg_start + k * (1.0 / n_segments) / n_sub)
-
     fractions = np.array(fractions, dtype=float)
     fractions[-1] = 1.0
     return len(fractions), fractions
 
 
 def _resample_polyline(points, n_target):
-    """Resample a polyline by arc length into n_target points."""
     pts = np.asarray(points, dtype=float)
     if len(pts) < 2:
         return np.tile(pts[0] if len(pts) else [0, 0, 0], (n_target, 1))
@@ -118,18 +92,7 @@ def _resample_polyline(points, n_target):
     return out
 
 
-# =============================================================================
-# SHAPE RECIPES
-# =============================================================================
-# Each recipe returns:
-#   (grid, boundary, anchor_indices, edge_types)
-# grid           : (nx, ny, 3) initial surface, or None for TFI
-# boundary       : (M, 3) closed loop of 3D points
-# anchor_indices : list of ints into boundary
-# edge_types     : list of "beam" or "cable" per anchor
-
 def _build_lens_recipe(n_segments, mode, K, ds):
-    """Lens - two beam curves meeting at two tips."""
     from viewers.figures._shared import beam_curve
     from engine.membrane_surface import build_surface
 
@@ -177,7 +140,6 @@ def _build_lens_recipe(n_segments, mode, K, ds):
 
 def _build_triangle_recipe(corner_A, corner_B, corner_C,
                             n_segments, mode, K, ds):
-    """Triangle - three corners, three straight edges."""
     corners = [np.asarray(corner_A, dtype=float),
                np.asarray(corner_B, dtype=float),
                np.asarray(corner_C, dtype=float)]
@@ -230,60 +192,34 @@ def _build_triangle_recipe(corner_A, corner_B, corner_C,
     return grid, boundary, anchors, edge_types
 
 
-# =============================================================================
-# CROWN RECIPE
-# =============================================================================
-# A ring of N parabolic beams arranged around an imaginary ground circle,
-# with a single membrane filling inside. The centre is a free point solved
-# by FDM (no user-supplied centre height).
-#
-# Apex tilt angle theta (from horizontal):
-#   theta = 90  -> apex straight up.
-#   theta < 90  -> apex leans radially outward.
-#   theta > 90  -> apex leans radially inward.
-#
-# The ground circle is a construction aid only. It is not drawn and is
-# not part of the boundary. Only the N beams form the membrane boundary.
-
 def _build_beam_parabola(p_support_a, p_apex, p_support_b, n_points):
-    """
-    Build a parabolic beam from support A through apex to support B.
-    Returns n_points points along the curve.
-    Simple formulation: quadratic Bezier-like with the apex as the
-    controlling vertex. Symmetric about the apex.
-    """
     A = np.asarray(p_support_a, dtype=float)
     B = np.asarray(p_apex, dtype=float)
     C = np.asarray(p_support_b, dtype=float)
-
     t = np.linspace(0.0, 1.0, n_points)
-    # Two linear pieces joined with a parabolic correction.
     p_lin = np.outer(1.0 - t, A) + np.outer(t, C)
-    # Parabolic lift that peaks at t = 0.5 and matches apex deviation.
     middle = 0.5 * (A + C)
     lift = B - middle
-    profile = 4.0 * t * (1.0 - t)  # 0 at ends, 1 at middle
+    profile = 4.0 * t * (1.0 - t)
     p = p_lin + np.outer(profile, lift)
     return p
 
+
+
+# =============================================================================
+# CROWN RECIPE
+# =============================================================================
 
 def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
                         n_segments, mode, K, ds,
                         centre_radius=0.0,
                         sag_fraction=CROWN_SAG_DEFAULT):
-    """
-    Build the crown: N beams on an imaginary ground circle, membrane
-    inside, centre solved as a free point.
-
-    Returns (grid, boundary, anchor_indices, edge_types).
-    """
     R = float(R)
     N = int(max(3, N))
     H = float(H)
     theta = np.radians(float(theta_deg))
     rot = np.radians(float(rot_deg))
 
-    # ---- Support points on the imaginary circle.
     supports = []
     for k in range(N):
         ang = rot + 2.0 * np.pi * k / float(N)
@@ -291,31 +227,22 @@ def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
         y = R * np.sin(ang)
         supports.append(np.array([x, y, 0.0]))
 
-    # ---- Apex position for each beam (midpoint of arc between supports).
-    # Radial offset by H / tan(theta). If theta near 90, offset -> 0.
     if abs(np.sin(theta)) < 1e-6:
-        # Vertical apex: no radial offset.
         radial_offset = 0.0
     else:
         radial_offset = H / np.tan(theta)
 
     apexes = []
     for k in range(N):
-        a = supports[k]
-        b = supports[(k + 1) % N]
         mid_ang = rot + 2.0 * np.pi * (k + 0.5) / float(N)
         mid_r = R + radial_offset
         mx = mid_r * np.cos(mid_ang)
         my = mid_r * np.sin(mid_ang)
         apexes.append(np.array([mx, my, H]))
 
-    # ---- Grid dimensions.
-    # Angular resolution: total number of boundary node slots, one beam
-    # per edge length. Use the beam's own arc length for density.
     if mode == "A":
         K_use = max(1, int(K))
     else:
-        # Average edge length across the N beams.
         lens = []
         for k in range(N):
             a = supports[k]
@@ -326,15 +253,12 @@ def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
         seg_len_avg = avg_len / float(max(1, n_segments))
         K_use = max(1, int(round(seg_len_avg / float(ds))) - 1)
 
-    # Points per beam curve (dense sampling for the initial surface).
     samples_per_beam = 40
-    # Grid resolution: nx around the ring, ny radially inward.
     nx = N * (n_segments + (n_segments - 1) * K_use)
     if nx < 3 * N:
         nx = 3 * N
     ny = max(8, n_segments + 2)
 
-    # ---- Build each beam curve, sampled densely.
     beam_curves = []
     for k in range(N):
         a = supports[k]
@@ -343,30 +267,19 @@ def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
         curve = _build_beam_parabola(a, apex, b, samples_per_beam)
         beam_curves.append(curve)
 
-    # ---- Boundary: concatenate the N beams, skipping duplicated joins.
     boundary_pts = []
     for k in range(N):
         curve = beam_curves[k]
-        # Skip the last point of each beam (it equals the first of the next).
         for p in curve[:-1]:
             boundary_pts.append(p)
     boundary = np.array(boundary_pts, dtype=float)
     anchors = list(range(len(boundary)))
     edge_types = ["beam"] * len(boundary)
 
-    # ---- Initial surface grid: (nx, ny).
-    # i indexes around the ring, j indexes radially inward.
-    # At j = 0, points sit on the boundary (beams).
-    # At j = ny-1, all points converge to the centre.
-    #
-    # Centre is the mean of the supports, at a height derived from the
-    # sag profile. The FDM solve will move it to equilibrium.
     centre_xy = np.mean(np.array(supports), axis=0)
     centre_z_guess = H * (1.0 - sag_fraction)
     centre_pt = np.array([centre_xy[0], centre_xy[1], centre_z_guess])
 
-    # Build the boundary as a resampled ring of nx points for smooth
-    # interpolation from boundary to centre.
     boundary_ring = _resample_polyline(
         np.vstack((boundary, boundary[0:1])), nx
     )
@@ -376,15 +289,18 @@ def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
         B = boundary_ring[i]
         for j in range(ny):
             v = j / (ny - 1.0)
-            # Linear interpolation from boundary to centre.
             base = B * (1.0 - v) + centre_pt * v
-            # Radial sag: dip the middle of the radial span slightly,
-            # like the lens's sag_fraction.
             sag_profile = 4.0 * v * (1.0 - v)
             base[2] -= sag_fraction * H * sag_profile
             grid[i, j] = base
 
     return grid, boundary, anchors, edge_types
+
+
+# =============================================================================
+# PROTOTYPE LOBE RECIPE
+# =============================================================================
+
 def _build_crown_lobe_prototype(R=8.0, H=6.0,
                                  n_anchors=7, subdivisions=5,
                                  nx=None, ny=12):
@@ -399,8 +315,6 @@ def _build_crown_lobe_prototype(R=8.0, H=6.0,
     Boundary held: only the frame (j=0 row).
     Free: everything else, including D at j=ny-1.
     """
-    import numpy as np
-
     R = float(R)
     H = float(H)
 
@@ -443,15 +357,17 @@ def _build_crown_lobe_prototype(R=8.0, H=6.0,
     return grid, boundary, anchors, edge_types
 
 
-
 # ---- Registry -------------------------------------------------------------
-# The Tester reads this dict. Add new shapes here.
 
 SHAPE_RECIPES = {
     "Lens": _build_lens_recipe,
     "Triangle": _build_triangle_recipe,
     "Crown": _build_crown_recipe,
+    "Prototype-Lobe": _build_crown_lobe_prototype,
 }
+
+
+
 
 
 # =============================================================================
@@ -530,11 +446,6 @@ def _compute_tri_areas(coords, tris):
 
 
 def _build_per_edge_q(edges, ny, warp_q, weft_q):
-    """
-    Build a per-edge q array from warp and weft.
-    An edge connects nodes in different i-columns -> warp.
-    Otherwise -> weft.
-    """
     q = np.zeros(len(edges))
     for k, (a, b) in enumerate(edges):
         ia = a // ny
@@ -547,7 +458,6 @@ def _build_per_edge_q(edges, ny, warp_q, weft_q):
 
 
 def _compute_focal_point(boundary_nodes, coords, ny):
-    """Focal point: centroid of boundary in x-y, solved z at that (x,y)."""
     if len(boundary_nodes) == 0:
         return (0.0, 0.0, 0.0)
     cx = float(np.mean(boundary_nodes[:, 0]))
@@ -559,12 +469,6 @@ def _compute_focal_point(boundary_nodes, coords, ny):
     cz = float(coords[k, 2])
     return (cx, cy, cz)
 
-
-
-
-# =============================================================================
-# RENDER: DEBUG OUTPUT
-# =============================================================================
 
 def _render_debug(initial_points, coords, tris, nx, ny, skip_u=6):
     with st.expander("DIGITISED OUTPUT - COPY THIS", expanded=False):
@@ -621,10 +525,6 @@ def _render_debug(initial_points, coords, tris, nx, ny, skip_u=6):
                  % int(np.sum(areas >= 1e-6)))
 
 
-# =============================================================================
-# RENDER: HEADER
-# =============================================================================
-
 def _render_header():
     st.markdown(
         '<div style="background-color:#1f2a3a;border-left:4px solid #3498db;'
@@ -639,10 +539,6 @@ def _render_header():
         unsafe_allow_html=True,
     )
 
-
-# =============================================================================
-# RENDER: SHAPE CONTROLS
-# =============================================================================
 
 def _render_shape_controls():
     st.markdown("#### Shape")
@@ -693,23 +589,15 @@ def _render_shape_controls():
     return shape_name, int(n_segments), mode_key, int(K_val), float(ds_val)
 
 
-# =============================================================================
-# RENDER: SHAPE-SPECIFIC INPUTS
-# =============================================================================
+def _render_cor,ner_inputs ((shape_name):
+label    params = {}
 
-def _render_corner_inputs(shape_name):
-    """
-    Shape-specific inputs. Returns a dict of parameters keyed by
-    the shape name. Empty for shapes with no user-editable inputs.
-    """
-    params = {}
-
-    if shape_name == "Triangle":
-        st.markdown("#### Triangle corners (user-editable)")
+    if shape_name == ",Triangle":
+        st.markdown("#### Triangle corners d (user-editable)")
         cols = st.columns(3)
         labels = ["A", "B", "C"]
         defaults = [TRI_A_DEFAULT, TRI_B_DEFAULT, TRI_C_DEFAULT]
-        for c, (label, dflt) in zip(cols, zip(labels, defaults)):
+        for cflt) in zip(cols, zip(labels, defaults)):
             with c:
                 st.markdown("**Corner %s**" % label)
                 x = st.number_input("x", value=float(dflt[0]),
@@ -769,8 +657,7 @@ def _render_corner_inputs(shape_name):
                 value=CROWN_CENTRE_RADIUS_DEFAULT,
                 step=0.1, format="%.2f",
                 key="mbs_crown_centre_r",
-                help="0 = centre is a free point. >0 reserved "
-                     "for future centre-opening support.",
+                help="0 = centre is a free point.",
             )
 
         params["R"] = float(R)
@@ -782,10 +669,6 @@ def _render_corner_inputs(shape_name):
 
     return params
 
-
-# =============================================================================
-# RENDER: PRESTRESS + MODE
-# =============================================================================
 
 def _render_tuning_windows():
     st.markdown("#### Prestress tuning (kN/m)")
@@ -839,10 +722,6 @@ def _render_mode_toggles():
         )
 
 
-# =============================================================================
-# MAIN RENDER
-# =============================================================================
-
 def render_tester_mbs():
     _render_header()
 
@@ -893,6 +772,8 @@ def render_tester_mbs():
                         ds=ds_val,
                         centre_radius=params["centre_radius"],
                     )
+                elif shape_name == "Prototype-Lobe":
+                    grid, boundary, anchors, etypes = _build_crown_lobe_prototype()
                 else:
                     st.error("Shape not implemented: %s" % shape_name)
                     return
@@ -915,6 +796,8 @@ def render_tester_mbs():
 
                 if shape_name == "Crown":
                     held_edges = ["i_min", "i_max", "j_min"]
+                elif shape_name == "Prototype-Lobe":
+                    held_edges = ["j_min"]
                 else:
                     held_edges = None
 
@@ -991,8 +874,6 @@ def render_tester_mbs():
 # =============================================================================
 # END OF ui/workshops/tester_mbs.py
 # =============================================================================
-
-
 
 
 
