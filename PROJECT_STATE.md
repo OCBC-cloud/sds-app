@@ -5,7 +5,7 @@ Then read PROJECT_CONSTITUTION.md for the doctrines.
 Then read PROJECT_VISION.md for the destination.
 Then read FILE_INVENTORY.md for what exists.
 
-Last updated: 2026-09-25.
+Last updated: 2026-09-26.
 Branch: modular-v10.
 App URL: sds-modular-preview.streamlit.app.
 
