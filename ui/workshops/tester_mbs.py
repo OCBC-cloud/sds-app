@@ -230,8 +230,6 @@ def _build_triangle_recipe(corner_A, corner_B, corner_C,
     return grid, boundary, anchors, edge_types
 
 
-
-
 # =============================================================================
 # CROWN RECIPE
 # =============================================================================
