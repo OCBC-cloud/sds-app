@@ -653,6 +653,7 @@ SHAPE_RECIPES = {
     "Triangle": _build_triangle_recipe,
     "Crown": _build_crown_recipe,
     "Prototype-Lobe": _build_crown_lobe_prototype,
+    "Crown-3Lobe": _build_crown_three_lobe,
 }
 
 
