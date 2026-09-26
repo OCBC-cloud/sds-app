@@ -597,7 +597,7 @@ def _render_corner_inputs(shape_name):
         cols = st.columns(3)
         labels = ["A", "B", "C"]
         defaults = [TRI_A_DEFAULT, TRI_B_DEFAULT, TRI_C_DEFAULT]
-        for cflt) in zip(cols, zip(labels, defaults)):
+        for c, (label, dflt) in zip(cols, zip(labels, defaults)):
             with c:
                 st.markdown("**Corner %s**" % label)
                 x = st.number_input("x", value=float(dflt[0]),
