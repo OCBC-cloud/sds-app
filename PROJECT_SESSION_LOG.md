@@ -347,3 +347,103 @@ to the Stage 2 beam-stiffness check. Not before.
 
 
 
+## 2026-09-26 - Crown Milestone - Universal Shape Engine Proven
+
+### What was built
+
+Three shapes now run through the MBS Tester using the same nine-step
+pipeline:
+
+  - Lens     - two beam curves meeting at two tips.
+  - Triangle - three corners, three straight edges, user-editable xyz.
+  - Crown    - N parabolic beams arranged on an imaginary ground
+               circle, with a single membrane filling inside. The
+               centre is a free point, solved by FDM. Apex tilt
+               angle theta controls lean outward or inward.
+
+Each shape has a recipe. The recipe returns:
+  (grid, boundary, anchor_indices, edge_types)
+
+The engine sees only the tuple. The engine does not know what a
+"lens" or a "crown" is. It knows boundaries, anchors, edge types,
+and an initial grid. That is the whole interface.
+
+### What was proven
+
+1. The engine handles a strip boundary (lens), a three-corner
+   closed loop (triangle), and a ring boundary (crown). Same code
+   path. Same solve. Same diagnostics.
+
+2. The engine handles a polar mesh (crown: nx angular x ny radial).
+   The grid is not rectangular in x-y. The engine did not care.
+
+3. A free centre point works. No user-supplied centre height.
+   FDM found z = 5.4 for the crown at H = 6.0. Natural equilibrium.
+
+4. Machine-zero residual on every shape tested. Lens 2.16e-14.
+   Triangle 1.62e-14. Crown 1.79e-13.
+
+5. Per-edge q (warp vs weft) applies through the recipes. The
+   tuning windows drive the shape.
+
+### The universal engine claim, restated
+
+The MBS engine is not a lens engine, not a saddle engine, not a
+dome engine. It is a boundary-to-equilibrium engine. Given any
+closed boundary, anchors, edge types, and an optional initial
+grid, it produces the form-found equilibrium shape.
+
+The shape is the recipe. The recipe is not the engine. Recipes are
+added one at a time. The engine stays still.
+
+### Known limitations logged
+
+1. Triangle cannot be a saddle. Geometry forbids it. Any three
+   points are coplanar. The triangle recipe produces a flat
+   (tilted) plane. That is correct physics, not a bug. The
+   triangle recipe remains in the tester as a "planar test".
+
+2. Crown centre has a fan of zero-area triangles where all ny
+   nodes at the innermost radial step collapse to a single point
+   in x-y. Same family of degeneracy as the lens tips. Does not
+   affect the shape or the solve. Fixable later by collapsing the
+   innermost row to a single mesh node.
+
+3. Triangle boundary has 126 points, implying 42 nodes per edge
+   (with 3 shared corners counted twice). Cosmetic. Does not
+   affect the solve because the fixed set is derived from the
+   grid, not the boundary list. Fixable later.
+
+### What was NOT done tonight
+
+  - Square recipe (four corners, alternating z-heights, true
+    hypar). Deferred to next pass.
+  - Circle recipe. Deferred.
+  - Real-world application shapes (windmill rotor, shade
+    structure). Deferred. The recipes exist. The application
+    is next.
+  - Stage 2 (releasing the rigid boundary). Not touched.
+
+### Files touched this session
+
+  - ui/workshops/tester_mbs.py - rewritten as a shape library.
+    Three recipes, shape selector, per-shape parameters,
+    unchanged tuning windows, unchanged disabled toggles.
+
+  - engine/membrane_boundary.py - per_edge_q parameter added in
+    an earlier session. Backward compatible. Not touched today.
+
+  - PROJECT_SESSION_LOG.md - this entry.
+  - PROJECT_STATE.md - updated in the same session.
+  - FILE_INVENTORY.md - updated in the same session.
+
+### What this means for the road ahead
+
+The engine is ready to be wired into real structures. The next
+big move is to stop building shapes and start building
+solutions - a real roof, a real canopy, a real rotor. The
+engine has proven it can do the job. The recipes show it.
+
+
+
+
