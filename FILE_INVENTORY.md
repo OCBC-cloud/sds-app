@@ -259,8 +259,11 @@ One file per variant. Each defines a render_*() function.
     ACTIVE.
 
 - tester_mbs.py
-    MBS engine tester. Temporary. Runs the MBS engine on a
-    small saddle and displays diagnostics. Experimental.
+    - tester_mbs.py
+    Shape laboratory. Three shape recipes (Lens, Triangle,
+    Crown) built on the MBS engine. Same nine-step pipeline
+    for every shape. User supplies corners or parameters;
+    engine derives everything else. Experimental.
     ACTIVE (temporary).
 
 ---
