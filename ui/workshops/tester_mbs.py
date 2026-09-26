@@ -1,27 +1,24 @@
 # =============================================================================
 # SDSe Fluid Design Studio - MBS Tester Workshop
 # =============================================================================
-# Temporary research page. Tests the Membrane Boundary Schema engine.
+# Temporary research page. Tests the Membrane Boundary Schema engine
+# across multiple shapes using the same nine-step pipeline.
 #
-# Two tests:
-#   Test 1 - Square boundary. Four corners.
-#   Test 2 - Lens boundary. Built with engine/membrane_surface.py
-#            using anchor + subdivision density.
+# Doctrine (2026-09-26):
+#   - The user supplies corners only. The engine derives everything
+#     else: edge nodes, interior grid, mesh, solve.
+#   - Segments N is the user's number of segments. Not converted.
+#   - Mesh density is Mode A (fixed K) or Mode B (target ds metres).
+#   - Focal point = centroid of boundary nodes in x-y, solved z.
+#   - Every boundary node is held rigid (Stage 1 doctrine).
+#   - Same parameters on every shape. Only the boundary changes.
 #
-# K = 5 subdivisions per anchor segment. With 7 anchors, that is
-# n_u = 7 + 6*5 = 37 nodes along the beam. This decouples the
-# structural anchor count from the mesh density, so the mesh
-# samples the beam curvature accurately.
+# Shapes implemented in this file:
+#   Lens      - two beam curves meeting at two tips (existing recipe).
+#   Triangle  - three corners, three edges, user-editable corner xyz.
 #
-# Anisotropic prestress:
-#   Warp runs along the beam (i-direction).
-#   Weft runs across the width (j-direction).
-#   A per-edge q array is built from the two tuning windows
-#   above the 3D view and passed to build_and_solve.
-#
-# Modes not yet supported (visible, disabled):
-#   Beam / Cable boundary toggle - awaiting engine support.
-#   Rigid / Flexible boundary toggle - Stage 2, not yet built.
+# Shapes deferred to later passes:
+#   Square, Circle.
 #
 # Status: EXPERIMENTAL.
 # =============================================================================
@@ -30,44 +27,107 @@ import numpy as np
 import streamlit as st
 
 
-# ---- Mesh density controls ------------------------------------------------
-ANCHORS_PER_BEAM = 7
-SUBDIVISIONS_PER_SEGMENT = 5
-NODES_ACROSS = 8
+# ---- Defaults -------------------------------------------------------------
+DEFAULT_SEGMENTS = 7
+DEFAULT_K = 5
+DEFAULT_DS = 0.5
+DEFAULT_WARP_Q = 2.0
+DEFAULT_WEFT_Q = 2.0
+
+# ---- Lens recipe constants (unchanged from prior version) ----------------
+LENS_SPAN = 3.0
+LENS_APEX_WIDTH = 4.0
+LENS_RISE = 1.5
+LENS_SAG_FRACTION = 0.10
+
+# ---- Triangle defaults ----------------------------------------------------
+TRI_A_DEFAULT = (-1.5, -1.5, 0.0)
+TRI_B_DEFAULT = ( 1.5, -1.5, 0.0)
+TRI_C_DEFAULT = ( 0.0,  1.5, 1.5)
 
 
-def _build_square_boundary():
-    corners = np.array([
-        [-1.5, -1.5, 0.0],
-        [ 1.5, -1.5, 0.0],
-        [ 1.5,  1.5, 2.0],
-        [-1.5,  1.5, 2.0],
-    ], dtype=float)
-    anchor_indices = [0, 1, 2, 3]
-    edge_types = ["cable", "cable", "cable", "cable"]
-    return corners, anchor_indices, edge_types
+# =============================================================================
+# MESH DENSITY HELPERS
+# =============================================================================
 
-
-def _build_lens_surface(nx, ny, n_beam_samples=400):
+def _nodes_per_edge(n_segments, edge_length, mode, K, ds):
     """
-    Build the lens surface and boundary. Returns
-    (initial_points, boundary, anchor_indices, edge_types).
+    Return the total node count along one edge, given the user's
+    segment count N and the mesh density mode.
+
+    The edge is divided into N equal segments. Each segment is then
+    subdivided further according to the mode:
+
+      Mode A (fixed K): each segment has K interior nodes, so K+1
+        sub-intervals per segment.
+      Mode B (target ds): each segment has
+        K_i = max(1, round(segment_length / ds) - 1)
+        interior nodes, derived from the segment length.
+
+    Returns
+    -------
+    n_nodes_total : int
+        Total nodes along the edge, including both endpoints.
+    node_positions : (n_nodes_total,) array
+        Fractions in [0, 1] along the edge where nodes sit.
+    """
+    if n_segments < 1:
+        n_segments = 1
+    seg_len = float(edge_length) / float(n_segments)
+
+    fractions = [0.0]
+    for s in range(n_segments):
+        if mode == "A":
+            K_seg = max(1, int(K))
+        else:
+            K_seg = max(1, int(round(seg_len / float(ds))) - 1)
+
+        # K_seg interior nodes -> K_seg + 1 sub-intervals in the segment.
+        n_sub = K_seg + 1
+        seg_start = s / float(n_segments)
+        for k in range(1, n_sub + 1):
+            fractions.append(seg_start + k * (1.0 / n_segments) / n_sub)
+
+    fractions = np.array(fractions, dtype=float)
+    # Clean up tiny float noise at the endpoint.
+    fractions[-1] = 1.0
+    return len(fractions), fractions
+
+
+# =============================================================================
+# SHAPE RECIPES
+# =============================================================================
+# Every recipe returns the same tuple:
+#
+#   (grid, boundary, anchor_indices, edge_types)
+#
+#   grid          : (nx, ny, 3) initial surface, or None to let TFI run
+#   boundary      : (M, 3) closed loop of 3D points (or strip)
+#   anchor_indices: list of ints, indices into boundary
+#   edge_types    : list of "beam" or "cable", one per anchor
+#
+# The engine treats all shapes identically. Only the recipe differs.
+
+def _build_lens_recipe(n_segments, mode, K, ds):
+    """
+    Build the lens surface and boundary.
+    Uses engine/membrane_surface.py to produce the grid.
+    Uses the arc-length subdivision for the boundary.
     """
     from viewers.figures._shared import beam_curve
     from engine.membrane_surface import build_surface
 
-    span = 3.0
-    apex = 4.0
-    rise = 1.5
-    curve_type = "parabolic"
+    # Use n_anchors = n_segments + 1 (anchors at segment ends).
+    n_anchors = int(n_segments) + 1
+    subdivisions = int(K) if mode == "A" else 5  # lens uses uniform subdiv
+    n_v = 8  # across the width
 
-    x_dense = np.linspace(-span / 2.0, span / 2.0, n_beam_samples)
-    z_dense = beam_curve(x_dense, span, rise, curve_type)
+    x_dense = np.linspace(-LENS_SPAN / 2.0, LENS_SPAN / 2.0, 400)
+    z_dense = beam_curve(x_dense, LENS_SPAN, LENS_RISE, "parabolic")
 
-    base_width = apex * 0.5
-    y_L_dense = -base_width * (1.0 - (2.0 * x_dense / span) ** 2)
-    y_R_dense = base_width * (1.0 - (2.0 * x_dense / span) ** 2)
-
+    base_width = LENS_APEX_WIDTH * 0.5
+    y_L_dense = -base_width * (1.0 - (2.0 * x_dense / LENS_SPAN) ** 2)
+    y_R_dense = base_width * (1.0 - (2.0 * x_dense / LENS_SPAN) ** 2)
     y_L_dense[0] = 0.0
     y_L_dense[-1] = 0.0
     y_R_dense[0] = 0.0
@@ -79,423 +139,117 @@ def _build_lens_surface(nx, ny, n_beam_samples=400):
     grid = build_surface(
         beam_L_points=beam_L,
         beam_R_points=beam_R,
-        n_anchors=ANCHORS_PER_BEAM,
-        subdivisions_per_segment=SUBDIVISIONS_PER_SEGMENT,
-        n_v=ny,
-        sag_fraction=0.10,
+        n_anchors=n_anchors,
+        subdivisions_per_segment=subdivisions,
+        n_v=n_v,
+        sag_fraction=LENS_SAG_FRACTION,
         taper_ends=True,
     )
 
-    boundary_list = []
-    boundary_list.append(grid[0, 0])
+    nx = grid.shape[0]
+    boundary_list = [grid[0, 0]]
     for i in range(1, nx - 1):
         boundary_list.append(grid[i, 0])
     boundary_list.append(grid[nx - 1, 0])
     for i in range(nx - 2, 0, -1):
-        boundary_list.append(grid[i, ny - 1])
+        boundary_list.append(grid[i, n_v - 1])
 
     boundary = np.array(boundary_list, dtype=float)
-    anchor_indices = list(range(len(boundary)))
+    anchors = list(range(len(boundary)))
     edge_types = ["beam"] * len(boundary)
-    return grid, boundary, anchor_indices, edge_types
+    return grid, boundary, anchors, edge_types
 
 
-def _build_triangles(nx, ny):
-    """Return the triangle list as (n_tris, 3) array of node indices."""
-    tri_i, tri_j, tri_k = [], [], []
-    for i in range(nx - 1):
-        for j in range(ny - 1):
-            a = i * ny + j
-            b = (i + 1) * ny + j
-            c = i * ny + (j + 1)
-            d = (i + 1) * ny + (j + 1)
-            tri_i.append(a); tri_j.append(b); tri_k.append(c)
-            tri_i.append(b); tri_j.append(d); tri_k.append(c)
-    return np.column_stack((tri_i, tri_j, tri_k))
-
-
-def _build_per_edge_q(edges, ny, warp_q, weft_q):
+def _build_triangle_recipe(corner_A, corner_B, corner_C,
+                            n_segments, mode, K, ds):
     """
-    Build a per-edge q array from warp and weft force densities.
+    Build a triangle boundary and a barycentric interior grid.
 
-    warp_q  : q for edges running along the beam (i-direction).
-    weft_q  : q for edges running across the width (j-direction).
+    corner_A, corner_B, corner_C : (3,) tuples (x, y, z), user-editable.
+    n_segments : int, segments per edge.
+    mode       : "A" or "B"
+    K, ds      : mesh density parameters.
     """
-    q = np.zeros(len(edges))
-    for k, (a, b) in enumerate(edges):
-        ia = a // ny
-        ib = b // ny
-        if ia != ib:
-            q[k] = float(warp_q)
-        else:
-            q[k] = float(weft_q)
-    return q
+    corners = [np.asarray(corner_A, dtype=float),
+               np.asarray(corner_B, dtype=float),
+               np.asarray(corner_C, dtype=float)]
 
+    # ---- Build the boundary loop: A -> B -> C -> (back to A).
+    boundary_pts = []
+    anchor_idx_per_corner = []
 
-def _render_mesh_view(coords, tris, title):
-    try:
-        import plotly.graph_objects as go
+    for e in range(3):
+        p0 = corners[e]
+        p1 = corners[(e + 1) % 3]
+        edge_length = float(np.linalg.norm(p1 - p0))
 
-        xyz_min = coords.min(axis=0)
-        xyz_max = coords.max(axis=0)
-        xyz_mid = (xyz_min + xyz_max) / 2.0
-        span = float(max(xyz_max - xyz_min))
-        pad = span * 0.15
-        xr = [float(xyz_mid[0] - span / 2 - pad),
-              float(xyz_mid[0] + span / 2 + pad)]
-        yr = [float(xyz_mid[1] - span / 2 - pad),
-              float(xyz_mid[1] + span / 2 + pad)]
-        zr = [float(xyz_mid[2] - span / 2 - pad),
-              float(xyz_mid[2] + span / 2 + pad)]
-
-        fig = go.Figure()
-        fig.add_trace(go.Mesh3d(
-            x=coords[:, 0], y=coords[:, 1], z=coords[:, 2],
-            i=tris[:, 0], j=tris[:, 1], k=tris[:, 2],
-            color="#4a7a9c", opacity=0.9, flatshading=False,
-            showscale=False,
-            lighting=dict(ambient=0.6, diffuse=0.9,
-                          specular=0.2, roughness=0.5),
-        ))
-        fig.update_layout(
-            title=dict(text=title, font=dict(color="#c8d4e0", size=13)),
-            scene=dict(
-                xaxis=dict(title="X (m)", gridcolor="#333",
-                           color="#888", range=xr, autorange=False),
-                yaxis=dict(title="Y (m)", gridcolor="#333",
-                           color="#888", range=yr, autorange=False),
-                zaxis=dict(title="Z (m)", gridcolor="#333",
-                           color="#888", range=zr, autorange=False),
-                aspectmode="cube", bgcolor="#0e1117",
-                camera=dict(eye=dict(x=1.6, y=1.6, z=1.2)),
-            ),
-            paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
-            font=dict(color="#ccc", size=11),
-            height=480, margin=dict(l=0, r=0, b=0, t=30),
-            showlegend=False,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.error("Could not render the 3D view:")
-        st.code(str(e), language="text")
-
-
-def _compute_tri_areas(coords, tris):
-    areas = np.zeros(len(tris))
-    for k, tri in enumerate(tris):
-        p0 = coords[tri[0]]
-        p1 = coords[tri[1]]
-        p2 = coords[tri[2]]
-        areas[k] = 0.5 * float(np.linalg.norm(np.cross(p1 - p0, p2 - p0)))
-    return areas
-
-
-def _render_debug(initial_points, coords, tris, nx, ny,
-                  skip_u=6):
-    """
-    Digitised debug output.
-
-    skip_u : print only every skip_u-th column along the beam.
-             Keeps the output manageable with the denser mesh.
-             All columns across the width are always printed.
-    """
-    with st.expander("DIGITISED OUTPUT - COPY THIS", expanded=False):
-        flat0 = initial_points.reshape(-1, 3)
-
-        st.markdown("#### Initial grid coordinates "
-                    "(every %d th column along beam)" % skip_u)
-        lines = []
-        for i in range(0, nx, skip_u):
-            for j in range(ny):
-                k = i * ny + j
-                lines.append(
-                    "node %3d  (i=%2d,j=%2d)  x=%+9.5f  y=%+9.5f  z=%+9.5f"
-                    % (k, i, j, flat0[k, 0], flat0[k, 1], flat0[k, 2])
-                )
-        st.code("\n".join(lines), language="text")
-
-        st.markdown("#### Solved coordinates "
-                    "(every %d th column along beam)" % skip_u)
-        lines = []
-        for i in range(0, nx, skip_u):
-            for j in range(ny):
-                k = i * ny + j
-                lines.append(
-                    "node %3d  (i=%2d,j=%2d)  x=%+9.5f  y=%+9.5f  z=%+9.5f"
-                    % (k, i, j, coords[k, 0], coords[k, 1], coords[k, 2])
-                )
-        st.code("\n".join(lines), language="text")
-
-        st.markdown("#### Displacement per node "
-                    "(every %d th column along beam)" % skip_u)
-        lines = []
-        disp = np.linalg.norm(coords - flat0, axis=1)
-        for i in range(0, nx, skip_u):
-            for j in range(ny):
-                k = i * ny + j
-                lines.append(
-                    "node %3d  (i=%2d,j=%2d)  disp=%9.5f"
-                    % (k, i, j, disp[k])
-                )
-        st.code("\n".join(lines), language="text")
-
-        st.markdown("#### Summary")
-        areas = _compute_tri_areas(coords, tris)
-        st.write("Total triangles: %d" % len(tris))
-        st.write("Minimum area: %.8e" % float(areas.min()))
-        st.write("Maximum area: %.8e" % float(areas.max()))
-        st.write("Mean area: %.8e" % float(areas.mean()))
-        st.write("Zero-area count (< 1e-10): %d"
-                 % int(np.sum(areas < 1e-10)))
-        st.write("Near-zero count (< 1e-6): %d"
-                 % int(np.sum(areas < 1e-6)))
-        st.write("Positive count (>= 1e-6): %d"
-                 % int(np.sum(areas >= 1e-6)))
-
-
-def _render_tuning_windows(default_warp=2.0, default_weft=2.0):
-    """
-    Three tuning inputs, directly above the 3D view.
-    Warp and weft are live. Beam/Cable is reserved, disabled.
-    """
-    st.markdown("#### Prestress tuning (kN/m)")
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        warp_q = st.number_input(
-            "Warp (along beam)",
-            min_value=0.01, max_value=50.0, value=float(default_warp),
-            step=0.1, format="%.2f",
-            key="mbs_warp_q",
-        )
-    with c2:
-        weft_q = st.number_input(
-            "Weft (across)",
-            min_value=0.01, max_value=50.0, value=float(default_weft),
-            step=0.1, format="%.2f",
-            key="mbs_weft_q",
-        )
-    with c3:
-        beam_cable_q = st.number_input(
-            "Beam / Cable (reserved)",
-            min_value=0.01, max_value=50.0, value=5.0,
-            step=0.1, format="%.2f",
-            key="mbs_beam_cable_q",
-            disabled=True,
-            help="Reserved. Awaiting engine support for "
-                 "beam/cable boundary modes.",
+        n_nodes, fractions = _nodes_per_edge(
+            n_segments, edge_length, mode, K, ds
         )
 
-    return warp_q, weft_q, beam_cable_q
+        # Record the corner where this edge starts.
+        anchor_idx_per_corner.append(len(boundary_pts))
+
+        for f in fractions[:-1]:  # exclude the last (start of next edge)
+            boundary_pts.append(p0 * (1.0 - f) + p1 * f)
+
+    boundary = np.array(boundary_pts, dtype=float)
+
+    # Every boundary node is held (Stage 1 doctrine: full rigid perimeter).
+    anchors = list(range(len(boundary)))
+    edge_types = ["beam"] * len(boundary)
+
+    # ---- Interior grid: barycentric fill.
+    # Resolution matches the boundary roughly.
+    n_boundary = len(boundary)
+    n_grid = max(21, n_boundary)
+    nx = n_grid
+    ny = n_grid
+
+    # Find the mean of the corners as the interior collapse point.
+    centroid = (corners[0] + corners[1] + corners[2]) / 3.0
+
+    # Bilinear grid: for grid index (i, j) in [0, 1] x [0, 1],
+    # place a point between centroid and boundary via a radial mapping.
+    grid = np.zeros((nx, ny, 3))
+    for i in range(nx):
+        u = i / (nx - 1.0)
+        for j in range(ny):
+            v = j / (ny - 1.0)
+
+            # Weights that map (u, v) to a point inside the triangle.
+            # Use a simple scheme: barycentric coordinates from (u, v).
+            # Points (u,v): (0,0) -> corner A; (1,0) -> corner B;
+            # (0,1) -> corner C. Any other (u,v) inside unit square
+            # clamps to a barycentric interior point.
+            wA = max(0.0, 1.0 - u - v)
+            wB = max(0.0, u)
+            wC = max(0.0, v)
+            total = wA + wB + wC
+            if total < 1e-9:
+                wA, wB, wC = 1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0
+            else:
+                wA /= total
+                wB /= total
+                wC /= total
+
+            pt = wA * corners[0] + wB * corners[1] + wC * corners[2]
+            grid[i, j] = pt
+
+    return grid, boundary, anchors, edge_types
 
 
-def _render_mode_toggles():
-    """
-    Mode toggles. Both are currently locked because the engine
-    does not yet support the corresponding modes.
-    """
-    st.markdown("#### Boundary mode")
-    m1, m2 = st.columns(2)
-    with m1:
-        st.selectbox(
-            "Beam / Cable",
-            options=["Beam (rigid)", "Cable (tensioned)"],
-            index=0,
-            key="mbs_mode_beam_cable",
-            disabled=True,
-            help="Awaiting engine support. Not yet active.",
-        )
-    with m2:
-        st.selectbox(
-            "Rigid / Flexible",
-            options=["Rigid (Stage 1)", "Flexible (Stage 2)"],
-            index=0,
-            key="mbs_mode_rigid_flex",
-            disabled=True,
-            help="Flexible boundary is Stage 2. Not yet built.",
-        )
+# ---- Registry -------------------------------------------------------------
+# The Tester reads this dict. Add new shapes here.
 
-
-def _render_tester_header():
-    st.markdown(
-        '<div style="background-color:#1f2a3a;border-left:4px solid #3498db;'
-        'border-radius:8px;padding:1rem;margin-bottom:1.2rem;">'
-        '<div style="color:#3498db;font-weight:700;font-size:1.05rem;'
-        'margin-bottom:0.3rem;">EXPERIMENTAL - MBS TESTER</div>'
-        '<div style="color:#c8d4e0;font-size:0.9rem;line-height:1.5;">'
-        'Mesh density decoupled from anchor count. '
-        'Anchors=%d. Subdivisions=%d. Nodes along beam=%d.'
-        '</div></div>'
-        % (ANCHORS_PER_BEAM, SUBDIVISIONS_PER_SEGMENT,
-           ANCHORS_PER_BEAM + (ANCHORS_PER_BEAM - 1) * SUBDIVISIONS_PER_SEGMENT),
-        unsafe_allow_html=True,
-    )
-
-
-def render_tester_mbs():
-    _render_tester_header()
-
-    try:
-        from engine.membrane_boundary import build_and_solve
-    except Exception as e:
-        st.error("Could not load the MBS engine.")
-        st.code(str(e), language="text")
-        if st.button("Back to Landing", use_container_width=True,
-                     key="mbs_back_import_fail"):
-            st.session_state.page = "landing"
-            st.rerun()
-        return
-
-    nx = ANCHORS_PER_BEAM + (ANCHORS_PER_BEAM - 1) * SUBDIVISIONS_PER_SEGMENT
-    ny = NODES_ACROSS
-
-    # ---- Tuning windows (live) and mode toggles (locked).
-    warp_q, weft_q, _beam_cable_q = _render_tuning_windows()
-    _render_mode_toggles()
-
-    st.markdown("---")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        run_square = st.button(
-            "Run square (4 corners)",
-            type="primary", use_container_width=True,
-            key="mbs_run_square",
-        )
-    with col2:
-        run_lens = st.button(
-            "Run lens (surface engine)",
-            type="primary", use_container_width=True,
-            key="mbs_run_lens",
-        )
-
-    if run_square:
-        with st.spinner("Building square mesh..."):
-            try:
-                boundary, anchors, etypes = _build_square_boundary()
-                result = build_and_solve(
-                    boundary=boundary,
-                    anchor_indices=anchors,
-                    edge_types=etypes,
-                    nx=nx, ny=ny,
-                    membrane_q=1.0, cable_q=5.0,
-                )
-                st.session_state["mbs_square"] = {
-                    "result": result, "boundary": boundary,
-                    "initial": result["mesh"]["points"].copy(),
-                }
-            except Exception as e:
-                st.error("Square test raised an error:")
-                st.code(str(e), language="text")
-
-    if run_lens:
-        with st.spinner("Building lens surface and mesh..."):
-            try:
-                grid, boundary, anchors, etypes = _build_lens_surface(
-                    nx=nx, ny=ny)
-
-                # ---- Build per-edge q from warp and weft.
-                # Edge direction is decided by whether the two
-                # node indices differ in their i coordinate.
-                # Build a temporary mesh to know the edges.
-                from engine.membrane_boundary import build_mesh
-                mesh_preview = build_mesh(
-                    boundary=boundary,
-                    anchor_indices=anchors,
-                    edge_types=etypes,
-                    nx=nx, ny=ny,
-                    membrane_q=1.0, cable_q=1.0,
-                    initial_points=grid,
-                )
-                per_edge_q = _build_per_edge_q(
-                    mesh_preview["edges"], ny,
-                    warp_q=warp_q, weft_q=weft_q,
-                )
-
-                result = build_and_solve(
-                    boundary=boundary,
-                    anchor_indices=anchors,
-                    edge_types=etypes,
-                    nx=nx, ny=ny,
-                    membrane_q=1.0, cable_q=1.0,
-                    initial_points=grid,
-                    per_edge_q=per_edge_q,
-                )
-                st.session_state["mbs_lens"] = {
-                    "result": result, "boundary": boundary,
-                    "initial": grid.reshape(-1, 3).copy(),
-                }
-            except Exception as e:
-                st.error("Lens test raised an error:")
-                st.code(str(e), language="text")
-
-    has_square = "mbs_square" in st.session_state
-    has_lens = "mbs_lens" in st.session_state
-
-    if not has_square and not has_lens:
-        st.info("Tap one of the buttons above to run a test.")
-        if st.button("Back to Landing", use_container_width=True,
-                     key="mbs_back_noresult"):
-            st.session_state.page = "landing"
-            st.rerun()
-        return
-
-    tris = _build_triangles(nx, ny)
-
-    if has_lens:
-        st.markdown("### Test 2 - Lens (surface engine)")
-        entry = st.session_state["mbs_lens"]
-        result = entry["result"]
-        boundary = entry["boundary"]
-        initial = entry["initial"]
-        coords = result["coordinates"]
-
-        _render_mesh_view(coords, tris, "Lens boundary - MBS result")
-
-        m = result["mesh"]["diagnostics"]
-        s = result["solve_result"]
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Nodes", m["n_nodes"])
-        c2.metric("Edges", m["n_edges"])
-        c3.metric("Fixed", m["n_fixed"])
-        c4.metric("Free", m["n_free"])
-        d1, d2 = st.columns(2)
-        d1.metric("FDM residual", "%.4e" % s["residual_norm"])
-        d2.metric("Boundary points", len(boundary))
-
-        _render_debug(initial, coords, tris, nx, ny, skip_u=6)
-
-    if has_square:
-        st.markdown("### Test 1 - Square (4 corners)")
-        entry = st.session_state["mbs_square"]
-        result = entry["result"]
-        boundary = entry["boundary"]
-        initial = entry["initial"]
-        coords = result["coordinates"]
-
-        _render_mesh_view(coords, tris, "Square boundary - MBS result")
-
-        m = result["mesh"]["diagnostics"]
-        s = result["solve_result"]
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Nodes", m["n_nodes"])
-        c2.metric("Edges", m["n_edges"])
-        c3.metric("Fixed", m["n_fixed"])
-        c4.metric("Free", m["n_free"])
-        d1, d2 = st.columns(2)
-        d1.metric("FDM residual", "%.4e" % s["residual_norm"])
-        d2.metric("Boundary points", len(boundary))
-
-        _render_debug(initial, coords, tris, nx, ny, skip_u=6)
-
-    if st.button("Back to Landing", use_container_width=True,
-                 key="mbs_back_bottom"):
-        st.session_state.page = "landing"
-        st.rerun()
+SHAPE_RECIPES = {
+    "Lens": _build_lens_recipe,
+    "Triangle": _build_triangle_recipe,
+}
 
 
 # =============================================================================
-# END OF ui/workshops/tester_mbs.py
+# END OF PART 1
 # =============================================================================
 
 
