@@ -169,6 +169,12 @@ def _build_triangle_recipe(corner_A, corner_B, corner_C,
     n_segments : int, segments per edge.
     mode       : "A" or "B"
     K, ds      : mesh density parameters.
+
+    The interior grid size follows the same rule as the lens:
+        nx = n_segments + (n_segments - 1) * K_use + 1
+        ny = 8
+    so the mesh stays small (comparable to the lens) regardless of
+    how many boundary nodes the segment count produces.
     """
     corners = [np.asarray(corner_A, dtype=float),
                np.asarray(corner_B, dtype=float),
@@ -176,7 +182,6 @@ def _build_triangle_recipe(corner_A, corner_B, corner_C,
 
     # ---- Build the boundary loop: A -> B -> C -> (back to A).
     boundary_pts = []
-    anchor_idx_per_corner = []
 
     for e in range(3):
         p0 = corners[e]
@@ -187,9 +192,6 @@ def _build_triangle_recipe(corner_A, corner_B, corner_C,
             n_segments, edge_length, mode, K, ds
         )
 
-        # Record the corner where this edge starts.
-        anchor_idx_per_corner.append(len(boundary_pts))
-
         for f in fractions[:-1]:  # exclude the last (start of next edge)
             boundary_pts.append(p0 * (1.0 - f) + p1 * f)
 
@@ -199,29 +201,30 @@ def _build_triangle_recipe(corner_A, corner_B, corner_C,
     anchors = list(range(len(boundary)))
     edge_types = ["beam"] * len(boundary)
 
-    # ---- Interior grid: barycentric fill.
-    # Resolution matches the boundary roughly.
-    n_boundary = len(boundary)
-    n_grid = max(21, n_boundary)
-    nx = n_grid
-    ny = n_grid
+    # ---- Interior grid size: same rule as the lens.
+    if mode == "A":
+        K_use = max(1, int(K))
+    else:
+        # Mode B: derive K from the average segment length.
+        lengths = [float(np.linalg.norm(corners[(e + 1) % 3] - corners[e]))
+                   for e in range(3)]
+        avg_len = float(np.mean(lengths))
+        seg_len_avg = avg_len / float(max(1, n_segments))
+        K_use = max(1, int(round(seg_len_avg / float(ds))) - 1)
 
-    # Find the mean of the corners as the interior collapse point.
-    centroid = (corners[0] + corners[1] + corners[2]) / 3.0
+    nx = n_segments + (n_segments - 1) * K_use + 1
+    ny = 8
 
-    # Bilinear grid: for grid index (i, j) in [0, 1] x [0, 1],
-    # place a point between centroid and boundary via a radial mapping.
+    # ---- Barycentric fill of the (nx, ny) grid inside the triangle.
+    # Map (u, v) in [0, 1] x [0, 1] to a point inside the triangle.
+    # Points: (0,0) -> A; (1,0) -> B; (0,1) -> C.
+    # Any (u, v) with u + v > 1 clamps to the edge BC.
     grid = np.zeros((nx, ny, 3))
     for i in range(nx):
         u = i / (nx - 1.0)
         for j in range(ny):
             v = j / (ny - 1.0)
 
-            # Weights that map (u, v) to a point inside the triangle.
-            # Use a simple scheme: barycentric coordinates from (u, v).
-            # Points (u,v): (0,0) -> corner A; (1,0) -> corner B;
-            # (0,1) -> corner C. Any other (u,v) inside unit square
-            # clamps to a barycentric interior point.
             wA = max(0.0, 1.0 - u - v)
             wB = max(0.0, u)
             wC = max(0.0, v)
@@ -248,13 +251,6 @@ SHAPE_RECIPES = {
 }
 
 
-# =============================================================================
-# END OF PART 1
-# =============================================================================
-
-# =============================================================================
-# PART 2 - RENDER
-# =============================================================================
 
 def _render_mesh_view(coords, tris, title):
     try:
