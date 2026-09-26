@@ -27,8 +27,25 @@ The Landing page currently has two buttons:
   Enter The Studio
   Open MBS Tester (experimental)
 
-The MBS Tester is a temporary research page. It calls the
-MBS engine, solves with FDM, and displays diagnostics.
+## 1.1 The MBS Tester (shape laboratory)
+
+`ui/workshops/tester_mbs.py` is a shape laboratory, not a lens tester.
+It proves the MBS engine works on any shape.
+
+Three shapes are implemented:
+  - Lens     - two beam curves meeting at two tips.
+  - Triangle - three corners, three edges, user-editable xyz.
+  - Crown    - N parabolic beams on an imaginary ground circle,
+               with a single membrane inside. Centre solved by FDM.
+
+Each shape is a recipe. Each recipe returns the same tuple
+(grid, boundary, anchor_indices, edge_types). The engine does
+not know what a "lens" or a "crown" is. It knows boundaries,
+anchors, edge types, and an optional initial grid.
+
+Status as of 2026-09-26: three shapes, all clean, all machine-
+zero residual. The engine is universal. The recipe pattern is
+proven.
 
 ---
 
