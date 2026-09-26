@@ -354,7 +354,296 @@ def _build_crown_lobe_prototype(R=8.0, H=6.0,
     anchors = list(range(len(boundary)))
     edge_types = ["beam"] * len(boundary)
 
-    return grid, boundary, anchors, edge_types
+    return grid, boundary, anchors, # =============================================================================
+# THREE-LOBE CROWN RECIPE
+# =============================================================================
+# Builds three separate lobe meshes, merges their shared nodes, and
+# returns a single (points, edges, fixed_indices, q, triangles, boundary)
+# tuple ready for solve_fdm.
+#
+# Lobe topology:
+#   Frame row j=0: 37 nodes along the parabolic frame.
+#   Interior rows j=1..10: 37 nodes each, barycentric-mapped.
+#   Apex row j=11: ONE node (D), where all 37 columns converge.
+#   Per lobe: 37*11 + 1 = 408 nodes.
+#   Per lobe: 37*10 + 37 (vertical) + 36*11 (horizontal) = 803 edges.
+#
+# Three lobes, each rotated by 120 degrees.
+# Merge shared nodes:
+#   - Support nodes (3 pairs merge).
+#   - Ridge interior nodes (10 per ridge x 3 ridges merge).
+#   - Apex node (3 merge into 1).
+
+def _build_crown_lobe_at_angle(theta_rot, R, H,
+                                n_anchors, subdivisions, ny=12):
+    """
+    Build one lobe as separate node/edge/triangle lists in local
+    indexing. Returns (nodes, edges, tris, frame_indices, apex_idx).
+
+    - nodes: list of (x, y, z)
+    - edges: list of (a, b) local indices
+    - tris:  list of (a, b, c) local indices (for rendering)
+    - frame_indices: list of int, the j=0 row (the frame)
+    - apex_idx: int, the index of the single apex node
+    """
+    R = float(R)
+    H = float(H)
+
+    ang_a1 = theta_rot
+    ang_a7 = theta_rot + 2.0 * np.pi / 3.0
+    ang_mid = 0.5 * (ang_a1 + ang_a7)
+
+    p_a1 = np.array([R * np.cos(ang_a1), R * np.sin(ang_a1), 0.0])
+    p_a7 = np.array([R * np.cos(ang_a7), R * np.sin(ang_a7), 0.0])
+    p_apex = np.array([R * np.cos(ang_mid), R * np.sin(ang_mid), H])
+    p_D = np.array([0.0, 0.0, H])
+
+    n_frame_pts = n_anchors + (n_anchors - 1) * subdivisions
+    t = np.linspace(0.0, 1.0, n_frame_pts)
+    p_lin = np.outer(1.0 - t, p_a1) + np.outer(t, p_a7)
+    middle = 0.5 * (p_a1 + p_a7)
+    lift = p_apex - middle
+    profile = 4.0 * t * (1.0 - t)
+    frame = p_lin + np.outer(profile, lift)
+
+    n_i = n_frame_pts
+
+    # ---- Nodes: grid of (i, j) for j = 0..ny-2, then 1 apex.
+    nodes = []
+    # index of node (i, j) for j in 0..ny-2:
+    def idx_grid(i, j):
+        return i * (ny - 1) + j
+    for i in range(n_i):
+        frame_pt = frame[i]
+        for j in range(ny - 1):
+            v = j / (ny - 1.0)
+            base = frame_pt * (1.0 - v) + p_D * v
+            sag = 0.10 * H * (4.0 * v * (1.0 - v))
+            base = base.copy()
+            base[2] -= sag
+            nodes.append(base)
+
+    apex_idx = len(nodes)
+    nodes.append(p_D.copy())
+
+    # ---- Edges.
+    edges = []
+    # Horizontal along the frame direction (i, i+1) for each j = 0..ny-2.
+    for j in range(ny - 1):
+        for i in range(n_i - 1):
+            edges.append((idx_grid(i, j), idx_grid(i + 1, j)))
+    # Vertical: for j = 0..ny-3, connect (i, j) -> (i, j+1).
+    for j in range(ny - 2):
+        for i in range(n_i):
+            edges.append((idx_grid(i, j), idx_grid(i, j + 1)))
+    # Final radial: every (i, ny-2) connects to apex.
+    for i in range(n_i):
+        edges.append((idx_grid(i, ny - 2), apex_idx))
+
+    # ---- Triangles (for rendering).
+    tris = []
+    # Between rows j and j+1 for j = 0..ny-3.
+    for j in range(ny - 2):
+        for i in range(n_i - 1):
+            a = idx_grid(i, j)
+            b = idx_grid(i + 1, j)
+            c = idx_grid(i, j + 1)
+            d = idx_grid(i + 1, j + 1)
+            tris.append((a, b, c))
+            tris.append((b, d, c))
+    # Fan from the last row to the apex.
+    j_last = ny - 2
+    for i in range(n_i - 1):
+        a = idx_grid(i, j_last)
+        b = idx_grid(i + 1, j_last)
+        tris.append((a, b, apex_idx))
+
+    # ---- Frame indices (j=0 row).
+    frame_indices = [idx_grid(i, 0) for i in range(n_i)]
+
+    return nodes, edges, tris, frame_indices, apex_idx
+
+
+def _build_crown_three_lobe(R=8.0, H=6.0,
+                             n_anchors=7, subdivisions=5, ny=12):
+    """
+    Build three lobes, merge shared nodes, return:
+    (points, edges, fixed_indices, q, triangles, boundary_for_focal,
+     lobe_count, per_lobe_node_count)
+    """
+    R = float(R)
+    H = float(H)
+
+    all_nodes = []
+    all_edges = []
+    all_tris = []
+    all_fixed = []
+
+    # Track where each lobe's nodes start in the global list.
+    lobe_data = []
+    for k in range(3):
+        theta_rot = k * 2.0 * np.pi / 3.0
+        nodes_k, edges_k, tris_k, frame_k, apex_k = _build_crown_lobe_at_angle(
+            theta_rot, R, H, n_anchors, subdivisions, ny
+        )
+        lobe_data.append({
+            "nodes": nodes_k,
+            "edges": edges_k,
+            "tris": tris_k,
+            "frame": frame_k,
+            "apex": apex_k,
+            "offset": len(all_nodes),
+        })
+        # Append nodes with the offset for this lobe.
+        all_nodes.extend(nodes_k)
+
+    # ---- Build merge map: (lobe_k, local_idx) -> global_idx.
+    # Nodes at nearly the same position get the same global index.
+    tol = 1e-6
+    node_positions = [np.array(p, dtype=float) for p in all_nodes]
+
+    global_id = list(range(len(all_nodes)))  # start as identity
+
+    def _find_same(pos):
+        for other, gp in enumerate(node_positions):
+            if other >= len(node_positions):
+                continue
+            if np.linalg.norm(gp - pos) < tol:
+                return other
+        return None
+
+    # For each lobe pair, find and merge the shared ridge and support
+    # nodes. Two passes: supports and ridges, then apex.
+    # Simpler: for each node in lobe k, check if it coincides with
+    # an earlier node in lobe k-1 or lobe 0.
+    for k in range(3):
+        d = lobe_data[k]
+        off = d["offset"]
+        for local_idx, p in enumerate(d["nodes"]):
+            gidx = off + local_idx
+            # Skip if already merged (id != gidx).
+            if global_id[gidx] != gidx:
+                continue
+            # Search among already-assigned earlier nodes.
+            for earlier in range(gidx):
+                if global_id[earlier] != earlier:
+                    continue
+                if np.linalg.norm(node_positions[earlier] - p) < tol:
+                    global_id[gidx] = earlier
+                    break
+
+    # ---- Collect unique nodes.
+    uniq_index = {}  # global original idx -> new compact idx
+    points = []
+    for old_idx in range(len(all_nodes)):
+        root = global_id[old_idx]
+        if root not in uniq_index:
+            uniq_index[root] = len(points)
+            points.append(node_positions[root])
+    points = np.array(points, dtype=float)
+
+    def remap(old_idx):
+        return uniq_index[global_id[old_idx]]
+
+    # ---- Edges with remap, dedup.
+    edges_set = set()
+    for k in range(3):
+        d = lobe_data[k]
+        off = d["offset"]
+        for (a, b) in d["edges"]:
+            ga = remap(off + a)
+            gb = remap(off + b)
+            if ga == gb:
+                continue
+            if ga > gb:
+                ga, gb = gb, ga
+            edges_set.add((ga, gb))
+    edges = sorted(edges_set)
+
+    # ---- Triangles with remap, skip degenerate.
+    tris = []
+    seen_tris = set()
+    for k in range(3):
+        d = lobe_data[k]
+        off = d["offset"]
+        for (a, b, c) in d["tris"]:
+            ga = remap(off + a)
+            gb = remap(off + b)
+            gc = remap(off + c)
+            if ga == gb or gb == gc or ga == gc:
+                continue
+            key = tuple(sorted((ga, gb, gc)))
+            if key in seen_tris:
+                continue
+            seen_tris.add(key)
+            tris.append((ga, gb, gc))
+    tris = np.array(tris, dtype=int)
+
+    # ---- Fixed indices: frame nodes only.
+    fixed = set()
+    for k in range(3):
+        d = lobe_data[k]
+        off = d["offset"]
+        for local_idx in d["frame"]:
+            fixed.add(remap(off + local_idx))
+    fixed_indices = sorted(fixed)
+
+    # ---- Per-edge q: compute edge direction in the ORIGINAL lobe frame.
+    # We classify by checking whether the edge is an i-edge or j-edge in
+    # its lobe. Simplest: recompute from the lobe edge lists.
+    edge_q_map = {}
+    q_warp = 1.0  # default warp; overridden by Tester
+    q_weft = 1.0
+    # We will compute q in the Tester after this call. Return a
+    # per-edge list of 'i' or 'j' hints alongside.
+    edge_kind = []
+    edge_lookup = {}
+    for k in range(3):
+        d = lobe_data[k]
+        off = d["offset"]
+        n_i = n_anchors + (n_anchors - 1) * subdivisions
+        for (a, b) in d["edges"]:
+            # Classify in local indexing:
+            # i-edges: a = i*(ny-1)+j, b = (i+1)*(ny-1)+j
+            # j-edges: a = i*(ny-1)+j, b = i*(ny-1)+j+1
+            ga = remap(off + a)
+            gb = remap(off + b)
+            if ga == gb:
+                continue
+            if ga > gb:
+                ga, gb = gb, ga
+            kind = "?"
+            # local a, b classify
+            if b == a + 1 and (a % (ny - 1)) < (ny - 2):
+                kind = "i"
+            elif b == a + (ny - 1):
+                kind = "j"
+            elif b == d["apex"] and a != d["apex"]:
+                kind = "j"  # radial to apex
+            elif a == d["apex"] or b == d["apex"]:
+                kind = "j"
+            edge_lookup[(ga, gb)] = kind
+
+    for (ga, gb) in edges:
+        edge_kind.append(edge_lookup.get((ga, gb), "?"))
+
+    # ---- Boundary for focal point: concatenate the three frames.
+    boundary_list = []
+    for k in range(3):
+        d = lobe_data[k]
+        off = d["offset"]
+        for local_idx in d["frame"]:
+            boundary_list.append(remap(off + local_idx))
+    boundary = points[boundary_list]
+
+    return {
+        "points": points,
+        "edges": edges,
+        "fixed_indices": fixed_indices,
+        "edge_kind": edge_kind,
+        "triangles": tris,
+        "boundary": boundary,
+    }
 
 
 # ---- Registry -------------------------------------------------------------
