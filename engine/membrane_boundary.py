@@ -335,11 +335,15 @@ def build_mesh(boundary, anchor_indices, edge_types,
             fixed_set.add(int(i))
 
     # ---- Beam edges on the boundary loop (the "sides" of the mesh).
+    # Respects held_grid_edges: only holds rows/columns the caller asked for.
     has_beam = "beam" in edge_types
     if has_beam:
-        for i in range(nx):
-            fixed_set.add(i * ny + 0)
-            fixed_set.add(i * ny + (ny - 1))
+        if "j_min" in held_set:
+            for i in range(nx):
+                fixed_set.add(i * ny + 0)
+        if "j_max" in held_set:
+            for i in range(nx):
+                fixed_set.add(i * ny + (ny - 1))
 
     # ---- Grid-edge holding.
     # Only applies when initial_points is provided, because it controls
