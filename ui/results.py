@@ -4,25 +4,16 @@
 # Displays the design results: 3D view, marketing render workflow,
 # health score, section used, analysis readings, quantities.
 #
-# Updated 2026-09-19 (evening, fourth pass):
-#   - format_prompt now takes a params dict again. The prompt
-#     carries the full structure description. The image is a
-#     visual reference only.
-#   - params are rebuilt per-variant from session state.
-# Updated 2026-09-19 (evening, third pass):
-#   - Viewer description + dimensions drawn inside the chart.
-# Updated 2026-09-19 (evening, second pass):
-#   - Streamlit bordered container (superseded).
-# Updated 2026-09-19 (evening):
-#   - extract_display_params removed (junk dump gone).
-#   - get_structure_summary removed.
-# Updated 2026-09-19:
-#   - Time-of-day control added to Marketing Render.
-# Updated 2026-09-18:
-#   - Marketing Render section added (external renderer workflow).
+# Updated 2026-09-27:
+#   - Marketing Render now offers a single one-touch button:
+#     copy the prompt to the clipboard and open Gemini.
+#   - Instructions block above the steps explains the workflow.
+#   - Renderer card list removed. One button instead.
+#   - Steps reduced from five to four.
 # =============================================================================
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from viewers.results_viewer import generate_results_figure
 
@@ -30,9 +21,6 @@ from viewers.results_viewer import generate_results_figure
 # =============================================================================
 # PARAMS BUILDER (per variant)
 # =============================================================================
-# Each variant's workshop writes its parameter values to session state
-# under a known prefix. This function reads them back and returns a
-# plain dict. format_prompt uses the dict to describe the structure.
 
 def _build_params(variant_key):
     """Return a params dict for the active variant."""
@@ -76,56 +64,28 @@ def _build_params(variant_key):
     return {}
 
 
-def render_results():
-    """Render the Results page."""
-    sk = st.session_state.get("structure_key", "saddle_span")
-    sn = st.session_state.get("structure_name", "Saddle Span")
-    vk = st.session_state.get("variant_key", "")
-    vn = st.session_state.get("variant_name", "Unknown Variant")
-    info = st.session_state.get("project_info", {})
-    pname = info.get("name", "") or "Untitled Project"
-    cname = info.get("client", "") or "Unknown Client"
 
-    # ---- Breadcrumb
-    st.markdown(
-        '<div style="font-size: 0.85rem; color: #a8b8c8; margin-bottom: 1rem;">'
-        'SDSe Fluid Design Studio / '
-        '<span style="color: #f39c12;">' + sn + '</span>'
-        ' / ' + vn + ' / Results'
-        '</div>',
-        unsafe_allow_html=True,
+
+# ============ END OF RESULTS CHUNK 1 ============
+
+
+
+
+
+# =============================================================================
+# MARKETING RENDER SECTION
+# =============================================================================
+
+def _render_marketing_render(vk, sk):
+    """
+    The Marketing Render section, with a single one-touch button that
+    copies the prompt to the clipboard and opens Gemini.
+    """
+    from engine.render_prompts import (
+        SCENES, TIMES, RENDERERS, DISCLAIMER, format_prompt,
     )
 
-    # ---- Project header card
-    st.markdown(
-        '<div style="background: #121e2e; border: 1px solid #1e2a3a; '
-        'border-radius: 10px; padding: 1rem;">'
-        '<div style="color: #ffffff; font-size: 1.15rem; font-weight: 700;">'
-        + pname + '</div>'
-        '<div style="color: #a8b8c8; font-size: 0.85rem; margin-top: 0.3rem;">'
-        'Client: ' + cname + '</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ---- 3D View heading
-    st.markdown(
-        '<div style="color: #f39c12; font-weight: 700; '
-        'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">3D View</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ---- 3D chart. The description + dimensions strings are drawn
-    #      inside the figure by the results viewer dispatcher.
-    try:
-        fig = generate_results_figure(sk, vk)
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        import traceback
-        st.error("3D view failed: " + str(e))
-        st.code(traceback.format_exc())
-
-    # ---- Marketing Render (external renderer workflow)
+    # ---- Section heading
     st.markdown(
         '<div style="color: #f39c12; font-weight: 700; '
         'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">'
@@ -133,18 +93,23 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    from engine.render_prompts import (
-        SCENES, TIMES, RENDERERS, DISCLAIMER, format_prompt,
-    )
-
+    # ---- How this works
     st.markdown(
         '<div style="background: #0d1620; border-left: 3px solid #3498db; '
         'padding: 0.7rem 0.9rem; border-radius: 4px; margin-bottom: 0.8rem; '
         'font-size: 0.85rem; color: #c8d4e0; line-height: 1.6;">'
-        '<strong>Turn your structure into a marketing image.</strong><br>'
-        'Follow the steps below. SDSe prepares the snapshot and the '
-        'prompt. You take them to an external renderer of your choice. '
-        'Bring the result back.'
+        '<strong>How this works</strong><br>'
+        'SDSe does not generate the marketing image itself. It '
+        'prepares two things for you:<br>'
+        '&bull; <strong>A snapshot</strong> of your 3D view '
+        '(you will take this as a screenshot).<br>'
+        '&bull; <strong>A prompt</strong> &mdash; a written description '
+        'of the structure, its scale, and its materials.<br>'
+        'You take both to Google Gemini. It generates the marketing '
+        'image. You bring the image back to SDSe.<br>'
+        '<br>'
+        '<strong>Four steps below.</strong> You can do all of them on '
+        'this phone.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -152,24 +117,26 @@ def render_results():
     # ---- Step 1: capture
     st.markdown(
         '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
-        'margin-top: 0.6rem;">Step 1 - Capture your 3D view</div>',
+        'margin-top: 0.6rem;">Step 1 &mdash; Capture your 3D view</div>',
         unsafe_allow_html=True,
     )
     st.markdown(
         '<div style="color: #a8b8c8; font-size: 0.8rem; '
         'margin-bottom: 0.5rem;">'
-        'Take a screenshot of the 3D view above. You will upload it '
-        'to the external renderer in Step 4 as a visual reference.'
+        'Screenshot the 3D view above. On iPhone: press the side '
+        'button and the volume-up button at the same time. The '
+        'screenshot goes to your Photos. You will upload it in Step 3.'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    # ---- Step 2: choose a scene
+    # ---- Step 2: choose a scene and time
     st.markdown(
         '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
-        'margin-top: 0.9rem;">Step 2 - Choose a scene</div>',
+        'margin-top: 0.9rem;">Step 2 &mdash; Choose scene and time</div>',
         unsafe_allow_html=True,
     )
+
     scene_keys = list(SCENES.keys())
     scene_labels = [SCENES[k]["name"] for k in scene_keys]
     scene_choice = st.radio(
@@ -181,12 +148,6 @@ def render_results():
     )
     scene_key = scene_keys[scene_labels.index(scene_choice)]
 
-    # ---- Step 2b: choose the time of day
-    st.markdown(
-        '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
-        'margin-top: 0.9rem;">Step 2b - Choose the time of day</div>',
-        unsafe_allow_html=True,
-    )
     time_keys = list(TIMES.keys())
     time_labels = [TIMES[k]["name"] for k in time_keys]
     time_choice = st.radio(
@@ -198,61 +159,145 @@ def render_results():
     )
     time_key = time_keys[time_labels.index(time_choice)]
 
-    # ---- Step 3: build and show the prompt
-    st.markdown(
-        '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
-        'margin-top: 0.9rem;">Step 3 - Your prompt</div>',
-        unsafe_allow_html=True,
-    )
-
+    # ---- Build the prompt (used by the button below)
     params = _build_params(vk)
     prompt_text = format_prompt(scene_key, sk, vk, params, time_key)
 
-    st.text_area(
-        "Prompt (select all, copy)",
-        value=prompt_text,
-        height=180,
-        key="render_prompt_text_" + scene_key,
-    )
+    # ---- Show the prompt for reference (selectable)
+    with st.expander("View prompt (optional)", expanded=False):
+        st.text_area(
+            "Prompt",
+            value=prompt_text,
+            height=180,
+            key="render_prompt_text_" + scene_key + "_" + time_key,
+            label_visibility="collapsed",
+        )
+        st.markdown(
+            '<div style="color: #a8b8c8; font-size: 0.78rem;">'
+            'Long-press the text above and select all if you want to '
+            'copy it manually. The button below does this for you.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
-    st.markdown(
-        '<div style="color: #a8b8c8; font-size: 0.8rem; '
-        'margin-top: -0.4rem; margin-bottom: 0.8rem;">'
-        'Long-press the text above, select all, and copy.'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ---- Step 4: open an external renderer
+    # ---- Step 3: the one-touch button
     st.markdown(
         '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
-        'margin-top: 0.9rem;">Step 4 - Open an external renderer</div>',
+        'margin-top: 1.1rem;">Step 3 &mdash; Copy prompt and open Gemini</div>',
         unsafe_allow_html=True,
     )
     st.markdown(
         '<div style="color: #a8b8c8; font-size: 0.8rem; '
         'margin-bottom: 0.5rem;">'
-        'Tap one of the options below. It opens in a new tab. Paste '
-        'the prompt and upload your snapshot.'
+        'Tap the button below. Two things happen at once: '
+        '(1) your prompt is copied to the clipboard, and '
+        '(2) Gemini opens in a new tab. Then, in Gemini: upload your '
+        'screenshot, paste the prompt, and send.'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    for r in RENDERERS:
-        st.markdown(
-            '<a href="' + r["url"] + '" target="_blank" '
-            'style="display: block; background: #121e2e; '
-            'border: 1px solid #1e2a3a; border-left: 4px solid #f39c12; '
-            'border-radius: 8px; padding: 0.8rem 1rem; '
-            'margin-bottom: 0.5rem; text-decoration: none;">'
-            '<div style="color: #ffffff; font-weight: 600; '
-            'font-size: 0.95rem;">' + r["name"] + '</div>'
-            '<div style="color: #a8b8c8; font-size: 0.78rem; '
-            'margin-top: 0.2rem;">' + r["note"] + '</div>'
-            '</a>',
-            unsafe_allow_html=True,
-        )
+    gemini_url = RENDERERS[0]["url"]
 
+    # The one-touch button. Uses st.markdown with an inline script,
+    # so the link navigation and clipboard copy happen on the same tap.
+    # The button is rendered as an anchor tag with an onclick handler.
+    components.html(
+        """
+        <style>
+        .sdse-render-btn {
+            display: block;
+            width: 100%;
+            background: #f39c12;
+            color: #0a0e17;
+            border: none;
+            border-radius: 8px;
+            padding: 0.9rem 1rem;
+            font-weight: 700;
+            font-size: 1rem;
+            text-align: center;
+            text-decoration: none;
+            cursor: pointer;
+            font-family: inherit;
+            box-sizing: border-box;
+            margin-bottom: 0.4rem;
+        }
+        .sdse-render-btn:hover {
+            background: #f1c40f;
+        }
+        .sdse-render-note {
+            color: #a8b8c8;
+            font-size: 0.78rem;
+            text-align: center;
+            margin-top: 0.4rem;
+            font-family: inherit;
+        }
+        </style>
+        <a class="sdse-render-btn" id="sdseBtn" href="#" target="_blank">
+            Copy prompt &amp; open Gemini
+        </a>
+        <div class="sdse-render-note" id="sdseNote">
+            Your prompt will be copied. Gemini will open in a new tab.
+        </div>
+        <script>
+        (function() {
+            var promptText = """ + __import__('json').dumps(prompt_text) + """;
+            var geminiUrl = """ + __import__('json').dumps(gemini_url) + """;
+            var btn = document.getElementById('sdseBtn');
+            var note = document.getElementById('sdseNote');
+            btn.addEventListener('click', function(ev) {
+                // Copy to clipboard. Best-effort. No blocking.
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(promptText);
+                    } else {
+                        var ta = document.createElement('textarea');
+                        ta.value = promptText;
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                    }
+                } catch (e) {
+                    // Ignore. The user can still copy manually from the
+                    // "View prompt" expander above.
+                }
+                // Open Gemini in a new tab.
+                try {
+                    window.open(geminiUrl, '_blank');
+                } catch (e) {
+                    // If popup is blocked, fall back to normal navigation.
+                    window.location.href = geminiUrl;
+                }
+                // Update the note.
+                if (note) {
+                    note.textContent = 'Prompt copied. Upload your screenshot, paste, and send.';
+                }
+                ev.preventDefault();
+            });
+        })();
+        </script>
+        """,
+        height=120,
+    )
+
+    # ---- Small post-tap reminder
+    st.markdown(
+        '<div style="background: #1a2a3a; border-left: 3px solid #f39c12; '
+        'padding: 0.6rem 0.9rem; border-radius: 4px; margin-top: 0.6rem; '
+        'font-size: 0.78rem; color: #c8d4e0; line-height: 1.6;">'
+        '<strong>In Gemini:</strong> '
+        '(1) tap the paperclip or + icon and upload your screenshot; '
+        '(2) paste the prompt into the message box; '
+        '(3) add the line '
+        '<em>"Generate a photorealistic image based on this description '
+        'and the attached image."</em>; '
+        '(4) tap Send. Save the result to your Photos.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- Disclaimer
     st.markdown(
         '<div style="background: #1a2a3a; border-left: 3px solid #4a7a9c; '
         'padding: 0.7rem 0.9rem; border-radius: 4px; margin-top: 0.8rem; '
@@ -262,17 +307,35 @@ def render_results():
         unsafe_allow_html=True,
     )
 
-    # ---- Step 5: upload the render
+
+# ============ END OF RESULTS CHUNK 2 ============
+
+
+
+
+
+# =============================================================================
+# STEP 4 (upload), HEALTH SCORE, SECTION, READINGS, QUANTITIES, ACTIONS
+# =============================================================================
+
+def _render_upload_and_footer():
+    """
+    Step 4 (upload the Gemini render), the health card, section used,
+    analysis readings, quantities, and the bottom actions.
+    """
+    from engine.render_prompts import RENDERERS  # noqa: F401
+
+    # ---- Step 4: upload the render
     st.markdown(
         '<div style="color: #ffffff; font-size: 0.95rem; font-weight: 600; '
-        'margin-top: 1rem;">Step 5 - Upload your render</div>',
+        'margin-top: 1.1rem;">Step 4 &mdash; Bring the render back</div>',
         unsafe_allow_html=True,
     )
     st.markdown(
         '<div style="color: #a8b8c8; font-size: 0.8rem; '
         'margin-bottom: 0.5rem;">'
-        'After the external renderer generates the image, download it, '
-        'then upload it here.'
+        'Download the image from Gemini to your Photos. Then upload '
+        'it here to keep it with the project.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -314,6 +377,7 @@ def render_results():
         unsafe_allow_html=True,
     )
 
+    vk = st.session_state.get("variant_key", "")
     fallback_section = "CHS 168.3x7.1"
     if vk == "cantilever_leaf":
         fallback_section = "CHS 323.8x8.0 / CHS 168.3x7.1"
@@ -430,3 +494,70 @@ def render_results():
         if st.button("Home", key="hm", use_container_width=True, type="primary"):
             st.session_state.page = "studio"
             st.rerun()
+
+
+# =============================================================================
+# MAIN RENDER
+# =============================================================================
+
+def render_results():
+    """Render the Results page."""
+    sk = st.session_state.get("structure_key", "saddle_span")
+    sn = st.session_state.get("structure_name", "Saddle Span")
+    vk = st.session_state.get("variant_key", "")
+    vn = st.session_state.get("variant_name", "Unknown Variant")
+    info = st.session_state.get("project_info", {})
+    pname = info.get("name", "") or "Untitled Project"
+    cname = info.get("client", "") or "Unknown Client"
+
+    # ---- Breadcrumb
+    st.markdown(
+        '<div style="font-size: 0.85rem; color: #a8b8c8; margin-bottom: 1rem;">'
+        'SDSe Fluid Design Studio / '
+        '<span style="color: #f39c12;">' + sn + '</span>'
+        ' / ' + vn + ' / Results'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- Project header card
+    st.markdown(
+        '<div style="background: #121e2e; border: 1px solid #1e2a3a; '
+        'border-radius: 10px; padding: 1rem;">'
+        '<div style="color: #ffffff; font-size: 1.15rem; font-weight: 700;">'
+        + pname + '</div>'
+        '<div style="color: #a8b8c8; font-size: 0.85rem; margin-top: 0.3rem;">'
+        'Client: ' + cname + '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- 3D View heading
+    st.markdown(
+        '<div style="color: #f39c12; font-weight: 700; '
+        'margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">3D View</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- 3D chart
+    try:
+        fig = generate_results_figure(sk, vk)
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        import traceback
+        st.error("3D view failed: " + str(e))
+        st.code(traceback.format_exc())
+
+    # ---- Marketing Render section
+    _render_marketing_render(vk, sk)
+
+    # ---- Upload step and the rest of the page
+    _render_upload_and_footer()
+
+
+# ============ END OF RESULTS CHUNK 3 ============
+
+
+
+
+
