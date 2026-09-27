@@ -1154,14 +1154,14 @@ def render_tester_mbs():
                         "nx": 0,
                         "ny": 0,
                         "triangles": triangles,
+                        "edge_kind": edge_kind,
+                        "fixed_indices": fixed_indices,
                     }
                     st.rerun()
                 elif shape_name == "Lens":
                     grid, boundary, anchors, etypes = _build_lens_recipe(
                         n_segments, mode_key, K_val, ds_val)
-                elif shape_name == "Lens":
-                    grid, boundary, anchors, etypes = _build_lens_recipe(
-                        n_segments, mode_key, K_val, ds_val)
+                
                 elif shape_name == "Triangle":
                     grid, boundary, anchors, etypes = _build_triangle_recipe(
                         params["A"], params["B"], params["C"],
