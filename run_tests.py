@@ -75,3 +75,26 @@ if __name__ == "__main__":
 
 
 
+
+# =============================================================================
+# STANDALONE BENCHMARK — hypar (SDS-CONST Benchmark 001 reconstruction)
+# =============================================================================
+
+def _run_benchmark_hypar():
+    try:
+        import benchmark_hypar
+        benchmark_hypar.run()
+        return True
+    except Exception as e:
+        print("Benchmark hypar raised an error:")
+        print(str(e))
+        return False
+
+
+if __name__ == "__main__":
+    _run_benchmark_hypar()
+
+
+
+
+
