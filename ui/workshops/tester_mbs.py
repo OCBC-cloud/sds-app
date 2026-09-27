@@ -746,7 +746,82 @@ def _build_per_edge_q(edges, ny, warp_q, weft_q):
             q[k] = float(weft_q)
     return q
 
+def _crown_3lobe_diagnostics(points, edges, edge_kind, fixed_indices, coords):
+    """
+    Print diagnostic output for the Crown-3Lobe shape.
+    Terminology:
+      apex   = highest point of a frame. Held. Not free. Not
+               what we watch.
+      focal  = the single free centre node where all three
+               lobes meet. This is what we watch.
+    """
+    n = len(points)
+    z_all = coords[:, 2]
+    fixed_set = set(int(i) for i in fixed_indices)
+    free_mask = np.array([i not in fixed_set for i in range(n)])
+    free_z = z_all[free_mask]
 
+    # ---- Edge kind distribution.
+    n_i = sum(1 for k in edge_kind if k == "i")
+    n_j = sum(1 for k in edge_kind if k == "j")
+    n_q = sum(1 for k in edge_kind if k == "?")
+
+    # ---- Focal node: nearest to (0, 0) in x-y.
+    dx = coords[:, 0]
+    dy = coords[:, 1]
+    dist2 = dx * dx + dy * dy
+    focal_idx = int(np.argmin(dist2))
+    focal_x = float(coords[focal_idx, 0])
+    focal_y = float(coords[focal_idx, 1])
+    focal_z = float(coords[focal_idx, 2])
+
+    # ---- Highest and lowest free nodes.
+    if len(free_z) > 0:
+        free_idx = np.where(free_mask)[0]
+        max_z_idx = int(free_idx[np.argmax(free_z)])
+        min_z_idx = int(free_idx[np.argmin(free_z)])
+        max_z = float(coords[max_z_idx, 2])
+        min_z = float(coords[min_z_idx, 2])
+        max_z_xy = (float(coords[max_z_idx, 0]), float(coords[max_z_idx, 1]))
+        min_z_xy = (float(coords[min_z_idx, 0]), float(coords[min_z_idx, 1]))
+        mean_z_free = float(np.mean(free_z))
+    else:
+        max_z = min_z = mean_z_free = 0.0
+        max_z_xy = min_z_xy = (0.0, 0.0)
+
+    # ---- Boundary centroid.
+    cx = float(np.mean(coords[[i for i in fixed_set], 0]))
+    cy = float(np.mean(coords[[i for i in fixed_set], 1]))
+    cz = float(np.mean(coords[[i for i in fixed_set], 2]))
+
+    st.markdown("**CROWN-3LOBE DIAGNOSTICS**")
+
+    st.markdown("##### Edge kind distribution")
+    st.write("  i-edges: %d" % n_i)
+    st.write("  j-edges: %d" % n_j)
+    st.write("  ?-edges: %d" % n_q)
+
+    st.markdown("##### Focal node (the free centre, where 3 lobes meet)")
+    st.write("  index: %d" % focal_idx)
+    st.write("  x = %+.6f   y = %+.6f   z = %+.6f"
+             % (focal_x, focal_y, focal_z))
+
+    st.markdown("##### Boundary centroid (mean of held frame nodes)")
+    st.write("  x = %+.6f   y = %+.6f   z = %+.6f" % (cx, cy, cz))
+
+    st.markdown("##### Free node extremes")
+    st.write("  highest free node: z = %+.6f  at (x=%+.3f, y=%+.3f)"
+             % (max_z, max_z_xy[0], max_z_xy[1]))
+    st.write("  lowest  free node: z = %+.6f  at (x=%+.3f, y=%+.3f)"
+             % (min_z, min_z_xy[0], min_z_xy[1]))
+    st.write("  mean z of free nodes: %+.6f" % mean_z_free)
+
+    st.markdown("##### Summary")
+    st.write("  total nodes: %d" % n)
+    st.write("  fixed nodes: %d" % len(fixed_set))
+    st.write("  free nodes : %d" % int(np.sum(free_mask)))
+    st.write("  max z (all): %+.6f" % float(np.max(z_all)))
+    st.write("  min z (all): %+.6f" % float(np.min(z_all)))
 def _compute_focal_point(boundary_nodes, coords, ny):
     if len(boundary_nodes) == 0:
         return (0.0, 0.0, 0.0)
