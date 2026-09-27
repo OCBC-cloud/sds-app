@@ -1273,7 +1273,20 @@ def render_tester_mbs():
     f2.metric("Focal y (m)", "%.4f" % fy)
     f3.metric("Focal z (m)", "%.4f" % fz)
 
-    _render_debug(initial, coords, tris, nx, ny, skip_u=6)
+    if entry["shape"] == "Crown-3Lobe":
+        try:
+            _crown_3lobe_diagnostics(
+                entry["initial"],
+                None,
+                entry.get("edge_kind", []),
+                entry.get("fixed_indices", []),
+                coords,
+            )
+        except Exception as e:
+            st.error("Diagnostics error:")
+            st.code(str(e), language="text")
+    else:
+        _render_debug(initial, coords, tris, nx, ny, skip_u=6)
 
     if st.button("Back to Landing", use_container_width=True,
                  key="mbs_back_bottom"):
