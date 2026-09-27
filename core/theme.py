@@ -45,13 +45,12 @@ DARK_MODE_CSS = """
     /* =========================================================================
        TYPOGRAPHY - High contrast
        ========================================================================= */
- /*    h1 Labels, on h2, h3, h4, h5, h6 {
+ /* Headings and body text */
+    h1, h2, h3, h4, h5, h6 {
         color: #ffffff !important;
         font-weight: 600 !important;
     }
     p, span, div { color: #e6edf3; }
-
- widgets */
     .stApp label,
     .stApp .stSelectbox label,
     .stApp .stNumberInput label,
