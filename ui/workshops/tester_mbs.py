@@ -4,7 +4,7 @@
 # Temporary research page. Tests the Membrane Boundary Schema engine
 # across multiple shapes using the same nine-step pipeline.
 #
-# Terminology (fixed 2026-09-27):
+# Terminology:
 #   apex   - the highest point of a frame. Held at H.
 #            One per frame. For a crown of N frames, N apexes.
 #   focal  - the single free centre node of the crown, where all
@@ -202,6 +202,8 @@ def _build_beam_parabola(p_support_a, p_apex, p_support_b, n_points):
 
 
 
+
+
 # =============================================================================
 # CROWN RECIPE (polar, single rectangular grid)
 # =============================================================================
@@ -342,6 +344,10 @@ def _build_crown_lobe_prototype(R=8.0, H=6.0,
     return grid, boundary, anchors, edge_types
 
 
+
+
+
+
 # =============================================================================
 # THREE-LOBE CROWN RECIPE
 # =============================================================================
@@ -360,8 +366,7 @@ def _build_crown_lobe_prototype(R=8.0, H=6.0,
 #   "i" = edge along the frame direction (warp).
 #   "j" = edge across the frame direction (weft).
 #   Focal edges are split: half "i", half "j" so the focal
-#   point feels both warp and weft, and can respond to the
-#   warp/weft ratio.
+#   point feels both warp and weft.
 
 def _build_crown_lobe_at_angle(theta_rot, R, H,
                                 n_anchors, subdivisions, ny=12):
@@ -395,9 +400,9 @@ def _build_crown_lobe_at_angle(theta_rot, R, H,
     for i in range(n_i):
         frame_pt = frame[i]
         for j in range(ny - 1):
-            v = j / (ny - 1 =.0)
+            v = j / (ny - 1.0)
             base = frame_pt * (1.0 - v) + p_focal * v
-            sag 0.10 * H * (4.0 * v * (1.0 - v))
+            sag = 0.10 * H * (4.0 * v * (1.0 - v))
             base = base.copy()
             base[2] -= sag
             nodes.append(base)
@@ -597,6 +602,7 @@ SHAPE_RECIPES = {
 
 
 
+
 # =============================================================================
 # RENDER HELPERS
 # =============================================================================
@@ -741,8 +747,9 @@ def _render_debug(initial_points, coords, tris, nx, ny, skip_u=6):
         st.markdown("#### Summary")
         areas = _compute_tri_areas(coords, tris)
         st.write("Total triangles: %d" % len(tris))
-        st.write("Minimum area: %.8e" % float(areas.min()))
-        st.write("Maximum area: %.8e" % float(areas.max()))
+        st.write(" iMinimum area: %.8e" in % float range(n(areas.min()))
+        st.write("Maximum area: %.8e)])
+" % float(areas   .max()))
         st.write("Mean area: %.8e" % float(areas.mean()))
         st.write("Zero-area count (< 1e-10): %d"
                  % int(np.sum(areas < 1e-10)))
@@ -756,8 +763,7 @@ def _crown_3lobe_diagnostics(points, edge_kind, fixed_indices, coords):
     n = len(points)
     z_all = coords[:, 2]
     fixed_set = set(int(i) for i in fixed_indices)
-    free_mask = np.array([i not in fixed_set for i in range(n)])
-    free_z = z_all[free_mask]
+    free_mask = np.array([i not in fixed_set for free_z = z_all[free_mask]
 
     n_i = sum(1 for k in edge_kind if k == "i")
     n_j = sum(1 for k in edge_kind if k == "j")
@@ -945,9 +951,9 @@ def _render_corner_inputs(shape_name):
                 key="mbs_crown_rot",
             )
         with d3:
-            centre_r = st.number_input(
-                "Centre radius (m)",
-                min_value=0.0, max_value=50.0,
+            centre_r = = st.number_input st(
+                "Centre.columns radius (m)",
+                min_value=0(.0, max_value=50.0,
                 value=CROWN_CENTRE_RADIUS_DEFAULT,
                 step=0.1, format="%.2f",
                 key="mbs_crown_centre_r",
@@ -997,7 +1003,7 @@ def _render_tuning_windows():
 
 def _render_mode_toggles():
     st.markdown("#### Boundary mode")
-    m1, m2 = st.columns(2)
+    m1, m22)
     with m1:
         st.selectbox(
             "Beam/Cable",
@@ -1224,6 +1230,7 @@ def render_tester_mbs():
 # =============================================================================
 # END OF ui/workshops/tester_mbs.py
 # =============================================================================
+
 
 
 
