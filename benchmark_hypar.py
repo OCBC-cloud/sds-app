@@ -22,19 +22,23 @@ def _build_hypar_mesh():
     Scale by 0.375 so the diamond's extreme points sit at 1.5 m.
 
     Node count: 41.
-    Cell triangulation: every square cell whose 4 corners are all
-    inside the diamond becomes 2 triangles.
+
+    Cell triangulation:
+      - A cell whose 4 corners are all inside the diamond
+        becomes 2 triangles.
+      - A cell with exactly 3 corners inside becomes 1 triangle.
+      - A cell with 2 or fewer corners inside is skipped.
 
     Returns:
-        coords_xy : (41, 2) array of scaled (x, y)
+        coords_xy : (N, 2) array of scaled (x, y)
         tris      : list of (a, b, c) triangle index triples
         edges     : list of (a, b) unique edge pairs
     """
     a = 1.5
-    scale = a / 4.0  # 0.375
+    scale = a / 4.0
 
     # ---- Step 1: collect nodes in the diamond, in a fixed order.
-    node_map = {}   # (gx, gy) -> node index
+    node_map = {}
     coords_xy = []
     for gy in range(-4, 5):
         for gx in range(-4, 5):
@@ -43,12 +47,8 @@ def _build_hypar_mesh():
                 coords_xy.append((gx * scale, gy * scale))
 
     coords_xy = np.array(coords_xy, dtype=float)
-    n_nodes = len(coords_xy)
 
     # ---- Step 2: build triangles from cells.
-    # A cell (gx, gy) has corners:
-    #   (gx, gy), (gx+1, gy), (gx, gy+1), (gx+1, gy+1)
-    # Include the cell only if all four corners are in the diamond.
     tris = []
     for gy in range(-4, 4):
         for gx in range(-4, 4):
@@ -58,14 +58,17 @@ def _build_hypar_mesh():
                 (gx,     gy + 1),
                 (gx + 1, gy + 1),
             ]
-            if all((c in node_map) for c in corners):
+            inside = [c for c in corners if c in node_map]
+            if len(inside) == 4:
                 n00 = node_map[(gx,     gy)]
                 n10 = node_map[(gx + 1, gy)]
                 n01 = node_map[(gx,     gy + 1)]
                 n11 = node_map[(gx + 1, gy + 1)]
-                # Split the quad into two triangles.
                 tris.append((n00, n10, n01))
                 tris.append((n10, n11, n01))
+            elif len(inside) == 3:
+                idx = [node_map[c] for c in inside]
+                tris.append((idx[0], idx[1], idx[2]))
 
     # ---- Step 3: unique edges from triangles.
     edge_set = set()
@@ -84,8 +87,6 @@ def build_diamond_topology():
     Thin wrapper. Returns (coords_xy, tris, edges) for the diamond.
     """
     return _build_hypar_mesh()
-
-
 
 
 def hypar_z(x, y, H=1.0, a=1.5):
@@ -203,9 +204,6 @@ def run():
     print()
 
 
-
-
-
 if __name__ == "__main__":
     run()
 
@@ -213,8 +211,3 @@ if __name__ == "__main__":
 # =============================================================================
 # END OF benchmark_hypar.py
 # =============================================================================
-
-
-
-
-
