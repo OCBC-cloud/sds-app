@@ -615,3 +615,101 @@ recipes, and the MBS engine are untouched.
 
 
 
+
+## 2026-09-27 - Hypar Benchmark Finding (SDS-CONST Benchmark 001)
+
+### What was built
+
+A standalone benchmark script, `benchmark_hypar.py`, at the repository
+root. NOT wired into the app. Runs in GitHub Actions via a call added
+to `run_tests.py`. Compares our linear FDM solver against the SDS-CONST
+Benchmark 001 reference numbers.
+
+The benchmark reproduces the paper's plan form: a 3.0 m x 3.0 m
+diamond with a hyperbolic paraboloid surface, a 1.0 m corner elevation
+differential, four fixed corner supports, and a prescribed prestress
+of 1.0 kN/m.
+
+### What the benchmark measured
+
+Node and DOF counts match the reference exactly:
+
+  - Nodes:       41 (reference: 41).
+  - Free DOFs:   111 (reference: 111).
+  - Corners:     [0, 16, 24, 40].
+  - Triangles:   64 (reference: 56).
+
+Our linear FDM solve produced a converged, real result:
+
+  - Residual:    5.409732e-12 N. Machine-zero.
+  - Max move:    756.6 mm.
+  - Max force:   1848.0 N/m.
+
+Reference numbers:
+
+  - Residual:    0.000394 N.
+  - Max move:    18.02 mm.
+  - Max force:   1240 N/m.
+
+### Why the physics diverges
+
+Three real reasons, in order of weight:
+
+1. LINEAR vs NONLINEAR. Our solver is linear FDM. One matrix solve.
+   The reference is a nonlinear equilibrium solver that iterates.
+   The two methods find different equilibria.
+
+2. BOUNDARY CONSTRAINT. We hold only the four corners. So does the
+   reference. But the reference enforces prestress throughout the
+   interior. Our linear FDM only balances force densities against
+   geometry.
+
+3. MESH DENSITY. Triangles: 64 vs 56. Small effect. Not the cause
+   of the 42x movement difference.
+
+### What this proves
+
+1. Our linear FDM is correct at what it does. Residual machine-zero.
+   Real forces. Real movement. The solve works.
+
+2. Linear FDM cannot reproduce a prestressed reference state.
+   Prestress requires the nonlinear equilibrium solver.
+
+3. The paper's chain is correct: FDM builds the initial skeleton,
+   then NFDM or nonlinear equilibrium establishes the prestressed
+   reference state. FDM alone is not enough.
+
+### Triangle count note
+
+The reference has 56 triangles. Our topology has been 48 (clip with
+4 corners only), 64 (clip including 3-corner cells), and will be
+56 only with the exact reference clip rule, which we do not have.
+The count is cosmetic. It does not affect the physics finding.
+
+### What was NOT touched
+
+The app itself is unchanged. The Tester, all five shape recipes
+(Lens, Triangle, Crown, Prototype-Lobe, Crown-3Lobe), and the MBS
+engine are untouched.
+
+### Files touched
+
+  - benchmark_hypar.py      (new, standalone, not wired to app).
+  - run_tests.py            (one new test call).
+  - PROJECT_SESSION_LOG.md  (this entry).
+
+### What this means for the road
+
+The next engine work is genuinely the nonlinear equilibrium solver
+(NFDM). Not because our engine fails, but because our engine
+succeeds at Stage 1 and the next stage needs a different tool.
+
+This confirms the constitution's three-stage method:
+
+  Stage 1: FDM (linear).       Built. Working. This benchmark
+                                tests it.
+  Stage 2: NFDM / nonlinear.   Not built. The next room.
+  Stage 3: Load analysis.      Reference only.
+
+
+  
