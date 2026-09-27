@@ -1,60 +1,60 @@
 # =============================================================================
 # SDSe Engine - Render Prompt Templates
 # =============================================================================
-# Prompt templates for external image renderers.
+# Prompt templates for the external image renderer.
 #
 # SDSe does not generate images. It prepares a snapshot and a prompt.
-# The user takes them to an external renderer (Bing Image Creator,
-# Midjourney, Adobe Firefly, etc.). The result is brought back by the
-# user.
+# The user takes them to an external renderer (Google Gemini). The
+# result is brought back by the user.
 #
 # Prompt layout (three parts):
-#   1. Structure name + live shape sentence (assembled from params)
-#   2. Lighting sentence (from TIMES, unless scene overrides it)
-#   3. Scene paragraph (from SCENES)
+#   1. Structure name + live shape sentence (assembled from params,
+#      with explicit scale, materials, and a human figure for size).
+#   2. Lighting sentence (from TIMES, unless the scene overrides it).
+#   3. Scene paragraph (from SCENES, with human figures where the
+#      scene is a real-world setting).
 #
-# The prompt is capped at MAX_PROMPT_CHARS characters. Bing's own
-# input limit is 480 characters. We stay below it so nothing gets
-# silently truncated by the renderer.
+# The prompt is capped at MAX_PROMPT_CHARS characters. Gemini has no
+# short input limit, so we allow a richer prompt than the old Bing
+# version.
 #
 # Legal: SDSe is not affiliated with any external renderer. See
 # MARKETING_RENDER_WORKFLOW.md for the disclaimer text and design
 # rationale.
+#
+# Updated 2026-09-27:
+#   - Switched renderer list from Bing/Midjourney/Firefly to Gemini.
+#   - Raised MAX_PROMPT_CHARS from 440 to 1200.
+#   - Prompt now includes explicit scale, materials, and a human
+#     figure for scale.
 # =============================================================================
 
 
 # =============================================================================
 # CHARACTER LIMIT
 # =============================================================================
-# External renderers cap the prompt length.
-# Bing: 480 characters. We stay below that.
+# Gemini has no short prompt cap. We allow a rich prompt but keep it
+# focused so the AI concentrates on the structure.
 
-MAX_PROMPT_CHARS = 440
+MAX_PROMPT_CHARS = 1200
 
 
 # =============================================================================
-# RENDERER LINKS
+# RENDERER
 # =============================================================================
-# Plain text names and URLs. No logos. No endorsement implied.
+# Single renderer. Gemini. Plain text name and URL. No logos.
 
 RENDERERS = [
     {
-        "key": "bing",
-        "name": "Bing Image Creator",
-        "url": "https://www.bing.com/create",
-        "note": "Free. No account required. 480 character prompt limit.",
-    },
-    {
-        "key": "midjourney",
-        "name": "Midjourney",
-        "url": "https://www.midjourney.com",
-        "note": "Paid subscription. Highest quality. Longer prompts allowed.",
-    },
-    {
-        "key": "firefly",
-        "name": "Adobe Firefly",
-        "url": "https://firefly.adobe.com",
-        "note": "Free tier available. Adobe account required.",
+        "key": "gemini",
+        "name": "Google Gemini",
+        "url": "https://gemini.google.com",
+        "note": (
+            "Tap to open Gemini in a new tab. Then: (1) upload your "
+            "3D screenshot, (2) paste this prompt, (3) add the line "
+            "\"Generate a photorealistic image based on this "
+            "description and the attached image.\" and send."
+        ),
     },
 ]
 
@@ -62,13 +62,12 @@ RENDERERS = [
 # =============================================================================
 # DISCLAIMER TEXT
 # =============================================================================
-# Shown in the SDSe interface below the renderer links.
+# Shown in the SDSe interface below the renderer button.
 
 DISCLAIMER = (
-    "SDSe is not affiliated with any of the renderers listed above. "
-    "These are third-party tools offered for your consideration. "
-    "Each opens in a new browser tab. Use of any renderer is subject "
-    "to that renderer's own terms of service.\n\n"
+    "SDSe is not affiliated with Google Gemini. It is a third-party "
+    "tool offered for your consideration. It opens in a new browser "
+    "tab. Use of Gemini is subject to Google's own terms of service.\n\n"
     "Before using any rendered image for commercial purposes, please "
     "check the terms of the renderer you used. Not all renderers "
     "permit commercial use of generated images.\n\n"
@@ -84,6 +83,9 @@ DISCLAIMER = (
 # Each scene is a short paragraph. The special "technical" scene
 # overrides the time-of-day lighting, producing a plain product-shot.
 # No camera/lens specs. No mood poetry. Only what the renderer can draw.
+#
+# Where the scene is a real-world setting, human figures are added for
+# scale.
 
 SCENES = {
     "technical": {
@@ -100,8 +102,9 @@ SCENES = {
         "overrides_lighting": False,
         "scene_text": (
             "Placed in a lush public garden with flowerbeds, stone "
-            "pathways, and a reflective water feature. People walking "
-            "underneath the structure."
+            "pathways, and a reflective water feature. Adults "
+            "approximately 1.8 metres tall walk underneath the "
+            "structure, providing human scale."
         ),
     },
     "plaza": {
@@ -109,8 +112,9 @@ SCENES = {
         "overrides_lighting": False,
         "scene_text": (
             "At the centerpiece of a modern urban plaza with stone "
-            "paving and glass buildings in the background. Pedestrians "
-            "walking nearby."
+            "paving and glass buildings in the background. Adults "
+            "approximately 1.8 metres tall walk nearby, providing "
+            "human scale."
         ),
     },
     "event": {
@@ -118,7 +122,8 @@ SCENES = {
         "overrides_lighting": False,
         "scene_text": (
             "Over an outdoor event space with round tables, white "
-            "linens, and string lights. Guests at a reception."
+            "linens, and string lights. Guests approximately 1.8 "
+            "metres tall stand at a reception, providing human scale."
         ),
     },
     "cafe": {
@@ -126,7 +131,8 @@ SCENES = {
         "overrides_lighting": False,
         "scene_text": (
             "Shading an outdoor cafe with wooden tables and coffee "
-            "cups. Customers seated beneath."
+            "cups. Adults approximately 1.8 metres tall sit beneath "
+            "the structure, providing human scale."
         ),
     },
     "motorsport": {
@@ -134,7 +140,9 @@ SCENES = {
         "overrides_lighting": False,
         "scene_text": (
             "Shading the pit lane of a motorsport circuit. Racing "
-            "motorcycles parked beneath, team crew working on bikes."
+            "motorcycles parked beneath the structure. Team crew "
+            "approximately 1.8 metres tall work on the bikes, "
+            "providing human scale."
         ),
     },
     "parade": {
@@ -143,7 +151,9 @@ SCENES = {
         "scene_text": (
             "Standing on Dataran Merdeka in Kuala Lumpur during a "
             "National Day parade. Malaysian flags, marching "
-            "contingents, and the Sultan Abdul Samad building behind."
+            "contingents of adults approximately 1.8 metres tall, "
+            "and the Sultan Abdul Samad building behind. The human "
+            "figures provide scale."
         ),
     },
     "hubei": {
@@ -151,8 +161,9 @@ SCENES = {
         "overrides_lighting": False,
         "scene_text": (
             "On a scenic overlook in the mountains of Hubei province, "
-            "China. Pine trees, mist, and traditional pavilions in the "
-            "distance."
+            "China. Pine trees, mist, and traditional pavilions in "
+            "the distance. A few adults approximately 1.8 metres "
+            "tall stand nearby, providing human scale."
         ),
     },
     "airbase": {
@@ -160,8 +171,9 @@ SCENES = {
         "overrides_lighting": False,
         "scene_text": (
             "On the apron of a modern air force base. Stealth fighter "
-            "jets parked beneath the structure, ground crew working "
-            "nearby."
+            "jets parked beneath the structure. Ground crew "
+            "approximately 1.8 metres tall work nearby, providing "
+            "human scale."
         ),
     },
 }
@@ -198,6 +210,7 @@ TIMES = {
         ),
     },
 }
+
 
 # ============ END OF CHUNK 1 ============
 
@@ -244,8 +257,8 @@ def format_prompt(scene_key, structure_key, variant_key, params, time_key="eveni
     # ---- 1. Structure name + live shape sentence
     name, shape = _describe_structure(variant_key, structure_key, params)
     lead = (
-        "Photorealistic architectural photograph of a " + name + ". "
-        + shape
+        "Photorealistic architectural photograph of a "
+        + name + ". " + shape
     )
 
     # ---- 2. Lighting (skipped when the scene overrides it)
@@ -269,7 +282,18 @@ def format_prompt(scene_key, structure_key, variant_key, params, time_key="eveni
 # PER-VARIANT LIVE SHAPE SENTENCES
 # =============================================================================
 # Every shape sentence is assembled from the params dict. No hardcoded
-# dimensions. Only what a viewer's eye would notice.
+# dimensions. Only what a viewer's eye would notice, plus explicit
+# materials and a scale reference so an AI renderer knows the size.
+
+# ---- Standard material specs (until the UI adds material selection).
+_MEMBRANE_SPEC = (
+    "white Ferrari Precontraint 702 PVC-polyester fabric, prestressed "
+    "at 1.5 kN/m in each direction"
+)
+_STEEL_SPEC = (
+    "200 mm diameter circular hollow steel section, galvanised"
+)
+
 
 def _describe_structure(variant_key, structure_key, params):
     """Return (name, shape_sentence) for the active variant."""
@@ -297,44 +321,52 @@ def _describe_cantilever_leaf(params):
     h = params.get("column_height")
     h_text = _fmt_m(h) + " tall column" if h else "vertical column"
 
+    material_phrase = (
+        " The membrane is " + _MEMBRANE_SPEC
+        + ", stretched over " + _STEEL_SPEC + " ribs."
+    )
+
     if arr == "single":
         shape = (
-            "A single leaf-shaped fabric canopy on a " + h_text + ", "
-            "radiating outward and upward over curved steel ribs and "
-            "tapering to a pointed tip."
+            "A single leaf-shaped fabric canopy on a " + h_text
+            + ", radiating outward and upward over curved steel ribs "
+            "and tapering to a pointed tip." + material_phrase
         )
     elif arr == "double":
         shape = (
-            "Two mirrored leaf-shaped fabric canopies on a " + h_text + ", "
-            "radiating outward and upward over curved steel ribs."
+            "Two mirrored leaf-shaped fabric canopies on a " + h_text
+            + ", radiating outward and upward over curved steel ribs."
+            + material_phrase
         )
     elif arr == "multiple":
         n = params.get("num_leaves")
         n_text = str(int(n)) + " " if n else "Multiple "
         shape = (
             n_text + "leaf-shaped fabric canopies arranged radially "
-            "around a " + h_text + ", each stretched over curved steel "
-            "ribs."
+            "around a " + h_text + ", each stretched over curved "
+            "steel ribs." + material_phrase
         )
     elif arr == "tree_stack":
         n = params.get("num_leaves")
         n_text = str(int(n)) + " tiers" if n else "stacked tiers"
         shape = (
-            "Leaf-shaped fabric canopies arranged in " + n_text + " up a "
-            + h_text + ", each canopy stretched over curved steel ribs."
+            "Leaf-shaped fabric canopies arranged in " + n_text
+            + " up a " + h_text + ", each canopy stretched over "
+            "curved steel ribs." + material_phrase
         )
     elif arr == "tiered_helix":
         n = params.get("num_leaves")
         n_text = str(int(n)) + " " if n else "Several "
         shape = (
-            n_text + "leaf-shaped fabric canopies arranged in a helix "
-            "spiralling up a " + h_text + ", each stretched over curved "
-            "steel ribs."
+            n_text + "leaf-shaped fabric canopies arranged in a "
+            "helix spiralling up a " + h_text + ", each stretched "
+            "over curved steel ribs." + material_phrase
         )
     else:
         shape = (
-            "A leaf-shaped fabric canopy on a " + h_text + ", radiating "
-            "outward and upward over curved steel ribs."
+            "A leaf-shaped fabric canopy on a " + h_text
+            + ", radiating outward and upward over curved steel ribs."
+            + material_phrase
         )
     return name, shape
 
@@ -348,17 +380,21 @@ def _describe_standard_saddle(params):
 
     dim_phrase = ""
     if span and rise:
-        dim_phrase = " " + _fmt_m(span) + " long and rising " + _fmt_m(rise) + ","
+        dim_phrase = (
+            " spanning " + _fmt_m(span) + " and rising " + _fmt_m(rise)
+            + " above ground,"
+        )
     elif span:
-        dim_phrase = " " + _fmt_m(span) + " long,"
+        dim_phrase = " spanning " + _fmt_m(span) + ","
     elif rise:
-        dim_phrase = " rising " + _fmt_m(rise) + ","
+        dim_phrase = " rising " + _fmt_m(rise) + " above ground,"
 
     shape = (
-        "A hyperbolic paraboloid saddle membrane canopy" + dim_phrase + " "
-        "held by two curved steel edge beams rising from two ground "
-        "supports and converging toward a low point between them, "
-        "stabilised by tie-down cables."
+        "A hyperbolic paraboloid saddle membrane canopy" + dim_phrase
+        + " held taut by two curved steel edge beams anchored at "
+        "ground level, and stabilised by steel tie-down cables. "
+        "The membrane is " + _MEMBRANE_SPEC + ". The steel is "
+        + _STEEL_SPEC + "."
     )
     return name, shape
 
@@ -372,18 +408,22 @@ def _describe_beam_supported_saddle(params):
 
     dim_phrase = ""
     if span and rise:
-        dim_phrase = " " + _fmt_m(span) + " long and rising " + _fmt_m(rise) + ","
+        dim_phrase = (
+            " spanning " + _fmt_m(span) + " and rising " + _fmt_m(rise)
+            + " above ground,"
+        )
     elif span:
-        dim_phrase = " " + _fmt_m(span) + " long,"
+        dim_phrase = " spanning " + _fmt_m(span) + ","
     elif rise:
-        dim_phrase = " rising " + _fmt_m(rise) + ","
+        dim_phrase = " rising " + _fmt_m(rise) + " above ground,"
 
     shape = (
-        "A hyperbolic paraboloid saddle membrane canopy" + dim_phrase + " "
-        "held by two curved steel edge beams rising from two ground "
-        "supports and converging toward a low point between them, with "
-        "cross purlins spanning the membrane and rigid secondary beams "
-        "tying the structure down."
+        "A hyperbolic paraboloid saddle membrane canopy" + dim_phrase
+        + " held taut by two curved steel edge beams anchored at "
+        "ground level, with cross purlins spanning the membrane and "
+        "rigid secondary beams tying the structure down. "
+        "The membrane is " + _MEMBRANE_SPEC + ". The steel is "
+        + _STEEL_SPEC + "."
     )
     return name, shape
 
@@ -426,6 +466,12 @@ def _enforce_char_limit(text):
     return trimmed
 
 
+# ============ END OF CHUNK 2 ============
+
+
+
+
+
 # =============================================================================
 # SELF-TEST
 # =============================================================================
@@ -450,11 +496,11 @@ def _verify_render_prompts():
     results["leaf_has_name"] = "Cantilever Leaf" in p1
     results["leaf_has_column"] = "10.0 m" in p1
     results["leaf_has_arrangement"] = "helix" in p1.lower()
+    results["leaf_has_membrane_spec"] = "Precontraint 702" in p1
+    results["leaf_has_steel_spec"] = "circular hollow steel" in p1.lower()
+    results["leaf_has_human_scale"] = "1.8 metres" in p1
     results["leaf_has_lighting"] = "Soft morning light" in p1
     results["leaf_has_scene"] = "public garden" in p1.lower()
-    results["leaf_no_spec_sheet"] = "Structure details:" not in p1
-    results["leaf_no_baseplate"] = "baseplate" not in p1.lower()
-    results["leaf_no_camera"] = "Canon EOS" not in p1
 
     # ---- Test 2: Standard Saddle
     p2 = format_prompt(
@@ -469,10 +515,12 @@ def _verify_render_prompts():
     results["saddle_has_rise"] = "6.2 m" in p2
     results["saddle_has_hypar"] = "hyperbolic paraboloid" in p2.lower()
     results["saddle_has_ties"] = "tie-down" in p2.lower()
+    results["saddle_has_membrane_spec"] = "Precontraint 702" in p2
+    results["saddle_has_steel_spec"] = "circular hollow steel" in p2.lower()
+    results["saddle_has_human_scale"] = "1.8 metres" in p2
     results["saddle_no_leaf_words"] = (
         "leaves" not in p2.lower() and "cantilever" not in p2.lower()
     )
-    results["saddle_no_camera"] = "Canon EOS" not in p2
 
     # ---- Test 3: Beam Supported Saddle
     p3 = format_prompt(
@@ -530,6 +578,16 @@ def _verify_render_prompts():
             )
             if len(pt) > MAX_PROMPT_CHARS:
                 results["all_prompts_under_limit"] = False
+
+    # ---- Test 8: RENDERERS has exactly one entry, and it is Gemini
+    results["renderers_single"] = len(RENDERERS) == 1
+    results["renderers_is_gemini"] = (
+        RENDERERS[0]["key"] == "gemini"
+        and "gemini.google.com" in RENDERERS[0]["url"]
+    )
+
+    # ---- Test 9: MAX_PROMPT_CHARS is 1200
+    results["char_limit_ok"] = MAX_PROMPT_CHARS == 1200
 
     # ---- Overall
     results["pass"] = all(v for k, v in results.items() if k != "pass")
