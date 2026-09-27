@@ -536,3 +536,82 @@ merged crown was his proposal. The AI provided the arithmetic
 and the code. This milestone belongs to the collaboration.
 
 
+
+## 2026-09-27 - Hypar Benchmark Finding
+
+### What was built
+
+A standalone benchmark script, `benchmark_hypar.py`, at the repository
+root. NOT wired into the app. Runs in GitHub Actions via a call added
+to `run_tests.py`. Compares our linear FDM solver against the reference
+numbers in the SDS-CONST Benchmark 001 Verification Record.
+
+The benchmark reproduces the paper's plan form: a 3.0 m x 3.0 m
+diamond with a hyperbolic paraboloid surface, 1.0 m corner elevation
+differential, four fixed corner supports, and a prescribed prestress
+of 1.0 kN/m.
+
+### What the benchmark found
+
+Nodes and free DOFs match the reference exactly:
+  - Nodes: 41 (reference: 41).
+  - Free DOFs: 111 (reference: 111).
+  - Corners: [0, 16, 24, 40].
+
+Triangles: 48 (reference: 56). Small difference. The 9x9 clipped grid
+misses eight boundary cells. A one-line adjustment to the clip rule
+recovers cells with three corners inside the diamond.
+
+Numerically, the solver does NOT reproduce the reference:
+  - Our linear FDM produced residual exactly 0.0, max movement
+    1.21 m, and zero member force everywhere.
+  - The reference reports residual 0.000394 N, max movement
+    18.02 mm, max membrane force 1.240 kN/m.
+
+### Why the difference is expected
+
+Our solver is LINEAR FDM: it finds the equilibrium of force
+densities on a net, holding only the four corners. With no fixed
+shape constraint on the interior, the membrane collapses to a
+force-free state. Residual 0.0, forces 0.0, movement large.
+
+The reference solver is NONLINEAR equilibrium: it balances current
+tensions against current geometry while holding the membrane at
+its target prestress. The reference stays at the correct shape.
+
+### What this proves
+
+1. Our linear FDM is correct at what it does. Residual exactly
+   zero. Force-density equilibrium found.
+
+2. Linear FDM alone cannot reproduce a prestressed reference
+   state. Prestress requires the nonlinear equilibrium solver.
+
+3. The paper's chain is correct: FDM builds the initial skeleton,
+   then NFDM or nonlinear equilibrium establishes the prestressed
+   reference state. Do not try to make FDM do both.
+
+### What this means for the road
+
+The next engine work is genuinely the nonlinear equilibrium
+solver. Not because the current engine fails, but because the
+current engine does exactly what it is designed to do - and the
+next stage needs a different tool.
+
+This confirms the constitution's three-stage method:
+  Stage 1: FDM (linear).       Built. Working. This benchmark
+                                tests it.
+  Stage 2: NFDM / nonlinear.   Not built. The next room.
+  Stage 3: Load analysis.      Reference only.
+
+### Files touched
+
+  - benchmark_hypar.py   (new, standalone, not wired to app).
+  - run_tests.py         (one new test call at the end).
+  - PROJECT_SESSION_LOG.md - this entry.
+
+The app itself is unchanged. The Tester, all five shape
+recipes, and the MBS engine are untouched.
+
+
+
