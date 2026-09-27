@@ -4,6 +4,12 @@
 # Runs the engine tests. Called by GitHub Actions on every push.
 # Add new test functions here as we build more engine modules.
 #
+# Updated 2026-09-27:
+#   - Added the standalone hypar benchmark. This is NOT wired into
+#     the app. It runs here so that GitHub Actions produces a
+#     reproducible log of the comparison between our linear FDM
+#     solver and the SDS-CONST Benchmark 001 reference.
+#
 # Updated 2026-09-25:
 #   - Removed the MBS engine test. It runs for minutes, and
 #     GitHub Actions cancels the job before completion. The
@@ -51,6 +57,30 @@ def test_form_finding():
         return False
 
 
+def test_hypar_benchmark():
+    """
+    Run the standalone hypar benchmark.
+
+    This is NOT wired into the app. It runs here so that GitHub
+    Actions produces a reproducible log of the comparison between
+    our linear FDM solver and the SDS-CONST Benchmark 001 reference.
+    """
+    print("=" * 60)
+    print("BENCHMARK: hypar (SDS-CONST Benchmark 001 reconstruction)")
+    print("=" * 60)
+    try:
+        import benchmark_hypar
+        benchmark_hypar.run()
+        print("RESULT: COMPLETED (comparison output above)")
+        print("-" * 60)
+        return True
+    except Exception as e:
+        print("RESULT: FAIL")
+        print("  " + str(e))
+        print("-" * 60)
+        return False
+
+
 def main():
     all_pass = True
 
@@ -58,6 +88,8 @@ def main():
     if not test_membrane_mesh():
         all_pass = False
     if not test_form_finding():
+        all_pass = False
+    if not test_hypar_benchmark():
         all_pass = False
 
     print()
@@ -74,25 +106,9 @@ if __name__ == "__main__":
     main()
 
 
-
-
 # =============================================================================
-# STANDALONE BENCHMARK — hypar (SDS-CONST Benchmark 001 reconstruction)
+# END OF run_tests.py
 # =============================================================================
-
-def _run_benchmark_hypar():
-    try:
-        import benchmark_hypar
-        benchmark_hypar.run()
-        return True
-    except Exception as e:
-        print("Benchmark hypar raised an error:")
-        print(str(e))
-        return False
-
-
-if __name__ == "__main__":
-    _run_benchmark_hypar()
 
 
 
