@@ -4,18 +4,13 @@
 # Temporary research page. Tests the Membrane Boundary Schema engine
 # across multiple shapes using the same nine-step pipeline.
 #
-# Doctrine (2026-09-26):
-#   - The user supplies corners / parameters only.
-#   - Segments N is the user's number of segments.
-#   - Mesh density is Mode A (fixed K) or Mode B (target ds metres).
-#   - Focal point = centroid of boundary nodes in x-y, solved z.
-#   - Every boundary node is held rigid (Stage 1 doctrine).
-#
-# Shapes:
-#   Lens             - two beam curves meeting at two tips.
-#   Triangle         - three corners, three edges.
-#   Crown            - N parabolic beams on an imaginary ground circle.
-#   Prototype-Lobe   - one lobe of the crown.
+# Terminology (fixed 2026-09-27):
+#   apex   - the highest point of a frame. Held at H.
+#            One per frame. For a crown of N frames, N apexes.
+#   focal  - the single free centre node of the crown, where all
+#            lobes meet. One per crown. This is what we watch.
+#   boundary centroid - the mean of the held frame nodes.
+#            A computed number, not a node.
 #
 # Status: EXPERIMENTAL.
 # =============================================================================
@@ -206,8 +201,9 @@ def _build_beam_parabola(p_support_a, p_apex, p_support_b, n_points):
 
 
 
+
 # =============================================================================
-# CROWN RECIPE
+# CROWN RECIPE (polar, single rectangular grid)
 # =============================================================================
 
 def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
@@ -298,23 +294,12 @@ def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
 
 
 # =============================================================================
-# PROTOTYPE LOBE RECIPE
+# PROTOTYPE LOBE RECIPE (single lobe)
 # =============================================================================
 
 def _build_crown_lobe_prototype(R=8.0, H=6.0,
                                  n_anchors=7, subdivisions=5,
                                  nx=None, ny=12):
-    """
-    Prototype single-lobe of the crown.
-
-    Frame A: support 1 -> apex -> support 2, parabolic curve.
-    Radial path: support1 -> D (centre) -> support2, straight lines.
-    Mesh: (nx, ny) grid, barycentric-mapped onto the lobe triangle
-    with vertices at support1, support2, D.
-
-    Boundary held: only the frame (j=0 row).
-    Free: everything else, including D at j=ny-1.
-    """
     R = float(R)
     H = float(H)
 
@@ -325,7 +310,7 @@ def _build_crown_lobe_prototype(R=8.0, H=6.0,
     p_a1 = np.array([R * np.cos(angle_1), R * np.sin(angle_1), 0.0])
     p_a7 = np.array([R * np.cos(angle_2), R * np.sin(angle_2), 0.0])
     p_apex = np.array([R * np.cos(angle_mid), R * np.sin(angle_mid), H])
-    p_D = np.array([0.0, 0.0, H])
+    p_focal = np.array([0.0, 0.0, H])
 
     n_frame_pts = n_anchors + (n_anchors - 1) * subdivisions
     t = np.linspace(0.0, 1.0, n_frame_pts)
@@ -344,7 +329,7 @@ def _build_crown_lobe_prototype(R=8.0, H=6.0,
         frame_pt = frame[int(round(u * (n_frame_pts - 1)))]
         for j in range(ny):
             v = j / (ny - 1.0)
-            base = frame_pt * (1.0 - v) + p_D * v
+            base = frame_pt * (1.0 - v) + p_focal * v
             sag = 0.10 * H * (4.0 * v * (1.0 - v))
             base = base.copy()
             base[2] -= sag
@@ -354,38 +339,32 @@ def _build_crown_lobe_prototype(R=8.0, H=6.0,
     anchors = list(range(len(boundary)))
     edge_types = ["beam"] * len(boundary)
 
-    return grid, boundary, anchors, # =============================================================================
+    return grid, boundary, anchors, edge_types
+
+
+# =============================================================================
 # THREE-LOBE CROWN RECIPE
 # =============================================================================
-# Builds three separate lobe meshes, merges their shared nodes, and
-# returns a single (points, edges, fixed_indices, q, triangles, boundary)
-# tuple ready for solve_fdm.
+# Terminology:
+#   apex  - the highest point of a frame. Held at H. One per frame.
+#   focal - the single free centre of the crown where all three lobes
+#           meet. This is the node we watch.
 #
 # Lobe topology:
 #   Frame row j=0: 37 nodes along the parabolic frame.
-#   Interior rows j=1..10: 37 nodes each, barycentric-mapped.
-#   Apex row j=11: ONE node (D), where all 37 columns converge.
+#   Interior rows j=1..10: 37 nodes each.
+#   Focal row j=11: ONE node (the lobe's centre point).
 #   Per lobe: 37*11 + 1 = 408 nodes.
-#   Per lobe: 37*10 + 37 (vertical) + 36*11 (horizontal) = 803 edges.
 #
-# Three lobes, each rotated by 120 degrees.
-# Merge shared nodes:
-#   - Support nodes (3 pairs merge).
-#   - Ridge interior nodes (10 per ridge x 3 ridges merge).
-#   - Apex node (3 merge into 1).
+# Classification of edges:
+#   "i" = edge along the frame direction (warp).
+#   "j" = edge across the frame direction (weft).
+#   Focal edges are split: half "i", half "j" so the focal
+#   point feels both warp and weft, and can respond to the
+#   warp/weft ratio.
 
 def _build_crown_lobe_at_angle(theta_rot, R, H,
                                 n_anchors, subdivisions, ny=12):
-    """
-    Build one lobe as separate node/edge/triangle lists in local
-    indexing. Returns (nodes, edges, tris, frame_indices, apex_idx).
-
-    - nodes: list of (x, y, z)
-    - edges: list of (a, b) local indices
-    - tris:  list of (a, b, c) local indices (for rendering)
-    - frame_indices: list of int, the j=0 row (the frame)
-    - apex_idx: int, the index of the single apex node
-    """
     R = float(R)
     H = float(H)
 
@@ -396,7 +375,7 @@ def _build_crown_lobe_at_angle(theta_rot, R, H,
     p_a1 = np.array([R * np.cos(ang_a1), R * np.sin(ang_a1), 0.0])
     p_a7 = np.array([R * np.cos(ang_a7), R * np.sin(ang_a7), 0.0])
     p_apex = np.array([R * np.cos(ang_mid), R * np.sin(ang_mid), H])
-    p_D = np.array([0.0, 0.0, H])
+    p_focal = np.array([0.0, 0.0, H])
 
     n_frame_pts = n_anchors + (n_anchors - 1) * subdivisions
     t = np.linspace(0.0, 1.0, n_frame_pts)
@@ -408,41 +387,35 @@ def _build_crown_lobe_at_angle(theta_rot, R, H,
 
     n_i = n_frame_pts
 
-    # ---- Nodes: grid of (i, j) for j = 0..ny-2, then 1 apex.
     nodes = []
-    # index of node (i, j) for j in 0..ny-2:
+
     def idx_grid(i, j):
         return i * (ny - 1) + j
+
     for i in range(n_i):
         frame_pt = frame[i]
         for j in range(ny - 1):
-            v = j / (ny - 1.0)
-            base = frame_pt * (1.0 - v) + p_D * v
-            sag = 0.10 * H * (4.0 * v * (1.0 - v))
+            v = j / (ny - 1 =.0)
+            base = frame_pt * (1.0 - v) + p_focal * v
+            sag 0.10 * H * (4.0 * v * (1.0 - v))
             base = base.copy()
             base[2] -= sag
             nodes.append(base)
 
-    apex_idx = len(nodes)
-    nodes.append(p_D.copy())
+    focal_idx = len(nodes)
+    nodes.append(p_focal.copy())
 
-    # ---- Edges.
     edges = []
-    # Horizontal along the frame direction (i, i+1) for each j = 0..ny-2.
     for j in range(ny - 1):
         for i in range(n_i - 1):
             edges.append((idx_grid(i, j), idx_grid(i + 1, j)))
-    # Vertical: for j = 0..ny-3, connect (i, j) -> (i, j+1).
     for j in range(ny - 2):
         for i in range(n_i):
             edges.append((idx_grid(i, j), idx_grid(i, j + 1)))
-    # Final radial: every (i, ny-2) connects to apex.
     for i in range(n_i):
-        edges.append((idx_grid(i, ny - 2), apex_idx))
+        edges.append((idx_grid(i, ny - 2), focal_idx))
 
-    # ---- Triangles (for rendering).
     tris = []
-    # Between rows j and j+1 for j = 0..ny-3.
     for j in range(ny - 2):
         for i in range(n_i - 1):
             a = idx_grid(i, j)
@@ -451,39 +424,27 @@ def _build_crown_lobe_at_angle(theta_rot, R, H,
             d = idx_grid(i + 1, j + 1)
             tris.append((a, b, c))
             tris.append((b, d, c))
-    # Fan from the last row to the apex.
     j_last = ny - 2
     for i in range(n_i - 1):
         a = idx_grid(i, j_last)
         b = idx_grid(i + 1, j_last)
-        tris.append((a, b, apex_idx))
+        tris.append((a, b, focal_idx))
 
-    # ---- Frame indices (j=0 row).
     frame_indices = [idx_grid(i, 0) for i in range(n_i)]
 
-    return nodes, edges, tris, frame_indices, apex_idx
+    return nodes, edges, tris, frame_indices, focal_idx
 
 
 def _build_crown_three_lobe(R=8.0, H=6.0,
                              n_anchors=7, subdivisions=5, ny=12):
-    """
-    Build three lobes, merge shared nodes, return:
-    (points, edges, fixed_indices, q, triangles, boundary_for_focal,
-     lobe_count, per_lobe_node_count)
-    """
     R = float(R)
     H = float(H)
 
     all_nodes = []
-    all_edges = []
-    all_tris = []
-    all_fixed = []
-
-    # Track where each lobe's nodes start in the global list.
     lobe_data = []
     for k in range(3):
         theta_rot = k * 2.0 * np.pi / 3.0
-        nodes_k, edges_k, tris_k, frame_k, apex_k = _build_crown_lobe_at_angle(
+        nodes_k, edges_k, tris_k, frame_k, focal_k = _build_crown_lobe_at_angle(
             theta_rot, R, H, n_anchors, subdivisions, ny
         )
         lobe_data.append({
@@ -491,40 +452,22 @@ def _build_crown_three_lobe(R=8.0, H=6.0,
             "edges": edges_k,
             "tris": tris_k,
             "frame": frame_k,
-            "apex": apex_k,
+            "focal": focal_k,
             "offset": len(all_nodes),
         })
-        # Append nodes with the offset for this lobe.
         all_nodes.extend(nodes_k)
 
-    # ---- Build merge map: (lobe_k, local_idx) -> global_idx.
-    # Nodes at nearly the same position get the same global index.
     tol = 1e-6
     node_positions = [np.array(p, dtype=float) for p in all_nodes]
+    global_id = list(range(len(all_nodes)))
 
-    global_id = list(range(len(all_nodes)))  # start as identity
-
-    def _find_same(pos):
-        for other, gp in enumerate(node_positions):
-            if other >= len(node_positions):
-                continue
-            if np.linalg.norm(gp - pos) < tol:
-                return other
-        return None
-
-    # For each lobe pair, find and merge the shared ridge and support
-    # nodes. Two passes: supports and ridges, then apex.
-    # Simpler: for each node in lobe k, check if it coincides with
-    # an earlier node in lobe k-1 or lobe 0.
     for k in range(3):
         d = lobe_data[k]
         off = d["offset"]
         for local_idx, p in enumerate(d["nodes"]):
             gidx = off + local_idx
-            # Skip if already merged (id != gidx).
             if global_id[gidx] != gidx:
                 continue
-            # Search among already-assigned earlier nodes.
             for earlier in range(gidx):
                 if global_id[earlier] != earlier:
                     continue
@@ -532,8 +475,7 @@ def _build_crown_three_lobe(R=8.0, H=6.0,
                     global_id[gidx] = earlier
                     break
 
-    # ---- Collect unique nodes.
-    uniq_index = {}  # global original idx -> new compact idx
+    uniq_index = {}
     points = []
     for old_idx in range(len(all_nodes)):
         root = global_id[old_idx]
@@ -545,7 +487,6 @@ def _build_crown_three_lobe(R=8.0, H=6.0,
     def remap(old_idx):
         return uniq_index[global_id[old_idx]]
 
-    # ---- Edges with remap, dedup.
     edges_set = set()
     for k in range(3):
         d = lobe_data[k]
@@ -560,7 +501,6 @@ def _build_crown_three_lobe(R=8.0, H=6.0,
             edges_set.add((ga, gb))
     edges = sorted(edges_set)
 
-    # ---- Triangles with remap, skip degenerate.
     tris = []
     seen_tris = set()
     for k in range(3):
@@ -579,7 +519,6 @@ def _build_crown_three_lobe(R=8.0, H=6.0,
             tris.append((ga, gb, gc))
     tris = np.array(tris, dtype=int)
 
-    # ---- Fixed indices: frame nodes only.
     fixed = set()
     for k in range(3):
         d = lobe_data[k]
@@ -588,24 +527,14 @@ def _build_crown_three_lobe(R=8.0, H=6.0,
             fixed.add(remap(off + local_idx))
     fixed_indices = sorted(fixed)
 
-    # ---- Per-edge q: compute edge direction in the ORIGINAL lobe frame.
-    # We classify by checking whether the edge is an i-edge or j-edge in
-    # its lobe. Simplest: recompute from the lobe edge lists.
-    edge_q_map = {}
-    q_warp = 1.0  # default warp; overridden by Tester
-    q_weft = 1.0
-    # We will compute q in the Tester after this call. Return a
-    # per-edge list of 'i' or 'j' hints alongside.
-    edge_kind = []
+    n_i_lobe = n_anchors + (n_anchors - 1) * subdivisions
+    mid_i = n_i_lobe // 2
+
     edge_lookup = {}
     for k in range(3):
         d = lobe_data[k]
         off = d["offset"]
-        n_i = n_anchors + (n_anchors - 1) * subdivisions
         for (a, b) in d["edges"]:
-            # Classify in local indexing:
-            # i-edges: a = i*(ny-1)+j, b = (i+1)*(ny-1)+j
-            # j-edges: a = i*(ny-1)+j, b = i*(ny-1)+j+1
             ga = remap(off + a)
             gb = remap(off + b)
             if ga == gb:
@@ -613,21 +542,29 @@ def _build_crown_three_lobe(R=8.0, H=6.0,
             if ga > gb:
                 ga, gb = gb, ga
             kind = "?"
-            # local a, b classify
             if b == a + 1 and (a % (ny - 1)) < (ny - 2):
                 kind = "i"
             elif b == a + (ny - 1):
                 kind = "j"
-            elif b == d["apex"] and a != d["apex"]:
-                kind = "j"  # radial to apex
-            elif a == d["apex"] or b == d["apex"]:
-                kind = "j"
+            elif b == d["focal"] and a != d["focal"]:
+                local_i = a // (ny - 1)
+                if local_i < mid_i:
+                    kind = "i"
+                else:
+                    kind = "j"
+            elif a == d["focal"] or b == d["focal"]:
+                other = a if b == d["focal"] else b
+                local_i = other // (ny - 1)
+                if local_i < mid_i:
+                    kind = "i"
+                else:
+                    kind = "j"
             edge_lookup[(ga, gb)] = kind
 
+    edge_kind = []
     for (ga, gb) in edges:
         edge_kind.append(edge_lookup.get((ga, gb), "?"))
 
-    # ---- Boundary for focal point: concatenate the three frames.
     boundary_list = []
     for k in range(3):
         d = lobe_data[k]
@@ -746,82 +683,7 @@ def _build_per_edge_q(edges, ny, warp_q, weft_q):
             q[k] = float(weft_q)
     return q
 
-def _crown_3lobe_diagnostics(points, edges, edge_kind, fixed_indices, coords):
-    """
-    Print diagnostic output for the Crown-3Lobe shape.
-    Terminology:
-      apex   = highest point of a frame. Held. Not free. Not
-               what we watch.
-      focal  = the single free centre node where all three
-               lobes meet. This is what we watch.
-    """
-    n = len(points)
-    z_all = coords[:, 2]
-    fixed_set = set(int(i) for i in fixed_indices)
-    free_mask = np.array([i not in fixed_set for i in range(n)])
-    free_z = z_all[free_mask]
 
-    # ---- Edge kind distribution.
-    n_i = sum(1 for k in edge_kind if k == "i")
-    n_j = sum(1 for k in edge_kind if k == "j")
-    n_q = sum(1 for k in edge_kind if k == "?")
-
-    # ---- Focal node: nearest to (0, 0) in x-y.
-    dx = coords[:, 0]
-    dy = coords[:, 1]
-    dist2 = dx * dx + dy * dy
-    focal_idx = int(np.argmin(dist2))
-    focal_x = float(coords[focal_idx, 0])
-    focal_y = float(coords[focal_idx, 1])
-    focal_z = float(coords[focal_idx, 2])
-
-    # ---- Highest and lowest free nodes.
-    if len(free_z) > 0:
-        free_idx = np.where(free_mask)[0]
-        max_z_idx = int(free_idx[np.argmax(free_z)])
-        min_z_idx = int(free_idx[np.argmin(free_z)])
-        max_z = float(coords[max_z_idx, 2])
-        min_z = float(coords[min_z_idx, 2])
-        max_z_xy = (float(coords[max_z_idx, 0]), float(coords[max_z_idx, 1]))
-        min_z_xy = (float(coords[min_z_idx, 0]), float(coords[min_z_idx, 1]))
-        mean_z_free = float(np.mean(free_z))
-    else:
-        max_z = min_z = mean_z_free = 0.0
-        max_z_xy = min_z_xy = (0.0, 0.0)
-
-    # ---- Boundary centroid.
-    cx = float(np.mean(coords[[i for i in fixed_set], 0]))
-    cy = float(np.mean(coords[[i for i in fixed_set], 1]))
-    cz = float(np.mean(coords[[i for i in fixed_set], 2]))
-
-    st.markdown("**CROWN-3LOBE DIAGNOSTICS**")
-
-    st.markdown("##### Edge kind distribution")
-    st.write("  i-edges: %d" % n_i)
-    st.write("  j-edges: %d" % n_j)
-    st.write("  ?-edges: %d" % n_q)
-
-    st.markdown("##### Focal node (the free centre, where 3 lobes meet)")
-    st.write("  index: %d" % focal_idx)
-    st.write("  x = %+.6f   y = %+.6f   z = %+.6f"
-             % (focal_x, focal_y, focal_z))
-
-    st.markdown("##### Boundary centroid (mean of held frame nodes)")
-    st.write("  x = %+.6f   y = %+.6f   z = %+.6f" % (cx, cy, cz))
-
-    st.markdown("##### Free node extremes")
-    st.write("  highest free node: z = %+.6f  at (x=%+.3f, y=%+.3f)"
-             % (max_z, max_z_xy[0], max_z_xy[1]))
-    st.write("  lowest  free node: z = %+.6f  at (x=%+.3f, y=%+.3f)"
-             % (min_z, min_z_xy[0], min_z_xy[1]))
-    st.write("  mean z of free nodes: %+.6f" % mean_z_free)
-
-    st.markdown("##### Summary")
-    st.write("  total nodes: %d" % n)
-    st.write("  fixed nodes: %d" % len(fixed_set))
-    st.write("  free nodes : %d" % int(np.sum(free_mask)))
-    st.write("  max z (all): %+.6f" % float(np.max(z_all)))
-    st.write("  min z (all): %+.6f" % float(np.min(z_all)))
 def _compute_focal_point(boundary_nodes, coords, ny):
     if len(boundary_nodes) == 0:
         return (0.0, 0.0, 0.0)
@@ -888,6 +750,73 @@ def _render_debug(initial_points, coords, tris, nx, ny, skip_u=6):
                  % int(np.sum(areas < 1e-6)))
         st.write("Positive count (>= 1e-6): %d"
                  % int(np.sum(areas >= 1e-6)))
+
+
+def _crown_3lobe_diagnostics(points, edge_kind, fixed_indices, coords):
+    n = len(points)
+    z_all = coords[:, 2]
+    fixed_set = set(int(i) for i in fixed_indices)
+    free_mask = np.array([i not in fixed_set for i in range(n)])
+    free_z = z_all[free_mask]
+
+    n_i = sum(1 for k in edge_kind if k == "i")
+    n_j = sum(1 for k in edge_kind if k == "j")
+    n_q = sum(1 for k in edge_kind if k == "?")
+
+    dx = coords[:, 0]
+    dy = coords[:, 1]
+    dist2 = dx * dx + dy * dy
+    focal_idx = int(np.argmin(dist2))
+    focal_x = float(coords[focal_idx, 0])
+    focal_y = float(coords[focal_idx, 1])
+    focal_z = float(coords[focal_idx, 2])
+
+    if len(free_z) > 0:
+        free_idx = np.where(free_mask)[0]
+        max_z_idx = int(free_idx[np.argmax(free_z)])
+        min_z_idx = int(free_idx[np.argmin(free_z)])
+        max_z = float(coords[max_z_idx, 2])
+        min_z = float(coords[min_z_idx, 2])
+        max_z_xy = (float(coords[max_z_idx, 0]), float(coords[max_z_idx, 1]))
+        min_z_xy = (float(coords[min_z_idx, 0]), float(coords[min_z_idx, 1]))
+        mean_z_free = float(np.mean(free_z))
+    else:
+        max_z = min_z = mean_z_free = 0.0
+        max_z_xy = min_z_xy = (0.0, 0.0)
+
+    fixed_idx_list = sorted(fixed_set)
+    cx = float(np.mean(coords[fixed_idx_list, 0]))
+    cy = float(np.mean(coords[fixed_idx_list, 1]))
+    cz = float(np.mean(coords[fixed_idx_list, 2]))
+
+    st.markdown("**CROWN-3LOBE DIAGNOSTICS**")
+
+    st.markdown("##### Edge kind distribution")
+    st.write("  i-edges (warp): %d" % n_i)
+    st.write("  j-edges (weft): %d" % n_j)
+    st.write("  ?-edges       : %d" % n_q)
+
+    st.markdown("##### Focal node (the free centre, where 3 lobes meet)")
+    st.write("  index: %d" % focal_idx)
+    st.write("  x = %+.6f   y = %+.6f   z = %+.6f"
+             % (focal_x, focal_y, focal_z))
+
+    st.markdown("##### Boundary centroid (mean of held frame nodes)")
+    st.write("  x = %+.6f   y = %+.6f   z = %+.6f" % (cx, cy, cz))
+
+    st.markdown("##### Free node extremes")
+    st.write("  highest free node: z = %+.6f  at (x=%+.3f, y=%+.3f)"
+             % (max_z, max_z_xy[0], max_z_xy[1]))
+    st.write("  lowest  free node: z = %+.6f  at (x=%+.3f, y=%+.3f)"
+             % (min_z, min_z_xy[0], min_z_xy[1]))
+    st.write("  mean z of free nodes: %+.6f" % mean_z_free)
+
+    st.markdown("##### Summary")
+    st.write("  total nodes: %d" % n)
+    st.write("  fixed nodes: %d" % len(fixed_set))
+    st.write("  free nodes : %d" % int(np.sum(free_mask)))
+    st.write("  max z (all): %+.6f" % float(np.max(z_all)))
+    st.write("  min z (all): %+.6f" % float(np.min(z_all)))
 
 
 def _render_header():
@@ -1161,7 +1090,6 @@ def render_tester_mbs():
                 elif shape_name == "Lens":
                     grid, boundary, anchors, etypes = _build_lens_recipe(
                         n_segments, mode_key, K_val, ds_val)
-                
                 elif shape_name == "Triangle":
                     grid, boundary, anchors, etypes = _build_triangle_recipe(
                         params["A"], params["B"], params["C"],
@@ -1277,7 +1205,6 @@ def render_tester_mbs():
         try:
             _crown_3lobe_diagnostics(
                 entry["initial"],
-                None,
                 entry.get("edge_kind", []),
                 entry.get("fixed_indices", []),
                 coords,
@@ -1297,7 +1224,6 @@ def render_tester_mbs():
 # =============================================================================
 # END OF ui/workshops/tester_mbs.py
 # =============================================================================
-
 
 
 
