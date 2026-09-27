@@ -15,98 +15,62 @@ import numpy as np
 from engine.form_finding import solve_fdm
 
 
-def _side_points(p0, p1, n_interior):
-    pts = []
-    for m in range(1, n_interior + 1):
-        t = m / float(n_interior + 1)
-        x = p0[0] * (1.0 - t) + p1[0] * t
-        y = p0[1] * (1.0 - t) + p1[1] * t
-        pts.append((x, y))
-    return pts
-
-
-def _diamond_ring(a, n_side):
+def _build_hypar_mesh():
     """
-    Return the nodes of a diamond ring |x| + |y| = a.
-    n_side = number of nodes on each side including both corners.
-    Total nodes on the ring: 4 * (n_side - 1).
-    """
-    c1 = (a, 0.0)
-    c2 = (0.0, a)
-    c3 = (-a, 0.0)
-    c4 = (0.0, -a)
-    n_int = n_side - 2
-    s1 = _side_points(c1, c2, n_int)
-    s2 = _side_points(c2, c3, n_int)
-    s3 = _side_points(c3, c4, n_int)
-    s4 = _side_points(c4, c1, n_int)
-    return [c1] + s1 + [c2] + s2 + [c3] + s3 + [c4] + s4
+    Build a 9x9 grid of (x, y) integer coordinates from -4 to +4.
+    Keep only nodes with |x| + |y| <= 4 (the diamond).
+    Scale by 0.375 so the diamond's extreme points sit at 1.5 m.
 
+    Node count: 41.
+    Cell triangulation: every square cell whose 4 corners are all
+    inside the diamond becomes 2 triangles.
 
-def build_diamond_topology():
-    """
-    Diamond domain |x| + |y| <= 1.5.
-    Ring 0 (outer): 16 nodes  (n_side = 5).
-    Ring 1:         12 nodes  (n_side = 4).
-    Ring 2:          8 nodes  (n_side = 3).
-    Ring 3:          4 nodes  (n_side = 2).
-    Centre:          1 node.
-    Total: 41 nodes.
+    Returns:
+        coords_xy : (41, 2) array of scaled (x, y)
+        tris      : list of (a, b, c) triangle index triples
+        edges     : list of (a, b) unique edge pairs
     """
     a = 1.5
-    ring0 = _diamond_ring(a * 1.0, 5)
-    ring1 = _diamond_ring(a * 0.75, 4)
-    ring2 = _diamond_ring(a * 0.50, 3)
-    ring3 = _diamond_ring(a * 0.25, 2)
-    all_nodes = ring0 + ring1 + ring2 + ring3 + [(0.0, 0.0)]
-    coords_xy = np.array(all_nodes, dtype=float)
+    scale = a / 4.0  # 0.375
 
-    n0 = len(ring0)
-    n1 = len(ring1)
-    n2 = len(ring2)
-    n3 = len(ring3)
+    # ---- Step 1: collect nodes in the diamond, in a fixed order.
+    node_map = {}   # (gx, gy) -> node index
+    coords_xy = []
+    for gy in range(-4, 5):
+        for gx in range(-4, 5):
+            if abs(gx) + abs(gy) <= 4:
+                node_map[(gx, gy)] = len(coords_xy)
+                coords_xy.append((gx * scale, gy * scale))
 
-    i_r0 = 0
-    i_r1 = i_r0 + n0
-    i_r2 = i_r1 + n1
-    i_r3 = i_r2 + n2
-    i_c = i_r3 + n3
+    coords_xy = np.array(coords_xy, dtype=float)
+    n_nodes = len(coords_xy)
 
+    # ---- Step 2: build triangles from cells.
+    # A cell (gx, gy) has corners:
+    #   (gx, gy), (gx+1, gy), (gx, gy+1), (gx+1, gy+1)
+    # Include the cell only if all four corners are in the diamond.
     tris = []
+    for gy in range(-4, 4):
+        for gx in range(-4, 4):
+            corners = [
+                (gx,     gy),
+                (gx + 1, gy),
+                (gx,     gy + 1),
+                (gx + 1, gy + 1),
+            ]
+            if all((c in node_map) for c in corners):
+                n00 = node_map[(gx,     gy)]
+                n10 = node_map[(gx + 1, gy)]
+                n01 = node_map[(gx,     gy + 1)]
+                n11 = node_map[(gx + 1, gy + 1)]
+                # Split the quad into two triangles.
+                tris.append((n00, n10, n01))
+                tris.append((n10, n11, n01))
 
-    # Between two rings: walk both, connect by fraction.
-    def _pair(outer_start, outer_n, inner_start, inner_n):
-        o_ps = outer_n // 4
-        i_ps = inner_n // 4
-        for s in range(4):
-            for ii in range(i_ps):
-                in_abs = inner_start + (s * i_ps + ii) % inner_n
-                o_a_local = int(round((ii / float(i_ps)) * o_ps))
-                o_b_local = int(round(((ii + 1) / float(i_ps)) * o_ps))
-                if o_a_local >= o_ps:
-                    o_a_local = o_ps - 1
-                if o_b_local > o_ps:
-                    o_b_local = o_ps
-                o_a = outer_start + (s * o_ps + o_a_local) % outer_n
-                if o_b_local < o_ps:
-                    o_b = outer_start + (s * o_ps + o_b_local) % outer_n
-                else:
-                    o_b = outer_start + ((s + 1) * o_ps) % outer_n
-                tris.append((in_abs, o_a, o_b))
-
-    _pair(i_r0, n0, i_r1, n1)
-    _pair(i_r1, n1, i_r2, n2)
-    _pair(i_r2, n2, i_r3, n3)
-
-    # Ring 3 to centre: 4 triangles.
-    for k in range(4):
-        a_i = i_r3 + k
-        b_i = i_r3 + (k + 1) % 4
-        tris.append((a_i, b_i, i_c))
-
+    # ---- Step 3: unique edges from triangles.
     edge_set = set()
-    for (a, b, c) in tris:
-        for e in ((a, b), (b, c), (c, a)):
+    for (a_i, b_i, c_i) in tris:
+        for e in ((a_i, b_i), (b_i, c_i), (c_i, a_i)):
             if e[0] > e[1]:
                 e = (e[1], e[0])
             edge_set.add(e)
@@ -114,6 +78,12 @@ def build_diamond_topology():
 
     return coords_xy, tris, edges
 
+
+def build_diamond_topology():
+    """
+    Thin wrapper. Returns (coords_xy, tris, edges) for the diamond.
+    """
+    return _build_hypar_mesh()
 
 
 
