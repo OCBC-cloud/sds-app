@@ -1,16 +1,13 @@
 # =============================================================================
 # SDSe Fluid Design Studio - MBS Tester Workshop
 # =============================================================================
-# Temporary research page. Tests the Membrane Boundary Schema engine
-# across multiple shapes using the same nine-step pipeline.
+# Shape laboratory. Five recipes:
+#   Lens, Triangle, Crown, Prototype-Lobe, Crown-3Lobe.
 #
 # Terminology:
-#   apex   - the highest point of a frame. Held at H.
-#            One per frame. For a crown of N frames, N apexes.
-#   focal  - the single free centre node of the crown, where all
-#            lobes meet. One per crown. This is what we watch.
-#   boundary centroid - the mean of the held frame nodes.
-#            A computed number, not a node.
+#   apex   - highest point of a frame. Held at H.
+#   focal  - single free centre of the crown. Watched.
+#   boundary centroid - mean of held frame nodes.
 #
 # Status: EXPERIMENTAL.
 # =============================================================================
@@ -87,6 +84,27 @@ def _resample_polyline(points, n_target):
     return out
 
 
+def _build_beam_parabola(p_support_a, p_apex, p_support_b, n_points):
+    A = np.asarray(p_support_a, dtype=float)
+    B = np.asarray(p_apex, dtype=float)
+    C = np.asarray(p_support_b, dtype=float)
+    t = np.linspace(0.0, 1.0, n_points)
+    p_lin = np.outer(1.0 - t, A) + np.outer(t, C)
+    middle = 0.5 * (A + C)
+    lift = B - middle
+    profile = 4.0 * t * (1.0 - t)
+    p = p_lin + np.outer(profile, lift)
+    return p
+
+
+# =============================================================================
+# END OF CHUNK 1
+# =============================================================================
+
+
+
+
+
 def _build_lens_recipe(n_segments, mode, K, ds):
     from viewers.figures._shared import beam_curve
     from engine.membrane_surface import build_surface
@@ -131,6 +149,14 @@ def _build_lens_recipe(n_segments, mode, K, ds):
     anchors = list(range(len(boundary)))
     edge_types = ["beam"] * len(boundary)
     return grid, boundary, anchors, edge_types
+
+
+# =============================================================================
+# END OF CHUNK 2
+# =============================================================================
+
+
+
 
 
 def _build_triangle_recipe(corner_A, corner_B, corner_C,
@@ -186,27 +212,6 @@ def _build_triangle_recipe(corner_A, corner_B, corner_C,
 
     return grid, boundary, anchors, edge_types
 
-
-def _build_beam_parabola(p_support_a, p_apex, p_support_b, n_points):
-    A = np.asarray(p_support_a, dtype=float)
-    B = np.asarray(p_apex, dtype=float)
-    C = np.asarray(p_support_b, dtype=float)
-    t = np.linspace(0.0, 1.0, n_points)
-    p_lin = np.outer(1.0 - t, A) + np.outer(t, C)
-    middle = 0.5 * (A + C)
-    lift = B - middle
-    profile = 4.0 * t * (1.0 - t)
-    p = p_lin + np.outer(profile, lift)
-    return p
-
-
-
-
-
-
-# =============================================================================
-# CROWN RECIPE (polar, single rectangular grid)
-# =============================================================================
 
 def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
                         n_segments, mode, K, ds,
@@ -296,8 +301,12 @@ def _build_crown_recipe(R, N, H, theta_deg, rot_deg,
 
 
 # =============================================================================
-# PROTOTYPE LOBE RECIPE (single lobe)
+# END OF CHUNK 3
 # =============================================================================
+
+
+
+
 
 def _build_crown_lobe_prototype(R=8.0, H=6.0,
                                  n_anchors=7, subdivisions=5,
@@ -343,30 +352,6 @@ def _build_crown_lobe_prototype(R=8.0, H=6.0,
 
     return grid, boundary, anchors, edge_types
 
-
-
-
-
-
-# =============================================================================
-# THREE-LOBE CROWN RECIPE
-# =============================================================================
-# Terminology:
-#   apex  - the highest point of a frame. Held at H. One per frame.
-#   focal - the single free centre of the crown where all three lobes
-#           meet. This is the node we watch.
-#
-# Lobe topology:
-#   Frame row j=0: 37 nodes along the parabolic frame.
-#   Interior rows j=1..10: 37 nodes each.
-#   Focal row j=11: ONE node (the lobe's centre point).
-#   Per lobe: 37*11 + 1 = 408 nodes.
-#
-# Classification of edges:
-#   "i" = edge along the frame direction (warp).
-#   "j" = edge across the frame direction (weft).
-#   Focal edges are split: half "i", half "j" so the focal
-#   point feels both warp and weft.
 
 def _build_crown_lobe_at_angle(theta_rot, R, H,
                                 n_anchors, subdivisions, ny=12):
@@ -438,6 +423,14 @@ def _build_crown_lobe_at_angle(theta_rot, R, H,
     frame_indices = [idx_grid(i, 0) for i in range(n_i)]
 
     return nodes, edges, tris, frame_indices, focal_idx
+
+
+# =============================================================================
+# END OF CHUNK 4
+# =============================================================================
+
+
+
 
 
 def _build_crown_three_lobe(R=8.0, H=6.0,
@@ -588,8 +581,6 @@ def _build_crown_three_lobe(R=8.0, H=6.0,
     }
 
 
-# ---- Registry -------------------------------------------------------------
-
 SHAPE_RECIPES = {
     "Lens": _build_lens_recipe,
     "Triangle": _build_triangle_recipe,
@@ -598,6 +589,10 @@ SHAPE_RECIPES = {
     "Crown-3Lobe": _build_crown_three_lobe,
 }
 
+
+# =============================================================================
+# END OF CHUNK 5
+# =============================================================================
 
 
 
@@ -747,9 +742,8 @@ def _render_debug(initial_points, coords, tris, nx, ny, skip_u=6):
         st.markdown("#### Summary")
         areas = _compute_tri_areas(coords, tris)
         st.write("Total triangles: %d" % len(tris))
-        st.write(" iMinimum area: %.8e" in % float range(n(areas.min()))
-        st.write("Maximum area: %.8e)])
-" % float(areas   .max()))
+        st.write("Minimum area: %.8e" % float(areas.min()))
+        st.write("Maximum area: %.8e" % float(areas.max()))
         st.write("Mean area: %.8e" % float(areas.mean()))
         st.write("Zero-area count (< 1e-10): %d"
                  % int(np.sum(areas < 1e-10)))
@@ -763,7 +757,8 @@ def _crown_3lobe_diagnostics(points, edge_kind, fixed_indices, coords):
     n = len(points)
     z_all = coords[:, 2]
     fixed_set = set(int(i) for i in fixed_indices)
-    free_mask = np.array([i not in fixed_set for free_z = z_all[free_mask]
+    free_mask = np.array([i not in fixed_set for i in range(n)])
+    free_z = z_all[free_mask]
 
     n_i = sum(1 for k in edge_kind if k == "i")
     n_j = sum(1 for k in edge_kind if k == "j")
@@ -951,9 +946,9 @@ def _render_corner_inputs(shape_name):
                 key="mbs_crown_rot",
             )
         with d3:
-            centre_r = = st.number_input st(
-                "Centre.columns radius (m)",
-                min_value=0(.0, max_value=50.0,
+            centre_r = st.number_input(
+                "Centre radius (m)",
+                min_value=0.0, max_value=50.0,
                 value=CROWN_CENTRE_RADIUS_DEFAULT,
                 step=0.1, format="%.2f",
                 key="mbs_crown_centre_r",
@@ -1003,7 +998,7 @@ def _render_tuning_windows():
 
 def _render_mode_toggles():
     st.markdown("#### Boundary mode")
-    m1, m22)
+    m1, m2 = st.columns(2)
     with m1:
         st.selectbox(
             "Beam/Cable",
