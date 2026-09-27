@@ -3,6 +3,16 @@
 # =============================================================================
 # Runs engine tests automatically on every push.
 # Results visible in the GitHub Actions tab.
+#
+# Two stages:
+#   1. Check Python syntax (fast, catches paste corruption).
+#   2. Run engine tests (membrane, form-finding, benchmark).
+#
+# Updated 2026-09-27:
+#   - Added a compile check. Any file with a syntax error fails
+#     the CI immediately.
+#   - Install dependencies from requirements.txt instead of
+#     numpy alone.
 # =============================================================================
 
 name: Engine Tests
@@ -34,7 +44,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install numpy
+          pip install -r requirements.txt
+
+      - name: Check Python syntax
+        run: |
+          python -m compileall -q ui/ engine/ core/ data/ app.py run_tests.py benchmark_hypar.py
 
       - name: Run engine tests
         run: |
