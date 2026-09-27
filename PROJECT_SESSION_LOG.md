@@ -712,4 +712,148 @@ This confirms the constitution's three-stage method:
   Stage 3: Load analysis.      Reference only.
 
 
+
+## 2026-09-27 - Crown-3Lobe Milestone and Session Post-Mortem
+
+### Part 1 - Crown-3Lobe: What was built
+
+A new shape, Crown-3Lobe, was added to the MBS Tester. It is the
+first non-rectangular mesh solved by the FDM kernel.
+
+Topology:
+  - Three lobes, each rotated by 120 degrees.
+  - Per lobe: 37 columns x 11 rows + 1 focal node = 408 nodes.
+  - Frames held. Interior free. Focal point free.
+  - Lobes merged at shared ridges and at the focal point.
+  - Merged crown: 1189 nodes, 2376 edges, 108 fixed, 1081 free.
+
+The focal point is the single free centre of the crown where all
+three lobes meet. It is the node we watch.
+
+### Part 2 - The focal point bug and its fix
+
+Initial behaviour:
+  - Focal z did not change with prestress. Fixed at 3.9969
+    for every warp/weft setting, including warp=10/weft=0.1.
+  - This was wrong. The focal point is free. It should respond.
+
+Cause:
+  - All edges touching the focal point were classified as kind
+    "j" (weft). So every focal edge got weft_q. The focal point
+    saw a symmetric pull. Change warp, and the focal point did
+    not feel it. Focal z stayed fixed.
+
+Fix:
+  - Focal edges are now split: half classified "i" (warp), half
+    classified "j" (weft). The split is by lobe-local index i:
+    left half of the lobe gets "i", right half gets "j".
+  - With this, the focal point feels both warp and weft and
+    responds to the ratio.
+
+Verification:
+  - Warp=2.0, Weft=2.0  -> Focal z = 3.996914 (symmetric)
+  - Warp=10.0, Weft=0.1 -> Focal z = 3.909589 (asymmetric)
+  - Warp=20.0, Weft=0.1 -> Focal z = 3.904558 (asymmetric, further)
+
+  Focal x also shifts with anisotropy:
+  - Warp=2.0, Weft=2.0  -> Focal x = -0.0000
+  - Warp=10.0, Weft=0.1 -> Focal x = -0.1197
+  - Warp=20.0, Weft=0.1 -> Focal x = -0.1332
+
+  The crown deepens with increasing warp:
+  - Range at 2/2:   4.574 m
+  - Range at 10/0.1: 5.765 m
+  - Range at 20/0.1: 5.850 m
+
+  All residual norms machine-zero (3e-14 to 1e-12).
+
+Conclusion:
+  - The focal point is now a real free node.
+  - The crown-3Lobe is a real prestress-responsive structural model.
+  - The bug was in the edge classification, not in the solver.
+  - The engine was never wrong. The recipe was.
+
+### Part 3 - Terminology, fixed on the record
+
+Three words, three meanings. Kept separate now.
+
+  apex  - the highest point of a frame. Held at H. One per
+          frame. For a crown of N frames, N apexes.
+  focal - the single free centre node of the crown, where all
+          lobes meet. One per crown. This is what we watch.
+  boundary centroid - the mean of the held frame nodes.
+          A computed number, not a node.
+
+The code now uses these three words with these meanings.
+Earlier in the session the code (and the AI) used "apex" for
+both the frame top and the focal point. That confusion led to
+several wrong diagnoses.
+
+### Part 4 - Session post-mortem: paste corruption
+
+What happened:
+  - One file, ui/workshops/tester_mbs.py, was edited more than
+    twenty times in one session.
+  - Along the way the file was corrupted at least eight separate
+    times. All corruptions were paste artifacts: a dropped
+    character, a merged line, a mangled loop header, a stray
+    character.
+  - Each corruption cost time. Most of the session was spent
+    diagnosing paste errors rather than doing physics.
+
+Why it happened:
+  1. iPhone paste via iOS Safari into the GitHub web editor is
+     unreliable above roughly 150-250 lines per paste.
+  2. Many small edits on one large file created many
+     opportunities for corruption.
+  3. No verification step after each paste. The file was
+     committed and rebooted without being read back against
+     what was sent.
+
+How to prevent it:
+  A. Paste limit: 150 lines.
+     Never paste more than 150 lines at once.
+  B. Read back after every chunk.
+     After pasting, read the last ten lines of that chunk and
+     the first ten lines of the next. If they do not match what
+     was sent, fix before continuing.
+  C. Compile check in CI.
+     Add python -m compileall -q . to the test workflow. Any
+     syntax error fails the CI immediately. No broken file can
+     be committed.
+  D. Fewer, larger replacements.
+     Where possible, batch multiple changes into one complete
+     file replacement rather than many surgical edits.
+
+What the AI should have done differently:
+  - Proposed the 150-line paste limit at the start of the
+    session, not after the fifth corruption.
+  - Written the "read back every chunk" step into the workflow
+    from the start.
+  - Added py_compile to the CI before the first big rewrite.
+  - When corruption appeared the first time, proposed a fresh
+    rebuild immediately, not surgical fixes to a broken file.
+
+The Chief did nothing wrong. Every corruption was created by
+the input method or by the AI's instructions.
+
+### Part 5 - What today actually accomplished
+
+Despite the corruption, real work was done:
+
+  - Crown-3Lobe is a working, prestress-responsive shape.
+  - The focal point responds to prestress.
+  - The classification bug is fixed.
+  - Terminology is on the record.
+  - The hypar benchmark is logged. Linear FDM confirmed
+    insufficient for a prestressed reference state. NFDM is
+    the next room.
+  - The engine is untouched. Lens, Triangle, Crown,
+    Prototype-Lobe all still work.
+
+The day's physics output is real. The day's technical debt is
+the paste corruption. The latter is preventable; the former
+is the work.
+
+
   
