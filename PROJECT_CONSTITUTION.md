@@ -277,6 +277,87 @@ Do not conflate them.
 
 ---
 
+
+# PART III-B — THE UNIVERSAL ENGINE DOCTRINE
+
+The engine is universal. The interface is data.
+
+## B1. The engines
+
+Every engine in the SDSe app is universal. It does not know
+shapes. It knows its inputs, and it produces its outputs.
+
+The engines are:
+
+  - `engine/form_finding.py`     — FDM solver.
+  - `engine/membrane_boundary.py` — mesh builder from a boundary.
+  - `engine/membrane_surface.py` — surface builder from beams.
+  - (Future) NFDM.
+  - (Future) structural analysis.
+
+A universal engine accepts arbitrary nodes, edges, boundaries,
+anchors, and force densities. It does not care what the shape
+is called. It does not care which structure it belongs to.
+
+## B2. The recipes
+
+Every shape is a recipe.
+
+A recipe is a small data file. It contains:
+
+  - a shape (how the boundary is built),
+  - a workshop (the list of inputs, grouped by substructure),
+  - a viewer (which members to draw, and how),
+  - a prompt (how to describe the shape in words for the render).
+
+The shape is the geometry. The workshop is the input UI. The
+viewer is the 3D display. The prompt is the marketing render.
+
+## B3. The universal renderers
+
+For each recipe, there is a universal renderer that reads it
+and produces the output:
+
+  - The universal workshop renderer reads a workshop recipe and
+    builds the input page. It groups inputs by substructure. It
+    applies the accordion. It never uses sliders.
+  - The universal viewer reads a viewer recipe and builds the
+    3D figure. It draws the beams, cables, supports as the
+    recipe describes.
+  - The universal prompt builder reads a prompt recipe and
+    produces the marketing render prompt.
+
+A universal renderer does not know any specific shape. It only
+knows how to read a recipe.
+
+## B4. Adding a new structure
+
+To add a new structure, add a new recipe. Not a new file of code.
+
+A recipe is data. It lists what the structure needs. The
+universal renderers read it.
+
+The engines do not change. The renderers do not change. Only
+the recipe is added.
+
+## B5. The doctrine
+
+Preservation before evolution applies here.
+
+The engines are preserved. They are universal. They must not be
+made shape-specific.
+
+The interface is data. It is a recipe. It must not be code.
+
+The renderers are universal. They read recipes. They must not
+contain shape-specific logic.
+
+Every new structure is a recipe. Every new recipe is data.
+
+The engine is universal. The interface is data.
+
+---
+
 # PART IV — THE VIEWER RULE
 
 Every membrane in the app is form-found by FDM.
