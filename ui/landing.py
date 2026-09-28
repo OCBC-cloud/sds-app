@@ -18,6 +18,8 @@
 # Updated 2026-09-25:
 #   - Removed NFDM tester button.
 #   - Added MBS tester button (experimental).
+# Updated 2026-09-28:
+#   - Added renderer test button (Step 2A, temporary).
 # =============================================================================
 
 import streamlit as st
@@ -160,6 +162,16 @@ def render_landing():
         type="secondary",
     ):
         st.session_state.page = "tester_mbs"
+        st.rerun()
+
+    # ---- Temporary experimental button: renderer test (Step 2A)
+    if st.button(
+        "Open Renderer Test",
+        key="landing_renderer_test",
+        use_container_width=True,
+        type="secondary",
+    ):
+        st.session_state.page = "renderer_test"
         st.rerun()
 
     # ---- Footer
