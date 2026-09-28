@@ -8,6 +8,8 @@
 # Updated 2026-09-25:
 #   - Removed tester_nfdm route (experimental).
 #   - Added tester_mbs route (experimental, MBS engine test).
+# Updated 2026-09-28:
+#   - Added renderer_test route (Step 2A, temporary).
 # =============================================================================
 
 import streamlit as st
@@ -68,6 +70,11 @@ def _render_tester_mbs():
     render_tester_mbs()
 
 
+def _render_renderer_test():
+    from ui.workshops._renderer_test import render_renderer_test
+    render_renderer_test()
+
+
 PAGE_RENDERERS = {
     "landing": _render_landing,
     "studio": _render_studio,
@@ -77,6 +84,7 @@ PAGE_RENDERERS = {
     "leaf_room": _render_leaf_room,
     "guided": _render_guided,
     "tester_mbs": _render_tester_mbs,
+    "renderer_test": _render_renderer_test,
 }
 
 
