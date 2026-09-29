@@ -25,7 +25,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from viewers.figures._shared import apply_common_layout
-from viewers.figures.standard_saddle import build_standard_saddle
+from viewers.figures.standard_saddle_mbs import build_standard_saddle
 from viewers.figures.cantilever_leaf import build_cantilever_leaf
 from viewers.figures.beam_supported_saddle import build_beam_supported_saddle
 from viewers.figures.cantilever_hypar import build_cantilever_hypar
