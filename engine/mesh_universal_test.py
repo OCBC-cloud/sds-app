@@ -9,16 +9,86 @@
 # Or via run_tests.py.
 #
 # Tests:
-#   1. Simple 2-anchor loop, all beam. Check mesh, holds, no zero-area.
-#   2. Simple 2-anchor loop, all cable. Check cable release works.
-#   3. Simple 4-anchor loop, mixed types. Check per-segment holds.
-#   4. Solve with solve_fdm. Check residual is machine-zero.
+#   1. Flat quad, all beam. TFI fill.
+#   2. Flat quad, all cable. TFI fill.
+#   3. Flat quad, mixed beam/cable. TFI fill.
+#   4. Hexagon, all beam. Polar fill.
+#
+# Each test:
+#   - Builds the mesh.
+#   - Solves with FDM.
+#   - Counts zero-area triangles.
+#   - Reports PASS or FAIL.
+#
+# History:
+#   2026-09-29 - First build.
+#   2026-09-29 - Handle polar topology in triangle-area check.
 # =============================================================================
 
 import numpy as np
 
 from engine.mesh_universal import build_mesh_universal
 from engine.form_finding import solve_fdm
+
+
+def _tris_rect(n_i, M):
+    """Triangle list for a rectangular (n_i, M) grid."""
+    tris = []
+    for i in range(n_i - 1):
+        for j in range(M - 1):
+            a = i * M + j
+            b = (i + 1) * M + j
+            c = i * M + (j + 1)
+            d_ = (i + 1) * M + (j + 1)
+            tris.append((a, b, c))
+            tris.append((b, d_, c))
+    return tris
+
+
+def _tris_polar(n_i, M):
+    """
+    Triangle list for a polar mesh.
+
+    Ring layout: (n_i, M - 1) ring nodes.
+    Ring node index = i * (M - 1) + j, for j = 0 .. M - 2.
+    Centre node index = n_i * (M - 1).
+    """
+    tris = []
+    centre = n_i * (M - 1)
+
+    def idx(i, j):
+        return i * (M - 1) + j
+
+    # Triangles between consecutive rings.
+    for i in range(n_i):
+        i_next = (i + 1) % n_i
+        for j in range(M - 2):
+            a = idx(i, j)
+            b = idx(i_next, j)
+            c = idx(i, j + 1)
+            d_ = idx(i_next, j + 1)
+            tris.append((a, b, c))
+            tris.append((b, d_, c))
+
+    # Triangles between innermost ring and centre.
+    for i in range(n_i):
+        i_next = (i + 1) % n_i
+        a = idx(i, M - 2)
+        b = idx(i_next, M - 2)
+        tris.append((a, b, centre))
+
+    return tris
+
+
+def _compute_areas(coords, tris):
+    """Compute the area of each triangle."""
+    areas = np.zeros(len(tris))
+    for k, tri in enumerate(tris):
+        p0 = coords[tri[0]]
+        p1 = coords[tri[1]]
+        p2 = coords[tri[2]]
+        areas[k] = 0.5 * float(np.linalg.norm(np.cross(p1 - p0, p2 - p0)))
+    return areas
 
 
 def _run_case(name, boundary_loop, segment_types, fill,
@@ -57,23 +127,15 @@ def _run_case(name, boundary_loop, segment_types, fill,
     print("  FDM residual: %.4e" % res["residual_norm"])
 
     coords = res["coordinates"]
+    n_i = d["n_i"]
 
-    areas = []
-    n_i = d["n_anchors"] * K
-    M_ = d["transverse_count"]
-    for i in range(n_i - 1):
-        for j in range(M_ - 1):
-            a = i * M_ + j
-            b = (i + 1) * M_ + j
-            c = i * M_ + (j + 1)
-            d_ = (i + 1) * M_ + (j + 1)
-            for tri in ((a, b, c), (b, d_, c)):
-                p0 = coords[tri[0]]
-                p1 = coords[tri[1]]
-                p2 = coords[tri[2]]
-                area = 0.5 * float(np.linalg.norm(np.cross(p1 - p0, p2 - p0)))
-                areas.append(area)
-    areas = np.array(areas)
+    if d.get("has_centre", False):
+        tris = _tris_polar(n_i, M)
+    else:
+        tris = _tris_rect(n_i, M)
+
+    areas = _compute_areas(coords, tris)
+    print("  triangles:", len(tris))
     print("  min tri area : %.6e" % areas.min())
     print("  mean tri area: %.6e" % areas.mean())
     print("  zero-area (<1e-10):", int(np.sum(areas < 1e-10)))
