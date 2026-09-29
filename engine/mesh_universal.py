@@ -24,8 +24,10 @@
 #   Mesh interior           -> always released.
 #
 # Fill strategies:
-#   "tfi"         - bilinear, for quad-shaped loops.
+#   "tfi"         - bilinear, for quad-shaped loops. Rectangular grid.
 #   "polar"       - concentric rings, for circle-shaped loops.
+#                   The innermost "ring" collapses to a single
+#                   centre node. Total nodes = n_i * (M - 1) + 1.
 #   "barycentric" - area-weighted, for triangle-shaped loops.
 #
 # Structural connections list (Part V doctrine):
@@ -33,6 +35,8 @@
 #
 # History:
 #   2026-09-29 - First build.
+#   2026-09-29 - Polar fill: collapse innermost ring to one centre
+#                node. Removes zero-area triangles at the centre.
 # =============================================================================
 
 import numpy as np
@@ -85,14 +89,8 @@ def _validate_inputs(boundary_loop, segment_types, fill,
 
 
 def _resample_segment(p0, p1, K):
-    """
-    Return the mesh nodes on the segment from anchor p0 to anchor p1.
-
-    Includes p0 at the start. Excludes p1 at the end (it belongs
-    to the next segment).
-
-    Total nodes returned: K.
-    """
+    """Return K mesh nodes on the segment from anchor p0 toward anchor p1.
+    Includes p0. Excludes p1 (belongs to the next segment)."""
     p0 = np.asarray(p0, dtype=float)
     p1 = np.asarray(p1, dtype=float)
     pts = np.zeros((K, 3))
@@ -103,18 +101,7 @@ def _resample_segment(p0, p1, K):
 
 
 def _build_boundary_row(boundary_loop, segment_types, K):
-    """
-    Build the boundary row (j = 0) of the mesh.
-
-    Walks the loop. For each segment, places K mesh nodes,
-    starting at the anchor and going toward the next anchor.
-    The next anchor is the start of the next segment, so it
-    is not duplicated.
-
-    Returns:
-        row  - (n_i, 3) array of mesh nodes on the boundary.
-        n_i  - number of nodes in the row.
-    """
+    """Build the boundary row (j = 0) of the mesh. Walks the loop."""
     n_anchors = len(boundary_loop)
     row = []
     for k in range(n_anchors):
@@ -132,20 +119,7 @@ def _build_boundary_row(boundary_loop, segment_types, K):
 
 
 def _fill_tfi(boundary_row, n_i, M):
-    """
-    TFI fill for a quad-shaped loop.
-
-    The boundary row is divided into two halves: the first half
-    is the "top", the second half is the "bottom". The interior
-    is a bilinear blend.
-
-    For a quad loop with 4 segments, this is a natural split.
-    For a loop with more anchors, the split happens at the middle
-    index.
-
-    Returns:
-        grid  - (n_i, M, 3) array.
-    """
+    """TFI fill for a quad-shaped loop. Returns (n_i, M, 3)."""
     half = n_i // 2
 
     top = np.zeros((n_i, 3))
@@ -169,67 +143,48 @@ def _fill_polar(boundary_row, n_i, M):
     """
     Polar fill for a ring-shaped loop.
 
-    A centre point is placed at the mean of the boundary row
-    in xy, at the mean z. The interior is a radial blend
-    between the boundary and the centre.
+    Returns a grid of shape (n_i, M - 1, 3) for the rings, plus
+    a single centre node. The caller assembles the flat node list
+    as: [ring nodes for j = 0 .. M - 2] + [centre node].
 
-    Returns:
-        grid  - (n_i, M, 3) array.
+    Ring j = 0 is the boundary itself.
+    Ring j = M - 2 is the innermost ring, nearest the centre.
+    The centre node is at the mean of the boundary row.
+
+    No ring of coincident nodes at the centre. Only one node
+    at the centre. Zero-area triangles are avoided.
     """
     cx = float(np.mean(boundary_row[:, 0]))
     cy = float(np.mean(boundary_row[:, 1]))
     cz = float(np.mean(boundary_row[:, 2]))
     centre = np.array([cx, cy, cz])
 
-    grid = np.zeros((n_i, M, 3))
+    rings = np.zeros((n_i, M - 1, 3))
     for i in range(n_i):
         p_b = boundary_row[i]
-        for j in range(M):
+        for j in range(M - 1):
             v = j / float(M - 1)
-            grid[i, j] = p_b * (1.0 - v) + centre * v
-    return grid
+            rings[i, j] = p_b * (1.0 - v) + centre * v
+
+    return rings, centre
 
 
 def _fill_barycentric(boundary_row, n_i, M):
-    """
-    Barycentric fill for a triangle-shaped loop.
-
-    The boundary row must have three anchors roughly equal
-    distance apart. The boundary row is divided into three
-    sides. Each interior node is an area-weighted blend of
-    the three corners.
-
-    For v1, we approximate: treat the boundary row as a
-    triangle with three representative corners. The interior
-    is filled by barycentric coordinates.
-
-    Returns:
-        grid  - (n_i, M, 3) array.
-    """
+    """Barycentric fill for a triangle-shaped loop. Returns (n_i, M, 3)."""
     n = n_i
     third = n // 3
     c_a = boundary_row[0]
     c_b = boundary_row[third]
     c_c = boundary_row[2 * third]
+    centroid = (c_a + c_b + c_c) / 3.0
 
     grid = np.zeros((n, M, 3))
     for i in range(n):
         p_b = boundary_row[i]
         for j in range(M):
             v = j / float(M - 1)
-            grid[i, j] = p_b * (1.0 - v) + (c_a + c_b + c_c) / 3.0 * v
+            grid[i, j] = p_b * (1.0 - v) + centroid * v
     return grid
-
-
-def _fill_grid(boundary_row, fill, n_i, M):
-    """Dispatch to the correct fill strategy."""
-    if fill == "tfi":
-        return _fill_tfi(boundary_row, n_i, M)
-    if fill == "polar":
-        return _fill_polar(boundary_row, n_i, M)
-    if fill == "barycentric":
-        return _fill_barycentric(boundary_row, n_i, M)
-    raise ValueError("unknown fill: " + fill)
 
 
 
@@ -240,23 +195,20 @@ def _fill_grid(boundary_row, fill, n_i, M):
 # FIXED INDICES
 # =============================================================================
 
-def _build_fixed_indices(n_i, M, K, segment_types):
+def _build_fixed_indices(n_i, K, segment_types):
     """
-    Decide which mesh nodes solve_fdm holds.
+    Decide which nodes on the boundary row solve_fdm holds.
 
-    Boundary nodes (j = 0) are indexed 0 .. n_i - 1.
-    Interior nodes are indexed n_i .. n_i * M - 1.
+    Nodes on the boundary row are indexed 0 .. n_i - 1.
+    Index = i in the boundary row. Independent of M.
 
-    Walk the boundary row. For each mesh node on the boundary:
-        - If it is an anchor (index multiple of K): held.
-        - If it is a segment interior:
-            - Segment type "beam" or "wall": held.
-            - Segment type "cable": released.
-
-    Interior nodes (j >= 1): always released.
+    Rule:
+        - Anchor (i multiple of K): held.
+        - Segment interior, beam or wall: held.
+        - Segment interior, cable: released.
 
     Returns:
-        fixed_indices  - sorted list of int.
+        sorted list of int.
     """
     fixed = set()
     n_anchors = len(segment_types)
@@ -273,83 +225,95 @@ def _build_fixed_indices(n_i, M, K, segment_types):
         else:
             if seg_type in ("beam", "wall"):
                 fixed.add(i)
-            else:
-                pass
 
     return sorted(fixed)
 
 
 # =============================================================================
-# EDGES
+# INDEX HELPERS
+# =============================================================================
+# Two topologies:
+#
+#   TFI / barycentric: rectangular (n_i, M) grid.
+#       Node index = i * M + j.
+#       Total nodes = n_i * M.
+#       Centre node: none.
+#
+#   Polar: rings of (n_i, M - 1) plus one centre node.
+#       Ring node index = i * (M - 1) + j, for j = 0 .. M - 2.
+#       Centre node index = n_i * (M - 1).
+#       Total nodes = n_i * (M - 1) + 1.
+
+def _index_ring(i, j, n_i, M):
+    """Index of a ring node in the polar layout."""
+    return i * (M - 1) + j
+
+
+def _index_centre(n_i, M):
+    """Index of the centre node in the polar layout."""
+    return n_i * (M - 1)
+
+
+# =============================================================================
+# EDGES — TFI and barycentric
 # =============================================================================
 
-def _build_edges(n_i, M):
-    """
-    Build the edge list for a structured (n_i, M) grid.
-
-    Node index = i * M + j.
-
-    Edges along i-direction (same j):
-        (i * M + j, (i + 1) * M + j) for i = 0 .. n_i - 2.
-    Plus the wrap-around edge (i = n_i - 1 to i = 0) if the
-    grid is treated as closed in i. For v1, we do NOT close the
-    i-direction. The boundary row is a loop, but the mesh grid
-    is open in i to avoid double-counting the wrap segment.
-
-    Actually: the boundary row IS closed (the last anchor connects
-    to the first). But the grid is built from the boundary row as
-    a linear array of n_i nodes. Closing the i-loop means adding
-    an edge from node (n_i - 1, j) to (0, j). For v1, we add it.
-
-    Edges along j-direction (same i):
-        (i * M + j, i * M + j + 1) for j = 0 .. M - 2.
-
-    Returns:
-        edges  - list of (i, j).
-    """
+def _build_edges_rect(n_i, M):
+    """Edges for a rectangular (n_i, M) grid. Closed in the i direction."""
     edges = []
-
     for i in range(n_i):
+        i_next = (i + 1) % n_i
         for j in range(M):
             k = i * M + j
-
-            i_next = (i + 1) % n_i
-            if i_next != 0 or i == 0:
-                edges.append((k, i_next * M + j))
-            else:
-                edges.append((k, 0 * M + j))
-
+            edges.append((k, i_next * M + j))
             if j + 1 < M:
                 edges.append((k, i * M + (j + 1)))
+    return edges
+
+
+# =============================================================================
+# EDGES — polar
+# =============================================================================
+
+def _build_edges_polar(n_i, M):
+    """
+    Edges for a polar mesh.
+
+    Ring layout: (n_i, M - 1) ring nodes.
+    Centre node: one node at index n_i * (M - 1).
+    """
+    edges = []
+    centre_idx = _index_centre(n_i, M)
+
+    # Ring edges (i-direction, closed) and radial edges (j-direction).
+    for i in range(n_i):
+        i_next = (i + 1) % n_i
+        for j in range(M - 1):
+            k = _index_ring(i, j, n_i, M)
+            # Along the ring.
+            edges.append((k, _index_ring(i_next, j, n_i, M)))
+            # Radial, to the next ring inward.
+            if j + 1 < M - 1:
+                edges.append((k, _index_ring(i, j + 1, n_i, M)))
+            else:
+                # Innermost ring connects to the single centre node.
+                edges.append((k, centre_idx))
 
     return edges
 
 
 # =============================================================================
-# Q ASSIGNMENT
+# Q ASSIGNMENT — TFI and barycentric
 # =============================================================================
 
-def _build_q(edges, n_i, M, K, segment_types,
-             warp_q, weft_q, edge_q):
-    """
-    Assign a force density to each edge.
-
-    Rules:
-        Edge along the i-direction (same j, i to i+1):
-            If the segment at i is "cable": q = edge_q.
-            Otherwise: q = warp_q.
-        Edge along the j-direction (same i, j to j+1):
-            q = weft_q.
-
-    Returns:
-        q  - (n_edges,) array.
-    """
+def _build_q_rect(edges, n_i, M, K, segment_types,
+                  warp_q, weft_q, edge_q):
+    """Q for a rectangular (n_i, M) grid."""
     n_anchors = len(segment_types)
     q = np.zeros(len(edges))
 
     for k, (a, b) in enumerate(edges):
         ia = a // M
-        ib = b // M
         ja = a % M
         jb = b % M
 
@@ -358,10 +322,40 @@ def _build_q(edges, n_i, M, K, segment_types,
             if seg_index >= n_anchors:
                 seg_index = n_anchors - 1
             seg_type = segment_types[seg_index]
-            if seg_type == "cable":
-                q[k] = float(edge_q)
-            else:
-                q[k] = float(warp_q)
+            q[k] = float(edge_q) if seg_type == "cable" else float(warp_q)
+        else:
+            q[k] = float(weft_q)
+
+    return q
+
+
+# =============================================================================
+# Q ASSIGNMENT — polar
+# =============================================================================
+
+def _build_q_polar(edges, n_i, M, K, segment_types,
+                   warp_q, weft_q, edge_q):
+    """Q for a polar mesh."""
+    n_anchors = len(segment_types)
+    centre_idx = _index_centre(n_i, M)
+    q = np.zeros(len(edges))
+
+    for k, (a, b) in enumerate(edges):
+        # Centre edges: always weft.
+        if a == centre_idx or b == centre_idx:
+            q[k] = float(weft_q)
+            continue
+
+        ia = a // (M - 1)
+        ja = a % (M - 1)
+        jb = b % (M - 1)
+
+        if ja == jb:
+            seg_index = ia // K
+            if seg_index >= n_anchors:
+                seg_index = n_anchors - 1
+            seg_type = segment_types[seg_index]
+            q[k] = float(edge_q) if seg_type == "cable" else float(warp_q)
         else:
             q[k] = float(weft_q)
 
@@ -383,29 +377,9 @@ def build_mesh_universal(boundary_loop, segment_types, fill,
     """
     Build a mesh from a closed boundary loop divided into segments.
 
-    Parameters
-    ----------
-    boundary_loop : list of (x, y, z)
-        At least 3 points. Ordered. The last connects back
-        to the first.
-    segment_types : list of str
-        One per gap. "beam", "cable", or "wall".
-    fill : str
-        "tfi" | "polar" | "barycentric".
-    subdivisions_per_segment : int
-        K. Extra mesh nodes per segment. Default 5.
-    transverse_count : int
-        M. Rows from boundary to interior. Default 8.
-    warp_q, weft_q, edge_q : float
-        Force densities in N/m.
-
-    Returns
-    -------
-    dict with keys:
-        points, edges, fixed_indices, q, diagnostics.
+    Returns dict with keys: points, edges, fixed_indices, q, diagnostics.
     """
-    boundary_loop = [tuple(float(v) for v in p)
-                     for p in boundary_loop]
+    boundary_loop = [tuple(float(v) for v in p) for p in boundary_loop]
     segment_types = list(segment_types)
 
     _validate_inputs(boundary_loop, segment_types, fill,
@@ -418,21 +392,44 @@ def build_mesh_universal(boundary_loop, segment_types, fill,
         boundary_loop, segment_types, K
     )
 
-    grid = _fill_grid(boundary_row, fill, n_i, M)
+    # ------------------------------------------------------------------
+    # Build the flat node list and the edges.
+    # Two topologies: rectangular (TFI, barycentric) and polar.
+    # ------------------------------------------------------------------
+    if fill == "polar":
+        rings, centre = _fill_polar(boundary_row, n_i, M)
+        n_nodes = n_i * (M - 1) + 1
+        points = np.zeros((n_nodes, 3))
+        for i in range(n_i):
+            for j in range(M - 1):
+                k = _index_ring(i, j, n_i, M)
+                points[k] = rings[i, j]
+        points[_index_centre(n_i, M)] = centre
 
-    n_nodes = n_i * M
-    points = np.zeros((n_nodes, 3))
-    for i in range(n_i):
-        for j in range(M):
-            k = i * M + j
-            points[k] = grid[i, j]
+        edges = _build_edges_polar(n_i, M)
+        fixed_indices = _build_fixed_indices(n_i, K, segment_types)
+        q = _build_q_polar(edges, n_i, M, K, segment_types,
+                           warp_q, weft_q, edge_q)
+        n_rows = M - 1
+        has_centre = True
+    else:
+        if fill == "tfi":
+            grid = _fill_tfi(boundary_row, n_i, M)
+        else:
+            grid = _fill_barycentric(boundary_row, n_i, M)
 
-    edges = _build_edges(n_i, M)
-    fixed_indices = _build_fixed_indices(
-        n_i, M, K, segment_types
-    )
-    q = _build_q(edges, n_i, M, K, segment_types,
-                 warp_q, weft_q, edge_q)
+        n_nodes = n_i * M
+        points = np.zeros((n_nodes, 3))
+        for i in range(n_i):
+            for j in range(M):
+                points[i * M + j] = grid[i, j]
+
+        edges = _build_edges_rect(n_i, M)
+        fixed_indices = _build_fixed_indices(n_i, K, segment_types)
+        q = _build_q_rect(edges, n_i, M, K, segment_types,
+                          warp_q, weft_q, edge_q)
+        n_rows = M
+        has_centre = False
 
     diagnostics = {
         "n_nodes": n_nodes,
@@ -443,6 +440,9 @@ def build_mesh_universal(boundary_loop, segment_types, fill,
         "segment_types": list(segment_types),
         "n_anchors": len(boundary_loop),
         "n_segments": len(segment_types),
+        "n_i": n_i,
+        "n_rows": n_rows,
+        "has_centre": has_centre,
         "subdivisions_per_segment": K,
         "transverse_count": M,
         "structural_connections": [],
@@ -465,10 +465,11 @@ def build_mesh_universal(boundary_loop, segment_types, fill,
 # four-sided TFI path of engine/membrane_boundary.py for all
 # shapes with a clear boundary loop.
 #
-# It does NOT replace:
-#   - engine/membrane_boundary.py (used by the Tester shapes)
-#   - engine/membrane_surface.py  (used by the Tester Lens)
-#   - the Crown-3Lobe recipe      (bespoke, merged lobes)
+# Two topologies:
+#   TFI / barycentric: rectangular (n_i, M) grid.
+#   Polar: rings (n_i, M-1) plus a single centre node.
+#          No ring of coincident nodes at the centre.
+#          Zero-area triangles at the centre are avoided.
 #
 # The new engine is called by:
 #   - the Standard Saddle viewer (Step 2C, next)
@@ -482,9 +483,6 @@ def build_mesh_universal(boundary_loop, segment_types, fill,
 #   engine/membrane_surface.py
 #   every existing viewer
 #   every existing workshop
-#
-# The new engine sits in isolation until the first viewer
-# calls it.
 # =============================================================================
 
 
