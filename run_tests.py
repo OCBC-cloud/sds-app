@@ -4,6 +4,9 @@
 # Runs the engine tests. Called by GitHub Actions on every push.
 # Add new test functions here as we build more engine modules.
 #
+# Updated 2026-09-29:
+#   - Added the universal mesh engine test.
+#
 # Updated 2026-09-27:
 #   - Added the standalone hypar benchmark. This is NOT wired into
 #     the app. It runs here so that GitHub Actions produces a
@@ -81,6 +84,28 @@ def test_hypar_benchmark():
         return False
 
 
+def test_mesh_universal():
+    """Run the universal mesh engine test. Returns True if pass."""
+    print("=" * 60)
+    print("TEST: engine/mesh_universal.py - universal mesh engine")
+    print("=" * 60)
+    try:
+        from engine.mesh_universal_test import run
+        ok = run()
+        print("-" * 60)
+        if ok:
+            print("RESULT: PASS")
+            return True
+        else:
+            print("RESULT: FAIL")
+            return False
+    except Exception as e:
+        print("RESULT: FAIL")
+        print("  " + str(e))
+        print("-" * 60)
+        return False
+
+
 def main():
     all_pass = True
 
@@ -90,6 +115,8 @@ def main():
     if not test_form_finding():
         all_pass = False
     if not test_hypar_benchmark():
+        all_pass = False
+    if not test_mesh_universal():
         all_pass = False
 
     print()
