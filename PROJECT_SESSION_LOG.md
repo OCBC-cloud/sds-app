@@ -855,5 +855,126 @@ The day's physics output is real. The day's technical debt is
 the paste corruption. The latter is preventable; the former
 is the work.
 
+## 2026-09-29 - Universal Mesh Engine Milestone
+
+### What was built
+
+The universal mesh engine. `engine/mesh_universal.py`.
+Proven on four test cases. All pass. Zero degenerate
+triangles. Machine-zero residuals.
+
+This is the engine that will kill the fold in every shape.
+It replaces the four-sided TFI path of
+`engine/membrane_boundary.py` for any shape that has a
+clear boundary loop.
+
+### The model, on the record
+
+The membrane boundary is a closed loop of anchors.
+
+The loop is divided into segments by the anchors.
+
+Each segment has a type: beam, cable, or wall.
+
+Hold rule:
+    Anchor                  -> always held.
+    Segment interior, beam  -> held.
+    Segment interior, wall  -> held.
+    Segment interior, cable -> released.
+    Mesh interior           -> always released.
+
+The bow on a cable segment is the equilibrium of the
+membrane against the cable. Not a hack. Not a shape.
+Just the FDM solve.
+
+### Vocabulary, fixed
+
+    boundary loop    - closed sequence of 3D points.
+    anchor           - point where two segments meet.
+    segment          - gap between two anchors.
+    segment type     - beam, cable, wall.
+    held             - node solve_fdm does not move.
+    released         - node solve_fdm moves to equilibrium.
+    bow              - inward curve of a released edge.
+
+Never used again:
+    free end, short end, long edge, free edge,
+    column at support, degenerate column.
+
+These words came from the old viewer's naming. They
+caused confusion. They are retired.
+
+### What the engine returns
+
+    points, edges, fixed_indices, q, diagnostics.
+
+The diagnostics include a `structural_connections` list.
+Empty today. Populated in Stage 3.
+
+Two lists. Two lifetimes. Part V doctrine.
+
+### The fill strategies
+
+    tfi         - bilinear, quad-shaped loops. Rectangular grid.
+    polar       - concentric rings. Collapsed centre node.
+    barycentric - area-weighted, triangle-shaped loops.
+
+Polar fill was fixed on 2026-09-29: the innermost ring
+collapses to a single centre node. No ring of coincident
+nodes. Zero-area triangles at the centre are avoided.
+
+### Test results
+
+    Flat quad, all beam        - zero=0  minArea=3.15e-05
+    Flat quad, all cable       - zero=0  minArea=1.93e-06
+    Mixed: 2 beam, 2 cable     - zero=0  minArea=6.11e-06
+    Hexagon, polar fill        - zero=0  minArea=9.21e-05
+
+    UNIVERSAL MESH ENGINE: PASS
+    ALL TESTS PASS
+
+### What else was done today
+
+    - engine/SPEC_mesh_universal.md (design)
+    - engine/SPEC_coordinate_file.md (design)
+    - engine/SPEC_dxf_import.md (design)
+    - engine/SPEC_custom_boundary.md (design)
+    - run_tests.py updated to run the universal mesh test.
+
+### What is next
+
+Step 2D: rewrite `viewers/figures/standard_saddle_mbs.py` to
+call `build_mesh_universal`. The viewer becomes thin. It
+builds the 14-anchor boundary loop (7 per beam, all "beam"),
+passes it to the engine, and draws the solved mesh.
+
+The fold dies when this happens. Because there is no
+degenerate column at the support. Because the boundary is
+a proper loop. Because the engine holds the correct nodes.
+
+Step 2E: update the Standard Saddle recipe with three new
+Shape inputs:
+    - Anchor count per beam (default 7, suggest odd).
+    - Target mesh spacing (m) (default 0.5).
+    - Transverse count (default 8).
+
+The recipe converts spacing to K before calling the engine.
+K = max(5, round(segment_length / spacing)).
+
+### Bigger plan, on the record
+
+    Step 2D  - Standard Saddle uses build_mesh_universal.
+    Step 2E  - Standard Saddle recipe gains mesh inputs.
+    Step 2F  - SPEC_mesh_spacing.md. Spacing-to-K rule.
+    Step 2G  - Beam Supported Saddle migrates.
+    Step 2H  - Coordinate file path (custom_boundary).
+    Step 2I  - DXF path (custom_boundary).
+    Step 2J  - Crown, Triangle, Lens migrate.
+
+The universal engine is the foundation. Every shape feeds
+it. Every shape gets the same correctness. The fold is a
+memory.
+
+
 
   
