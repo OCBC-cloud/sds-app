@@ -1,0 +1,678 @@
+# =============================================================================
+# SDSe - Standard Saddle Figure Builder (MBS version)
+# =============================================================================
+# Builds the 3D figure for the Standard Saddle variant, using the
+# MBS engine for form-finding.
+#
+# This file is the MBS replacement for viewers/figures/standard_saddle.py.
+# The old file stays live. Once this file is proven, the dispatcher
+# in viewers/results_viewer.py is swapped to point here.
+#
+# The boundary:
+#   - Two beam edges (left and right). Held in the mesh: every node
+#     on a beam edge is fixed. The membrane cannot bow at the beams.
+#   - Two free-end edges (front and back). Only the tip nodes are
+#     held. The interior nodes are free. FDM solves them. The free
+#     ends bow inward under the membrane's pull.
+#
+# The bow is not a hack. It is the equilibrium.
+#
+# Mesh:
+#   - Structured (nx, ny) grid over the boundary.
+#   - Built explicitly, not via membrane_boundary.build_mesh. The
+#     build_mesh wrapper has a coarse "has_beam" rule that holds
+#     both j-columns whenever any beam is present. We need finer
+#     control: hold the beams fully, release the cable interiors.
+#   - Follows the pattern proven by the Crown-3Lobe in the Tester:
+#     build points and edges and fixed_indices explicitly, then
+#     call solve_fdm directly.
+#
+# Structural connections (Part V doctrine):
+#   - A separate list lives alongside the mesh constraint list.
+#   - Empty today. Populated in Stage 3 when the structural engine
+#     lands. The list is not read by solve_fdm.
+#
+# History:
+#   2026-09-29 - First build. Step 2C of the UI migration.
+# =============================================================================
+
+import math
+
+import numpy as np
+import plotly.graph_objects as go
+
+import streamlit as st
+
+from viewers.figures._shared import (
+    apply_common_layout,
+    beam_curve,
+    arclength_parametrisation,
+    find_index_at_arclength_fraction,
+)
+from engine.form_finding import solve_fdm, mesh_size_for_span
+
+
+# =============================================================================
+# MESH BUILDER
+# =============================================================================
+
+def _build_saddle_mbs(x, z_beam, y1, y2, span, apex,
+                       warp_pretension, weft_pretension,
+                       edge_cable_pretension,
+                       attach_type, n_attach,
+                       nx=21, ny=21):
+    """
+    Build the mesh and solve it with solve_fdm.
+
+    Boundary nodes:
+        Beam L: (i, 0) for all i. Held in x, y, z.
+        Beam R: (i, ny-1) for all i. Held in x, y, z.
+        Free-end 1: (0, j) for all j. Only j=0 and j=ny-1 held.
+        Free-end 2: (nx-1, j) for all j. Only j=0 and j=ny-1 held.
+
+    The corners (0,0), (0,ny-1), (nx-1,0), (nx-1,ny-1) are shared.
+    They are held because they are on both a beam edge and a cable
+    edge — the beam rule already holds them.
+
+    Interior: free. FDM solves.
+
+    Returns the same tuple as the old _build_saddle_fdm, so the
+    rest of the viewer can be reused without change.
+    """
+    n_pts = len(x)
+
+    s, total = arclength_parametrisation(x, z_beam)
+    if total <= 0:
+        s = np.linspace(0.0, 1.0, n_pts)
+        total = 1.0
+
+    arc_targets = np.linspace(0.0, total, nx)
+    bx_arr = np.interp(arc_targets, s, x)
+    bz_arr = np.interp(arc_targets, s, z_beam)
+
+    base_width = apex * 0.5
+    y1_arr = -base_width * (1.0 - (2.0 * bx_arr / span) ** 2)
+    y2_arr = base_width * (1.0 - (2.0 * bx_arr / span) ** 2)
+
+    # ------------------------------------------------------------------
+    # Initial node positions. The free-end rows (i=0, i=nx-1) are set
+    # as straight lines between the two beam tips. FDM will pull them
+    # inward. No bow hack.
+    # ------------------------------------------------------------------
+    node_xyz = np.zeros((nx, ny, 3))
+    for i in range(nx):
+        bx = float(bx_arr[i])
+        bz = float(bz_arr[i])
+        y_left = float(y1_arr[i])
+        y_right = float(y2_arr[i])
+        for j in range(ny):
+            v = j / (ny - 1.0)
+            y_straight = y_left * (1.0 - v) + y_right * v
+            z_init = bz - 0.15 * (1.0 - (2.0 * v - 1.0) ** 2) * (apex * 0.5)
+            node_xyz[i, j, 0] = bx
+            node_xyz[i, j, 1] = y_straight
+            node_xyz[i, j, 2] = z_init
+
+    n_nodes = nx * ny
+    points = np.zeros((n_nodes, 3))
+    for i in range(nx):
+        for j in range(ny):
+            k = i * ny + j
+            points[k] = node_xyz[i, j]
+
+    points_initial = points.copy()
+
+    # ------------------------------------------------------------------
+    # Edges: rectangular grid.
+    # ------------------------------------------------------------------
+    edges = []
+    for i in range(nx):
+        for j in range(ny):
+            k = i * ny + j
+            if i + 1 < nx:
+                edges.append((k, (i + 1) * ny + j))
+            if j + 1 < ny:
+                edges.append((k, i * ny + (j + 1)))
+
+    # ------------------------------------------------------------------
+    # Fixed indices. The core of the MBS approach.
+    #
+    # Rule:
+    #   - Beam edges (j=0 and j=ny-1 for all i): all nodes held.
+    #   - Free-end edges (i=0 and i=nx-1 for interior j): NOT held.
+    #     Only the corners are held, and those are already held by
+    #     the beam rule.
+    #
+    # For segmented attachment, only the selected attachment nodes
+    # along each beam are held. The rest of the beam edge is held
+    # as a cable — the fabric edge between attachment points is a
+    # chain of short cable segments that can bow.
+    #
+    # For kader attachment, the entire beam edge is held — the
+    # fabric is continuously attached to the beam.
+    # ------------------------------------------------------------------
+    fixed_indices = []
+
+    if attach_type == "segmented":
+        n_attach_int = max(2, int(n_attach))
+        attach_i = []
+        for k in range(n_attach_int):
+            frac = k / (n_attach_int - 1.0)
+            ii = int(round(frac * (nx - 1)))
+            ii = max(0, min(nx - 1, ii))
+            attach_i.append(ii)
+        attach_i = sorted(set(attach_i))
+        for i in attach_i:
+            fixed_indices.append(i * ny + 0)
+            fixed_indices.append(i * ny + (ny - 1))
+    else:
+        attach_i = []
+        for i in range(nx):
+            fixed_indices.append(i * ny + 0)
+            fixed_indices.append(i * ny + (ny - 1))
+
+    fixed_indices = sorted(set(fixed_indices))
+
+    # ------------------------------------------------------------------
+    # Force densities.
+    #
+    # q_warp is applied along the i-direction (following the beams).
+    # q_weft is applied along the j-direction (between the beams).
+    # The edge-cable q applies to the free-end edges.
+    #
+    # For segmented attachment, the beam edge between attachments
+    # is treated as a cable, not as a beam. The fabric bows there.
+    # ------------------------------------------------------------------
+    L_avg = 1.0
+    if len(edges) > 0:
+        total_len = 0.0
+        for (a, b) in edges:
+            total_len += float(np.linalg.norm(points[b] - points[a]))
+        L_avg = total_len / max(1, len(edges))
+    if L_avg < 1e-9:
+        L_avg = 1.0
+
+    T_warp = max(0.1, float(warp_pretension))
+    T_weft = max(0.1, float(weft_pretension))
+    T_edge = max(0.1, float(edge_cable_pretension))
+    q_warp = T_warp * 1000.0 / L_avg
+    q_weft = T_weft * 1000.0 / L_avg
+
+    attach_set = set(attach_i) if attach_type == "segmented" else None
+
+    q = np.full(len(edges), q_weft)
+    for k, (a, b) in enumerate(edges):
+        ia = a // ny
+        ib = b // ny
+        ja = a % ny
+        jb = b % ny
+        L_e = float(np.linalg.norm(points[b] - points[a]))
+        if L_e < 1e-9:
+            L_e = L_avg
+
+        is_i_edge = (ja == jb)
+        is_j_edge = (ia == ib)
+
+        on_free_end = (ia == 0 and ib == 0) or (ia == nx - 1 and ib == nx - 1)
+
+        on_beam_edge = (ja == jb) and (ja == 0 or ja == ny - 1)
+        between_attachments = False
+        if attach_type == "segmented" and on_beam_edge:
+            if attach_set is not None:
+                if ia not in attach_set or ib not in attach_set:
+                    between_attachments = True
+
+        if on_free_end:
+            q[k] = T_edge * 1000.0 / L_e
+        elif between_attachments:
+            q[k] = T_edge * 1000.0 / L_e
+        elif is_i_edge:
+            q[k] = q_warp
+        elif is_j_edge:
+            q[k] = q_weft
+
+    res = solve_fdm(points, edges, fixed_indices, q)
+    coords = res["coordinates"]
+
+
+
+
+
+
+    # ------------------------------------------------------------------
+    # Diagnostics (audit trail).
+    # ------------------------------------------------------------------
+    initial_areas = []
+    initial_area_tri = []
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            a = i * ny + j
+            b = (i + 1) * ny + j
+            c = i * ny + (j + 1)
+            d = (i + 1) * ny + (j + 1)
+            for tri in ((a, b, c), (b, d, c)):
+                p0 = points_initial[tri[0]]
+                p1 = points_initial[tri[1]]
+                p2 = points_initial[tri[2]]
+                area = 0.5 * float(np.linalg.norm(np.cross(p1 - p0, p2 - p0)))
+                initial_areas.append(area)
+                initial_area_tri.append(tri)
+    initial_areas = np.array(initial_areas)
+
+    disp = np.linalg.norm(coords - points_initial, axis=1)
+    order = np.argsort(disp)[::-1]
+    top_disp = []
+    for rank, k in enumerate(order[:20]):
+        i_idx = int(k // ny)
+        j_idx = int(k % ny)
+        top_disp.append({
+            "rank": rank + 1,
+            "node": int(k),
+            "i": i_idx,
+            "j": j_idx,
+            "disp": float(disp[k]),
+            "z_initial": float(points_initial[k, 2]),
+            "z_solved": float(coords[k, 2]),
+        })
+
+    order_a = np.argsort(initial_areas)
+    top_small = []
+    for rank, idx in enumerate(order_a[:10]):
+        tri = initial_area_tri[idx]
+        top_small.append({
+            "rank": rank + 1,
+            "nodes": (int(tri[0]), int(tri[1]), int(tri[2])),
+            "area": float(initial_areas[idx]),
+        })
+
+    # The audit trail. Reports the boundary conditions and the mesh
+    # quality. Not just the fold. The eventual PE reads this and
+    # knows the model matches the real structure.
+    diagnostics = {
+        "initial_area_min": float(initial_areas.min()),
+        "initial_area_max": float(initial_areas.max()),
+        "initial_area_mean": float(initial_areas.mean()),
+        "residual_norm": float(res["residual_norm"]),
+        "n_free": int(res["n_free"]),
+        "n_fixed": int(res["n_fixed"]),
+        "top_displacements": top_disp,
+        "smallest_initial_triangles": top_small,
+        "edge_count": len(edges),
+        "node_count": n_nodes,
+        "boundary_edges": [
+            {"name": "Beam L", "type": "beam", "nodes_held": ny},
+            {"name": "Beam R", "type": "beam", "nodes_held": ny},
+            {"name": "Free end 1", "type": "cable", "nodes_held": 2},
+            {"name": "Free end 2", "type": "cable", "nodes_held": 2},
+        ],
+        "structural_connections": [],
+    }
+
+    # ------------------------------------------------------------------
+    # Reshape to (nx, ny) surfaces for the viewer.
+    # ------------------------------------------------------------------
+    X = np.zeros((nx, ny))
+    Y = np.zeros((nx, ny))
+    Z = np.zeros((nx, ny))
+    for i in range(nx):
+        for j in range(ny):
+            k = i * ny + j
+            X[i, j] = coords[k, 0]
+            Y[i, j] = coords[k, 1]
+            Z[i, j] = coords[k, 2]
+
+    edge_south = np.zeros((ny, 3))
+    edge_north = np.zeros((ny, 3))
+    for j in range(ny):
+        edge_south[j] = coords[0 * ny + j]
+        edge_north[j] = coords[(nx - 1) * ny + j]
+
+    return X, Y, Z, edge_south, edge_north, attach_i, diagnostics
+
+
+
+
+
+
+# =============================================================================
+# TRIANGLE CONVERTER
+# =============================================================================
+
+def _grid_to_triangles(X, Y, Z):
+    """Convert an (nx, ny) grid into a flat list of triangles for Mesh3d."""
+    nx, ny = X.shape
+    node_x = X.reshape(-1)
+    node_y = Y.reshape(-1)
+    node_z = Z.reshape(-1)
+
+    tri_i = []
+    tri_j = []
+    tri_k = []
+
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            a = i * ny + j
+            b = (i + 1) * ny + j
+            c = i * ny + (j + 1)
+            d = (i + 1) * ny + (j + 1)
+
+            tri_i.append(a)
+            tri_j.append(b)
+            tri_k.append(c)
+
+            tri_i.append(b)
+            tri_j.append(d)
+            tri_k.append(c)
+
+    return node_x, node_y, node_z, tri_i, tri_j, tri_k
+
+
+def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
+    """Draw the continuous kader track along a beam."""
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y_beam, z=z_beam,
+        mode="lines",
+        line=dict(color="#f39c12", width=2),
+        showlegend=show_legend,
+        name="Kader track" if show_legend else None,
+        hoverinfo="skip",
+    ))
+
+
+# =============================================================================
+# PUBLIC FUNCTION
+# =============================================================================
+
+def build_standard_saddle():
+    """Standard Saddle: two curved beams, membrane, tie-downs, anchors."""
+    span = float(st.session_state.get("ws_ss_span", 10.0))
+    apex = float(st.session_state.get("ws_ss_apex", 15.0))
+    rise = float(st.session_state.get("ws_ss_rise", 6.2))
+    curve_type = st.session_state.get("ws_ss_curve_type", "parabolic")
+    n_intervals = int(st.session_state.get("ws_ss_tiedown_intervals", 2))
+    uplift = float(st.session_state.get("ws_ss_uplift_angle", 45))
+    spread = float(st.session_state.get("ws_ss_spread_angle", 30))
+    warp_pre = float(st.session_state.get("ws_ss_warp_pretension", 2.0))
+    weft_pre = float(st.session_state.get("ws_ss_weft_pretension", 2.0))
+    edge_pre = float(st.session_state.get("ws_ss_edge_cable_pretension", 5.0))
+    attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
+    n_attach = int(st.session_state.get("ws_ss_cable_attachment_count", 6))
+
+    if span <= 0 or apex <= 0 or rise <= 0:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Invalid geometry - check inputs",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(color="#f39c12", size=16),
+        )
+        return apply_common_layout(fig, 10.0)
+
+    n_mesh = mesh_size_for_span(span)
+    nx = n_mesh
+    ny = n_mesh
+
+    n_pts = 200
+    x = np.linspace(-span / 2.0, span / 2.0, n_pts)
+    z_beam = beam_curve(x, span, rise, curve_type)
+
+    s, total = arclength_parametrisation(x, z_beam)
+
+    base_width = apex * 0.5
+    y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
+    y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y1, z=z_beam,
+        mode="lines",
+        line=dict(color="#FF6B6B", width=8),
+        name="Beam L",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y2, z=z_beam,
+        mode="lines",
+        line=dict(color="#FF6B6B", width=8),
+        name="Beam R",
+    ))
+
+    X_surf, Y_surf, Z_surf, edge_south, edge_north, attach_i_list, diag = _build_saddle_mbs(
+        x, z_beam, y1, y2, span, apex,
+        warp_pre, weft_pre, edge_pre,
+        attach_type, n_attach,
+        nx=nx, ny=ny,
+    )
+
+    node_x, node_y, node_z, tri_i, tri_j, tri_k = _grid_to_triangles(
+        X_surf, Y_surf, Z_surf
+    )
+    fig.add_trace(go.Mesh3d(
+        x=node_x, y=node_y, z=node_z,
+        i=tri_i, j=tri_j, k=tri_k,
+        color="#4a7a9c",
+        opacity=0.55,
+        flatshading=True,
+        name="Membrane",
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    if attach_type == "segmented" and len(attach_i_list) > 0:
+        dots_lx = X_surf[attach_i_list, 0].tolist()
+        dots_ly = Y_surf[attach_i_list, 0].tolist()
+        dots_lz = Z_surf[attach_i_list, 0].tolist()
+        fig.add_trace(go.Scatter3d(
+            x=dots_lx, y=dots_ly, z=dots_lz,
+            mode="markers",
+            marker=dict(color="#f39c12", size=7, symbol="circle"),
+            showlegend=True,
+            name="Cable attach points",
+            hoverinfo="skip",
+        ))
+        dots_rx = X_surf[attach_i_list, -1].tolist()
+        dots_ry = Y_surf[attach_i_list, -1].tolist()
+        dots_rz = Z_surf[attach_i_list, -1].tolist()
+        fig.add_trace(go.Scatter3d(
+            x=dots_rx, y=dots_ry, z=dots_rz,
+            mode="markers",
+            marker=dict(color="#f39c12", size=7, symbol="circle"),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=X_surf[:, 0], y=Y_surf[:, 0], z=Z_surf[:, 0],
+            mode="lines",
+            line=dict(color="#f1c40f", width=4),
+            showlegend=True,
+            name="Side cables",
+            hoverinfo="skip",
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=X_surf[:, -1], y=Y_surf[:, -1], z=Z_surf[:, -1],
+            mode="lines",
+            line=dict(color="#f1c40f", width=4),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+    else:
+        _add_kader_track(fig, x, z_beam, y1, show_legend=True)
+        _add_kader_track(fig, x, z_beam, y2, show_legend=False)
+
+    fig.add_trace(go.Scatter3d(
+        x=edge_south[:, 0], y=edge_south[:, 1], z=edge_south[:, 2],
+        mode="lines",
+        line=dict(color="#f1c40f", width=5),
+        showlegend=True,
+        name="Edge cables",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=edge_north[:, 0], y=edge_north[:, 1], z=edge_north[:, 2],
+        mode="lines",
+        line=dict(color="#f1c40f", width=5),
+        showlegend=False,
+    ))
+
+
+
+
+
+
+    # ------------------------------------------------------------------
+    # Tie-down cables.
+    # ------------------------------------------------------------------
+    if n_intervals == 4:
+        per_beam_fractions = [0.175, 0.825]
+    elif n_intervals == 8:
+        per_beam_fractions = [0.175, 0.225, 0.775, 0.825]
+    else:
+        per_beam_fractions = [0.175, 0.825]
+
+    for frac in per_beam_fractions:
+        idx = find_index_at_arclength_fraction(s, total, frac)
+        x_tie = x[idx]
+        beam_z = z_beam[idx]
+
+        for side, y_beam in ((-1, y1[idx]), (+1, y2[idx])):
+            drop = beam_z
+            if drop <= 0:
+                drop = 0.5
+
+            horizontal = drop / math.tan(math.radians(uplift)) if uplift > 0 else drop
+
+            x_offset = horizontal * 0.5
+            y_offset = horizontal * 0.5 * math.tan(math.radians(spread))
+
+            if x_tie < 0:
+                anchor_x = x_tie - x_offset
+            elif x_tie > 0:
+                anchor_x = x_tie + x_offset
+            else:
+                anchor_x = x_tie + x_offset
+
+            anchor_y = y_beam + side * y_offset
+
+            fig.add_trace(go.Scatter3d(
+                x=[x_tie, anchor_x],
+                y=[y_beam, anchor_y],
+                z=[beam_z, 0],
+                mode="lines",
+                line=dict(color="#f1c40f", width=2, dash="dot"),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+            fig.add_trace(go.Scatter3d(
+                x=[anchor_x], y=[anchor_y], z=[0],
+                mode="markers",
+                marker=dict(color="#f1c40f", size=5, symbol="square"),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+    # ------------------------------------------------------------------
+    # Ground supports.
+    # ------------------------------------------------------------------
+    fig.add_trace(go.Scatter3d(
+        x=[-span / 2.0, span / 2.0],
+        y=[0, 0],
+        z=[0, 0],
+        mode="markers",
+        marker=dict(color="#2ecc71", size=10, symbol="diamond"),
+        name="Ground supports",
+    ))
+
+    fig.add_trace(go.Scatter3d(
+        x=[None], y=[None], z=[None],
+        mode="lines",
+        line=dict(color="#f1c40f", width=2, dash="dot"),
+        name="Tie-down cables",
+    ))
+
+    fig = apply_common_layout(fig, rise)
+
+    # ------------------------------------------------------------------
+    # Diagnostics expander. The audit trail.
+    # ------------------------------------------------------------------
+    with st.expander("FDM diagnostics (temporary)", expanded=False):
+        st.markdown("**Boundary edges** - the mesh constraint list:")
+        for e in diag["boundary_edges"]:
+            st.markdown(
+                "- " + e["name"] + "  (" + e["type"] + ")  "
+                "nodes held: " + str(e["nodes_held"])
+            )
+
+        st.markdown("**Structural connections** - the second list. "
+                    "Empty today. Populated in Stage 3.")
+        st.markdown("- (none)")
+
+        st.markdown("**Mesh** - built explicitly, not via build_mesh.")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Nodes", diag["node_count"])
+        c2.metric("Edges", diag["edge_count"])
+        c3.metric("Fixed", diag["n_fixed"])
+        c4.metric("Free", diag["n_free"])
+
+        st.markdown("**FDM solver residual** - after solve_fdm:")
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Residual", "%.4e" % diag["residual_norm"])
+        d2.metric("Min tri area", "%.6e" % diag["initial_area_min"])
+        d3.metric("Mean tri area", "%.6e" % diag["initial_area_mean"])
+
+        st.markdown("**Top 20 largest node displacements:**")
+        rows = []
+        for entry in diag["top_displacements"]:
+            rows.append(
+                "rank " + str(entry["rank"]) +
+                "  node " + str(entry["node"]) +
+                "  (i=" + str(entry["i"]) + ", j=" + str(entry["j"]) + ")" +
+                "  disp=" + ("%.4f" % entry["disp"]) +
+                "  z_init=" + ("%.4f" % entry["z_initial"]) +
+                "  z_solved=" + ("%.4f" % entry["z_solved"])
+            )
+        st.code("\n".join(rows), language="text")
+
+        st.markdown("**Smallest 10 initial triangles:**")
+        rows2 = []
+        for entry in diag["smallest_initial_triangles"]:
+            rows2.append(
+                "rank " + str(entry["rank"]) +
+                "  nodes " + str(entry["nodes"]) +
+                "  area=" + ("%.6e" % entry["area"])
+            )
+        st.code("\n".join(rows2), language="text")
+
+    return fig
+
+
+# =============================================================================
+# END OF viewers/figures/standard_saddle_mbs.py
+# =============================================================================
+#
+# This file is Step 2C of the UI migration. It is the MBS version of
+# the Standard Saddle viewer.
+#
+# It is NOT yet wired into the app. viewers/results_viewer.py still
+# dispatches to the old standard_saddle.py.
+#
+# To swap: in viewers/results_viewer.py, find the branch for
+# variant_key == "standard_saddle" and change the import to point
+# to this file. One line. One commit.
+#
+# The old file stays live until the new one is proven on the app.
+#
+# Files untouched by this addition:
+#   engine/form_finding.py
+#   engine/membrane_boundary.py
+#   engine/membrane_surface.py
+#   viewers/figures/standard_saddle.py
+#   viewers/results_viewer.py
+#   ui/workshops/saddle_standard.py
+#   data/recipes/standard_saddle.py
+#   every other viewer
+# =============================================================================
+
+
+
+
+
