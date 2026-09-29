@@ -8,8 +8,9 @@ Status values:
   ACTIVE     — used by the app right now.
   REFERENCE  — kept for the future, not called by anything.
   DOC        — documentation.
+  TEST       — test-only, not called by the app.
 
-Last updated: 2026-09-25.
+Last updated: 2026-09-29.
 
 ---
 
@@ -21,9 +22,14 @@ Last updated: 2026-09-25.
     ACTIVE.
 
 - run_tests.py
-    Test runner for GitHub Actions. Runs the two engine tests.
-    MBS test removed temporarily (2026-09-25).
+    Test runner for GitHub Actions. Runs all engine tests.
+    Updated 2026-09-29: added the universal mesh engine test.
     ACTIVE.
+
+- benchmark_hypar.py
+    Standalone benchmark against SDS-CONST Benchmark 001.
+    Not wired into the app. Run by run_tests.py.
+    TEST.
 
 - requirements.txt
     Python dependencies for Streamlit Cloud.
@@ -31,21 +37,27 @@ Last updated: 2026-09-25.
 
 - physics_engine.py
     Legacy physics module. Superseded by engine/form_finding.py.
-    Not called by the current app.
     REFERENCE.
 
 - viewer_app.py
     Legacy viewer. Superseded by viewers/results_viewer.py.
-    Not called by the current app.
     REFERENCE.
 
 - PROJECT_STATE.md
-    Single source of truth. Constitution, method, current
-    state, next actions.
+    Single source of truth. Current state. Read first.
+    DOC.
+
+- PROJECT_CONSTITUTION.md
+    The doctrines. Part III-B: the Universal Engine Doctrine.
+    Part V: two kinds of constraint.
     DOC.
 
 - PROJECT_VISION.md
-    North star. Purpose, scope, engine architecture, roadmap.
+    North star. Purpose, scope, roadmap.
+    DOC.
+
+- PROJECT_SESSION_LOG.md
+    The archive. Append only.
     DOC.
 
 - FILE_INVENTORY.md
@@ -78,6 +90,7 @@ Last updated: 2026-09-25.
 
 - navigation.py
     Page router. Maps page keys to render functions.
+    Updated 2026-09-29: added renderer_test route.
     ACTIVE.
 
 - state.py
@@ -105,20 +118,29 @@ Last updated: 2026-09-25.
     ACTIVE.
 
 - sections.py
-    Section property catalogue (CHS, SHS, RHS, I-beam).
+    Section property catalogue (CHS, SHS, RHS, I-Beam).
     ACTIVE.
 
 - structures.py
     STRUCTURE_TYPES, STRUCTURE_VARIANTS, MEMBER_SCHEMA.
-    Canonical definition of every structure in the app.
+    ACTIVE.
+
+# /data/recipes/
+
+New in 2026-09-29. Workshop recipes for the universal renderer.
+
+- __init__.py
+    Package marker.
+    ACTIVE.
+
+- standard_saddle.py
+    Recipe for the Cable Supported Saddle workshop.
+    Six groups. Read by ui/workshops/_renderer.py.
     ACTIVE.
 
 ---
 
 # /engine/
-
-The physics and engineering modules. Each one is either a
-numerical solver, a geometry engine, or a specification document.
 
 - __init__.py
     Package marker.
@@ -131,39 +153,51 @@ numerical solver, a geometry engine, or a specification document.
 
 - membrane.py
     System A helper. Mesh handling utilities.
-    Used by run_tests.py.
+    Called by run_tests.py.
     ACTIVE.
 
 - membrane_boundary.py
-    Membrane Boundary Schema (MBS) engine. Builds a triangular
-    membrane mesh from a closed boundary, anchors, and edge
-    types. Calls solve_fdm. New file. Under test.
-    ACTIVE.
+    Old MBS engine. Four-sided TFI path.
+    Still called by the Tester shapes.
+    Superseded for mixed boundaries by mesh_universal.py.
+    ACTIVE (legacy).
+
+- membrane_surface.py
+    Lens surface builder. Called by the Tester Lens recipe.
+    ACTIVE (legacy).
+
+- mesh_universal.py
+    NEW 2026-09-29. The universal mesh engine.
+    Builds a mesh from a closed boundary loop, divided into
+    segments, each classified beam / cable / wall.
+    Three fills: tfi, polar, barycentric.
+    Tested and proven. Not yet wired into any viewer.
+    ACTIVE (isolated).
+
+- mesh_universal_test.py
+    NEW 2026-09-29. Standalone test for mesh_universal.py.
+    Called by run_tests.py.
+    TEST.
 
 - leaf_arrangement.py
-    Placement engine for Cantilever Leaf. Single, double,
-    multiple, tree_stack, tiered_helix.
+    Placement engine for Cantilever Leaf.
     ACTIVE.
 
 - nfdm.py
-    Natural Force Density Method kernel. Iterative nonlinear
-    formulation. NOT the published linear NFDM. Not called
-    by anything. Kept as reference for a future linear rewrite.
+    Old Natural Force Density Method kernel. Iterative nonlinear.
+    Wrong method for NFDM. Kept as reference.
     REFERENCE.
 
 - render_prompts.py
-    Marketing render prompt engine. Shape sentence, scene,
-    lighting. Bing-safe character limit.
+    Marketing render prompt engine.
     ACTIVE.
 
 - MEMBRANE_GUIDE.md
-    The membrane principle. Boundary families, drawing rules,
-    per-structure reference. Doctrine document.
+    Membrane principle. Boundary families, drawing rules.
     DOC.
 
 - PLACEHOLDERS.md
-    Single source of truth for inputs waiting for the FDM
-    and structural engines.
+    Single source of truth for placeholder inputs.
     DOC.
 
 - SPEC_engine_chain.md
@@ -172,14 +206,34 @@ numerical solver, a geometry engine, or a specification document.
     DOC.
 
 - SPEC_cantilever_hypar.md
-    Full specification of the Cantilever Hypar variant.
+    Specification of the Cantilever Hypar variant.
     DOC.
 
 - SPEC_saddle_span.md
     Saddle Span structure specification.
     DOC.
 
-- SPEC_saddle_viewer_fd…
+- SPEC_dxf_import.md
+    NEW 2026-09-29. DXF import design.
+    Layer names, file size limits, bay limit.
+    DOC.
+
+- SPEC_coordinate_file.md
+    NEW 2026-09-29. Coordinate file design.
+    Plain CSV, four columns, two loops.
+    DOC.
+
+- SPEC_custom_boundary.md
+    NEW 2026-09-29. Custom boundary structure design.
+    A new structure type that uses DXF or coordinate file.
+    DOC.
+
+- SPEC_mesh_universal.md
+    NEW 2026-09-29. Universal mesh engine specification.
+    The contract for mesh_universal.py.
+    DOC.
+
+- SPEC_saddle_viewer_fd.md
     Saddle viewer FDM specification.
     DOC.
 
@@ -187,14 +241,13 @@ numerical solver, a geometry engine, or a specification document.
 
 # /ui/
 
-Page-level Streamlit modules.
-
 - __init__.py
     Package marker.
     ACTIVE.
 
 - landing.py
-    Splash screen. Two buttons: Enter The Studio, Open MBS Tester.
+    Splash screen. Enter The Studio, Open MBS Tester,
+    Open Renderer Test (temporary).
     ACTIVE.
 
 - studio.py
@@ -211,7 +264,7 @@ Page-level Streamlit modules.
     ACTIVE.
 
 - results.py
-    Results page. 3D viewer, summary, marketing render section.
+    Results page. 3D viewer, summary, marketing render.
     ACTIVE.
 
 ---
@@ -230,47 +283,51 @@ Page-level Streamlit modules.
 
 # /ui/workshops/
 
-One file per variant. Each defines a render_*() function.
-
 - __init__.py
     Package marker.
     ACTIVE.
 
 - _shared.py
-    Shared workshop CSS and helper functions
-    (section_header, render_breadcrumb, preview_box, etc.).
+    Shared workshop CSS and helpers.
     ACTIVE.
 
+- _renderer.py
+    NEW 2026-09-29. Universal workshop renderer.
+    Reads a recipe. Builds the input page.
+    Not yet called by any real workshop.
+    ACTIVE (isolated).
+
+- _renderer_test.py
+    NEW 2026-09-29. Temporary test page for the renderer.
+    Removed after the first real workshop migrates.
+    TEST.
+
 - saddle_standard.py
-    Cable Supported Saddle workshop. Warp, weft, edge cable
-    pretension as number fields. Free-end toggle removed.
+    Cable Supported Saddle workshop.
+    Migrated to the recipe pattern 2026-09-29.
+    Now 12 lines. Calls render_workshop(STANDARD_SADDLE_RECIPE).
     ACTIVE.
 
 - saddle_frame.py
-    Beam Supported Saddle workshop.
+    Beam Supported Saddle workshop. Hand-written. 9 sections.
     ACTIVE.
 
 - saddle_leaf.py
-    Cantilever Leaf workshop. Five arrangements.
+    Cantilever Leaf workshop. Hand-written. 9 sections.
     ACTIVE.
 
 - saddle_hypar.py
-    Cantilever Hypar workshop.
+    Cantilever Hypar workshop. Hand-written. 9 sections.
     ACTIVE.
 
 - tester_mbs.py
-    - tester_mbs.py
-    Shape laboratory. Three shape recipes (Lens, Triangle,
-    Crown) built on the MBS engine. Same nine-step pipeline
-    for every shape. User supplies corners or parameters;
-    engine derives everything else. Experimental.
+    Shape laboratory. Five shape recipes built on the MBS
+    engine. Experimental. Owner-only.
     ACTIVE (temporary).
 
 ---
 
 # /viewers/
-
-Viewer dispatcher and figure builders.
 
 - __init__.py
     Package marker.
@@ -279,13 +336,13 @@ Viewer dispatcher and figure builders.
 - results_viewer.py
     Dispatcher. Routes on variant_key to the correct figure
     builder.
+    Updated 2026-09-29: standard_saddle now routes to
+    standard_saddle_mbs.
     ACTIVE.
 
 ---
 
 # /viewers/figures/
-
-One file per variant. Each builds a Plotly figure.
 
 - __init__.py
     Package marker.
@@ -301,18 +358,25 @@ One file per variant. Each builds a Plotly figure.
     ACTIVE.
 
 - standard_saddle.py
-    Cable Supported Saddle viewer. FDM-solved mesh. Has the
-    known fold. Diagnostics block present.
+    OLD Cable Supported Saddle viewer. Hand-built rectangular
+    mesh. Has the fold. Kept as fallback.
+    ACTIVE (legacy).
+
+- standard_saddle_mbs.py
+    NEW 2026-09-29. MBS version of the Standard Saddle viewer.
+    Still builds its own mesh via _build_saddle_mbs.
+    To be replaced by a thin viewer that calls
+    engine/mesh_universal.py. That is Step 2D.
     ACTIVE.
 
-- beam_supported_saddle…
+- beam_supported_saddle.py
     Beam Supported Saddle viewer. Draws surface from a
-    formula. Does not call solve_fdm. To be migrated.
+    formula. To be migrated.
     ACTIVE (needs migration).
 
 - cantilever_hypar.py
-    Cantilever Hypar viewer. Draws a Coons patch. Does not
-    call solve_fdm. To be migrated.
+    Cantilever Hypar viewer. Draws a Coons patch. To be
+    migrated.
     ACTIVE (needs migration).
 
 - cantilever_leaf.py
@@ -324,8 +388,7 @@ One file per variant. Each builds a Plotly figure.
 # /.github/workflows/
 
 - test.yml
-    GitHub Actions workflow. Runs run_tests.py on push to
-    main and modular-v10.
+    GitHub Actions workflow. Runs run_tests.py on push.
     ACTIVE.
 
 ---
@@ -338,19 +401,9 @@ One file per variant. Each builds a Plotly figure.
 
 ---
 
-# /data — deleted from _shared list
-
-Note: `data/` folder contains no `_shared.py`. Listed above
-in the correct section.
-
----
-
 # END OF FILE INVENTORY
 
-Keep this file current. One line per change. Ten seconds of
-discipline saves half a day of re-orientation.
-
-
-
+Keep this file current. One line per change. Ten seconds
+of discipline saves half a day of re-orientation.
 
 
