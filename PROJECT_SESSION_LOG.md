@@ -1154,3 +1154,372 @@ The app is unchanged. Nothing is broken.
 
 
   
+---
+
+## 2026-09-30 - The Triangulation Decision
+
+### What was done today
+
+A long day. Multiple paste corruptions. Three test
+failures. Several wrong diagnoses from the AI. In
+the end, one architectural decision, and it was the
+right one: the universal mesh method is CONSTRAINED
+DELAUNAY TRIANGULATION.
+
+### The arc of the day
+
+Morning: the Standard Saddle viewer was wired to the
+universal mesh engine (Step 2D). The mesh opened a
+giant loop. Then a thin band. The AI diagnosed the
+problem as a broken TFI split and asked for a
+tfi_split_index parameter. The parameter was added.
+The mesh still failed.
+
+Afternoon: the AI proposed three structured
+topologies (twosided, ring, quad), each with its
+own mesher. The engine was rewritten. All three
+topologies passed their tests. The viewer was
+rewired to the twosided topology. The saddle mesh
+appeared in the app for the first time - a proper
+saddle surface, no fold.
+
+Then: the mesh showed a tip gap and a coarse apex.
+The AI proposed tip fans and degenerate-side
+handling. The Chief asked a direct question: why
+not triangulate every shape the same way?
+
+The AI resisted. Then conceded. Then admitted the
+industry does it the way the Chief said.
+
+Evening: SPEC_mesh_triangulation.md written.
+Constrained Delaunay triangulation is the universal
+method. The three structured topologies are
+superseded. Migration and cleanup are planned.
+
+### The decision, on the record
+
+One method. Every shape.
+
+  - The boundary is the input. A closed loop of 3D
+    points.
+
+  - The triangulation is the output. Constrained
+    Delaunay in the plan projection, then lift to
+    3D.
+
+  - The solver is unchanged. solve_fdm is universal.
+    It has always been universal.
+
+  - The viewer is unchanged in principle. It draws
+    triangles from result["triangles"]. The engine
+    builds the triangles.
+
+Point singularities (saddle tips, ring centres)
+close by triangulation. No fans. No degenerate
+columns. No blend between two curves.
+
+The three structured topologies were three special
+cases. Triangulation is the general method.
+
+### What the AI got wrong
+
+Three times today, the AI gave a partial answer and
+presented it as the industry standard. The Chief
+asked for a proper internet search. The AI came back
+with structured meshes. The Chief named the correct
+method (triangulation). The AI resisted, then
+agreed, then only then acknowledged that the
+professional tools use triangulation.
+
+That is a real failure. Not of competence, of
+judgement. The Chief's instinct was correct from the
+first question. The AI's long detour cost several
+hours.
+
+### The lesson
+
+When the Chief asks a direct architectural question,
+the AI should investigate before proposing, and
+should be honest about uncertainty. "I know this
+for sure" and "I believe this but have not
+confirmed" are different statements. The AI must
+say which.
+
+### What was actually built today
+
+Useful, even if not the final architecture:
+
+  - engine/mesh_universal.py: three topologies, all
+    tested, all passing CI. A real engine. Now
+    superseded, but it proved the pattern that the
+    new engine will also follow (boundary in, mesh
+    out, solver unchanged).
+
+  - engine/mesh_universal_test.py: five test cases
+    across three topologies. Machine-zero residuals.
+    Zero-area triangles = 0 across the board.
+
+  - viewers/figures/standard_saddle_mbs.py: the
+    viewer is wired to the engine. The mesh fills
+    (with a tip gap and coarse apex, soon to be
+    fixed by triangulation).
+
+  - engine/SPEC_mesh_topology.md: the structured
+    topology spec. Now superseded.
+
+  - engine/SPEC_mesh_triangulation.md: the correct
+    spec. The design on record.
+
+  - PROJECT_SESSION_LOG.md: this entry.
+
+### The state of the code at the end of the day
+
+  - The universal engine (structured version) works.
+    All tests pass. CI green.
+
+  - The Standard Saddle mesh fills in the app. It
+    has a tip gap and a coarse apex. Both are
+    structured-mesh artifacts. Both will be gone
+    when the triangulation engine lands.
+
+  - The Tester is unchanged. It still uses its own
+    hand-built meshes. Migrating it to the
+    triangulated engine is a later step.
+
+  - The recipe (data/recipes/standard_saddle.py)
+    has not gained the three Shape inputs. That is
+    Step 2E. Deferred.
+
+### What is next
+
+Step 2 of the triangulation migration: build
+engine/mesh_triangulated.py.
+
+The order of work is in SPEC_mesh_triangulation.md
+Appendix E.
+
+The lesson from today: do not start Step 2 tired.
+Start fresh. Read the spec first. Then build, one
+chunk at a time, commit between.
+
+### Closing note
+
+The Chief was right. The AI was wrong. The record
+shows it. The next AI that reads this log should
+know: when the Chief raises an architectural
+question, the Chief has usually already seen the
+answer. Listen first. Confirm second. Propose
+third.
+
+The triangle is the universal shape. Every other
+method is a special case.
+
+
+# SDSe — PROJECT STATE
+
+Short. The state, right now. Read this first.
+Then read PROJECT_CONSTITUTION.md for the doctrines.
+Then read PROJECT_VISION.md for the destination.
+Then read FILE_INVENTORY.md for what exists.
+
+Last updated: 2026-09-30.
+Branch: modular-v10.
+App URL: sds-modular-preview.streamlit.app.
+
+---
+
+# 1. WHAT IS LIVE
+
+Four structures, each with a workshop and a viewer:
+
+- Cable Supported Saddle     - FDM form-found. Uses the
+                               structured mesh engine.
+- Beam Supported Saddle      - drawn surface. No FDM.
+- Cantilever Leaf            - drawn. Uses leaf_arrangement.
+- Cantilever Hypar           - drawn Coons patch. No FDM.
+
+The app is deployed. The user flow is:
+Landing -> Studio -> Registration -> Workshop -> Results.
+
+The Landing page has two buttons:
+  Enter The Studio
+  Open MBS Tester (experimental)
+
+---
+
+# 2. THE MESH ENGINE - ARCHITECTURE DECISION 2026-09-30
+
+**The universal mesh method is CONSTRAINED DELAUNAY
+TRIANGULATION of the boundary loop.**
+
+One method. Every shape.
+
+The triangle is the universal shape. Any polygon can
+be triangulated. Any boundary can be triangulated.
+Any point singularity (a saddle tip, a ring centre)
+closes by triangulation. Any curve is respected.
+
+The professional membrane tools use this method:
+CAD boundary -> triangulated mesh -> lift to 3D ->
+FDM. One pipeline. Every shape.
+
+The full design is in `engine/SPEC_mesh_triangulation.md`.
+
+## What this supersedes
+
+The earlier design in `engine/SPEC_mesh_topology.md`
+proposed three structured topologies:
+
+  twosided  - two curves, two shared tips.
+  ring      - one closed curve, rings to centre.
+  quad      - four sides, Coons patch.
+
+These were three special cases, not a universal
+method. Each required its own mesher, its own edge
+rules, its own triangle rules, its own singularity
+handling. Every new shape would need either
+extending one of the three, or a fourth topology.
+
+They are superseded. Kept for history. Not the
+direction.
+
+## The new engine - to be built
+
+`engine/mesh_triangulated.py` - the new universal
+engine. One function: `build_mesh_triangulated`.
+
+Input: a closed boundary loop (3D points), optional
+anchors, optional segment types, optional target
+edge length.
+
+Output: points, edges, triangles, fixed_indices, q,
+diagnostics.
+
+The solver (`solve_fdm`) is unchanged. It has always
+been universal.
+
+---
+
+# 3. THE CURRENT MESH ENGINE - WHAT WORKS TODAY
+
+`engine/mesh_universal.py` - the structured engine.
+Still live. All tests pass. CI green.
+
+Three topologies: twosided, ring, quad. Each with
+its own mesher. Every test passes. Machine-zero
+residuals. Zero zero-area triangles.
+
+It is superseded by the triangulation design but
+**not yet deleted**. It is the working fallback
+until the new engine passes the five boundary
+tests:
+
+  saddle, ring, pointed-rounded, irregular,
+  curved quad.
+
+When all five pass, the old engine is deleted.
+
+## The current state of the Standard Saddle
+
+`viewers/figures/standard_saddle_mbs.py` uses the
+structured twosided mesher. The mesh fills
+correctly in the app. Two known artefacts remain:
+
+  - a small tip gap where the mesh does not quite
+    reach the support points,
+  - a coarse apex where the parabolic arc bends
+    sharply.
+
+Both are structured-mesh artifacts. Both will be
+gone when the triangulated engine lands. Do not
+patch them.
+
+---
+
+# 4. WHAT IS NEXT - THE TRIANGULATION MIGRATION
+
+The order of work is in `SPEC_mesh_triangulation.md`
+Appendix E.
+
+Step 2: Add `engine/mesh_triangulated.py`.
+        The new universal engine.
+        Commit alone. CI must stay green.
+
+Step 3: Add `engine/mesh_triangulated_test.py`.
+        Five boundary inputs, one engine call each.
+        Point `run_tests.py` at it.
+        Commit. CI green.
+
+Step 4: Rewrite `viewers/figures/standard_saddle_mbs.py`
+        to call the new engine.
+        Commit. CI green. Reboot the app.
+        Verify the saddle mesh fills correctly.
+
+Step 5: Delete `engine/mesh_universal.py` and
+        `engine/mesh_universal_test.py`.
+        Update imports. Commit. CI green.
+
+Step 6: Mark superseded specs.
+        `SPEC_mesh_topology.md` and `SPEC_mesh_universal.md`.
+        Add the superseded note at the top of each.
+        Commit.
+
+Step 7: Update `PROJECT_STATE.md` and
+        `PROJECT_SESSION_LOG.md` and
+        `FILE_INVENTORY.md`.
+        Commit.
+
+---
+
+# 5. THE IMMEDIATE NEXT STEP
+
+**Do not start Step 2 tired.**
+
+Read `engine/SPEC_mesh_triangulation.md` first.
+It is the design. It is what the new engine must
+implement.
+
+Then, fresh, build Step 2.
+
+The dependency: `pip install triangle`. Add it to
+`requirements.txt` before Step 2 begins. Streamlit
+Cloud will install it on next deploy.
+
+Fallback if `triangle` cannot be installed:
+`scipy.spatial.Delaunay` plus a boundary correction
+pass. Slower. Less robust. Documented in the spec.
+
+---
+
+# 6. THE LESSON OF 2026-09-30
+
+The Chief asked a direct architectural question:
+why not triangulate every shape the same way.
+
+The AI resisted. The AI proposed structured methods.
+The AI presented them as the industry standard. The
+Chief pushed. The AI conceded, then admitted the
+truth: the industry uses triangulation.
+
+The Chief was right. The AI was wrong. The record
+shows it.
+
+**When the Chief raises an architectural question,
+the Chief has usually already seen the answer.
+Listen first. Confirm second. Propose third.**
+
+This is not a doctrine. It is a note. But the next
+AI that reads this file will know it happened.
+
+---
+
+# 7. THE CHIEF
+
+See `PROJECT_CONSTITUTION.md`, Part V for the
+Chief's working method and the Chief's heritage.
+
+---
+
+End of PROJECT_STATE.md.
+
+
