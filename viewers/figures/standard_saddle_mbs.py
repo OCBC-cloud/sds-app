@@ -338,7 +338,7 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
         warp_q=warp_q,
         weft_q=weft_q,
         edge_q=edge_q,
-        tfi_split_index=(anchor_count - 1) * K,
+        tfi_split_index=anchor_count * K,
     )
 
     points = result["points"]
