@@ -1519,6 +1519,119 @@ See `PROJECT_CONSTITUTION.md`, Part V for the
 Chief's working method and the Chief's heritage.
 
 ---
+---
+
+## 2026-09-30 - Evening - Triangulation Engine Built and Tested
+
+### What was done this evening
+
+Following the day's decision to move to constrained Delaunay
+triangulation as the universal mesh method, three steps
+were completed.
+
+### Step 2 - the engine
+
+engine/mesh_triangulated.py was written and committed.
+Four chunks. It provides build_mesh_triangulated, which
+takes a closed boundary loop, projects to a plan plane,
+runs scipy.spatial.Delaunay, filters to the polygon
+interior, lifts the interior nodes to 3D, and returns
+points, edges, triangles, fixed_indices, q, diagnostics.
+
+Dependency: scipy.spatial.Delaunay. The `triangle` package
+was tried first and could not be built on Streamlit Cloud.
+scipy was added to requirements.txt as a replacement.
+
+### Step 3 - the test
+
+engine/mesh_triangulated_test.py was written and committed.
+Five boundary inputs:
+  - saddle (two parabolic curves, two tips)
+  - hexagon
+  - pointed_rounded (one tip, one curved face)
+  - irregular (10-vertex polygon)
+  - curved_quad (four parabolic sides)
+
+run_tests.py was updated to call the new test.
+The old test function (test_mesh_universal) remains in the
+file but is no longer called.
+
+CI result: PASS. All five boundary cases produced zero
+zero-area triangles and machine-zero FDM residuals.
+
+### Step 5 - the viewer (committed, not yet verified)
+
+viewers/figures/standard_saddle_mbs.py was rewritten to
+use the triangulated engine. Three chunks. The viewer:
+  - builds the closed boundary loop from the two beams
+  - builds the anchor list and segment types
+  - calls build_mesh_triangulated
+  - solves FDM
+  - draws the mesh from result["triangles"]
+
+No more structured grid. No more _grid_to_triangles. No
+more _build_saddle_curves. No more _compute_K. The viewer
+is thin.
+
+### THE NEXT ACTION
+
+Step 5 is committed but has NOT been verified in the app.
+The next session must:
+
+  1. Reboot the app.
+  2. Open the Standard Saddle results page.
+  3. Screenshot the 3D view and the diagnostics expander.
+  4. If the mesh fills correctly (no tip gap, apex covered),
+     Step 5 is done. Then delete the old engine (Step 6 of
+     the migration).
+  5. If the mesh fails, diagnose from the traceback and
+     fix the viewer or the engine.
+
+### What remains
+
+  - Verify Step 5 in the app.
+  - Delete engine/mesh_universal.py and its test (Step 6).
+  - Mark SPEC_mesh_topology.md and SPEC_mesh_universal.md
+    as superseded (Step 7).
+  - Update PROJECT_STATE.md and FILE_INVENTORY.md to
+    reflect the triangulated engine.
+  - Update data/recipes/standard_saddle.py with the
+    three Shape inputs (anchor_count, mesh_spacing,
+    transverse_count). Deferred from earlier today.
+
+### The state of the code
+
+  engine/form_finding.py            unchanged
+  engine/mesh_universal.py          live as fallback
+  engine/mesh_universal_test.py     live, no longer called
+  engine/mesh_triangulated.py       NEW, tested, in use by viewer
+  engine/mesh_triangulated_test.py  NEW, passing
+  viewers/figures/standard_saddle_mbs.py  rewritten,
+                                    not yet verified
+  run_tests.py                      points at the new test
+  requirements.txt                  has scipy, no triangle
+  app                               loads cleanly
+
+### The lesson, again
+
+The full day was spent arriving at the correct method. The
+Chief named triangulation first. The AI resisted. The AI
+proposed structured meshes, then three topologies, then
+Coons patches, then tip fans. Each was a special case
+dressed up as a universal method.
+
+The correct universal method is constrained Delaunay
+triangulation. It was the Chief's answer from the start.
+
+The next AI should read this and know: when the Chief
+raises an architectural question, the Chief has usually
+already seen the answer.
+
+### End of day
+
+The triangulated engine is built, tested, and in use by the
+viewer. The app is not yet verified with the new viewer.
+That verification is the first thing tomorrow.
 
 End of PROJECT_STATE.md.
 
