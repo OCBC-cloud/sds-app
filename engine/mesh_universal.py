@@ -823,7 +823,7 @@ def build_mesh_universal(topology,
 
 
 
-else:  # topology == "quad"
+    else:  # topology == "quad"
         if len(curves) != 4:
             raise ValueError(
                 "quad requires 4 curves (got %d)" % len(curves)
