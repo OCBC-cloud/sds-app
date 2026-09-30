@@ -339,3 +339,391 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
 
 
 
+# =============================================================================
+# TRIANGLE CONVERTER
+# =============================================================================
+
+def _grid_to_triangles(X, Y, Z):
+    """Convert an (n_i, M) grid into a flat list of triangles for Mesh3d."""
+    n_i, M = X.shape
+    node_x = X.reshape(-1)
+    node_y = Y.reshape(-1)
+    node_z = Z.reshape(-1)
+
+    tri_i = []
+    tri_j = []
+    tri_k = []
+
+    for i in range(n_i - 1):
+        for j in range(M - 1):
+            a = i * M + j
+            b = (i + 1) * M + j
+            c = i * M + (j + 1)
+            d = (i + 1) * M + (j + 1)
+
+            tri_i.append(a)
+            tri_j.append(b)
+            tri_k.append(c)
+
+            tri_i.append(b)
+            tri_j.append(d)
+            tri_k.append(c)
+
+    return node_x, node_y, node_z, tri_i, tri_j, tri_k
+
+
+def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
+    """Draw the continuous kader track along a beam."""
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y_beam, z=z_beam,
+        mode="lines",
+        line=dict(color="#f39c12", width=2),
+        showlegend=show_legend,
+        name="Kader track" if show_legend else None,
+        hoverinfo="skip",
+    ))
+
+
+# =============================================================================
+# PUBLIC FUNCTION
+# =============================================================================
+
+def build_standard_saddle():
+    """Standard Saddle: two curved beams, membrane, tie-downs, supports."""
+    span = float(st.session_state.get("ws_ss_span", 10.0))
+    apex = float(st.session_state.get("ws_ss_apex", 15.0))
+    rise = float(st.session_state.get("ws_ss_rise", 6.2))
+    curve_type = st.session_state.get("ws_ss_curve_type", "parabolic")
+    n_intervals = int(st.session_state.get("ws_ss_tiedown_intervals", 2))
+    uplift = float(st.session_state.get("ws_ss_uplift_angle", 45))
+    spread = float(st.session_state.get("ws_ss_spread_angle", 30))
+    warp_pre = float(st.session_state.get("ws_ss_warp_pretension", 2.0))
+    weft_pre = float(st.session_state.get("ws_ss_weft_pretension", 2.0))
+    edge_pre = float(st.session_state.get("ws_ss_edge_cable_pretension", 5.0))
+    attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
+
+    anchor_count = int(st.session_state.get("ws_ss_anchor_count", 7))
+    mesh_spacing = float(st.session_state.get("ws_ss_mesh_spacing", 0.5))
+    transverse_count = int(st.session_state.get("ws_ss_transverse_count", 8))
+    tiedown_pretension = float(
+        st.session_state.get("ws_ss_tiedown_pretension", 2.5)
+    )
+
+    if span <= 0 or apex <= 0 or rise <= 0:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Invalid geometry - check inputs",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(color="#f39c12", size=16),
+        )
+        return apply_common_layout(fig, 10.0)
+
+    built = _build_saddle_mbs(
+        span=span, apex=apex, rise=rise, curve_type=curve_type,
+        anchor_count=anchor_count,
+        mesh_spacing=mesh_spacing,
+        transverse_count=transverse_count,
+        warp_pretension=warp_pre,
+        weft_pretension=weft_pre,
+        edge_cable_pretension=edge_pre,
+        attachment_type=attach_type,
+        tiedown_pretension=tiedown_pretension,
+    )
+    X_surf = built["X"]
+    Y_surf = built["Y"]
+    Z_surf = built["Z"]
+    curves_A = built["curves_A_anchors"]
+    curves_B = built["curves_B_anchors"]
+    diag = built["diagnostics"]
+
+    # ---- Beam curves for drawing.
+    n_pts = 200
+    x = np.linspace(-span / 2.0, span / 2.0, n_pts)
+    z_beam = beam_curve(x, span, rise, curve_type)
+    s, total = arclength_parametrisation(x, z_beam)
+    base_width = apex * 0.5
+    y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
+    y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y1, z=z_beam,
+        mode="lines",
+        line=dict(color="#FF6B6B", width=8),
+        name="Beam L",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y2, z=z_beam,
+        mode="lines",
+        line=dict(color="#FF6B6B", width=8),
+        name="Beam R",
+    ))
+
+    # ---- Membrane mesh.
+    node_x, node_y, node_z, tri_i, tri_j, tri_k = _grid_to_triangles(
+        X_surf, Y_surf, Z_surf
+    )
+    fig.add_trace(go.Mesh3d(
+        x=node_x, y=node_y, z=node_z,
+        i=tri_i, j=tri_j, k=tri_k,
+        color="#4a7a9c",
+        opacity=0.55,
+        flatshading=True,
+        name="Membrane",
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    # ---- Anchors along both beams.
+    anchor_L_x = [a[0] for a in curves_A]
+    anchor_L_y = [a[1] for a in curves_A]
+    anchor_L_z = [a[2] for a in curves_A]
+    anchor_R_x = [a[0] for a in curves_B]
+    anchor_R_y = [a[1] for a in curves_B]
+    anchor_R_z = [a[2] for a in curves_B]
+
+    fig.add_trace(go.Scatter3d(
+        x=anchor_L_x, y=anchor_L_y, z=anchor_L_z,
+        mode="markers",
+        marker=dict(color="#f39c12", size=6, symbol="circle"),
+        name="Anchors (Beam L)",
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=anchor_R_x, y=anchor_R_y, z=anchor_R_z,
+        mode="markers",
+        marker=dict(color="#f39c12", size=6, symbol="circle"),
+        name="Anchors (Beam R)",
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    # ---- Attachment method drawing.
+    if attach_type == "cable_supported":
+        fig.add_trace(go.Scatter3d(
+            x=[a[0] for a in curves_A],
+            y=[a[1] for a in curves_A],
+            z=[a[2] for a in curves_A],
+            mode="markers+lines",
+            line=dict(color="#f1c40f", width=4),
+            marker=dict(color="#f39c12", size=7),
+            name="Fabric edge cable (L)",
+            showlegend=True,
+            hoverinfo="skip",
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=[a[0] for a in curves_B],
+            y=[a[1] for a in curves_B],
+            z=[a[2] for a in curves_B],
+            mode="markers+lines",
+            line=dict(color="#f1c40f", width=4),
+            marker=dict(color="#f39c12", size=7),
+            name="Fabric edge cable (R)",
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+    else:
+        _add_kader_track(fig, x, z_beam, y1, show_legend=True)
+        _add_kader_track(fig, x, z_beam, y2, show_legend=False)
+
+
+
+
+
+# =============================================================================
+# TRIANGLE CONVERTER
+# =============================================================================
+
+def _grid_to_triangles(X, Y, Z):
+    """Convert an (n_i, M) grid into a flat list of triangles for Mesh3d."""
+    n_i, M = X.shape
+    node_x = X.reshape(-1)
+    node_y = Y.reshape(-1)
+    node_z = Z.reshape(-1)
+
+    tri_i = []
+    tri_j = []
+    tri_k = []
+
+    for i in range(n_i - 1):
+        for j in range(M - 1):
+            a = i * M + j
+            b = (i + 1) * M + j
+            c = i * M + (j + 1)
+            d = (i + 1) * M + (j + 1)
+
+            tri_i.append(a)
+            tri_j.append(b)
+            tri_k.append(c)
+
+            tri_i.append(b)
+            tri_j.append(d)
+            tri_k.append(c)
+
+    return node_x, node_y, node_z, tri_i, tri_j, tri_k
+
+
+def _add_kader_track(fig, x, z_beam, y_beam, show_legend=False):
+    """Draw the continuous kader track along a beam."""
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y_beam, z=z_beam,
+        mode="lines",
+        line=dict(color="#f39c12", width=2),
+        showlegend=show_legend,
+        name="Kader track" if show_legend else None,
+        hoverinfo="skip",
+    ))
+
+
+# =============================================================================
+# PUBLIC FUNCTION
+# =============================================================================
+
+def build_standard_saddle():
+    """Standard Saddle: two curved beams, membrane, tie-downs, supports."""
+    span = float(st.session_state.get("ws_ss_span", 10.0))
+    apex = float(st.session_state.get("ws_ss_apex", 15.0))
+    rise = float(st.session_state.get("ws_ss_rise", 6.2))
+    curve_type = st.session_state.get("ws_ss_curve_type", "parabolic")
+    n_intervals = int(st.session_state.get("ws_ss_tiedown_intervals", 2))
+    uplift = float(st.session_state.get("ws_ss_uplift_angle", 45))
+    spread = float(st.session_state.get("ws_ss_spread_angle", 30))
+    warp_pre = float(st.session_state.get("ws_ss_warp_pretension", 2.0))
+    weft_pre = float(st.session_state.get("ws_ss_weft_pretension", 2.0))
+    edge_pre = float(st.session_state.get("ws_ss_edge_cable_pretension", 5.0))
+    attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
+
+    anchor_count = int(st.session_state.get("ws_ss_anchor_count", 7))
+    mesh_spacing = float(st.session_state.get("ws_ss_mesh_spacing", 0.5))
+    transverse_count = int(st.session_state.get("ws_ss_transverse_count", 8))
+    tiedown_pretension = float(
+        st.session_state.get("ws_ss_tiedown_pretension", 2.5)
+    )
+
+    if span <= 0 or apex <= 0 or rise <= 0:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Invalid geometry - check inputs",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(color="#f39c12", size=16),
+        )
+        return apply_common_layout(fig, 10.0)
+
+    built = _build_saddle_mbs(
+        span=span, apex=apex, rise=rise, curve_type=curve_type,
+        anchor_count=anchor_count,
+        mesh_spacing=mesh_spacing,
+        transverse_count=transverse_count,
+        warp_pretension=warp_pre,
+        weft_pretension=weft_pre,
+        edge_cable_pretension=edge_pre,
+        attachment_type=attach_type,
+        tiedown_pretension=tiedown_pretension,
+    )
+    X_surf = built["X"]
+    Y_surf = built["Y"]
+    Z_surf = built["Z"]
+    curves_A = built["curves_A_anchors"]
+    curves_B = built["curves_B_anchors"]
+    diag = built["diagnostics"]
+
+    # ---- Beam curves for drawing.
+    n_pts = 200
+    x = np.linspace(-span / 2.0, span / 2.0, n_pts)
+    z_beam = beam_curve(x, span, rise, curve_type)
+    s, total = arclength_parametrisation(x, z_beam)
+    base_width = apex * 0.5
+    y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
+    y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y1, z=z_beam,
+        mode="lines",
+        line=dict(color="#FF6B6B", width=8),
+        name="Beam L",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y2, z=z_beam,
+        mode="lines",
+        line=dict(color="#FF6B6B", width=8),
+        name="Beam R",
+    ))
+
+    # ---- Membrane mesh.
+    node_x, node_y, node_z, tri_i, tri_j, tri_k = _grid_to_triangles(
+        X_surf, Y_surf, Z_surf
+    )
+    fig.add_trace(go.Mesh3d(
+        x=node_x, y=node_y, z=node_z,
+        i=tri_i, j=tri_j, k=tri_k,
+        color="#4a7a9c",
+        opacity=0.55,
+        flatshading=True,
+        name="Membrane",
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    # ---- Anchors along both beams.
+    anchor_L_x = [a[0] for a in curves_A]
+    anchor_L_y = [a[1] for a in curves_A]
+    anchor_L_z = [a[2] for a in curves_A]
+    anchor_R_x = [a[0] for a in curves_B]
+    anchor_R_y = [a[1] for a in curves_B]
+    anchor_R_z = [a[2] for a in curves_B]
+
+    fig.add_trace(go.Scatter3d(
+        x=anchor_L_x, y=anchor_L_y, z=anchor_L_z,
+        mode="markers",
+        marker=dict(color="#f39c12", size=6, symbol="circle"),
+        name="Anchors (Beam L)",
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter3d(
+        x=anchor_R_x, y=anchor_R_y, z=anchor_R_z,
+        mode="markers",
+        marker=dict(color="#f39c12", size=6, symbol="circle"),
+        name="Anchors (Beam R)",
+        showlegend=False,
+        hoverinfo="skip",
+    ))
+
+    # ---- Attachment method drawing.
+    if attach_type == "cable_supported":
+        fig.add_trace(go.Scatter3d(
+            x=[a[0] for a in curves_A],
+            y=[a[1] for a in curves_A],
+            z=[a[2] for a in curves_A],
+            mode="markers+lines",
+            line=dict(color="#f1c40f", width=4),
+            marker=dict(color="#f39c12", size=7),
+            name="Fabric edge cable (L)",
+            showlegend=True,
+            hoverinfo="skip",
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=[a[0] for a in curves_B],
+            y=[a[1] for a in curves_B],
+            z=[a[2] for a in curves_B],
+            mode="markers+lines",
+            line=dict(color="#f1c40f", width=4),
+            marker=dict(color="#f39c12", size=7),
+            name="Fabric edge cable (R)",
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+    else:
+        _add_kader_track(fig, x, z_beam, y1, show_legend=True)
+        _add_kader_track(fig, x, z_beam, y2, show_legend=False)
+
+
+
+
+
