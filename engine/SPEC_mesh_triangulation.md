@@ -293,7 +293,14 @@ the next step begins.
 
 
 # 10. DEPENDENCIES
+NOTE (2026-09-30, later the same day):
+The `triangle` package cannot be built on Streamlit Cloud.
+The installer fails with a non-zero exit code. The primary
+dependency is now `scipy.spatial.Delaunay`, which is already
+installed via scipy (a Streamlit Cloud base package).
 
+The `triangle` option below is NOT used. It is kept for
+historical record only.
 Constrained Delaunay triangulation has a standard
 Python implementation: `triangle` (a wrapper around
 Jonathan Shewchuk's Triangle library).
