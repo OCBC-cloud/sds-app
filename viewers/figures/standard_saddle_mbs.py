@@ -99,9 +99,9 @@ def _build_saddle_curves(x, z_beam, y1, y2, span, anchor_count):
         by = float(np.interp(target, s, y1))
         curve_A[k] = (bx, by, bz)
 
-    # Curve B: Beam R, near tip -> far tip (reverse order).
+    # Curve B: Beam R, far tip -> near tip (SAME order as curve_A).
     curve_B = np.zeros((anchor_count, 3))
-    for k, target in enumerate(arc_targets[::-1]):
+    for k, target in enumerate(arc_targets):
         bx = float(np.interp(target, s, x))
         bz = float(np.interp(target, s, z_beam))
         by = float(np.interp(target, s, y2))
