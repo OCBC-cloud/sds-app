@@ -181,3 +181,209 @@ def _test_twosided():
 
 
 
+# =============================================================================
+# TEST 2: RING (hexagon)
+# =============================================================================
+
+def _test_ring():
+    """
+    A hexagon loop. Six anchors around a circle.
+
+    Confirm:
+      - the centre is a single node,
+      - zero zero-area triangles,
+      - machine-zero residual.
+    """
+    n_anchors = 6
+    radius = 5.0
+
+    angles = np.linspace(0.0, 2.0 * np.pi, n_anchors, endpoint=False)
+    curve_loop = np.column_stack([
+        radius * np.cos(angles),
+        radius * np.sin(angles),
+        np.zeros(n_anchors),
+    ])
+
+    segment_types = ["beam"] * n_anchors
+
+    result = build_mesh_universal(
+        topology="ring",
+        curves=[curve_loop],
+        segment_types=segment_types,
+        subdivisions_per_segment=5,
+        transverse_count=8,
+        warp_q=2000.0,
+        weft_q=2000.0,
+        edge_q=5000.0,
+    )
+
+    diag = result["diagnostics"]
+    print("  has_centre: %s" % diag["has_centre"])
+    print("  centre_idx: %d" % diag["centre_idx"])
+
+    n_nodes = result["points"].shape[0]
+    centre_ok = (diag["centre_idx"] == n_nodes - 1)
+
+    res = _solve_and_report(result, "ring")
+
+    # Zero-area triangles: reconstruct ring triangles.
+    n_i = diag["n_i"]
+    M = diag["transverse_count"]
+    centre_idx = diag["centre_idx"]
+    points = result["points"]
+    tris = []
+    for i in range(n_i):
+        i_next = (i + 1) % n_i
+        for j in range(M - 1):
+            a = i * (M - 1) + j
+            b = i_next * (M - 1) + j
+            if j + 1 < M - 1:
+                c = i * (M - 1) + (j + 1)
+                d = i_next * (M - 1) + (j + 1)
+                tris.append((a, b, c))
+                tris.append((b, d, c))
+            else:
+                # Innermost ring to centre.
+                tris.append((a, b, centre_idx))
+    areas = _tri_areas(points, tris)
+    min_area = float(areas.min()) if len(areas) else 0.0
+    zero_count = int(np.sum(areas < 1e-10))
+    print("  ring triangles: %d" % len(tris))
+    print("  min tri area: %.4e" % min_area)
+    print("  zero-area (<1e-10): %d" % zero_count)
+
+    ok = (
+        centre_ok
+        and zero_count == 0
+        and res["residual_norm"] < 1e-9
+    )
+    return {"ok": ok, "label": "ring"}
+
+
+# =============================================================================
+# TEST 3: QUAD (curved sides)
+# =============================================================================
+
+def _test_quad():
+    """
+    A curved quad: four parabolic sides forming a domed region.
+
+    The four corners are at (+-1, +-1). Each side is a parabola
+    bulging outward.
+
+    Confirm:
+      - zero zero-area triangles,
+      - machine-zero residual,
+      - the Coons patch fills correctly.
+    """
+    n_side = 5   # anchors per side
+
+    # Side A: bottom, from (-1, -1) to (1, -1), bulging down.
+    t = np.linspace(0.0, 1.0, n_side)
+    side_A = np.column_stack([
+        -1.0 + 2.0 * t,
+        -1.0 - 0.3 * np.sin(np.pi * t),
+        np.zeros(n_side),
+    ])
+    # Side C: top, from (1, 1) to (-1, 1), bulging up.
+    side_C = np.column_stack([
+        1.0 - 2.0 * t,
+        1.0 + 0.3 * np.sin(np.pi * t),
+        np.zeros(n_side),
+    ])
+    # Side D: left, from (-1, 1) to (-1, -1), bulging left.
+    side_D = np.column_stack([
+        -1.0 - 0.3 * np.sin(np.pi * t),
+        1.0 - 2.0 * t,
+        np.zeros(n_side),
+    ])
+    # Side B: right, from (1, -1) to (1, 1), bulging right.
+    side_B = np.column_stack([
+        1.0 + 0.3 * np.sin(np.pi * t),
+        -1.0 + 2.0 * t,
+        np.zeros(n_side),
+    ])
+
+    # Corners: P00 = A[0], P10 = A[-1], P11 = C[-1], P01 = C[0]
+    P00 = side_A[0]
+    P10 = side_A[-1]
+    P11 = side_C[-1]
+    P01 = side_C[0]
+
+    n_segments = (n_side - 1) * 4
+    segment_types = ["beam"] * n_segments
+
+    result = build_mesh_universal(
+        topology="quad",
+        curves=[side_A, side_B, side_C, side_D],
+        corner_points=[P00, P10, P11, P01],
+        segment_types=segment_types,
+        subdivisions_per_segment=5,
+        transverse_count=8,
+        warp_q=2000.0,
+        weft_q=2000.0,
+        edge_q=5000.0,
+    )
+
+    diag = result["diagnostics"]
+    res = _solve_and_report(result, "quad")
+
+    n_i = diag["n_i"]
+    M = diag["transverse_count"]
+    points = result["points"]
+    tris = _triangles_from_grid(points.reshape((n_i, M, 3)), n_i, M)
+    areas = _tri_areas(points, tris)
+    min_area = float(areas.min()) if len(areas) else 0.0
+    zero_count = int(np.sum(areas < 1e-10))
+    print("  quad triangles: %d" % len(tris))
+    print("  min tri area: %.4e" % min_area)
+    print("  zero-area (<1e-10): %d" % zero_count)
+
+    ok = (
+        zero_count == 0
+        and res["residual_norm"] < 1e-9
+    )
+    return {"ok": ok, "label": "quad"}
+
+
+# =============================================================================
+# RUNNER
+# =============================================================================
+
+def run_all():
+    """Run all three topology tests. Returns True if all pass."""
+    print("=" * 60)
+    print("Universal Mesh Engine - standalone test")
+    print("=" * 60)
+
+    results = []
+    for test in (_test_twosided, _test_ring, _test_quad):
+        print("-" * 60)
+        print("CASE: %s" % test.__name__)
+        try:
+            r = test()
+        except Exception as e:
+            print("  EXCEPTION: %s" % str(e))
+            r = {"ok": False, "label": test.__name__}
+        print("  result: %s" % ("OK" if r["ok"] else "FAIL"))
+        results.append(r)
+
+    print("=" * 60)
+    print("SUMMARY")
+    for r in results:
+        print("  %-20s  %s" % (r["label"], "OK" if r["ok"] else "FAIL"))
+    print("=" * 60)
+
+    all_ok = all(r["ok"] for r in results)
+    print("UNIVERSAL MESH ENGINE: %s" % ("PASS" if all_ok else "FAIL"))
+    print("-" * 60)
+    return all_ok
+
+
+if __name__ == "__main__":
+    run_all()
+
+
+
+
+
