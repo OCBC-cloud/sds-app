@@ -5,7 +5,7 @@ Then read PROJECT_CONSTITUTION.md for the doctrines.
 Then read PROJECT_VISION.md for the destination.
 Then read FILE_INVENTORY.md for what exists.
 
-Last updated: 2026-09-29.
+Last updated: 2026-09-30 (evening).
 Branch: modular-v10.
 App URL: sds-modular-preview.streamlit.app.
 
@@ -15,60 +15,90 @@ App URL: sds-modular-preview.streamlit.app.
 
 Four structures, each with a workshop and a viewer:
 
-- Cable Supported Saddle     — FDM form-found. Has a fold.
-- Beam Supported Saddle      — drawn surface. No FDM. No fold.
-- Cantilever Leaf            — drawn. Uses leaf_arrangement.
-- Cantilever Hypar           — drawn Coons patch. No FDM.
+- Cable Supported Saddle     - FDM form-found. Uses the
+                               triangulated mesh engine.
+- Beam Supported Saddle      - drawn surface. No FDM.
+- Cantilever Leaf            - drawn. Uses leaf_arrangement.
+- Cantilever Hypar           - drawn Coons patch. No FDM.
 
 The app is deployed. The user flow is:
 Landing -> Studio -> Registration -> Workshop -> Results.
 
-The Landing page has two buttons:
+The Landing page has three buttons:
   Enter The Studio
   Open MBS Tester (experimental)
-
-An additional hidden test route exists:
-  renderer_test  — reached by ?page=renderer_test or the
-  temporary button. For testing the universal workshop
-  renderer.
+  Open Renderer Test (temporary test page)
 
 ---
 
-# 2. THE UNIVERSAL MESH ENGINE (NEW 2026-09-29)
+# 2. THE UNIVERSAL MESH ENGINE - ARCHITECTURE 2026-09-30
 
-`engine/mesh_universal.py`. Built. Tested. Proven.
+**The universal mesh method is CONSTRAINED DELAUNAY
+TRIANGULATION of the boundary loop.**
 
-Input:
-  - boundary_loop  — a closed loop of 3D anchors.
-  - segment_types  — one per gap: "beam", "cable", "wall".
-  - fill           — "tfi", "polar", "barycentric".
-  - subdivisions_per_segment (K).
-  - transverse_count (M).
-  - warp_q, weft_q, edge_q.
+One method. Every shape.
 
-Output:
-  - points, edges, fixed_indices, q, diagnostics.
+The triangle is the universal shape. Any polygon can be
+triangulated. Any boundary can be triangulated. Any point
+singularity (a saddle tip, a ring centre) closes by
+triangulation. Any curve is respected.
 
-The hold rule:
-  Anchor                  -> always held.
-  Segment interior, beam  -> held.
-  Segment interior, wall  -> held.
-  Segment interior, cable -> released.
-  Mesh interior           -> always released.
+The design is in `engine/SPEC_mesh_triangulation.md`.
 
-Test results (CI, 2026-09-29):
-  Flat quad, all beam        - zero=0  minArea=3.15e-05
-  Flat quad, all cable       - zero=0  minArea=1.93e-06
-  Mixed: 2 beam, 2 cable     - zero=0  minArea=6.11e-06
-  Hexagon, polar fill        - zero=0  minArea=9.21e-05
-  ALL TESTS PASS
+## The engine
 
-This is the engine that will kill the fold in every shape.
-It is NOT yet wired into any viewer. That is Step 2D.
+`engine/mesh_triangulated.py`. Built. Tested. In use.
+
+The public function is `build_mesh_triangulated`. It takes
+a closed boundary loop, projects to a plan plane, runs
+`scipy.spatial.Delaunay`, filters to the polygon interior,
+lifts the interior nodes to 3D, and returns:
+
+    points, edges, triangles, fixed_indices, q, diagnostics
+
+The solver (`solve_fdm`) is unchanged. It has always been
+universal.
+
+## The dependency
+
+`scipy.spatial.Delaunay`. scipy is in `requirements.txt`.
+
+The `triangle` package was tried first and could not be
+built on Streamlit Cloud. scipy replaced it.
+
+## The test
+
+`engine/mesh_triangulated_test.py`. Five boundary inputs:
+
+  - saddle (two parabolic curves, two tips)
+  - hexagon
+  - pointed_rounded (one tip, one curved face)
+  - irregular (10-vertex polygon)
+  - curved_quad (four parabolic sides)
+
+CI result: PASS. Zero zero-area triangles and machine-zero
+FDM residuals across all five cases.
+
+## What this supersedes
+
+The earlier design (`engine/SPEC_mesh_topology.md`) proposed
+three structured topologies:
+
+  twosided  - two curves, two shared tips.
+  ring      - one closed curve, rings to centre.
+  quad      - four sides, Coons patch.
+
+Those were three special cases. They are superseded. Kept
+for history only.
+
+The earlier engine (`engine/mesh_universal.py`, the three
+structured meshers) is still live as a fallback. It is
+not used by the viewer. It will be deleted in Step 6 of
+the migration.
 
 ---
 
-# 3. THE UNIVERSAL WORKSHOP RENDERER (NEW 2026-09-29)
+# 3. THE UNIVERSAL WORKSHOP RENDERER
 
 `ui/workshops/_renderer.py`. Built. Committed.
 
@@ -76,68 +106,64 @@ Reads a workshop recipe. Builds the input page.
 Accordion groups. Five input types. No sliders.
 Preview, warning, info boxes. Action buttons.
 
-Tested via `ui/workshops/_renderer_test.py` — a temporary
-test page. Once the first real workshop migrates, the test
-page is removed.
-
 The Standard Saddle workshop is the first migration.
-`ui/workshops/saddle_standard.py` is now 12 lines.
+`ui/workshops/saddle_standard.py` is 12 lines.
 The recipe is `data/recipes/standard_saddle.py`.
 
----
-
-# 4. THE FOLD IN THE CABLE SADDLE VIEWER
-
-Two zero-area triangles in the old mesh at the supports.
-
-Cause (final diagnosis): the old viewer built a rectangular
-grid with a support column. The column is degenerate — all
-its nodes are at the same point. A bow hack hid the
-degeneracy but did not fix it.
-
-The correct fix: build the mesh from a boundary loop.
-Anchors along the beams. No column at the support. The
-support is a point, not a column.
-
-`engine/mesh_universal.py` implements the correct model.
-Step 2D wires it into the viewer.
+The recipe has NOT yet gained the three Shape inputs
+(anchor_count, mesh_spacing, transverse_count). That is a
+pending task. See Section 5.
 
 ---
 
-# 5. WHAT IS NEXT
+# 4. THE MESH MIGRATION - WHERE WE ARE
 
-## 5.1 Immediate (Step 2D)
+## Done
 
-Rewrite `viewers/figures/standard_saddle_mbs.py` to call
-`build_mesh_universal`.
+Step 1: SPEC_mesh_triangulation.md written and committed.
+Step 2: engine/mesh_triangulated.py built and committed.
+Step 3: engine/mesh_triangulated_test.py built, run_tests.py
+        pointed at it, CI green. All five cases pass.
+Step 5: viewers/figures/standard_saddle_mbs.py rewritten
+        to use the triangulated engine. Committed.
 
-The viewer:
-  - Builds the boundary loop: 7 anchors on each beam
-    (14 total), at equal arc length.
-  - Segment types: all 14 are "beam".
-  - Calls build_mesh_universal with fill="tfi".
-  - Calls solve_fdm on the result.
-  - Draws the mesh, beams, tie-downs, supports.
+## Not yet done
 
-The fold dies when this happens.
+Step 5 verification: the app has NOT yet been opened with
+the new viewer. That is the FIRST ACTION of the next
+session.
 
-## 5.2 Next (Step 2E)
+Step 6: delete engine/mesh_universal.py and its test.
+Step 7: mark SPEC_mesh_topology.md and SPEC_mesh_universal.md
+        as superseded.
+FILE_INVENTORY.md update to reflect the new engine.
+
+---
+
+# 5. THE IMMEDIATE NEXT STEP
+
+**Verify Step 5 in the app.**
+
+1. Reboot the Streamlit app (Rule 13).
+2. Open the Standard Saddle results page.
+3. Screenshot the 3D view and the diagnostics expander.
+4. Confirm: the membrane fills the saddle, no tip gap,
+   the apex is covered by triangles, machine-zero residual.
+5. If it works: proceed to Step 6 (delete the old engine).
+6. If it does not work: diagnose from the traceback.
+
+After Step 5 verification:
+
+## Pending - Step 2E (deferred from earlier)
 
 Update `data/recipes/standard_saddle.py`. The Shape group
 gains three inputs:
-  - Anchor count per beam (default 7).
+  - Anchor count per beam (default 15).
   - Target mesh spacing (m) (default 0.5).
   - Transverse count (default 8).
 
-The recipe converts spacing to K before calling the
-engine. K = max(5, round(segment_length / spacing)).
-
-## 5.3 After that
-
-  - Beam Supported Saddle migrates.
-  - Coordinate file path (custom_boundary).
-  - DXF path (custom_boundary).
-  - Crown, Triangle, Lens migrate.
+These feed the triangulated engine's target_edge_length
+and boundary density.
 
 ---
 
@@ -145,13 +171,13 @@ engine. K = max(5, round(segment_length / spacing)).
 
 Every session starts by reading, in order:
 
-  1. PROJECT_STATE.md            (this file — 3 minutes)
-  2. PROJECT_CONSTITUTION.md     (the doctrines — when deciding)
-  3. PROJECT_VISION.md           (the destination — when planning)
-  4. FILE_INVENTORY.md           (what exists — when coding)
+  1. PROJECT_STATE.md            (this file - 3 minutes)
+  2. PROJECT_CONSTITUTION.md     (the doctrines - when deciding)
+  3. PROJECT_VISION.md           (the destination - when planning)
+  4. FILE_INVENTORY.md           (what exists - when coding)
 
-The session log lives in PROJECT_SESSION_LOG.md. Read it only
-when tracing a past decision.
+The session log lives in PROJECT_SESSION_LOG.md. Read the
+last three entries first.
 
 Every commit that adds, renames, or deletes a file also
 updates FILE_INVENTORY.md.
@@ -168,6 +194,21 @@ method and the Chief's heritage.
 
 ---
 
+# 8. THE LESSON OF 2026-09-30
+
+The Chief asked a direct architectural question: why not
+triangulate every shape the same way.
+
+The AI resisted. The AI proposed structured methods,
+three topologies, Coons patches, tip fans. Each was a
+special case dressed up as a universal method.
+
+The Chief was right from the first question.
+
+**When the Chief raises an architectural question, the
+Chief has usually already seen the answer. Listen first.
+Confirm second. Propose third.**
+
+---
+
 End of PROJECT_STATE.md.
-
-
