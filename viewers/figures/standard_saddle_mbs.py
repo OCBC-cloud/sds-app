@@ -148,3 +148,116 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count):
 
 
 
+# =============================================================================
+# MESH SPACING TO K
+# =============================================================================
+
+def _compute_K(arclength_segments, mesh_spacing, k_min=5):
+    """
+    Convert a target mesh spacing (metres) to K, the number of
+    mesh nodes placed along each segment of the boundary row.
+
+    The rule (recorded in the handoff):
+        K = max(k_min, round(segment_arc / mesh_spacing))
+
+    Since the engine takes a single K for all segments, we compute
+    a single K from the AVERAGE segment arc length. On a symmetric
+    saddle the segments are nearly equal, so the single-K
+    approximation is good.
+
+    Parameters
+    ----------
+    arclength_segments : list of float
+        Arc length of each segment on the boundary loop.
+    mesh_spacing : float
+        Target mesh spacing in metres.
+    k_min : int
+        Lower bound. The engine requires K >= 1. We default to 5
+        so the mesh is not too coarse at the smallest spacing.
+
+    Returns
+    -------
+    K : int
+        Nodes per segment.
+    avg_arc : float
+        Average segment arc length, for the diagnostics.
+    """
+    if len(arclength_segments) == 0:
+        return int(k_min), 0.0
+    avg_arc = float(np.mean(arclength_segments))
+    if mesh_spacing <= 0:
+        mesh_spacing = 0.5
+    K_float = avg_arc / mesh_spacing
+    K = int(round(K_float))
+    if K < int(k_min):
+        K = int(k_min)
+    return K, avg_arc
+
+
+# =============================================================================
+# SEGMENT TYPES FROM ATTACHMENT METHOD
+# =============================================================================
+
+def _segment_types_for_attachment(attachment_type, n_segments):
+    """
+    Map the fabric attachment method to the engine's segment types.
+
+    TEMPORARY MAPPING (until the engine gains an explicit
+    fabric-edge parameter):
+        kader            -> all segments "beam"
+        cable_supported  -> all segments "cable"
+
+    The physical member on every segment is a beam in both cases.
+    The classification here is a MESH decision: whether the fabric
+    edge is held along its length or released between anchors.
+    Part V doctrine: mesh constraint and structural member are
+    two different things. This function only affects the mesh.
+
+    The real member (beam) will be recorded in the structural
+    connections list in Stage 3.
+    """
+    a = str(attachment_type).lower()
+    if a == "cable_supported":
+        return ["cable"] * int(n_segments)
+    # Default and kader both map to beam.
+    return ["beam"] * int(n_segments)
+
+
+# =============================================================================
+# FORCE DENSITIES
+# =============================================================================
+
+def _compute_force_densities(points, edges,
+                             warp_pretension, weft_pretension,
+                             edge_cable_pretension):
+    """
+    Compute the per-edge force density scalars.
+
+    Units: pretension in kN/m -> N/m. L_avg in metres.
+    q = T * 1000 / L_avg
+
+    The engine builds the FULL per-edge q vector itself from
+    warp_q, weft_q, edge_q and the segment types. This viewer
+    only computes the three scalars.
+    """
+    n_edges = len(edges)
+    if n_edges == 0:
+        return 1.0, 1.0, 1.0, 1.0
+    total_len = 0.0
+    pts = np.asarray(points)
+    for (a, b) in edges:
+        total_len += float(np.linalg.norm(pts[b] - pts[a]))
+    L_avg = total_len / float(n_edges)
+    if L_avg < 1e-9:
+        L_avg = 1.0
+
+    warp_q = max(0.1, float(warp_pretension)) * 1000.0 / L_avg
+    weft_q = max(0.1, float(weft_pretension)) * 1000.0 / L_avg
+    edge_q = max(0.1, float(edge_cable_pretension)) * 1000.0 / L_avg
+
+    return L_avg, warp_q, weft_q, edge_q
+
+
+
+
+
