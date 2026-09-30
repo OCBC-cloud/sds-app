@@ -727,3 +727,141 @@ def build_standard_saddle():
 
 
 
+# ---- Tie-downs.
+    if n_intervals == 4:
+        per_beam_fractions = [0.175, 0.825]
+    elif n_intervals == 8:
+        per_beam_fractions = [0.175, 0.225, 0.775, 0.825]
+    else:
+        per_beam_fractions = [0.175, 0.825]
+
+    for frac in per_beam_fractions:
+        idx = find_index_at_arclength_fraction(s, total, frac)
+        x_tie = x[idx]
+        beam_z = z_beam[idx]
+
+        for side, y_beam in ((-1, y1[idx]), (+1, y2[idx])):
+            drop = beam_z
+            if drop <= 0:
+                drop = 0.5
+            horizontal = drop / math.tan(math.radians(uplift)) \
+                if uplift > 0 else drop
+            x_offset = horizontal * 0.5
+            y_offset = horizontal * 0.5 * math.tan(math.radians(spread))
+
+            if x_tie < 0:
+                anchor_x = x_tie - x_offset
+            elif x_tie > 0:
+                anchor_x = x_tie + x_offset
+            else:
+                anchor_x = x_tie + x_offset
+
+            anchor_y = y_beam + side * y_offset
+
+            fig.add_trace(go.Scatter3d(
+                x=[x_tie, anchor_x],
+                y=[y_beam, anchor_y],
+                z=[beam_z, 0],
+                mode="lines",
+                line=dict(color="#f1c40f", width=2, dash="dot"),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+            fig.add_trace(go.Scatter3d(
+                x=[anchor_x], y=[anchor_y], z=[0],
+                mode="markers",
+                marker=dict(color="#f1c40f", size=5, symbol="square"),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+    # ---- Ground supports.
+    fig.add_trace(go.Scatter3d(
+        x=[-span / 2.0, span / 2.0],
+        y=[0, 0],
+        z=[0, 0],
+        mode="markers",
+        marker=dict(color="#2ecc71", size=10, symbol="diamond"),
+        name="Ground supports",
+    ))
+
+    fig.add_trace(go.Scatter3d(
+        x=[None], y=[None], z=[None],
+        mode="lines",
+        line=dict(color="#f1c40f", width=2, dash="dot"),
+        name="Tie-down cables",
+    ))
+
+    fig = apply_common_layout(fig, rise)
+
+    # ---- Diagnostics expander. The audit trail.
+    with st.expander("FDM diagnostics (temporary)", expanded=False):
+        st.markdown("**Boundary model** - 2 curves, 2 shared tips:")
+        c0, c0b, c0c = st.columns(3)
+        c0.metric("Anchors per curve", diag["n_anchors"])
+        c0b.metric("Interior columns", diag["n_interior"])
+        c0c.metric("K", diag["K"])
+
+        st.markdown("**Mesh (universal engine, twosided topology):**")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Nodes", diag["n_nodes"])
+        c2.metric("Edges", diag["n_edges"])
+        c3.metric("Fixed", diag["n_fixed"])
+        c4.metric("Free", diag["n_free"])
+
+        st.markdown("**FDM solver residual** - after solve_fdm:")
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Residual", "%.4e" % diag["residual_norm"])
+        d2.metric("Min tri area", "%.6e" % diag["min_tri_area"])
+        d3.metric("Mean tri area", "%.6e" % diag["mean_tri_area"])
+
+        st.markdown("**Fabric attachment:** " + diag["attachment_type"])
+        st.markdown("**Tie-down pretension (kN):** "
+                    + ("%.2f" % diag["tiedown_pretension"])
+                    + "  (not yet wired into FDM)")
+
+        st.markdown("**Top 20 largest node displacements:**")
+        rows = []
+        for entry in diag["top_displacements"]:
+            rows.append(
+                "rank " + str(entry["rank"]) +
+                "  node " + str(entry["node"]) +
+                "  (i=" + str(entry["i"]) + ", j=" + str(entry["j"]) + ")" +
+                "  disp=" + ("%.4f" % entry["disp"])
+            )
+        st.code("\n".join(rows), language="text")
+
+        st.markdown("**Structural connections** - the second list. "
+                    "Empty today. Populated in Stage 3.")
+        st.markdown("- (none)")
+
+    return fig
+
+
+# =============================================================================
+# END OF viewers/figures/standard_saddle_mbs.py
+# =============================================================================
+#
+# This file is Step 5 of the UI migration. It is the MBS version of
+# the Standard Saddle viewer, wired to the topology engine with
+# topology="twosided".
+#
+# The two tips are SINGLE nodes. No degenerate column. No fold.
+#
+# The viewer is live: viewers/results_viewer.py already dispatches
+# to this file for variant_key == "standard_saddle".
+#
+# Files untouched by this rewrite:
+#   engine/form_finding.py
+#   engine/membrane_boundary.py
+#   engine/membrane_surface.py
+#   engine/mesh_universal.py
+#   viewers/figures/standard_saddle.py
+#   every other viewer
+# =============================================================================
+
+
+
+
+
