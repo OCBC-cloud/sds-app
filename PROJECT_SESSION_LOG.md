@@ -975,6 +975,182 @@ The universal engine is the foundation. Every shape feeds
 it. Every shape gets the same correctness. The fold is a
 memory.
 
+---
+
+## 2026-09-30 - Three-Layer Model, Naming Locked
+
+### What was settled today
+
+Three layers, three jobs. The naming confusion of
+2026-09-29 is dissolved by separating them.
+
+  Segment      - the gap between two anchors on the
+                 boundary loop. Geometry only. No member
+                 type. No physical meaning. Just a
+                 division of a curve.
+
+  Member       - a physical thing. Assigned to a segment,
+                 or standing free. Beam, cable, wall
+                 today. Later: purlin, strut, stub,
+                 column, tie-down.
+
+  Fabric edge  - how the membrane attaches along a
+                 segment. Kader Guider or Cable
+                 Supported.
+
+The boundary is an imaginary construction line. Its only
+job is to divide the shape into anchors and segments.
+After that it is gone.
+
+The segments are real members. For the Standard Saddle,
+every segment is a beam. A cable cannot hold midair -
+only a beam or a wall can carry the beam line across a
+span. So for this structure, segment members are always
+beams.
+
+The fabric edge between anchors is what toggles.
+
+### Naming, locked
+
+  Kader Guider      - the fabric edge is the fabric
+                      itself, seated continuously on the
+                      beam. No bow. The beam holds the
+                      edge.
+
+  Cable Supported   - the fabric edge is a cable member
+                      running anchor to anchor. The fabric
+                      hangs from it. The cable bows. The
+                      bow is controlled by the edge cable
+                      pretension.
+
+  Edge Cable
+  Pretension (kN)   - the fabric edge cable value.
+                      Active when Cable Supported.
+
+  Tie-down
+  Pretension (kN)   - the ground tie-down cable value.
+                      Default 2.5 kN. NEW INPUT. The
+                      current viewer draws the tie-downs
+                      but gives them no pretension. This
+                      is a real gap. Step 2E closes it.
+
+The cable created in Cable Supported mode is a MEMBER.
+The fabric edge layer decides THAT there is a cable.
+The member layer records WHAT that cable is - its
+pretension, its material, its type. Two layers, stored
+separately, per Part V.
+
+### Retired forever
+
+  segmented
+  Segmented Edge
+  free end
+  short end
+  long edge
+  free edge
+  column at support
+  degenerate column
+
+### The Standard Saddle boundary model
+
+  12 anchors. 12 segments.
+  7 anchors per beam. 6 segments per beam.
+  The 2 tips are shared between beams.
+  10 intermediate anchors. 2 support-point anchors.
+
+### Q1 - decided
+
+engine/mesh_universal.py returns fixed_indices as FLAT
+node indices, ready for solve_fdm. Reason: the engine's
+job is to deliver a mesh ready for the solver. Every
+caller wants flat indices. Asking the viewer to
+translate means every future viewer re-implements the
+same one-line arithmetic. That is not universal.
+
+Two lines change in the engine. One in each branch.
+
+### Q2 - decided
+
+Spacing-to-K conversion happens in the VIEWER, using the
+actual segment arc length. The recipe does not know the
+arc length. The viewer does.
+
+  K = max(5, round(segment_length / mesh_spacing))
+
+### The larger arc - the Member layer
+
+The user should eventually be able to:
+
+  1. Assign a member type to each segment.
+     Segment 1 = Beam, Segment 2 = Beam,
+     Segment 3 = Cable, Segment 4 = Beam, ...
+
+  2. Add members that do not sit on segments.
+     Tie-down cables from a beam anchor to a ground
+     anchor. Masts. Purlins. Struts. Stubs. Columns.
+
+This is the Member layer. It is a Stage-3 concept.
+The structural_connections list in the engine is empty
+today, by design. This is where members will go.
+
+The next design task is engine/SPEC_members.md. It
+defines:
+  - what a member is (data shape),
+  - what member types exist,
+  - how members are stored in session state,
+  - how the engine receives them,
+  - how the viewer draws them.
+
+Design only, not this week's code.
+
+### Today's plan, in order
+
+  Step 1  - this session log entry.
+  Step 2  - engine edit. Two lines. Flat fixed_indices.
+  Step 3  - Step 2D. The viewer.
+  Step 4  - Step 2E. The recipe.
+  Step 5  - engine/SPEC_members.md. Design only.
+
+### What was NOT done today
+
+  - Step 2D. Not written yet.
+  - Step 2E. Not written yet.
+  - Member layer. Not built. Not spec'd yet.
+  - Tie-down pretension physics. Input added in
+    Step 2E. Wiring into the FDM solve comes later.
+
+### Decisions made by the AI, on the Chief's instruction
+
+The Chief asked the AI to decide the architecture.
+Two decisions are load-bearing and recorded as
+judgment, not certainty:
+
+  1. The engine returns flat indices. If a numbering
+     error appears in a future viewer, this is the
+     first place to look.
+
+  2. The three-layer model (segment / member / fabric
+     edge). It matches Part V and dissolves the naming
+     confusion. If in practice a segment and a member
+     turn out to be too tightly coupled to separate,
+     we will find out and adjust. Neither decision
+     locks us in.
+
+The files carry the memory. We can change our minds,
+and the change will be visible.
+
+### State of the code
+
+Untouched today:
+  engine/form_finding.py
+  engine/membrane_boundary.py
+  engine/membrane_surface.py
+  engine/mesh_universal.py  (edit pending in Step 2)
+  every viewer
+  every workshop
+  every recipe
+
+The app is unchanged. Nothing is broken.
 
 
   
