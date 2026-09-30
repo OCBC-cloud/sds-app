@@ -129,3 +129,213 @@ def _build_saddle_curves(x, z_beam, y1, y2, span, anchor_count):
 
 
 
+# =============================================================================
+# MESH SPACING TO K
+# =============================================================================
+
+def _compute_K(arc_lengths, mesh_spacing, k_min=5):
+    """
+    Convert a target mesh spacing (metres) to K, the number of
+    mesh nodes placed along each curve segment.
+
+    The rule: K = max(k_min, round(avg_segment_arc / mesh_spacing)).
+
+    The engine takes a single K for both curves. We compute it
+    from the average segment arc length.
+    """
+    if len(arc_lengths) == 0:
+        return int(k_min), 0.0
+    avg_arc = float(np.mean(arc_lengths))
+    if mesh_spacing <= 0:
+        mesh_spacing = 0.5
+    K_float = avg_arc / mesh_spacing
+    K = int(round(K_float))
+    if K < int(k_min):
+        K = int(k_min)
+    return K, avg_arc
+
+
+# =============================================================================
+# MAIN BUILDER
+# =============================================================================
+
+def _build_saddle_mbs(span, apex, rise, curve_type,
+                       anchor_count, mesh_spacing, transverse_count,
+                       warp_pretension, weft_pretension,
+                       edge_cable_pretension,
+                       attachment_type, tiedown_pretension):
+    """
+    Build the two curves, call the engine (topology="twosided"),
+    solve_fdm, and return the solved mesh for the viewer.
+
+    Returns a dict with:
+        X, Y, Z           : (n_interior, M) surfaces for drawing
+        boundary_solved   : the solved boundary nodes, list of 3D
+        curves_A_anchors  : (n_anchors, 3) curve A anchor points
+        curves_B_anchors  : (n_anchors, 3) curve B anchor points
+        tip_P0            : 3D point of tip P0
+        tip_P1            : 3D point of tip P1
+        diagnostics       : audit trail dict
+    """
+    # ---- 1. Beam curve geometry (200 sample points).
+    n_pts = 200
+    x = np.linspace(-span / 2.0, span / 2.0, n_pts)
+    z_beam = beam_curve(x, span, rise, curve_type)
+
+    base_width = apex * 0.5
+    y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
+    y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
+
+    # ---- 2. Build the two curves and the two tips.
+    curve_A, curve_B, tip_P0, tip_P1, seg_types, arc_lengths, total_arc = \
+        _build_saddle_curves(x, z_beam, y1, y2, span, anchor_count)
+
+    # ---- 3. K from mesh spacing.
+    K, avg_arc = _compute_K(arc_lengths, mesh_spacing)
+
+    # ---- 4. Force density scalars.
+    if len(arc_lengths) == 0:
+        L_avg = max(0.1, avg_arc)
+    else:
+        L_avg = float(np.mean(arc_lengths))
+    if L_avg < 1e-9:
+        L_avg = 1.0
+
+    warp_q = max(0.1, float(warp_pretension)) * 1000.0 / L_avg
+    weft_q = max(0.1, float(weft_pretension)) * 1000.0 / L_avg
+    edge_q = max(0.1, float(edge_cable_pretension)) * 1000.0 / L_avg
+
+    # ---- 5. Segment types from attachment method.
+    if str(attachment_type).lower() == "cable_supported":
+        seg_types_engine = ["cable"] * len(seg_types)
+    else:
+        seg_types_engine = ["beam"] * len(seg_types)
+
+    # ---- 6. Call the engine.
+    result = build_mesh_universal(
+        topology="twosided",
+        curves=[curve_A, curve_B],
+        corner_points=[tip_P0, tip_P1],
+        segment_types=seg_types_engine,
+        subdivisions_per_segment=K,
+        transverse_count=transverse_count,
+        warp_q=warp_q,
+        weft_q=weft_q,
+        edge_q=edge_q,
+    )
+
+    points = result["points"]
+    edges = result["edges"]
+    fixed_indices = result["fixed_indices"]
+    q = result["q"]
+    diag = result["diagnostics"]
+
+    # ---- 7. Solve.
+    res = solve_fdm(points, edges, fixed_indices, q)
+    coords = res["coordinates"]
+
+    # ---- 8. Reshape the interior for drawing.
+    n_interior = diag["topo_n_interior"]
+    M = diag["transverse_count"]
+    n_nodes = points.shape[0]
+
+    X = np.zeros((n_interior, M))
+    Y = np.zeros((n_interior, M))
+    Z = np.zeros((n_interior, M))
+    for i in range(n_interior):
+        for j in range(M):
+            k = 1 + i * M + j
+            X[i, j] = coords[k, 0]
+            Y[i, j] = coords[k, 1]
+            Z[i, j] = coords[k, 2]
+
+    # Boundary_solved is the full node list, for drawing.
+    boundary_solved = coords
+
+    # ---- 9. Diagnostics.
+    disp = np.linalg.norm(coords - points, axis=1)
+    order = np.argsort(disp)[::-1]
+    top_disp = []
+    for rank, k in enumerate(order[:20]):
+        if k == 0:
+            i_idx = -1
+            j_idx = -1
+        elif k == n_nodes - 1:
+            i_idx = n_interior
+            j_idx = -1
+        else:
+            i_idx = (int(k) - 1) // M
+            j_idx = (int(k) - 1) % M
+        top_disp.append({
+            "rank": rank + 1,
+            "node": int(k),
+            "i": int(i_idx),
+            "j": int(j_idx),
+            "disp": float(disp[k]),
+        })
+
+    # Triangle areas (interior only; tips are separate).
+    tri_areas = []
+    for i in range(n_interior - 1):
+        for j in range(M - 1):
+            a = 1 + i * M + j
+            b = 1 + (i + 1) * M + j
+            c = 1 + i * M + (j + 1)
+            d = 1 + (i + 1) * M + (j + 1)
+            for tri in ((a, b, c), (b, d, c)):
+                p0 = coords[tri[0]]
+                p1 = coords[tri[1]]
+                p2 = coords[tri[2]]
+                area = 0.5 * float(np.linalg.norm(
+                    np.cross(p1 - p0, p2 - p0)
+                ))
+                tri_areas.append(area)
+    tri_areas = np.array(tri_areas) if tri_areas else np.array([0.0])
+
+    diagnostics = {
+        "residual_norm": float(res["residual_norm"]),
+        "n_free": int(res["n_free"]),
+        "n_fixed": int(res["n_fixed"]),
+        "n_nodes": int(n_nodes),
+        "n_edges": len(edges),
+        "n_anchors": int(anchor_count),
+        "n_segments": len(seg_types),
+        "n_interior": int(n_interior),
+        "M": int(M),
+        "K": int(K),
+        "avg_segment_arc": float(avg_arc),
+        "L_avg": float(L_avg),
+        "min_tri_area": float(tri_areas.min()),
+        "mean_tri_area": float(tri_areas.mean()),
+        "max_tri_area": float(tri_areas.max()),
+        "attachment_type": str(attachment_type),
+        "tiedown_pretension": float(tiedown_pretension),
+        "top_displacements": top_disp,
+        "boundary_segments": [
+            {
+                "index": idx + 1,
+                "type": seg_types_engine[idx],
+                "arc_length": float(arc_lengths[idx]),
+            }
+            for idx in range(len(seg_types_engine))
+        ],
+        "structural_connections": [],
+    }
+
+    return {
+        "X": X, "Y": Y, "Z": Z,
+        "boundary_solved": boundary_solved,
+        "curves_A_anchors": curve_A,
+        "curves_B_anchors": curve_B,
+        "tip_P0": tip_P0,
+        "tip_P1": tip_P1,
+        "K": K,
+        "M": M,
+        "n_interior": n_interior,
+        "diagnostics": diagnostics,
+    }
+
+
+
+
+
