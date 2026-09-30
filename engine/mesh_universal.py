@@ -823,3 +823,95 @@ def build_mesh_universal(topology,
 
 
 
+else:  # topology == "quad"
+        if len(curves) != 4:
+            raise ValueError(
+                "quad requires 4 curves (got %d)" % len(curves)
+            )
+        if len(corner_points) != 4:
+            raise ValueError(
+                "quad requires 4 corner_points (got %d)"
+                % len(corner_points)
+            )
+        side_A = _validate_curve(curves[0], "side_A")
+        side_B = _validate_curve(curves[1], "side_B")
+        side_C = _validate_curve(curves[2], "side_C")
+        side_D = _validate_curve(curves[3], "side_D")
+
+        n_segments = (
+            (side_A.shape[0] - 1) + (side_B.shape[0] - 1)
+            + (side_C.shape[0] - 1) + (side_D.shape[0] - 1)
+        )
+        _validate_segment_types(segment_types, n_segments)
+
+        points, n_i, n_nodes, has_centre, centre_idx, topo_info = \
+            _mesh_quad(side_A, side_B, side_C, side_D, K, M)
+
+        edges = _edges_quad(n_i, M)
+        fixed_indices = _fixed_indices_quad(n_i, K, segment_types, M)
+        q = _q_quad(edges, n_i, M, K, segment_types,
+                    warp_q, weft_q, edge_q)
+
+    diagnostics = {
+        "n_nodes": n_nodes,
+        "n_edges": len(edges),
+        "n_fixed": len(fixed_indices),
+        "n_free": n_nodes - len(fixed_indices),
+        "topology_used": topology,
+        "segment_types": list(segment_types),
+        "n_segments": len(segment_types),
+        "n_i": n_i,
+        "has_centre": has_centre,
+        "centre_idx": centre_idx,
+        "subdivisions_per_segment": K,
+        "transverse_count": M,
+        "structural_connections": [],
+    }
+    # Merge topo_info into diagnostics for callers that need it.
+    for k, v in topo_info.items():
+        diagnostics["topo_" + k] = v
+
+    return {
+        "points": points,
+        "edges": edges,
+        "fixed_indices": fixed_indices,
+        "q": q,
+        "diagnostics": diagnostics,
+    }
+
+
+# =============================================================================
+# END OF engine/mesh_universal.py
+# =============================================================================
+#
+# This file is the universal mesh builder. It knows three
+# topologies, one mesher per topology:
+#
+#   twosided - two curves, two shared tips. Bilinear blend.
+#   ring     - closed curve, rings to centre.
+#   quad     - four sides, proper Coons patch.
+#
+# The solver (solve_fdm) is universal. The model (anchors,
+# segments, types, force densities) is universal. The mesh
+# builder is topology-specific, as the industry does it.
+#
+# See engine/SPEC_mesh_topology.md for the design.
+#
+# The new engine is called by:
+#   - the Standard Saddle viewer (Step 5 of the migration)
+#   - the DXF custom_boundary workshop (later)
+#   - the coordinate-file custom_boundary workshop (later)
+#   - the Crown, Triangle, Lens (later, if migrated)
+#
+# Files untouched by this addition:
+#   engine/form_finding.py
+#   engine/membrane_boundary.py
+#   engine/membrane_surface.py
+#   every existing viewer
+#   every existing workshop
+# =============================================================================
+
+
+
+
+
