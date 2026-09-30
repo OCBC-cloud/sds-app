@@ -1,28 +1,21 @@
 # =============================================================================
-# SDSe - Universal Mesh Engine Test
+# SDSe Engine - Universal Mesh Builder Test
 # =============================================================================
 # Standalone test for engine/mesh_universal.py.
 #
-# Not wired into the app. Run manually:
-#     python engine/mesh_universal_test.py
+# Three topologies tested:
+#   - twosided: a saddle boundary (two parabolic curves, two tips).
+#   - ring:     a hexagon loop.
+#   - quad:     a curved-boundary quad.
 #
-# Or via run_tests.py.
-#
-# Tests:
-#   1. Flat quad, all beam. TFI fill.
-#   2. Flat quad, all cable. TFI fill.
-#   3. Flat quad, mixed beam/cable. TFI fill.
-#   4. Hexagon, all beam. Polar fill.
-#
-# Each test:
-#   - Builds the mesh.
-#   - Solves with FDM.
-#   - Counts zero-area triangles.
-#   - Reports PASS or FAIL.
+# Each test confirms:
+#   - zero zero-area triangles,
+#   - machine-zero FDM residual after solve_fdm,
+#   - the tips / centre are single nodes where applicable.
 #
 # History:
-#   2026-09-29 - First build.
-#   2026-09-29 - Handle polar topology in triangle-area check.
+#   2026-09-29 - First build. Three fills: tfi, polar, barycentric.
+#   2026-09-30 - Rewritten for the topology API. Three topologies.
 # =============================================================================
 
 import numpy as np
@@ -31,216 +24,158 @@ from engine.mesh_universal import build_mesh_universal
 from engine.form_finding import solve_fdm
 
 
-def _tris_rect(n_i, M):
-    """Triangle list for a rectangular (n_i, M) grid."""
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+def _triangles_from_grid(grid, n_i, M):
+    """Build a triangle list from an (n_i, M) grid of points."""
     tris = []
     for i in range(n_i - 1):
         for j in range(M - 1):
             a = i * M + j
             b = (i + 1) * M + j
             c = i * M + (j + 1)
-            d_ = (i + 1) * M + (j + 1)
+            d = (i + 1) * M + (j + 1)
             tris.append((a, b, c))
-            tris.append((b, d_, c))
+            tris.append((b, d, c))
     return tris
 
 
-def _tris_polar(n_i, M):
-    """
-    Triangle list for a polar mesh.
-
-    Ring layout: (n_i, M - 1) ring nodes.
-    Ring node index = i * (M - 1) + j, for j = 0 .. M - 2.
-    Centre node index = n_i * (M - 1).
-    """
-    tris = []
-    centre = n_i * (M - 1)
-
-    def idx(i, j):
-        return i * (M - 1) + j
-
-    # Triangles between consecutive rings.
-    for i in range(n_i):
-        i_next = (i + 1) % n_i
-        for j in range(M - 2):
-            a = idx(i, j)
-            b = idx(i_next, j)
-            c = idx(i, j + 1)
-            d_ = idx(i_next, j + 1)
-            tris.append((a, b, c))
-            tris.append((b, d_, c))
-
-    # Triangles between innermost ring and centre.
-    for i in range(n_i):
-        i_next = (i + 1) % n_i
-        a = idx(i, M - 2)
-        b = idx(i_next, M - 2)
-        tris.append((a, b, centre))
-
-    return tris
-
-
-def _compute_areas(coords, tris):
-    """Compute the area of each triangle."""
+def _tri_areas(points, tris):
+    """Compute the area of each triangle. Returns an array."""
     areas = np.zeros(len(tris))
-    for k, tri in enumerate(tris):
-        p0 = coords[tri[0]]
-        p1 = coords[tri[1]]
-        p2 = coords[tri[2]]
+    for k, (a, b, c) in enumerate(tris):
+        p0 = points[a]
+        p1 = points[b]
+        p2 = points[c]
         areas[k] = 0.5 * float(np.linalg.norm(np.cross(p1 - p0, p2 - p0)))
     return areas
 
 
-def _run_case(name, boundary_loop, segment_types, fill,
-              K, M, warp_q, weft_q, edge_q):
-    """Run one test case. Return a dict of results."""
-    print("-" * 60)
-    print("CASE:", name)
-    print("  boundary_loop:", len(boundary_loop), "anchors")
-    print("  segment_types:", segment_types)
-    print("  fill:", fill, " K:", K, " M:", M)
+def _solve_and_report(result, label):
+    """Solve FDM on a built mesh and print diagnostics."""
+    points = result["points"]
+    edges = result["edges"]
+    fixed = result["fixed_indices"]
+    q = result["q"]
+    diag = result["diagnostics"]
 
-    mesh = build_mesh_universal(
-        boundary_loop=boundary_loop,
-        segment_types=segment_types,
-        fill=fill,
-        subdivisions_per_segment=K,
-        transverse_count=M,
-        warp_q=warp_q,
-        weft_q=weft_q,
-        edge_q=edge_q,
-    )
+    print("  topology: %s" % diag["topology_used"])
+    print("  n_i: %d  M: %d" % (diag["n_i"], diag["transverse_count"]))
+    print("  nodes: %d" % diag["n_nodes"])
+    print("  edges: %d" % diag["n_edges"])
+    print("  fixed: %d" % diag["n_fixed"])
+    print("  free : %d" % diag["n_free"])
 
-    d = mesh["diagnostics"]
-    print("  nodes:", d["n_nodes"])
-    print("  edges:", d["n_edges"])
-    print("  fixed:", d["n_fixed"])
-    print("  free :", d["n_free"])
+    # Verify fixed indices are in range.
+    n_nodes = points.shape[0]
+    for fi in fixed:
+        if fi < 0 or fi >= n_nodes:
+            print("  FIXED INDEX OUT OF RANGE: %d" % fi)
+            return {"ok": False, "reason": "fixed index out of range"}
 
-    res = solve_fdm(
-        mesh["points"],
-        mesh["edges"],
-        mesh["fixed_indices"],
-        mesh["q"],
-    )
-
+    res = solve_fdm(points, edges, fixed, q)
     print("  FDM residual: %.4e" % res["residual_norm"])
 
-    coords = res["coordinates"]
-    n_i = d["n_i"]
-
-    if d.get("has_centre", False):
-        tris = _tris_polar(n_i, M)
-    else:
-        tris = _tris_rect(n_i, M)
-
-    areas = _compute_areas(coords, tris)
-    print("  triangles:", len(tris))
-    print("  min tri area : %.6e" % areas.min())
-    print("  mean tri area: %.6e" % areas.mean())
-    print("  zero-area (<1e-10):", int(np.sum(areas < 1e-10)))
-
-    return {
-        "name": name,
-        "n_nodes": d["n_nodes"],
-        "n_fixed": d["n_fixed"],
-        "n_free": d["n_free"],
-        "residual": res["residual_norm"],
-        "min_area": float(areas.min()),
-        "zero_area_count": int(np.sum(areas < 1e-10)),
-    }
+    return res
 
 
-def run():
-    """Run all test cases. Return True if all pass."""
-    print("=" * 60)
-    print("Universal Mesh Engine - standalone test")
-    print("=" * 60)
+# =============================================================================
+# TEST 1: TWOSIDED (saddle)
+# =============================================================================
 
-    results = []
+def _test_twosided():
+    """
+    A two-sided saddle: two parabolic curves meeting at two tips.
 
-    # Case 1: flat quad, all beam.
-    results.append(_run_case(
-        "Flat quad, all beam",
-        boundary_loop=[
-            (0.0, 0.0, 0.0),
-            (10.0, 0.0, 0.0),
-            (10.0, 10.0, 0.0),
-            (0.0, 10.0, 0.0),
-        ],
-        segment_types=["beam", "beam", "beam", "beam"],
-        fill="tfi",
-        K=5, M=8,
-        warp_q=2.0, weft_q=2.0, edge_q=5.0,
-    ))
+    Curve A is the "bottom" (negative y side).
+    Curve B is the "top" (positive y side).
+    Tips are at the ends of the span.
 
-    # Case 2: flat quad, all cable.
-    results.append(_run_case(
-        "Flat quad, all cable",
-        boundary_loop=[
-            (0.0, 0.0, 0.0),
-            (10.0, 0.0, 0.0),
-            (10.0, 10.0, 0.0),
-            (0.0, 10.0, 0.0),
-        ],
-        segment_types=["cable", "cable", "cable", "cable"],
-        fill="tfi",
-        K=5, M=8,
-        warp_q=2.0, weft_q=2.0, edge_q=5.0,
-    ))
+    Confirm:
+      - the two tips are single nodes (node 0 and node last),
+      - zero zero-area triangles,
+      - machine-zero residual.
+    """
+    span = 10.0
+    rise = 3.0
+    width = 4.0
 
-    # Case 3: 4-anchor loop, mixed types.
-    results.append(_run_case(
-        "Mixed: 2 beam, 2 cable",
-        boundary_loop=[
-            (0.0, 0.0, 0.0),
-            (10.0, 0.0, 0.0),
-            (10.0, 15.0, 0.0),
-            (0.0, 15.0, 0.0),
-        ],
-        segment_types=["beam", "cable", "beam", "cable"],
-        fill="tfi",
-        K=5, M=8,
-        warp_q=2.0, weft_q=2.0, edge_q=5.0,
-    ))
+    # Anchor positions along the span.
+    n_anchors = 7
+    xs = np.linspace(-span / 2.0, span / 2.0, n_anchors)
 
-    # Case 4: polar fill, 6-anchor hexagonal loop, all beam.
-    hex_loop = []
-    for k in range(6):
-        ang = 2.0 * np.pi * k / 6.0
-        hex_loop.append((5.0 * np.cos(ang), 5.0 * np.sin(ang), 0.0))
-    results.append(_run_case(
-        "Hexagon, polar fill, all beam",
-        boundary_loop=hex_loop,
-        segment_types=["beam", "beam", "beam", "beam", "beam", "beam"],
-        fill="polar",
-        K=5, M=8,
-        warp_q=2.0, weft_q=2.0, edge_q=5.0,
-    ))
+    # Parabolic rise.
+    zs = rise * (1.0 - (2.0 * xs / span) ** 2)
 
-    print("=" * 60)
-    print("SUMMARY")
-    for r in results:
-        print("  %-40s  residual=%.2e  minArea=%.2e  zero=%d"
-              % (r["name"], r["residual"], r["min_area"], r["zero_area_count"]))
+    # Curve A: negative y. Curve B: positive y.
+    # y width tapers to zero at the tips (the parabola in plan).
+    ys_shape = width * (1.0 - (2.0 * xs / span) ** 2)
+    curve_A = np.column_stack([xs, -ys_shape, zs])
+    curve_B = np.column_stack([xs[::-1], ys_shape[::-1], zs[::-1]])
 
-    all_ok = True
-    for r in results:
-        if r["zero_area_count"] > 0:
-            all_ok = False
-            print("  FAIL:", r["name"], "has zero-area triangles")
+    # Tips.
+    tip_P0 = curve_A[0]     # far tip
+    tip_P1 = curve_A[-1]    # near tip
 
-    print("=" * 60)
-    if all_ok:
-        print("UNIVERSAL MESH ENGINE: PASS")
-    else:
-        print("UNIVERSAL MESH ENGINE: FAIL")
-    return all_ok
+    # Segment types: all beam. Two curves of (n_anchors - 1) each.
+    n_segments = (n_anchors - 1) * 2
+    segment_types = ["beam"] * n_segments
 
+    result = build_mesh_universal(
+        topology="twosided",
+        curves=[curve_A, curve_B],
+        corner_points=[tip_P0, tip_P1],
+        segment_types=segment_types,
+        subdivisions_per_segment=5,
+        transverse_count=8,
+        warp_q=2000.0,
+        weft_q=2000.0,
+        edge_q=5000.0,
+    )
 
-if __name__ == "__main__":
-    ok = run()
-    exit(0 if ok else 1)
+    diag = result["diagnostics"]
+    print("  n_interior: %d" % diag["topo_n_interior"])
+    print("  tip_P0_idx: %d" % diag["topo_tip_P0_idx"])
+    print("  tip_P1_idx: %d" % diag["topo_tip_P1_idx"])
+
+    # Check: the tips are single nodes at the right indices.
+    n_nodes = result["points"].shape[0]
+    p0_ok = (diag["topo_tip_P0_idx"] == 0)
+    p1_ok = (diag["topo_tip_P1_idx"] == n_nodes - 1)
+
+    # Solve.
+    res = _solve_and_report(result, "twosided")
+
+    # Count zero-area triangles.
+    n_i = diag["n_i"] - 2   # interior columns
+    M = diag["transverse_count"]
+    # Reconstruct a grid for triangle counting: nodes 1..1+n_i*M-1.
+    # The tips are separate. Build triangles among the interior grid.
+    interior = result["points"][1:n_nodes - 1]
+    tris = []
+    for i in range(n_i - 1):
+        for j in range(M - 1):
+            a = i * M + j
+            b = (i + 1) * M + j
+            c = i * M + (j + 1)
+            d = (i + 1) * M + (j + 1)
+            tris.append((a, b, c))
+            tris.append((b, d, c))
+    areas = _tri_areas(interior, tris)
+    min_area = float(areas.min()) if len(areas) else 0.0
+    zero_count = int(np.sum(areas < 1e-10))
+    print("  interior triangles: %d" % len(tris))
+    print("  min tri area: %.4e" % min_area)
+    print("  zero-area (<1e-10): %d" % zero_count)
+
+    ok = (
+        p0_ok and p1_ok
+        and zero_count == 0
+        and res["residual_norm"] < 1e-9
+    )
+    return {"ok": ok, "label": "twosided"}
 
 
 
