@@ -309,3 +309,202 @@ def _build_edges_polar(n_i, M):
 
 
 
+
+# =============================================================================
+# Q ASSIGNMENT — TFI and barycentric
+# =============================================================================
+
+def _build_q_rect(edges, n_i, M, K, segment_types,
+                  warp_q, weft_q, edge_q):
+    """Q for a rectangular (n_i, M) grid."""
+    n_anchors = len(segment_types)
+    q = np.zeros(len(edges))
+
+    for k, (a, b) in enumerate(edges):
+        ia = a // M
+        ja = a % M
+        jb = b % M
+
+        if ja == jb:
+            seg_index = ia // K
+            if seg_index >= n_anchors:
+                seg_index = n_anchors - 1
+            seg_type = segment_types[seg_index]
+            q[k] = float(edge_q) if seg_type == "cable" else float(warp_q)
+        else:
+            q[k] = float(weft_q)
+
+    return q
+
+
+# =============================================================================
+# Q ASSIGNMENT — polar
+# =============================================================================
+
+def _build_q_polar(edges, n_i, M, K, segment_types,
+                   warp_q, weft_q, edge_q):
+    """Q for a polar mesh."""
+    n_anchors = len(segment_types)
+    centre_idx = _index_centre(n_i, M)
+    q = np.zeros(len(edges))
+
+    for k, (a, b) in enumerate(edges):
+        # Centre edges: always weft.
+        if a == centre_idx or b == centre_idx:
+            q[k] = float(weft_q)
+            continue
+
+        ia = a // (M - 1)
+        ja = a % (M - 1)
+        jb = b % (M - 1)
+
+        if ja == jb:
+            seg_index = ia // K
+            if seg_index >= n_anchors:
+                seg_index = n_anchors - 1
+            seg_type = segment_types[seg_index]
+            q[k] = float(edge_q) if seg_type == "cable" else float(warp_q)
+        else:
+            q[k] = float(weft_q)
+
+    return q
+
+
+# =============================================================================
+# PUBLIC FUNCTION
+# =============================================================================
+
+def build_mesh_universal(boundary_loop, segment_types, fill,
+                         subdivisions_per_segment,
+                         transverse_count,
+                         warp_q, weft_q, edge_q):
+    """
+    Build a mesh from a closed boundary loop divided into segments.
+
+    Returns dict with keys: points, edges, fixed_indices, q, diagnostics.
+
+    fixed_indices are FLAT node indices, ready for solve_fdm.
+    The translation from boundary-row indices is done here.
+    """
+    boundary_loop = [tuple(float(v) for v in p) for p in boundary_loop]
+    segment_types = list(segment_types)
+
+    _validate_inputs(boundary_loop, segment_types, fill,
+                     subdivisions_per_segment, transverse_count)
+
+    K = int(subdivisions_per_segment)
+    M = int(transverse_count)
+
+    boundary_row, n_i = _build_boundary_row(
+        boundary_loop, segment_types, K
+    )
+
+    # ------------------------------------------------------------------
+    # Build the flat node list and the edges.
+    # Two topologies: rectangular (TFI, barycentric) and polar.
+    # ------------------------------------------------------------------
+    if fill == "polar":
+        rings, centre = _fill_polar(boundary_row, n_i, M)
+        n_nodes = n_i * (M - 1) + 1
+        points = np.zeros((n_nodes, 3))
+        for i in range(n_i):
+            for j in range(M - 1):
+                k = _index_ring(i, j, n_i, M)
+                points[k] = rings[i, j]
+        points[_index_centre(n_i, M)] = centre
+
+        edges = _build_edges_polar(n_i, M)
+        boundary_fixed = _build_fixed_indices(n_i, K, segment_types)
+        # Translate boundary-row indices to flat node indices.
+        # Polar layout: ring node (i, j) is at i * (M - 1) + j.
+        # Boundary row is j = 0, so flat index = i * (M - 1).
+        fixed_indices = [i * (M - 1) for i in boundary_fixed]
+        q = _build_q_polar(edges, n_i, M, K, segment_types,
+                           warp_q, weft_q, edge_q)
+        n_rows = M - 1
+        has_centre = True
+    else:
+        if fill == "tfi":
+            grid = _fill_tfi(boundary_row, n_i, M)
+        else:
+            grid = _fill_barycentric(boundary_row, n_i, M)
+
+        n_nodes = n_i * M
+        points = np.zeros((n_nodes, 3))
+        for i in range(n_i):
+            for j in range(M):
+                points[i * M + j] = grid[i, j]
+
+        edges = _build_edges_rect(n_i, M)
+        boundary_fixed = _build_fixed_indices(n_i, K, segment_types)
+        # Translate boundary-row indices to flat node indices.
+        # Rectangular layout: node (i, j) is at i * M + j.
+        # Boundary row is j = 0, so flat index = i * M.
+        fixed_indices = [i * M for i in boundary_fixed]
+        q = _build_q_rect(edges, n_i, M, K, segment_types,
+                          warp_q, weft_q, edge_q)
+        n_rows = M
+        has_centre = False
+
+    diagnostics = {
+        "n_nodes": n_nodes,
+        "n_edges": len(edges),
+        "n_fixed": len(fixed_indices),
+        "n_free": n_nodes - len(fixed_indices),
+        "fill_used": fill,
+        "segment_types": list(segment_types),
+        "n_anchors": len(boundary_loop),
+        "n_segments": len(segment_types),
+        "n_i": n_i,
+        "n_rows": n_rows,
+        "has_centre": has_centre,
+        "subdivisions_per_segment": K,
+        "transverse_count": M,
+        "structural_connections": [],
+    }
+
+    return {
+        "points": points,
+        "edges": edges,
+        "fixed_indices": fixed_indices,
+        "q": q,
+        "diagnostics": diagnostics,
+    }
+
+
+# =============================================================================
+# END OF engine/mesh_universal.py
+# =============================================================================
+#
+# This file is the universal mesh engine. It replaces the
+# four-sided TFI path of engine/membrane_boundary.py for all
+# shapes with a clear boundary loop.
+#
+# Two topologies:
+#   TFI / barycentric: rectangular (n_i, M) grid.
+#   Polar: rings (n_i, M-1) plus a single centre node.
+#          No ring of coincident nodes at the centre.
+#          Zero-area triangles at the centre are avoided.
+#
+# fixed_indices returned by build_mesh_universal are FLAT node
+# indices, ready for solve_fdm. The internal boundary-row
+# indices never leave this file.
+#
+# The new engine is called by:
+#   - the Standard Saddle viewer (Step 2D, next)
+#   - the DXF custom_boundary workshop (later)
+#   - the coordinate-file custom_boundary workshop (later)
+#   - the Crown, Triangle, Lens (later, if migrated)
+#
+# Files untouched by this addition:
+#   engine/form_finding.py
+#   engine/membrane_boundary.py
+#   engine/membrane_surface.py
+#   every existing viewer
+#   every existing workshop
+# =============================================================================
+
+
+
+
+
