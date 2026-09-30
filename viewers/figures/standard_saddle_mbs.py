@@ -324,6 +324,11 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     edge_q = max(0.1, float(edge_cable_pretension)) * 1000.0 / L_avg
 
     # ---- 6. Call the engine.
+    # tfi_split_index tells the engine where Beam L ends and
+    # Beam R begins on the boundary row. For anchor_count anchors
+    # per beam, each segment contributes K boundary nodes, so
+    # Beam L occupies indices [0, (anchor_count-1)*K) and Beam R
+    # occupies [(anchor_count-1)*K, 2*(anchor_count-1)*K).
     result = build_mesh_universal(
         boundary_loop=boundary_loop,
         segment_types=segment_types,
@@ -333,6 +338,7 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
         warp_q=warp_q,
         weft_q=weft_q,
         edge_q=edge_q,
+        tfi_split_index=(anchor_count - 1) * K,
     )
 
     points = result["points"]
