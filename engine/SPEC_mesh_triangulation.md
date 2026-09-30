@@ -549,3 +549,211 @@ solve_fdm.
 
 
 
+# =============================================================================
+# APPENDIX E - MIGRATION AND CLEANUP
+# =============================================================================
+#
+# This is the list of files to add, rewrite, mark
+# superseded, or delete when the triangulation engine
+# is built.
+#
+# Files are grouped by action. Do the actions in order.
+#
+
+# -----------------------------------------------------------------------------
+# E1. FILES TO ADD
+# -----------------------------------------------------------------------------
+#
+# engine/mesh_triangulated.py
+#     The new universal mesh engine. Contains
+#     build_mesh_triangulated and its helpers.
+#     Replaces engine/mesh_universal.py.
+#
+# engine/mesh_triangulated_test.py
+#     The test for the new engine. Uses the boundary
+#     inputs listed in section 8.
+#
+# These are the only two new files. Everything else is
+# rewrite, supersede, or delete.
+
+# -----------------------------------------------------------------------------
+# E2. FILES TO REWRITE
+# -----------------------------------------------------------------------------
+#
+# engine/mesh_universal.py
+#     REWRITE. Replaced by engine/mesh_triangulated.py.
+#     Option A: delete it entirely and update imports.
+#     Option B: keep it, but as a thin shim that calls
+#     the new engine, so old callers still work during
+#     the migration.
+#     Recommendation: Option A. Delete. Update imports.
+#
+# engine/mesh_universal_test.py
+#     DELETE. Replaced by mesh_triangulated_test.py.
+#
+# viewers/figures/standard_saddle_mbs.py
+#     REWRITE. Remove _build_saddle_curves (the two-
+#     curve model). Replace with a single
+#     build_boundary_loop call. Remove _grid_to_triangles.
+#     Remove _compute_K (the engine chooses density now).
+#     Draw triangles from result["triangles"].
+#     The viewer becomes thin. About 200 lines.
+#
+# run_tests.py
+#     REWRITE the entry for mesh_universal_test.
+#     Point it at mesh_triangulated_test.
+#     One line change.
+
+# -----------------------------------------------------------------------------
+# E3. FILES TO MARK SUPERSEDED (KEEP FOR HISTORY)
+# -----------------------------------------------------------------------------
+#
+# engine/SPEC_mesh_topology.md
+#     MARK SUPERSEDED at the top. Add a note:
+#       "Superseded by engine/SPEC_mesh_triangulation.md
+#        on 2026-09-30."
+#     Do not delete. The history matters.
+#
+# engine/SPEC_mesh_universal.md
+#     MARK SUPERSEDED. Already superseded once by
+#     SPEC_mesh_topology.md. Now superseded again.
+#     Add a second note with the new date.
+#     Do not delete.
+#
+# engine/membrane_boundary.py
+#     MARK AS LEGACY at the top. It is the old MBS
+#     engine, still used by the Tester. Leave it
+#     working. Mark it legacy. Plan to migrate the
+#     Tester later.
+#
+# engine/membrane_surface.py
+#     MARK AS LEGACY. Same as above.
+
+# -----------------------------------------------------------------------------
+# E4. FILES TO DELETE
+# -----------------------------------------------------------------------------
+#
+# engine/mesh_universal.py
+#     DELETE after the new engine is built and tested.
+#     Not before. The old engine is the fallback until
+#     the new one passes its tests.
+#
+# engine/mesh_universal_test.py
+#     DELETE at the same time.
+#
+# No other deletions. Everything else is in active
+# use or being marked for history.
+
+# -----------------------------------------------------------------------------
+# E5. FILES THAT ARE NOT TOUCHED
+# -----------------------------------------------------------------------------
+#
+# engine/form_finding.py
+#     UNCHANGED. solve_fdm is universal. The new engine
+#     calls it the same way.
+#
+# engine/membrane.py
+#     UNCHANGED.
+#
+# engine/leaf_arrangement.py
+#     UNCHANGED.
+#
+# engine/render_prompts.py
+#     UNCHANGED.
+#
+# viewers/figures/_shared.py
+#     UNCHANGED.
+#
+# viewers/figures/standard_saddle.py
+#     UNCHANGED. It is the old viewer. Kept as fallback.
+#
+# viewers/results_viewer.py
+#     UNCHANGED. Already dispatches to
+#     standard_saddle_mbs.
+#
+# ui/workshops/saddle_standard.py
+#     UNCHANGED.
+#
+# data/recipes/standard_saddle.py
+#     TO BE UPDATED in Step 2E (separate task). Not
+#     part of this migration.
+#
+# ui/workshops/tester_mbs.py
+#     UNCHANGED for now. Migrates to the new engine
+#     in a later session.
+
+# -----------------------------------------------------------------------------
+# E6. THE ORDER OF WORK
+# -----------------------------------------------------------------------------
+#
+# Step 1: This spec. (DONE.)
+#
+# Step 2: Add engine/mesh_triangulated.py.
+#         The new universal engine.
+#         Commit alone. CI must stay green.
+#
+# Step 3: Add engine/mesh_triangulated_test.py.
+#         Point run_tests.py at it. Comment out or
+#         delete the mesh_universal_test entry.
+#         Commit. CI must pass the new test.
+#
+# Step 4: Rewrite viewers/figures/standard_saddle_mbs.py
+#         to call the new engine. Commit. CI green.
+#         Reboot the app. Verify the saddle mesh fills.
+#
+# Step 5: Delete engine/mesh_universal.py and
+#         engine/mesh_universal_test.py.
+#         Update any remaining imports.
+#         Commit. CI green.
+#
+# Step 6: Mark the superseded specs.
+#         engine/SPEC_mesh_topology.md
+#         engine/SPEC_mesh_universal.md
+#         Add the superseded note at the top of each.
+#         Commit.
+#
+# Step 7: Update PROJECT_STATE.md and
+#         PROJECT_SESSION_LOG.md and FILE_INVENTORY.md
+#         to reflect the new architecture.
+#         Commit.
+
+# -----------------------------------------------------------------------------
+# E7. WHY THE OLD ENGINE IS KEPT UNTIL STEP 5
+# -----------------------------------------------------------------------------
+#
+# The old mesh_universal.py works for the ring and
+# quad cases. It produces correct meshes for those.
+# We do not want to lose that until the new engine
+# is proven to handle them equally well.
+#
+# The new engine must pass all five boundary tests
+# before the old engine is deleted:
+#
+#   saddle, ring, pointed-rounded, irregular,
+#   curved quad.
+#
+# If any of the five fails, the old engine stays,
+# and we fix the new one until all five pass.
+
+# -----------------------------------------------------------------------------
+# E8. SUMMARY
+# -----------------------------------------------------------------------------
+#
+# 2 files added.
+# 4 files rewritten (mesh_universal, mesh_universal_test,
+#   standard_saddle_mbs, run_tests).
+# 4 files marked superseded/legacy.
+# 2 files deleted (after the new engine is proven).
+# 11 files untouched.
+#
+# Total: 12 files touched. 11 files not touched.
+#
+# The result: one universal mesh engine. Every shape.
+# One method.
+
+# END OF SPEC
+
+
+
+
+
