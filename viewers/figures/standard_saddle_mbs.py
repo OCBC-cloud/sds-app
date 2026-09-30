@@ -261,3 +261,194 @@ def _compute_force_densities(points, edges,
 
 
 
+# =============================================================================
+# MAIN BUILDER
+# =============================================================================
+
+def _build_saddle_mbs(span, apex, rise, curve_type,
+                       anchor_count, mesh_spacing, transverse_count,
+                       warp_pretension, weft_pretension,
+                       edge_cable_pretension,
+                       attachment_type, tiedown_pretension):
+    """
+    Build the boundary loop, call the universal mesh engine,
+    solve_fdm, and return the solved mesh for the viewer.
+
+    Returns
+    -------
+    dict with keys:
+        X, Y, Z           : (n_i, M) surfaces for drawing
+        boundary_solved   : (n_i, 3) solved boundary row
+        anchors_L         : Beam L anchors (for drawing)
+        anchors_R         : Beam R anchors (for drawing)
+        anchor_indices_L  : mesh node indices on Beam L
+        anchor_indices_R  : mesh node indices on Beam R
+        K                 : nodes per segment
+        M                 : transverse count
+        n_i               : boundary row size
+        diagnostics       : audit trail dict
+    """
+    # ---- 1. Beam curve geometry (200 sample points).
+    n_pts = 200
+    x = np.linspace(-span / 2.0, span / 2.0, n_pts)
+    z_beam = beam_curve(x, span, rise, curve_type)
+
+    # y1 and y2 are the two beam edge curves in plan.
+    base_width = apex * 0.5
+    y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
+    y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
+
+    # ---- 2. Boundary loop. 12 anchors, 12 segments.
+    boundary_loop, anchors_L, anchors_R, arc_segs, total_arc = \
+        _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count)
+
+    # ---- 3. K from mesh spacing.
+    K, avg_arc = _compute_K(arc_segs, mesh_spacing)
+
+    # ---- 4. Segment types from attachment method.
+    n_segments = len(boundary_loop)
+    segment_types = _segment_types_for_attachment(
+        attachment_type, n_segments
+    )
+
+    # ---- 5. Force density scalars.
+    if len(arc_segs) == 0:
+        L_avg = max(0.1, avg_arc)
+    else:
+        L_avg = float(np.mean(arc_segs))
+    if L_avg < 1e-9:
+        L_avg = 1.0
+
+    warp_q = max(0.1, float(warp_pretension)) * 1000.0 / L_avg
+    weft_q = max(0.1, float(weft_pretension)) * 1000.0 / L_avg
+    edge_q = max(0.1, float(edge_cable_pretension)) * 1000.0 / L_avg
+
+    # ---- 6. Call the engine.
+    result = build_mesh_universal(
+        boundary_loop=boundary_loop,
+        segment_types=segment_types,
+        fill="tfi",
+        subdivisions_per_segment=K,
+        transverse_count=transverse_count,
+        warp_q=warp_q,
+        weft_q=weft_q,
+        edge_q=edge_q,
+    )
+
+    points = result["points"]
+    edges = result["edges"]
+    fixed_indices = result["fixed_indices"]
+    q = result["q"]
+
+    # ---- 7. solve_fdm.
+    res = solve_fdm(points, edges, fixed_indices, q)
+    coords = res["coordinates"]
+
+    n_i = result["diagnostics"]["n_i"]
+    M = result["diagnostics"]["transverse_count"]
+    n_nodes = result["diagnostics"]["n_nodes"]
+
+    # ---- 8. Reshape to (n_i, M) for drawing.
+    X = np.zeros((n_i, M))
+    Y = np.zeros((n_i, M))
+    Z = np.zeros((n_i, M))
+    for i in range(n_i):
+        for j in range(M):
+            k = i * M + j
+            X[i, j] = coords[k, 0]
+            Y[i, j] = coords[k, 1]
+            Z[i, j] = coords[k, 2]
+
+    boundary_solved = np.zeros((n_i, 3))
+    for i in range(n_i):
+        boundary_solved[i] = coords[i * M + 0]
+
+    # ---- 9. Anchor indices for drawing.
+    anchor_indices = []
+    for a in range(len(boundary_loop)):
+        i_anchor = a * K
+        if i_anchor < n_i:
+            anchor_indices.append(i_anchor * M)
+    anchor_indices_L = anchor_indices[:anchor_count]
+    anchor_indices_R = anchor_indices[anchor_count:]
+
+    # ---- 10. Diagnostics.
+    disp = np.linalg.norm(coords - points, axis=1)
+    order = np.argsort(disp)[::-1]
+    top_disp = []
+    for rank, k in enumerate(order[:20]):
+        i_idx = int(k // M)
+        j_idx = int(k % M)
+        top_disp.append({
+            "rank": rank + 1,
+            "node": int(k),
+            "i": i_idx,
+            "j": j_idx,
+            "disp": float(disp[k]),
+        })
+
+    # Triangle areas of the solved mesh.
+    tri_areas = []
+    for i in range(n_i - 1):
+        for j in range(M - 1):
+            a = i * M + j
+            b = (i + 1) * M + j
+            c = i * M + (j + 1)
+            d = (i + 1) * M + (j + 1)
+            for tri in ((a, b, c), (b, d, c)):
+                p0 = coords[tri[0]]
+                p1 = coords[tri[1]]
+                p2 = coords[tri[2]]
+                area = 0.5 * float(np.linalg.norm(
+                    np.cross(p1 - p0, p2 - p0)
+                ))
+                tri_areas.append(area)
+    tri_areas = np.array(tri_areas) if tri_areas else np.array([0.0])
+
+    diagnostics = {
+        "residual_norm": float(res["residual_norm"]),
+        "n_free": int(res["n_free"]),
+        "n_fixed": int(res["n_fixed"]),
+        "n_nodes": int(n_nodes),
+        "n_edges": len(edges),
+        "n_anchors": len(boundary_loop),
+        "n_segments": len(segment_types),
+        "n_i": int(n_i),
+        "M": int(M),
+        "K": int(K),
+        "avg_segment_arc": float(avg_arc),
+        "L_avg": float(L_avg),
+        "min_tri_area": float(tri_areas.min()),
+        "mean_tri_area": float(tri_areas.mean()),
+        "max_tri_area": float(tri_areas.max()),
+        "attachment_type": str(attachment_type),
+        "tiedown_pretension": float(tiedown_pretension),
+        "top_displacements": top_disp,
+        "boundary_segments": [
+            {
+                "index": idx + 1,
+                "type": segment_types[idx],
+                "arc_length": float(arc_segs[idx]),
+            }
+            for idx in range(len(segment_types))
+        ],
+        "structural_connections": [],
+    }
+
+    return {
+        "X": X, "Y": Y, "Z": Z,
+        "boundary_solved": boundary_solved,
+        "anchors_L": anchors_L,
+        "anchors_R": anchors_R,
+        "anchor_indices_L": anchor_indices_L,
+        "anchor_indices_R": anchor_indices_R,
+        "K": K,
+        "M": M,
+        "n_i": n_i,
+        "diagnostics": diagnostics,
+    }
+
+
+
+
+
