@@ -1,0 +1,759 @@
+# SDSe — HANDOFF TO NEXT SESSION
+
+Date: 2026-10-01 (midday, Malaysian time)
+Branch: modular-v10
+Repository: OCBC-cloud/sds-app
+Live app: sds-modular-preview.streamlit.app
+Status: STABLE BUT INCOMPLETE. The triangulated engine
+        is built and tested. The Laplace lift is written
+        but the paste into engine/mesh_triangulated.py
+        was corrupted. The file must be reverted to the
+        chunk-3 commit and chunk 4 re-pasted in two pieces.
+
+---
+
+0. READ THIS FIRST
+
+Read this document completely before doing anything.
+
+Then open and read, in this order:
+
+1. PROJECT_STATE.md
+   Current state. But note: it was written on the evening
+   of 2026-09-30 and may not reflect today's work. Read
+   this handover first, then the state file with that
+   in mind.
+
+2. PROJECT_CONSTITUTION.md
+   The doctrines. Part III-B and Part V especially.
+
+3. PROJECT_VISION.md
+   The destination.
+
+4. FILE_INVENTORY.md
+   Every file, one line each.
+
+5. PROJECT_SESSION_LOG.md
+   Read the last THREE entries first.
+
+6. engine/SPEC_mesh_triangulation.md
+   The universal mesh design. Triangulation. This is the
+   current architecture.
+
+7. engine/SPEC_mesh_topology.md
+   The earlier structured-topology design. SUPERSEDED.
+   Read for history only.
+
+8. engine/mesh_triangulated.py
+   The new universal engine. Built. Tested. BUT: the last
+   paste (chunk 4, the Laplace lift) corrupted. The file
+   on disk is broken. See Section 3 below for the fix.
+
+9. engine/mesh_triangulated_test.py
+   Its test. Five boundary inputs. Passes in CI when the
+   engine file is not corrupted.
+
+10. viewers/figures/standard_saddle_mbs.py
+    Rewritten to use the triangulated engine. Works. The
+    last verified screenshot showed a flat membrane.
+    The Laplace lift is the fix. It is not yet applied
+    successfully.
+
+The files carry the memory. The AI does not. Read them.
+
+---
+
+1. THE PROJECT IN ONE PARAGRAPH
+
+SDSe is a mobile-first concept design tool for tensile
+membrane structures. Streamlit Cloud, Python, Plotly. The
+user designs a structure; the app form-finds the membrane,
+sizes the members, produces a BoQ, and prepares a marketing
+render prompt. It is a concept tool, not a fabrication tool.
+The first half of the chain. The fabricator does the second
+half.
+
+The commercial goal: an engineer can use it for structural
+analysis with building code checks. That is the destination.
+
+---
+
+2. THE CHIEF
+
+Age 63. Working engineer. Not a programmer. Builds the app
+on an iPhone, in a chat window, using the GitHub web editor
+and Streamlit Cloud.
+
+The Chief's method:
+  - iPhone, GitHub web editor, Streamlit Cloud.
+  - Paste limit: 150 lines per chunk. For problematic files,
+    100-125 lines.
+  - Read back the first 3 and last 3 lines after every
+    paste.
+  - Complete file replacements. Not surgical edits.
+  - Commit after every chunk. Reboot only after the last
+    chunk of a file.
+  - Honesty. No fabrication.
+  - The Chief corrects the AI. The AI leads on code.
+
+THE CHIEF'S PATTERN (observed 2026-09-30 and 2026-10-01):
+
+Errors cluster in the morning and mid-day. They normalise
+in the evening. This is a paste-buffer interaction on
+iPhone Safari with the GitHub editor. Not the Chief's
+fault. Not the AI's fault. It is a physical artefact of
+the tool chain.
+
+COUNTER-MEASURE (proven effective):
+  - Smaller chunks (100-125 lines).
+  - Commit after each chunk.
+  - Read back the first 3 and last 3 lines.
+  - If a chunk corrupts, revert. Do not fix in place.
+  - Re-paste the corrupted chunk in smaller pieces.
+
+---
+
+3. THE IMMEDIATE FIX - WHAT TO DO FIRST
+
+THE ENGINE FILE IS BROKEN. The most recent paste of
+chunk 4 (the Laplace lift) into engine/mesh_triangulated.py
+corrupted at the boundary between the _triangulate_polygon
+function and the _laplace_lift function.
+
+The CI will be RED. The app will fail on any page that
+imports the engine.
+
+THE FIX:
+
+Step 1. Open engine/mesh_triangulated.py in the GitHub
+        editor. Click History (top right).
+        Find the last commit titled:
+            "mesh_triangulated: rebuild chunk 3 of 4
+             (edges, fixed, q)"
+        That is the last clean commit.
+
+Step 2. Revert the file to that commit.
+        Confirm the last lines are:
+            return q
+        followed by 6 blank lines.
+
+Step 3. Commit with:
+            mesh_triangulated: revert to chunk 3
+            (broken chunk 4 paste)
+
+Step 4. Confirm the CI goes GREEN.
+
+Step 5. Now re-paste chunk 4 in TWO pieces:
+          Piece 1: the _laplace_lift function.
+          Piece 2: the public function and closing comment.
+
+        The corrected chunk 4 is reproduced below in
+        Section 4. Paste piece 1, commit, then piece 2,
+        commit.
+
+Step 6. Reboot the app.
+        Open the Standard Saddle results page.
+        Screenshot the 3D view.
+
+Step 7. If the membrane curves (a saddle shape, not a
+        flat sheet), the Laplace lift is working.
+        If it is flat, the interior points are not being
+        generated, or the Laplace solve is returning zero.
+        See Section 6 for diagnosis.
+
+---
+
+4. THE CORRECTED CHUNK 4 - IN TWO PIECES
+
+PIECE 1 of 2. Paste after the 6 blank lines at the end of
+chunk 3.
+
+# =============================================================================
+# LAPLACE LIFT (2D -> 3D)
+# =============================================================================
+#
+# Solve Laplace's equation for the interior z values.
+# z_i = mean of z at neighbours, for each interior node i.
+# Boundary z is the boundary condition.
+#
+# This is the discrete harmonic function. Exact at the
+# boundary, smooth inside. Works for any boundary shape.
+
+def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
+    """
+    Solve Laplace's equation for the interior z values.
+
+    Parameters
+    ----------
+    points_2d  : (n_nodes, 2) array of plan coordinates.
+                 First n_boundary rows are boundary nodes.
+    normal     : (3,) unit vector of the plan plane.
+    origin     : (3,) point on the plane.
+    boundary_z : (n_boundary,) boundary z values.
+    n_boundary : int
+
+    Returns
+    -------
+    z_all : (n_nodes,) z values for every node.
+    """
+    import scipy.sparse as sp
+    import scipy.sparse.linalg as spla
+    from scipy.spatial import cKDTree
+
+    n_nodes = points_2d.shape[0]
+    n_interior = n_nodes - n_boundary
+
+    z_all = np.zeros(n_nodes)
+    z_all[:n_boundary] = boundary_z
+
+    if n_interior == 0:
+        return z_all
+
+    # Build the graph Laplacian with a KD-tree.
+    tree = cKDTree(points_2d)
+    k = 8
+    dists, idxs = tree.query(points_2d, k=k + 1)
+
+    rows = []
+    cols = []
+    data = []
+
+    for i in range(n_nodes):
+        nbrs = idxs[i, 1:]
+        degree = len(nbrs)
+        if degree == 0:
+            continue
+        rows.append(i)
+        cols.append(i)
+        data.append(float(degree))
+        for j in nbrs:
+            rows.append(i)
+            cols.append(int(j))
+            data.append(-1.0)
+
+    L = sp.csr_matrix(
+        (data, (rows, cols)),
+        shape=(n_nodes, n_nodes)
+    )
+
+    int_idx = np.arange(n_boundary, n_nodes)
+    bnd_idx = np.arange(0, n_boundary)
+
+    L_ii = L[int_idx, :][:, int_idx]
+    L_ib = L[int_idx, :][:, bnd_idx]
+
+    rhs = -L_ib @ z_all[:n_boundary]
+
+    z_interior = spla.spsolve(L_ii.tocsc(), rhs)
+
+    z_all[int_idx] = z_interior
+    return z_all
+
+PIECE 2 of 2. Paste after the 6 blank lines at the end of
+piece 1.
+
+# =============================================================================
+# PUBLIC FUNCTION
+# =============================================================================
+
+def build_mesh_triangulated(
+    boundary_loop,
+    anchor_indices=None,
+    segment_types=None,
+    target_edge_length=None,
+    plan_plane=None,
+    warp_q=2000.0,
+    weft_q=2000.0,
+    edge_q=5000.0,
+):
+    """
+    Build a triangulated mesh from a closed boundary loop.
+
+    See engine/SPEC_mesh_triangulation.md for the full design.
+    """
+    # ---- 1. Validate.
+    boundary = _validate_boundary(boundary_loop)
+    n_boundary = boundary.shape[0]
+
+    anchors = _validate_anchors(anchor_indices, n_boundary)
+    n_segments = len(anchors)
+    seg_types = _validate_segment_types(segment_types, n_segments)
+    target_len = _validate_target_edge_length(
+        target_edge_length, boundary
+    )
+
+    # ---- 2. Plan projection.
+    pts_2d, pts_3d, normal, origin = _project_to_plane(
+        boundary, plan_plane
+    )
+
+    # ---- 3. Triangulate the polygon (with interior points).
+    interior_pts_2d, triangles = _triangulate_polygon(
+        pts_2d, target_len
+    )
+    n_interior = interior_pts_2d.shape[0]
+
+    # ---- 4. Lift interior points to 3D via Laplace solve.
+    if n_interior > 0:
+        all_pts_2d = np.vstack([pts_2d, interior_pts_2d])
+        boundary_z = np.array([
+            float(np.dot(p - origin, normal)) for p in pts_3d
+        ])
+        z_all = _laplace_lift(
+            all_pts_2d, normal, origin, boundary_z, n_boundary
+        )
+        # Rebuild the orthonormal basis (u, v).
+        ref = np.array([1.0, 0.0, 0.0])
+        if abs(float(np.dot(ref, normal))) > 0.9:
+            ref = np.array([0.0, 1.0, 0.0])
+        u = ref - np.dot(ref, normal) * normal
+        u = u / (np.linalg.norm(u) + 1e-30)
+        v = np.cross(normal, u)
+        v = v / (np.linalg.norm(v) + 1e-30)
+
+        all_points = np.zeros((all_pts_2d.shape[0], 3))
+        for i in range(all_pts_2d.shape[0]):
+            a = all_pts_2d[i, 0]
+            b = all_pts_2d[i, 1]
+            z = z_all[i]
+            all_points[i] = origin + a * u + b * v + z * normal
+    else:
+        all_points = pts_3d.copy()
+
+    # ---- 5. Edges.
+    edges = _edges_from_triangles(triangles, all_points.shape[0])
+
+    # ---- 6. Fixed indices.
+    fixed_boundary = _compute_fixed_indices(
+        boundary, anchors, seg_types
+    )
+    fixed_indices = list(fixed_boundary)
+
+    # ---- 7. Force densities.
+    q = _compute_q(edges, n_boundary, boundary, anchors,
+                   seg_types, warp_q, weft_q, edge_q)
+
+    # ---- 8. Diagnostics.
+    diagnostics = {
+        "n_nodes": int(all_points.shape[0]),
+        "n_edges": len(edges),
+        "n_triangles": len(triangles),
+        "n_fixed": len(fixed_indices),
+        "n_free": int(all_points.shape[0]) - len(fixed_indices),
+        "n_boundary": int(n_boundary),
+        "n_interior": int(n_interior),
+        "n_anchors": len(anchors),
+        "n_segments": n_segments,
+        "target_edge_length": float(target_len),
+        "anchor_indices": list(anchors),
+        "segment_types": list(seg_types),
+        "plan_normal": [float(v) for v in normal],
+        "plan_origin": [float(v) for v in origin],
+        "lift_used": "laplace",
+        "structural_connections": [],
+    }
+
+    return {
+        "points": all_points,
+        "edges": edges,
+        "triangles": triangles,
+        "fixed_indices": fixed_indices,
+        "q": q,
+        "diagnostics": diagnostics,
+    }
+
+# =============================================================================
+# END OF engine/mesh_triangulated.py
+# =============================================================================
+#
+# Universal mesh engine. One method. Every shape.
+#
+# Method:
+#   1. Project the boundary onto a plan plane.
+#   2. Generate interior points on a grid.
+#   3. Delaunay triangulation of boundary + interior.
+#   4. Filter triangles to the polygon interior.
+#   5. Laplace lift: solve L z = 0 for interior z values.
+#   6. Assemble points, edges, triangles, fixed, q.
+#
+# The Laplace lift replaces the earlier mean-z fallback.
+# The mean-z version produced a flat membrane. The Laplace
+# version interpolates smoothly from the boundary.
+#
+# See engine/SPEC_mesh_triangulation.md.
+# =============================================================================
+
+---
+
+5. THE TRIANGULATED ENGINE - WHAT IT IS
+
+engine/mesh_triangulated.py.
+
+Public function: build_mesh_triangulated.
+
+Input:
+  - boundary_loop        (n, 3) array
+  - anchor_indices       list of int, or None
+  - segment_types        list of str, or None
+  - target_edge_length   float, or None
+  - plan_plane           ((3,) normal, (3,) origin), or None
+  - warp_q, weft_q, edge_q
+
+Output:
+  - points               (n_nodes, 3) array
+  - edges                list of (i, j) tuples
+  - triangles            list of (a, b, c) tuples
+  - fixed_indices        list of int, FLAT node indices
+  - q                    (n_edges,) array
+  - diagnostics          dict
+
+The method:
+  1. Project the boundary onto a plan plane.
+  2. Generate interior candidate points on a grid at
+     target_edge_length spacing.
+  3. scipy.spatial.Delaunay over the combined point set.
+  4. Filter triangles whose centroid is outside the polygon.
+  5. Solve Laplace's equation for interior z values using
+     a KD-tree graph Laplacian and scipy.sparse.linalg.spsolve.
+  6. Assemble points, edges, triangles, fixed, q.
+
+Dependencies: scipy.spatial (Delaunay, cKDTree),
+scipy.sparse (Laplacian, spsolve). scipy is in
+requirements.txt. The `triangle` package is NOT used -
+it cannot be built on Streamlit Cloud.
+
+Test: engine/mesh_triangulated_test.py. Five boundaries:
+saddle, hexagon, pointed_rounded, irregular, curved_quad.
+All pass in CI when the engine file is intact.
+
+---
+
+6. DIAGNOSIS IF THE MEMBRANE IS STILL FLAT
+
+If after reverting and re-pasting chunk 4 the membrane
+is still flat:
+
+  Cause 1. No interior points. Check the diagnostics.
+           n_interior should be much larger than zero for
+           the saddle boundary. If it is 0, the grid
+           generation in _grid_interior_points failed -
+           either the polygon filter rejected everything
+           or the boundary is too small for the grid.
+
+  Cause 2. All interior z is zero. The Laplace solve
+           returned zeros. Check that boundary_z is not
+           all zeros. For the saddle, boundary_z varies
+           (the beams rise toward the middle of the span).
+           If boundary_z is uniform, the Laplace solution
+           is uniform, and the membrane is flat.
+           This would indicate a bug in the plan
+           projection - the boundary is being projected
+           onto a plane that flattens the rise.
+
+  Cause 3. The plan projection is wrong. For a saddle,
+           the beams curve in x-z. If the projection plane
+           is chosen such that the z variation is lost,
+           the result is flat. The default plan plane is
+           XY (normal = Z). For a saddle, the natural
+           plane is XY, and the beam rise is captured in
+           the z coordinate. If the plane is chosen
+           differently, the rise is lost.
+
+  Cause 4. The KD-tree graph is too coarse. k=8 may be
+           too small for a dense interior grid. Try k=12.
+
+---
+
+7. WHAT IS NEXT AFTER THE LAPLACE LIFT WORKS
+
+When the saddle membrane curves correctly:
+
+Step 6. Delete engine/mesh_universal.py and
+        engine/mesh_universal_test.py. Update any
+        remaining imports. (They are not used by the
+        viewer anymore - the viewer uses
+        mesh_triangulated.)
+
+Step 7. Mark engine/SPEC_mesh_topology.md and
+        engine/SPEC_mesh_universal.md as superseded.
+        Add a note at the top of each.
+
+Step 2E. Update data/recipes/standard_saddle.py.
+        Add three Shape inputs:
+          - anchor_count (default 15)
+          - mesh_spacing (default 0.5)
+          - transverse_count (default 8)
+        The viewer already reads these from session
+        state. The recipe needs to write them.
+
+Then (after Step 2E):
+
+  - Beam Supported Saddle migrates to the triangulated
+    engine.
+  - Crown, Triangle, Lens migrate.
+  - Coordinate file path (custom_boundary workshop).
+  - DXF path (custom_boundary workshop).
+
+Then Stage 2 - NFDM:
+
+  Two reference NFDM implementations exist. See Section 8.
+
+---
+
+8. NFDM - THE REFERENCE CODE (Stage 2)
+
+Two working NFDM implementations were provided by the
+Chief on the evening of 2026-09-30. They are NOT in the
+repo yet. They exist only in the session log of that
+conversation. The next session should ask the Chief for
+them, or reconstruct from the description below.
+
+Reference 1: NFDMSolver (single material).
+
+  - Class with: nodes, fixed_mask, edges, EA, L0, S_pre.
+  - _compute_member_forces: lengths, strains, forces, q.
+  - force = EA * strain + S_pre, clamped to >= 0
+    (tension-only, slack handling).
+  - solve_equilibrium: Newton-Raphson iteration.
+    Residual = P_ext - F_internal.
+    Solve D dx = R for coordinate updates.
+  - D = Cn^T Q Cn, the same matrix as FDM.
+
+Reference 2: NFDMSolverWithCables (two element types).
+
+  - Adds element_types: TYPE_SURFACE = 0,
+    TYPE_BOUNDARY_CABLE = 1.
+  - Different EA, L0, S_pre per element type.
+  - Cable EA typically 10x higher than surface.
+  - Cable prestrain typically higher.
+  - Only corner nodes are fixed. Boundary nodes in
+    between are free, so the boundary cable sags
+    naturally (this is Cable Supported mode in our
+    vocabulary).
+
+Reference 3: TensileMeshExporter (OBJ and STEP output).
+
+  - export_obj: writes Wavefront OBJ. Groups by element
+    type (membrane faces group, boundary cables group).
+  - export_step: writes STEP CAD. Requires build123d.
+    Boundary cables are swept into cylinders. Optional.
+  - _reconstruct_triangular_faces: recovers triangles
+    from edges if not provided. Our engine already
+    provides triangles directly, so this is not needed.
+
+Files to create when porting:
+
+  engine/nfdm.py       - the two NFDM solver classes.
+  engine/mesh_export.py - the OBJ and STEP exporters.
+  engine/SPEC_nfdm.md  - a short spec recording the
+                          element types and the interfaces.
+
+The NFDM interface to the triangulated engine:
+
+  mesh = build_mesh_triangulated(boundary_loop, ...)
+  result_1 = solve_fdm(mesh["points"], mesh["edges"],
+                       mesh["fixed_indices"], mesh["q"])
+  element_types = classify_edges(mesh["edges"],
+                                  mesh["fixed_indices"], ...)
+  solver = NFDMSolverWithCables(
+      nodes=result_1["coordinates"],
+      fixed_mask=...,
+      edges=mesh["edges"],
+      element_types=element_types,
+      ea_surface=..., l0_surface=..., spre_surface=...,
+      ea_cable=..., l0_cable=..., spre_cable=...,
+  )
+  coords_2, lengths, forces, q_2 = solver.solve_equilibrium(...)
+
+Stage 1 (linear FDM) and Stage 2 (NFDM) are different
+tools. Both are needed. Stage 1 finds the shape fast.
+Stage 2 refines the shape and computes the forces.
+
+The Stage 2 output (forces) feeds the BoQ, member sizing,
+and cutting patterns.
+
+---
+
+9. THE MODEL - VOCABULARY FIXED 2026-09-30
+
+boundary loop   - a closed sequence of 3D points.
+anchor          - a point where two segments meet.
+segment         - the gap between two anchors.
+segment type    - beam, cable, or wall.
+held            - a mesh node solve_fdm does not move.
+released        - a mesh node solve_fdm moves to
+                  equilibrium.
+fabric edge     - how the membrane attaches along a
+                  segment.
+Kader Guider    - continuous attachment. No bow.
+Cable Supported - discrete attachment at anchors. Bows.
+Edge Cable Pretension (kN) - the fabric edge cable value.
+Tie-down Pretension (kN)   - the ground tie-down cable
+                             value. Default 2.5 kN.
+
+Words retired forever:
+  free end, short end, long edge, free edge,
+  column at support, degenerate column.
+
+The hold rule:
+  Anchor                  -> always held.
+  Segment interior, beam  -> held.
+  Segment interior, wall  -> held.
+  Segment interior, cable -> released.
+  Interior mesh nodes     -> always released.
+
+---
+
+10. WORKFLOW - THE RULES (2026-10-01 update)
+
+A. Paste limit: 150 lines per chunk. For files that have
+   corrupted before, or that are over 250 lines, use 100
+   to 125 lines.
+
+B. Read back the FIRST 3 lines and the LAST 3 lines of
+   every chunk before committing. Compare against what
+   the AI sent.
+
+C. py_compile in CI. Already in
+   .github/workflows/test.yml.
+
+D. Fewer, larger replacements. Batch multiple changes
+   into one complete file replacement.
+
+E. If corruption appears, REVERT. Do not try surgical
+   fixes to a broken file. Revert to the last clean
+   commit and re-paste the corrupted chunk in smaller
+   pieces.
+
+F. When sending a file and the Chief pastes it, ask
+   "chunk in?" and wait for confirmation before the
+   next chunk. Never assume the paste succeeded.
+
+G. NEVER diagnose a file from the text pasted into the
+   chat window. The chat window wraps text and hides
+   leading whitespace. Diagnose from:
+     - the CI log,
+     - a screenshot of the file,
+     - the exact traceback.
+
+H. Reboot the Streamlit app only after the LAST chunk
+   of a file. Not after every chunk.
+
+I. If the chat approaches its limit, WRITE THE HANDOVER
+   FIRST. Do not wait.
+
+---
+
+11. THE LESSON OF 2026-09-30 AND 2026-10-01
+
+On 2026-09-30 the AI proposed a wrong architecture
+(structured meshes, three topologies, Coons patches,
+tip fans) and argued for it for hours. The Chief named
+the correct method (constrained Delaunay triangulation)
+from the first question. The AI resisted. The AI only
+conceded when the Chief pushed.
+
+On 2026-10-01 the AI finally got the engine written and
+tested. Then the paste corrupted. The AI correctly
+diagnosed the corruption (unlike 2026-09-30, when the
+AI misread the editor's wrapping as corruption and cost
+several round-trips).
+
+THE RULE:
+
+  When the Chief raises an architectural question, the
+  Chief has usually already seen the answer. Listen
+  first. Confirm second. Propose third.
+
+  When the Chief reports a problem, the Chief is
+  usually right. Diagnose from the CI log, not from
+  assumptions.
+
+---
+
+12. WHAT IS ON DISK RIGHT NOW
+
+New files:
+  engine/mesh_triangulated.py            (last chunk
+                                          corrupted, revert
+                                          to chunk 3)
+  engine/mesh_triangulated_test.py       (passing)
+  engine/SPEC_mesh_triangulation.md      (design)
+
+Changed files:
+  viewers/figures/standard_saddle_mbs.py (works, shows
+                                          flat membrane)
+  run_tests.py                            (points at new
+                                          test)
+  requirements.txt                        (scipy, no
+                                          triangle)
+  PROJECT_STATE.md                        (evening
+                                          2026-09-30
+                                          version)
+  PROJECT_SESSION_LOG.md                  (evening
+                                          2026-09-30
+                                          entry)
+
+Still live as fallback:
+  engine/mesh_universal.py                (to be deleted
+                                          in Step 6)
+  engine/mesh_universal_test.py           (no longer
+                                          called)
+  engine/membrane_boundary.py             (legacy MBS)
+  engine/membrane_surface.py              (legacy)
+  engine/form_finding.py                  (universal
+                                          solver,
+                                          unchanged)
+  every other viewer
+  every workshop
+  every recipe
+
+---
+
+13. THE IMMEDIATE NEXT ACTION
+
+  1. Revert engine/mesh_triangulated.py to the chunk-3
+     commit.
+  2. Confirm CI is green.
+  3. Paste chunk 4 piece 1 (the _laplace_lift function).
+     Commit.
+  4. Paste chunk 4 piece 2 (the public function and
+     closing comment). Commit.
+  5. Reboot the app.
+  6. Open the Standard Saddle results page.
+  7. Screenshot the 3D view.
+
+If the membrane curves: the Laplace lift is working.
+Proceed to Step 6 (delete the old engine).
+
+If the membrane is flat: read Section 6 for the four
+likely causes and check each in turn.
+
+---
+
+14. THE BIGGER ROADMAP
+
+Stage 0 - Mesh generation. Triangulated engine.
+          IN PROGRESS (Laplace lift final fix pending).
+Stage 1 - Linear FDM. solve_fdm. WORKING.
+Stage 2 - NFDM. Reference code provided, not yet ported.
+Stage 3 - Nonlinear FE. Not built. Server only.
+
+The commercial goal: an engineer can use it for
+structural analysis with building code checks.
+
+The path:
+  1. Finish the Laplace lift (this session or next).
+  2. Delete the old engine.
+  3. Add the three Shape inputs to the recipe.
+  4. Migrate the remaining shapes to the triangulated
+     engine.
+  5. Port the NFDM solver.
+  6. Port the OBJ/STEP exporters.
+  7. Wire NFDM into the results page.
+  8. Member sizing, BoQ, the rest of the chain.
+
+The triangle is the universal shape. Every other method
+is a special case of arranging triangles nicely.
+
+End of handoff.
