@@ -42,8 +42,8 @@ DEFAULTS = {
     "cable_type": "6x19",
     "cable_material": "galvanised",
     "anchor_type": "pinned",
-    "warp_pretension": 2.0,
-    "weft_pretension": 2.0,
+    "warp_pretension": 1.0,
+    "weft_pretension": 1.0,
     "edge_cable_pretension": 5.0,
     "soil_bearing": 150.0,
     "soil_type": "sand",
@@ -83,8 +83,8 @@ def _warn_shape(state, prefix):
 
 def _preview_pretension(state, prefix):
     """Show the current pretension triad."""
-    warp = state.get(prefix + "_warp_pretension", 2.0)
-    weft = state.get(prefix + "_weft_pretension", 2.0)
+    warp = state.get(prefix + "_warp_pretension", 1.0)
+    weft = state.get(prefix + "_weft_pretension", 1.0)
     edge = state.get(prefix + "_edge_cable_pretension", 5.0)
     return (
         'Warp: <span class="num">' + ("%.1f" % warp) + ' kN/m</span>  |  '
@@ -392,9 +392,9 @@ STANDARD_SADDLE_RECIPE = {
                     "key": "warp_pretension",
                     "label": "Warp Pretension (kN/m)",
                     "type": "number",
-                    "default": 2.0,
-                    "min": 0.5,
-                    "max": 8.0,
+                    "default": 1.0,
+                    "min": 0.1,
+                    "max": 100.0,
                     "step": 0.1,
                     "help": "Along the span, following the beams.",
                 },
@@ -402,9 +402,9 @@ STANDARD_SADDLE_RECIPE = {
                     "key": "weft_pretension",
                     "label": "Weft Pretension (kN/m)",
                     "type": "number",
-                    "default": 2.0,
-                    "min": 0.5,
-                    "max": 8.0,
+                    "default": 1.0,
+                    "min": 0.1,
+                    "max": 100.0,
                     "step": 0.1,
                     "help": "Across the membrane, between the two beams.",
                 },
@@ -413,8 +413,8 @@ STANDARD_SADDLE_RECIPE = {
                     "label": "Edge Cable Pretension (kN)",
                     "type": "number",
                     "default": 5.0,
-                    "min": 0.5,
-                    "max": 50.0,
+                    "min": 0.1,
+                    "max": 500.0,
                     "step": 0.5,
                     "help": "Along the two free ends.",
                 },
