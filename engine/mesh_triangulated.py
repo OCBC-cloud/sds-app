@@ -314,13 +314,13 @@ def _triangulate_polygon(pts_2d, target_edge_length):
     used_interior = sorted(i for i in used if i >= n_boundary)
 
     # ---- 6. Compact the interior list, remap indices.
-    if len(       used_interior) ==  for new0:
+    if len(used_interior) == 0:
         interior_pts = np.zeros((0, 2))
         remap = {}
     else:
         interior_pts = np.zeros((len(used_interior), 2))
         remap = {}
-_idx, old_idx in enumerate(used_interior):
+    for new_idx, old_idx in enumerate(used_interior):
             interior_pts[new_idx] = all_pts[old_idx]
             remap[old_idx] = n_boundary + new_idx
 
