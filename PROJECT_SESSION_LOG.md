@@ -1635,4 +1635,184 @@ That verification is the first thing tomorrow.
 
 End of PROJECT_STATE.md.
 
+## 2026-10-01 - Handoff repair, anisotropic FDM live
 
+### Context
+
+A handover document (HANDOVER_2026-10-01) was written
+this morning by the previous session. It described the
+state of engine/mesh_triangulated.py as "chunk 4
+corrupted at the chunk-3/chunk-4 boundary" and
+recommended reverting to a chunk-3 commit, then
+re-pasting chunk 4 in two pieces.
+
+The handoff was wrong.
+
+### What was actually wrong
+
+The file was broken. The corruption was not at the
+chunk-3/chunk-4 boundary. It was inside
+_triangulate_polygon, in the middle of chunk 2, at
+two lines:
+
+  - Line 317: `if len(       used_interior) ==  for
+    new0:` had spaces and garbage where `== 0:`
+    should be.
+  - Line 323: `_idx, old_idx in enumerate(used_interior):`
+    had lost its `for`, its indent, and the `new_`
+    prefix.
+
+Chunk 4 (_laplace_lift, build_mesh_triangulated) was
+intact in the file. Reverting to chunk 3 would have
+deleted good code and left the corruption in place.
+
+The Chief's instinct to paste the whole file, rather
+than trusting the handoff's plan, is what caught it.
+
+### Fix 1 - the two-line surgical edit
+
+Two line replacements at 317 and 323. Commit:
+
+  mesh_triangulated: fix corrupted block in
+  _triangulate_polygon
+
+CI returned red on the next run. Reason: hexagon
+test case failed with `axis 1 index 8 exceeds matrix
+dimension 8`. Cause: _laplace_lift used k=8 in the
+KD-tree query, which overruns any mesh with fewer
+than 9 points.
+
+### Fix 2 - the k clamp
+
+Clamped k = min(8, n_nodes - 1). Return early if
+k < 1. Commit:
+
+  mesh_triangulated: clamp KD-tree k in _laplace_lift
+  for small meshes
+
+CI green. All five test cases pass.
+
+### Fix 3 - the anisotropic FDM
+
+The Laplace lift was isotropic by construction. It
+could not respond to warp/weft pretension, no matter
+what the user set. The saddle was flat because the
+form-finder ignored the pretension ratio.
+
+The correct method, as the Chief has said all along,
+is FDM. Not the Laplace lift. Not a minimal surface.
+
+Three parts:
+
+1. engine/form_finding.py gained three new functions:
+   assign_anisotropic_q, auto_warp_dir, rotate_warp_dir.
+   The anisotropic rule is
+     q_edge = warp_q * cos^2(theta) + weft_q * sin^2(theta)
+   where theta is the angle between the edge and the
+   warp direction in the plan plane. solve_fdm already
+   supported per-edge q. It was never the problem.
+
+2. engine/mesh_triangulated.py replaced the Laplace
+   lift in build_mesh_triangulated with a call to
+   solve_fdm, driven by the anisotropic q. The
+   function was renumbered to:
+     4. assemble points,
+     5. edges,
+     6. fixed indices,
+     7. anisotropic q,
+     8. FDM solve,
+     9. diagnostics.
+
+3. data/recipes/standard_saddle.py pretension inputs
+   defaulted to 1.0 kN/m warp and weft, range widened
+   to 0.1-100.0 kN/m. Edge cable 0.1-500.0 kN.
+   DEFAULTS and _preview_pretension updated to match.
+
+Commits:
+
+  form_finding: add assign_anisotropic_q, auto_warp_dir,
+  rotate_warp_dir
+
+  mesh_triangulated: replace Laplace lift with
+  anisotropic FDM
+
+  standard_saddle recipe: default pretension to 1.0,
+  widen ranges
+
+### Verification
+
+In the app, three settings were tried:
+
+  - Warp 1.0, Weft 3.0  - one twist.
+  - Warp 3.0, Weft 1.0  - the opposite twist.
+  - Warp 8.0, Weft 1.0  - a further deepening.
+
+Three visibly different saddle shapes. The membrane
+now responds to the pretension triad. The loop that
+had been open since 2026-09-30 morning is closed.
+
+### What this proves
+
+  - The anisotropic FDM is live end to end.
+  - The recipe owns the input range. The user can
+    drive the shape anywhere in a wide band.
+  - The Laplace lift was a bridge. It is now retired
+    from build_mesh_triangulated.
+  - The engine is a genuine FDM form-finder, not a
+    minimal-surface generator.
+
+### What was learned
+
+1. A handoff is a document, not a fact. Read the
+   whole file before reverting on its word.
+2. A syntax error masks runtime errors behind it.
+   Expect a second wave of failures after the first
+   fix. The hexagon case was hidden by the earlier
+   syntax error.
+3. The Laplace lift is isotropic. It cannot respond
+   to warp/weft. If a future shape needs pretension
+   response, it must go through solve_fdm with an
+   anisotropic q array. This is now the pattern.
+
+### What was NOT done
+
+  - The q > 0 guard in solve_fdm. Small. Next.
+  - Deleting engine/mesh_universal.py and its test.
+    Handover Step 6. Now safe, since the viewer no
+    longer calls the old engine.
+  - Marking SPEC_mesh_topology.md and
+    SPEC_mesh_universal.md as superseded.
+  - The three Shape inputs in
+    data/recipes/standard_saddle.py
+    (anchor_count, mesh_spacing, transverse_count).
+    Handover Step 2E. Deferred.
+  - NFDM migration. Stage 2. Deferred.
+
+### Files touched today
+
+  engine/mesh_triangulated.py       (fixed, rewritten)
+  engine/form_finding.py            (three new functions)
+  data/recipes/standard_saddle.py   (widened, defaulted)
+  PROJECT_SESSION_LOG.md            (this entry)
+
+### The state of the code
+
+CI green. App loads. Saddle responds to warp/weft.
+The Laplace lift is retired from the main path. The
+Laplace lift function itself remains in the file,
+unused, for reference. It can be deleted in a later
+cleanup.
+
+### The lesson, once more
+
+The Chief named FDM weeks ago. The AI resisted, went
+through Laplace lifts and minimal surfaces. Today
+the AI finally put FDM in the main path with an
+anisotropic q. It works.
+
+The next AI that reads this log should know: the
+Chief's architectural instinct has been right every
+time. When the Chief raises a question of method,
+the Chief has usually already seen the answer.
+
+End of entry.
