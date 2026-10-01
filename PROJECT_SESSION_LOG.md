@@ -1815,4 +1815,21 @@ Chief's architectural instinct has been right every
 time. When the Chief raises a question of method,
 the Chief has usually already seen the answer.
 
+### Addendum - q > 0 guard
+
+Added after the main 2026-10-01 entry.
+
+`solve_fdm` now rejects a force density array whose
+minimum value is <= 0. Raises `ValueError` before
+matrix assembly, naming the offending value. Prevents
+a singular or indefinite stiffness matrix from a bad
+input array.
+
+Commit: `form_finding: q > 0 guard in solve_fdm`.
+
+The recipe range (warp/weft 0.1 - 100.0) cannot
+produce q <= 0 through the anisotropic blend. The
+guard protects future direct callers — the benchmark,
+the Tester, any viewer — from a silent NaN.
+
 End of entry.
