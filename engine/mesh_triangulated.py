@@ -534,7 +534,11 @@ def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
     tree = cKDTree(points_2d)
     # For each point, connect to its k nearest neighbours.
     # k = 8 is a reasonable default for a triangulated mesh.
-    k = 8
+    # Clamp k to n_nodes - 1 so small meshes (fewer than
+    # 9 points) do not overrun the KD-tree.
+    k = min(8, n_nodes - 1)
+    if k < 1:
+        return z_all
     dists, idxs = tree.query(points_2d, k=k + 1)
     # idxs[:, 0] is the point itself.
 
