@@ -260,7 +260,159 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         "n_fixed": int(fixed_mask.sum()),
     }
 
+# =============================================================================
+# ANISOTROPIC FORCE DENSITIES FOR FABRIC
+# =============================================================================
+#
+# A woven fabric has two thread directions: warp and weft. They are
+# perpendicular in the plane of the fabric. The force density along
+# an edge depends on how that edge aligns with the two directions.
+#
+#     q_edge = warp_q * cos^2(theta) + weft_q * sin^2(theta)
+#
+# where theta is the angle between the edge (projected to the plan
+# plane) and the warp direction.
+#
+#   Edge parallel to warp   : theta = 0,  q = warp_q.
+#   Edge parallel to weft   : theta = 90, q = weft_q.
+#   Edge at 45 degrees      : q = (warp_q + weft_q) / 2.
+#
+# Boundary edges keep the segment-type rule (beam/wall use warp_q,
+# cable uses boundary_edge_q). Only interior edges are blended.
 
+def assign_anisotropic_q(
+    edges,
+    points_2d,
+    warp_dir,
+    warp_q,
+    weft_q,
+    n_boundary=None,
+    boundary_edge_q=None,
+    boundary_edge_type=None,
+):
+    """
+    Build a per-edge force density array using the anisotropic
+    fabric rule for interior edges, and the segment-type rule
+    for boundary edges.
+
+    Parameters
+    ----------
+    edges : list of (i, j) edge pairs
+    points_2d : (n, 2) array of plan-plane coordinates.
+                Boundary nodes must come first, in the same order
+                as the boundary loop, if n_boundary is supplied.
+    warp_dir : (2,) unit vector. The warp direction, expressed
+               in the plan-plane coordinate system.
+    warp_q : float. Force density parallel to the warp.
+    weft_q : float. Force density parallel to the weft.
+    n_boundary : int or None
+        Number of boundary nodes at the start of points_2d. If
+        None, every edge is treated as interior.
+    boundary_edge_q : float or None
+        Force density for boundary edges on cable segments. If
+        None, warp_q is used for every boundary edge.
+    boundary_edge_type : list of str or None
+        One entry per boundary edge (i.e. per boundary segment
+        edge), giving "beam", "cable", or "wall". If None, every
+        boundary edge uses warp_q (or boundary_edge_q if given).
+
+    Returns
+    -------
+    q : (m,) array of force densities, one per edge.
+    """
+    import math
+
+    edges = list(edges)
+    points_2d = np.asarray(points_2d, dtype=float)
+    m = len(edges)
+    q = np.zeros(m, dtype=float)
+
+    warp_dir = np.asarray(warp_dir, dtype=float)
+    wn = float(np.linalg.norm(warp_dir))
+    if wn < 1e-12:
+        raise ValueError("warp_dir has zero length")
+    warp_dir = warp_dir / wn
+
+    if n_boundary is None:
+        n_boundary = 0
+
+    if boundary_edge_q is None:
+        boundary_edge_q = float(warp_q)
+
+    for k, (a, b) in enumerate(edges):
+        is_boundary_edge = (
+            n_boundary > 0
+            and a < n_boundary
+            and b < n_boundary
+            and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
+        )
+
+        if is_boundary_edge:
+            # Boundary edge: use segment-type rule.
+            if boundary_edge_type is not None and k < len(boundary_edge_type):
+                seg_type = boundary_edge_type[k]
+                if seg_type == "cable":
+                    q[k] = float(boundary_edge_q)
+                else:
+                    q[k] = float(warp_q)
+            else:
+                q[k] = float(warp_q)
+            continue
+
+        # Interior edge: anisotropic blend.
+        pa = points_2d[a]
+        pb = points_2d[b]
+        d = pb - pa
+        dn = float(np.linalg.norm(d))
+        if dn < 1e-12:
+            q[k] = float(warp_q)
+            continue
+        d = d / dn
+        cos_t = float(np.dot(d, warp_dir))
+        # Clamp for numerical safety.
+        if cos_t > 1.0:
+            cos_t = 1.0
+        elif cos_t < -1.0:
+            cos_t = -1.0
+        cos2 = cos_t * cos_t
+        sin2 = 1.0 - cos2
+        q[k] = float(warp_q) * cos2 + float(weft_q) * sin2
+
+    return q
+
+
+def auto_warp_dir(points_2d):
+    """
+    Return a (2,) unit vector giving the long axis of the plan
+    bounding box of the supplied 2D points. This is the automatic
+    default for the warp direction.
+
+    If the bounding box is degenerate (a point or a line), returns
+    (1, 0).
+    """
+    pts = np.asarray(points_2d, dtype=float)
+    if pts.shape[0] < 2:
+        return np.array([1.0, 0.0])
+    xmin = float(np.min(pts[:, 0]))
+    xmax = float(np.max(pts[:, 0]))
+    ymin = float(np.min(pts[:, 1]))
+    ymax = float(np.max(pts[:, 1]))
+    dx = xmax - xmin
+    dy = ymax - ymin
+    if dx >= dy:
+        return np.array([1.0, 0.0])
+    return np.array([0.0, 1.0])
+
+
+def rotate_warp_dir(warp_dir, angle_rad):
+    """
+    Return a (2,) unit vector rotated from warp_dir by angle_rad
+    (counter-clockwise) in the plan plane.
+    """
+    c = math.cos(angle_rad)
+    s = math.sin(angle_rad)
+    w = np.asarray(warp_dir, dtype=float)
+    return np.array([c * w[0] - s * w[1], s * w[0] + c * w[1]])
 
 
 
