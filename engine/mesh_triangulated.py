@@ -339,3 +339,136 @@ _idx, old_idx in enumerate(used_interior):
 
 
 
+# =============================================================================
+# EDGES
+# =============================================================================
+
+def _edges_from_triangles(triangles, n_points):
+    """
+    Build a unique edge list from a triangle list.
+    Each edge (i, j) is stored with i < j.
+    """
+    seen = set()
+    edges = []
+    for (a, b, c) in triangles:
+        for (i, j) in ((a, b), (b, c), (c, a)):
+            if i == j:
+                continue
+            key = (i, j) if i < j else (j, i)
+            if key not in seen:
+                seen.add(key)
+                edges.append(key)
+    return edges
+
+
+# =============================================================================
+# FIXED INDICES
+# =============================================================================
+
+def _compute_fixed_indices(boundary_loop, anchor_indices,
+                            segment_types):
+    """
+    Decide which boundary nodes are held in the FDM solve.
+
+    Rule:
+        - Anchor                        -> held.
+        - Segment interior, beam        -> held.
+        - Segment interior, wall        -> held.
+        - Segment interior, cable       -> released.
+
+    Returns a sorted list of boundary node indices.
+    """
+    n = boundary_loop.shape[0]
+    n_anchors = len(anchor_indices)
+
+    # For each boundary index i, which segment does it belong to?
+    seg_of_node = [-1] * n
+    for k in range(n_anchors):
+        start = anchor_indices[k]
+        end = anchor_indices[(k + 1) % n_anchors]
+        i = start
+        while True:
+            seg_of_node[i] = k
+            if i == end:
+                break
+            i = (i + 1) % n
+            if i == start:
+                break
+
+    anchor_set = set(anchor_indices)
+
+    fixed = []
+    for i in range(n):
+        if i in anchor_set:
+            fixed.append(i)
+            continue
+        seg_idx = seg_of_node[i]
+        if seg_idx < 0:
+            fixed.append(i)
+            continue
+        seg_type = segment_types[seg_idx]
+        if seg_type in ("beam", "wall"):
+            fixed.append(i)
+
+    return sorted(set(fixed))
+
+
+# =============================================================================
+# FORCE DENSITIES
+# =============================================================================
+
+def _compute_q(edges, n_boundary, boundary_loop, anchor_indices,
+               segment_types, warp_q, weft_q, edge_q):
+    """
+    Assign a force density to every edge.
+
+    Boundary edges: by segment type at their midpoint.
+    Interior edges: weft_q.
+    """
+    n_anchors = len(anchor_indices)
+    n = n_boundary
+
+    seg_of_node = [-1] * n
+    for k in range(n_anchors):
+        start = anchor_indices[k]
+        end = anchor_indices[(k + 1) % n_anchors]
+        i = start
+        while True:
+            seg_of_node[i] = k
+            if i == end:
+                break
+            i = (i + 1) % n
+            if i == start:
+                break
+
+    # Which edges are boundary edges?
+    boundary_pair_set = set()
+    for i in range(n):
+        j = (i + 1) % n
+        key = (i, j) if i < j else (j, i)
+        boundary_pair_set.add(key)
+
+    q = np.zeros(len(edges))
+    for k, (a, b) in enumerate(edges):
+        key = (a, b) if a < b else (b, a)
+        if key in boundary_pair_set:
+            # Boundary edge.
+            seg_a = seg_of_node[a] if a < n else -1
+            seg_b = seg_of_node[b] if b < n else -1
+            seg_idx = seg_a if seg_a >= 0 else seg_b
+            if seg_idx < 0:
+                q[k] = float(weft_q)
+                continue
+            seg_type = segment_types[seg_idx]
+            if seg_type == "cable":
+                q[k] = float(edge_q)
+            else:
+                q[k] = float(warp_q)
+        else:
+            q[k] = float(weft_q)
+    return q
+
+
+
+
+
