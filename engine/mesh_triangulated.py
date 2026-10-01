@@ -598,38 +598,6 @@ def build_mesh_triangulated(
     Build a triangulated mesh from a closed boundary loop.
 
     See engine/SPEC_mesh_triangulation.md for the full design.
-
-    Parameters
-    ----------
-    boundary_loop : (n, 3) array
-        Ordered boundary points forming a closed loop.
-        The loop is closed by convention. Do not duplicate
-        the first point at the end.
-
-    anchor_indices : list of int, or None
-        Indices into boundary_loop where two segments meet.
-
-    segment_types : list of str, or None
-        One per segment between consecutive anchors.
-
-    target_edge_length : float, or None
-        Approximate edge length for the interior mesh.
-
-    plan_plane : ((3,) normal, (3,) origin) or None
-        Plane for 2D triangulation. Default: XY plane.
-
-    warp_q, weft_q, edge_q : float
-        Force densities (N/m).
-
-    Returns
-    -------
-    dict with keys:
-        points          (n_nodes, 3)
-        edges           list of (i, j)
-        triangles       list of (a, b, c)
-        fixed_indices   list of int
-        q               (n_edges,)
-        diagnostics     dict
     """
     # ---- 1. Validate.
     boundary = _validate_boundary(boundary_loop)
@@ -653,33 +621,31 @@ def build_mesh_triangulated(
     )
     n_interior = interior_pts_2d.shape[0]
 
-    # ---- 4. Lift interior points to 3D using Laplace solve.
+    # ---- 4. Assemble the full 3D point set.
     if n_interior > 0:
-        # Combine boundary and interior plan coordinates.
         all_pts_2d = np.vstack([pts_2d, interior_pts_2d])
-        # Boundary z values, measured along the plane normal.
-        boundary_z = np.array([
-            float(np.dot(p - origin, normal)) for p in pts_3d
-        ])
-        z_all = _laplace_lift(
-            all_pts_2d, normal, origin, boundary_z, n_boundary
-        )
-        # Lift all nodes to 3D.
-        all_points = np.zeros((all_pts_2d.shape[0], 3))
-        for i in range(all_pts_2d.shape[0]):
-            a = all_pts_2d[i, 0]
-            b = all_pts_2d[i, 1]
-            z = z_all[i]
-            ref = np.array([1.0, 0.0, 0.0])
-            if abs(float(np.dot(ref, normal))) > 0.9:
-                ref = np.array([0.0, 1.0, 0.0])
-            u = ref - np.dot(ref, normal) * normal
-            u = u / (np.linalg.norm(u) + 1e-30)
-            v = np.cross(normal, u)
-            v = v / (np.linalg.norm(v) + 1e-30)
-            all_points[i] = origin + a * u + b * v + z * normal
     else:
-        all_points = pts_3d.copy()
+        all_pts_2d = pts_2d.copy()
+
+    # Rebuild the orthonormal basis (u, v) for the plan plane.
+    ref = np.array([1.0, 0.0, 0.0])
+    if abs(float(np.dot(ref, normal))) > 0.9:
+        ref = np.array([0.0, 1.0, 0.0])
+    u = ref - np.dot(ref, normal) * normal
+    u = u / (np.linalg.norm(u) + 1e-30)
+    v = np.cross(normal, u)
+    v = v / (np.linalg.norm(v) + 1e-30)
+
+    # Lift every node from plan coordinates to 3D. Boundary nodes
+    # use their true 3D positions. Interior nodes start on the
+    # plan plane; the FDM step below moves them to equilibrium.
+    all_points = np.zeros((all_pts_2d.shape[0], 3))
+    for i in range(pts_3d.shape[0]):
+        all_points[i] = pts_3d[i]
+    for i in range(pts_3d.shape[0], all_pts_2d.shape[0]):
+        a = all_pts_2d[i, 0]
+        b = all_pts_2d[i, 1]
+        all_points[i] = origin + a * u + b * v
 
     # ---- 5. Edges.
     edges = _edges_from_triangles(triangles, all_points.shape[0])
@@ -690,11 +656,35 @@ def build_mesh_triangulated(
     )
     fixed_indices = list(fixed_boundary)
 
-    # ---- 7. Force densities.
-    q = _compute_q(edges, n_boundary, boundary, anchors,
-                   seg_types, warp_q, weft_q, edge_q)
+    # ---- 7. Anisotropic force densities.
+    from engine.form_finding import (
+        assign_anisotropic_q,
+        auto_warp_dir,
+        solve_fdm,
+    )
 
-    # ---- 8. Diagnostics.
+    warp_dir = auto_warp_dir(pts_2d)
+
+    q_aniso = assign_anisotropic_q(
+        edges,
+        all_pts_2d,
+        warp_dir,
+        warp_q,
+        weft_q,
+        n_boundary=n_boundary,
+        boundary_edge_q=edge_q,
+    )
+
+    # ---- 8. Form-find with FDM.
+    if len(fixed_indices) > 0:
+        fdm_result = solve_fdm(
+            all_points,
+            edges,
+            fixed_indices,
+            q_aniso,
+        )
+        all_points = fdm_result["coordinates"]
+# ---- 9. Diagnostics.
     diagnostics = {
         "n_nodes": int(all_points.shape[0]),
         "n_edges": len(edges),
@@ -708,9 +698,10 @@ def build_mesh_triangulated(
         "target_edge_length": float(target_len),
         "anchor_indices": list(anchors),
         "segment_types": list(seg_types),
-        "plan_normal": [float(v) for v in normal],
-        "plan_origin": [float(v) for v in origin],
-        "lift_used": "laplace",
+        "plan_normal": [float(vv) for vv in normal],
+        "plan_origin": [float(vv) for vv in origin],
+        "warp_dir": [float(vv) for vv in warp_dir],
+        "lift_used": "fdm_anisotropic",
         "structural_connections": [],
     }
 
@@ -719,34 +710,13 @@ def build_mesh_triangulated(
         "edges": edges,
         "triangles": triangles,
         "fixed_indices": fixed_indices,
-        "q": q,
+        "q": q_aniso,
         "diagnostics": diagnostics,
     }
 
 
-# =============================================================================
-# END OF engine/mesh_triangulated.py
-# =============================================================================
-#
-# Universal mesh engine. One method. Every shape.
-#
-# The method:
-#   1. Project the boundary onto a plan plane.
-#   2. Generate interior points on a grid.
-#   3. Delaunay triangulation of boundary + interior.
-#   4. Filter triangles to the polygon interior.
-#   5. Laplace lift: solve L z = 0 for the interior z values.
-#   6. Assemble points, edges, triangles, fixed, q.
-#
-# The Laplace lift replaces the earlier mean-z fallback. The
-# mean-z version produced a flat membrane because every
-# interior node was at the same height. The Laplace version
-# interpolates smoothly from the boundary, so a saddle forms.
-#
-# The solver (solve_fdm) is unchanged.
-#
-# See engine/SPEC_mesh_triangulation.md.
-# =============================================================================
+
+
 
 
 
