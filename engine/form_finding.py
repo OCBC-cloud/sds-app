@@ -198,6 +198,18 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
                 % (q.shape[0], m)
             )
 
+    # Force density must be strictly positive. q <= 0 would
+    # make the stiffness matrix singular or indefinite. The
+    # anisotropic blend in assign_anisotropic_q guarantees
+    # q > 0 when warp_q > 0 and weft_q > 0, but a caller
+    # could still pass a bad array. Reject it here.
+    q_min = float(np.min(q))
+    if q_min <= 0.0:
+        raise ValueError(
+            "force_densities must be > 0 (min value %g)"
+            % q_min
+        )
+
     if loads is None:
         loads = np.zeros((n, 3), dtype=float)
     else:
