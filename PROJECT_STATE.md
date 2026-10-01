@@ -5,7 +5,7 @@ Then read PROJECT_CONSTITUTION.md for the doctrines.
 Then read PROJECT_VISION.md for the destination.
 Then read FILE_INVENTORY.md for what exists.
 
-Last updated: 2026-09-30 (evening).
+Last updated: 2026-10-01.
 Branch: modular-v10.
 App URL: sds-modular-preview.streamlit.app.
 
@@ -15,8 +15,7 @@ App URL: sds-modular-preview.streamlit.app.
 
 Four structures, each with a workshop and a viewer:
 
-- Cable Supported Saddle     - FDM form-found. Uses the
-                               triangulated mesh engine.
+- Cable Supported Saddle     - FDM form-found. Triangulated engine. Anisotropic FDM. Responds to warp/weft.
 - Beam Supported Saddle      - drawn surface. No FDM.
 - Cantilever Leaf            - drawn. Uses leaf_arrangement.
 - Cantilever Hypar           - drawn Coons patch. No FDM.
@@ -24,10 +23,13 @@ Four structures, each with a workshop and a viewer:
 The app is deployed. The user flow is:
 Landing -> Studio -> Registration -> Workshop -> Results.
 
-The Landing page has three buttons:
+The Landing page has two active buttons:
   Enter The Studio
   Open MBS Tester (experimental)
-  Open Renderer Test (temporary test page)
+
+A third button, "Open Renderer Test", is present but
+is being retired. It is a temporary test page that
+is no longer needed.
 
 ---
 
@@ -98,6 +100,58 @@ the migration.
 
 ---
 
+# 2A. THE FORM-FINDER - ANISOTROPIC FDM (2026-10-01)
+
+The Laplace lift was retired on 2026-10-01. It was
+isotropic by construction. It could not respond to
+warp/weft pretension. It has been replaced by the
+Force Density Method with a per-edge anisotropic q.
+
+The chain inside `build_mesh_triangulated`:
+
+  4. Assemble points.
+  5. Edges.
+  6. Fixed indices.
+  7. Anisotropic q (from `assign_anisotropic_q`).
+  8. FDM solve (`solve_fdm`).
+  9. Diagnostics.
+
+The anisotropic rule:
+
+    q_edge = warp_q * cos^2(theta)
+           + weft_q * sin^2(theta)
+
+where theta is the angle between the edge and the
+warp direction in the plan plane. The warp direction
+is auto-detected from the bounding box long axis.
+Optionally rotatable later.
+
+The three functions live in `engine/form_finding.py`:
+
+    assign_anisotropic_q
+    auto_warp_dir
+    rotate_warp_dir
+
+The solver `solve_fdm` is unchanged. It always
+accepted a per-edge q array. The missing piece was
+building the anisotropic array upstream. That piece
+is now built and wired. Verified in the app on
+2026-10-01: three different warp/weft settings
+produce three visibly different saddle shapes.
+
+The Standard Saddle pretension inputs, after today:
+
+    Warp Pretension (kN/m)      default 1.0   range 0.1 - 100.0
+    Weft Pretension (kN/m)      default 1.0   range 0.1 - 100.0
+    Edge Cable Pretension (kN)  default 5.0   range 0.1 - 500.0
+
+DEFAULTS and `_preview_pretension` are kept in step.
+
+Published practice for a stadium-scale roof places
+warp/weft pretension in the 3 - 6 kN/m band, edge
+cable 30 - 150 kN. The app exposes the range so the
+engineer can explore.
+
 # 3. THE UNIVERSAL WORKSHOP RENDERER
 
 `ui/workshops/_renderer.py`. Built. Committed.
@@ -116,54 +170,63 @@ pending task. See Section 5.
 
 ---
 
-# 4. THE MESH MIGRATION - WHERE WE ARE
+# 4. THE MESH MIGRATION - DONE
 
-## Done
+## Completed
 
-Step 1: SPEC_mesh_triangulation.md written and committed.
-Step 2: engine/mesh_triangulated.py built and committed.
-Step 3: engine/mesh_triangulated_test.py built, run_tests.py
-        pointed at it, CI green. All five cases pass.
+Step 1: SPEC_mesh_triangulation.md written. Committed.
+Step 2: engine/mesh_triangulated.py built. Committed.
+Step 3: engine/mesh_triangulated_test.py built. CI green.
+        All five boundary cases pass.
+Step 4: (merged into Step 2.)
 Step 5: viewers/figures/standard_saddle_mbs.py rewritten
-        to use the triangulated engine. Committed.
+        to use the triangulated engine. Committed and
+        verified in the app.
 
-## Not yet done
+## Two bugs fixed on 2026-10-01
 
-Step 5 verification: the app has NOT yet been opened with
-the new viewer. That is the FIRST ACTION of the next
-session.
+  1. Paste corruption in _triangulate_polygon, at lines
+     317 and 323. Two surgical line replacements.
+  2. KD-tree overrun in _laplace_lift for meshes with
+     fewer than 9 points. Fixed by clamping
+     k = min(8, n_nodes - 1).
 
-Step 6: delete engine/mesh_universal.py and its test.
-Step 7: mark SPEC_mesh_topology.md and SPEC_mesh_universal.md
-        as superseded.
+## Still to do
+
+Step 6: Delete engine/mesh_universal.py and its test.
+Step 7: Mark SPEC_mesh_topology.md and
+        SPEC_mesh_universal.md as superseded.
 FILE_INVENTORY.md update to reflect the new engine.
+HANDOVER_2026-10-01 deletion.
+
 
 ---
 
 # 5. THE IMMEDIATE NEXT STEP
 
-**Verify Step 5 in the app.**
+Add a q > 0 guard to `solve_fdm` in
+`engine/form_finding.py`. Reject q <= 0 explicitly
+instead of producing NaN. Small. Ten lines.
 
-1. Reboot the Streamlit app (Rule 13).
-2. Open the Standard Saddle results page.
-3. Screenshot the 3D view and the diagnostics expander.
-4. Confirm: the membrane fills the saddle, no tip gap,
-   the apex is covered by triangles, machine-zero residual.
-5. If it works: proceed to Step 6 (delete the old engine).
-6. If it does not work: diagnose from the traceback.
+Then, in order:
 
-After Step 5 verification:
+  1. Delete HANDOVER_2026-10-01 (diagnosis was wrong).
+  2. Delete engine/mesh_universal.py and its test.
+  3. Mark SPEC_mesh_topology.md and
+     SPEC_mesh_universal.md as superseded at the top.
+  4. Add the three Shape inputs to
+     data/recipes/standard_saddle.py:
+       anchor_count        default 15
+       mesh_spacing        default 0.5
+       transverse_count    default 8
+  5. Migrate Beam Supported Saddle to the
+     triangulated engine.
+  6. Migrate Crown, Triangle, Lens.
+  7. Coordinate file path (custom boundary workshop).
+  8. DXF path (custom boundary workshop).
 
-## Pending - Step 2E (deferred from earlier)
+Then Stage 2 — NFDM.
 
-Update `data/recipes/standard_saddle.py`. The Shape group
-gains three inputs:
-  - Anchor count per beam (default 15).
-  - Target mesh spacing (m) (default 0.5).
-  - Transverse count (default 8).
-
-These feed the triangulated engine's target_edge_length
-and boundary density.
 
 ---
 
@@ -194,20 +257,28 @@ method and the Chief's heritage.
 
 ---
 
-# 8. THE LESSON OF 2026-09-30
+# 8. THE LESSON OF 2026-09-30 AND 2026-10-01
 
-The Chief asked a direct architectural question: why not
-triangulate every shape the same way.
+On 2026-09-30 the AI proposed a wrong architecture
+(structured meshes, three topologies, Coons patches,
+tip fans) and argued for it for hours. The Chief
+named the correct method — constrained Delaunay
+triangulation — from the first question. The AI
+resisted. The AI only conceded when the Chief pushed.
 
-The AI resisted. The AI proposed structured methods,
-three topologies, Coons patches, tip fans. Each was a
-special case dressed up as a universal method.
+On 2026-10-01 the AI finally put FDM in the main
+path, driven by an anisotropic q. It works. The
+saddle responds. The loop that had been open since
+the morning was closed by the afternoon.
 
-The Chief was right from the first question.
+The pattern holds. The Chief's architectural
+instinct has been right every time. The AI's
+detours — the Laplace lift, the minimal surface,
+the three structured topologies — cost days.
 
-**When the Chief raises an architectural question, the
-Chief has usually already seen the answer. Listen first.
-Confirm second. Propose third.**
+**When the Chief raises an architectural question,
+the Chief has usually already seen the answer.
+Listen first. Confirm second. Propose third.**
 
 ---
 
