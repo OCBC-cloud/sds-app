@@ -161,7 +161,7 @@ def main():
         all_pass = False
     if not test_mesh_triangulated():
         all_pass = False
-if not test_nfdm_tension_field():
+    if not test_nfdm_tension_field():
         all_pass = False
     print()
     print("=" * 60)
@@ -173,7 +173,7 @@ if not test_nfdm_tension_field():
         sys.exit(1)
 
 
-if __name__ == "__main__":
+    if __name__ == "__main__":
     main()
 
 
