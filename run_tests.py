@@ -127,6 +127,27 @@ def test_mesh_triangulated():
         print("  " + str(e))
         print("-" * 60)
         return False
+def test_nfdm_tension_field():
+    """Run the NFDM tension-field projection test. Returns True if pass."""
+    print("=" * 60)
+    print("TEST: engine/nfdm_tension_field.py - tension-field projection")
+    print("=" * 60)
+    try:
+        from engine.nfdm_tension_field_test import _run_all
+        ok = _run_all()
+        print("-" * 60)
+        if ok:
+            print("RESULT: PASS")
+            return True
+        else:
+            print("RESULT: FAIL")
+            return False
+    except Exception as e:
+        print("RESULT: FAIL")
+        print("  " + str(e))
+        print("-" * 60)
+        return False
+
 
 def main():
     all_pass = True
@@ -140,7 +161,8 @@ def main():
         all_pass = False
     if not test_mesh_triangulated():
         all_pass = False
-
+if not test_nfdm_tension_field():
+        all_pass = False
     print()
     print("=" * 60)
     if all_pass:
