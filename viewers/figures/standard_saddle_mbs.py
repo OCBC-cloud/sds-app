@@ -141,17 +141,23 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     Build the boundary loop, call the triangulated engine,
     solve FDM. Return everything the viewer needs.
 
-    The transverse_count and mesh_spacing are used only as
-    hints for the target edge length. The triangulated engine
-    chooses the actual density.
+    The engine runs form-finding internally. The viewer
+    reads both the initial mesh and the equilibrium mesh.
 
     Returns a dict with:
         points            (n_nodes, 3) array (solved)
+        points_initial    (n_nodes, 3) array (before FDM)
+        edges             list of (i, j)
         triangles         list of (a, b, c)
+        fixed_indices     list of int
+        q                 (n_edges,) force densities
         boundary_loop     (n, 3) input boundary
         anchors           list of int
         seg_types         list of str
         diagnostics       dict
+        warp_q            float (N/m)
+        weft_q            float (N/m)
+        edge_q            float (N/m)
     """
     # ---- 1. Beam curve geometry.
     n_pts = 200
@@ -168,17 +174,12 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     )
 
     # ---- 3. Target edge length from mesh spacing.
-    # If mesh_spacing is > 0, use it. Otherwise the engine
-    # computes its own default from the boundary.
     if mesh_spacing is not None and mesh_spacing > 0:
         target_len = float(mesh_spacing)
     else:
         target_len = None
 
     # ---- 4. Force density scalars.
-    # The engine takes warp_q, weft_q, edge_q directly.
-    # Convert from pretension (kN/m) using the average segment
-    # length as the reference.
     n = boundary_loop.shape[0]
     total_len = 0.0
     for i in range(n):
@@ -205,7 +206,7 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
         edge_q=edge_q,
     )
 
-    points = result["points"]
+    coords = result["points"]
     points_initial = result["points_initial"]
     edges = result["edges"]
     triangles = result["triangles"]
@@ -213,15 +214,7 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     q = result["q"]
     diag = result["diagnostics"]
 
-    # ---- 6. The engine already form-found the mesh.
-    # build_mesh_triangulated runs solve_fdm internally at
-    # step 8. The viewer reads the result. It does not call
-    # solve_fdm again. This matches the professional FDM
-    # workflow: the form-finder owns the solve, the results
-    # page reads the answer.
-    coords = points
-
-    # ---- 7. Diagnostics.
+    # ---- 6. Diagnostics.
     n_nodes = coords.shape[0]
 
     disp = np.linalg.norm(coords - points_initial, axis=1)
@@ -245,9 +238,9 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     tri_areas = np.array(tri_areas) if tri_areas else np.array([0.0])
 
     diagnostics = {
-        "residual_norm": float(res["residual_norm"]),
-        "n_free": int(res["n_free"]),
-        "n_fixed": int(res["n_fixed"]),
+        "residual_norm": float(diag.get("residual_norm", 0.0)),
+        "n_free": int(diag.get("n_free", 0)),
+        "n_fixed": int(len(fixed_indices)),
         "n_nodes": int(n_nodes),
         "n_edges": len(edges),
         "n_triangles": len(triangles),
@@ -266,11 +259,18 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
 
     built = {
         "points": coords,
+        "points_initial": points_initial,
+        "edges": edges,
         "triangles": triangles,
+        "fixed_indices": fixed_indices,
+        "q": q,
         "boundary_loop": boundary_loop,
         "anchors": anchors,
         "seg_types": seg_types,
         "diagnostics": diagnostics,
+        "warp_q": float(warp_q),
+        "weft_q": float(weft_q),
+        "edge_q": float(edge_q),
     }
     return built
 
