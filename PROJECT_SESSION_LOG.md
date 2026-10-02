@@ -2053,5 +2053,159 @@ Then Level 2 begins.
 - Next session begins with solve_nfdm_tension_field, the wrapper
   that will reproduce the −1215.76 / 0.0 benchmark.
 
-End of entry.
+
+## 2026-10-02 evening — Stage 2 begins; nfdm_tension_field
+
+**Branch:** modular-v10
+**CI status at close:** green (run #412, Success, 31s)
+
+### What was settled tonight
+
+- `SDS_HYPAR_TENSION_FIELD.py` does not exist as a file. The
+  document describing it is a specification, not a program.
+  The search for it is ended. Any future session that sees
+  that document should treat it as design intent, not code.
+- `engine/nfdm.py` is a real, working, tested Pauletti
+  Natural Force Density Method kernel from 2026-09-23. The
+  handover had classified it "reference only. Not wired."
+  That classification was wrong. It contains three passing
+  self-tests, a Newton-Raphson solver with line search, and
+  a per-triangle natural force-density formulation. It is
+  the true foundation of Stage 2. Nothing in the shipping
+  app calls it. It is isolated and safe to extend.
+- The earlier handover's cleanup plan was written before
+  the actual repo was inspected. Corrections for a future
+  cleanup session:
+  - `benchmark_hypar.py` exists at the repo root, is
+    standalone, is not importable by the app, and is a
+    genuine sanity benchmark against SDS-CONST Benchmark 001.
+    Keep it.
+  - More SPEC files exist in `engine/` than the handover
+    listed: SPEC_dxf_import, SPEC_engine_chain,
+    SPEC_mesh_from_segments, SPEC_mesh_topology,
+    SPEC_mesh_triangulation, SPEC_mesh_universal,
+    SPEC_saddle_span, SPEC_saddle_viewer_fdm, and more.
+    The live spec is SPEC_mesh_triangulation.md.
+    SPEC_mesh_topology.md and SPEC_mesh_universal.md are
+    superseded. SPEC_mesh_from_segments.md is presumed
+    superseded but was not verified.
+
+### What was built tonight
+
+- `engine/nfdm_tension_field.py` — NEW. Committed.
+  Contains `project_tension_field(sigma, tol=0.0)` and two
+  helpers (`tensor_to_components`, `components_to_tensor`).
+  The projection is `sigma_TF = Q @ diag(max(s1,0), max(s2,0)) @ Q.T`.
+  Returns the projected tensor, a boolean `compression_found`,
+  and the principal stresses. 145 lines. Does not modify
+  `engine/nfdm.py`.
+- `engine/nfdm_tension_field_test.py` — NEW. Committed.
+  Six hand-checkable tests: pure tension unchanged, pure
+  compression to zero, pure shear to rank-one, biaxial
+  tension unchanged, mixed tension/compression keeps the
+  tensile part only, and helper round-trip. Each test is
+  a physical statement, not just a numerical check.
+- `run_tests.py` — UPDATED. The new test is wired into the
+  CI pipeline as `test_nfdm_tension_field()`. Run #412
+  Success confirms all tests pass together.
+
+### The target benchmark (for the next session)
+
+Reproduce the earlier documented run:
+
+  Geometry: 3 m × 3 m hypar, 1 m differential corner height
+  Mesh:     7 × 7 nodes, 72 triangles
+  Load:     low prestress + downward transverse loading
+  Expected (ordinary membrane): sigma_min ≈ −1215.76
+  Expected (tension-field):     sigma_min = 0.0
+  Expected residual:            R_max ≈ 7.7e−10
+
+If `solve_nfdm_tension_field` reproduces those numbers, the
+implementation is correct. The numbers are the acceptance test.
+
+### Next session's first function
+
+`solve_nfdm_tension_field` — the wrapper in
+`engine/nfdm_tension_field.py`. It will:
+
+  1. Call `nfdm.solve_nfdm(...)` as it stands, to get an
+     ordinary-membrane equilibrium.
+  2. For each triangle in that configuration, extract the
+     current 2×2 in-plane stress tensor.
+  3. Call `project_tension_field` on each.
+  4. Assemble the projected stress state as the new target.
+  5. Re-run `nfdm.solve_nfdm(...)` with the projected state.
+  6. Iterate the outer loop until the projection is a no-op
+     (no compression detected).
+  7. Return the final coordinates, the projected stress
+     state, iteration count, and the convergence history.
+
+The outer loop is typically two to four iterations. If it
+exceeds eight, something is wrong and we stop and diagnose.
+
+### Workflow lesson from tonight
+
+Four CI failures, all whitespace, all caused by the GitHub
+web editor on iPhone auto-indenting on paste. None were
+physics problems. None were logic problems.
+
+Counter-measure, to apply from now on:
+
+**Edits to existing files are done as complete-file
+replacements, not partial pastes.** Read the current file,
+write the new version in the chat, paste the whole file as
+a replacement, read back the top three and bottom three
+lines, then commit. This removes the auto-indent trap
+entirely.
+
+Additional counter-measures that worked tonight:
+
+- Screenshot the file listing (not the editor header) when
+  the filename is in doubt. The editor header truncates on
+  iPhone Safari; the file listing does not.
+- Read back the first three and last three lines after
+  every paste.
+- One commit per small change.
+- Cancel and redo, do not fix in place.
+
+### State of the project at close
+
+Live and correct:
+- `engine/mesh_triangulated.py` — universal mesh engine. Live.
+- `engine/form_finding.py` — FDM solver. Live.
+- `engine/mesh_triangulated_test.py` — five boundary tests. Passing.
+- `viewers/figures/standard_saddle_mbs.py` — saddle viewer. Live.
+- `data/recipes/standard_saddle.py` — recipe. Live.
+- `data/materials.py` — Ferrari 702 record for Type III PVDF. Live.
+- `ui/workshops/tester_mbs.py` — the MBS Tester. Live.
+- `engine/nfdm.py` — Pauletti NFDM kernel. Isolated, tested, unused.
+- `engine/nfdm_tension_field.py` — projection function. New. Committed.
+- `engine/nfdm_tension_field_test.py` — six tests. New. Committed.
+- `run_tests.py` — CI runner, updated. Green.
+
+Awaiting cleanup (do not delete tonight; handle in a
+dedicated cleanup session):
+- `HANDOVER_2026-10-01` — the earlier handover, whose
+  diagnosis of Stage 2 was incomplete. Read for history.
+- `engine/mesh_universal.py` — superseded by
+  `mesh_triangulated.py`.
+- `engine/mesh_universal_test.py` — its test.
+- `engine/SPEC_mesh_topology.md`, `engine/SPEC_mesh_universal.md`,
+  `engine/SPEC_mesh_from_segments.md` — superseded specs.
+  Mark at the top, do not delete.
+
+### The Chief's instruction, recorded
+
+When the Chief raises an architectural question, the Chief
+has usually already seen the answer. Listen first. Confirm
+second. Propose third. This held tonight: the Chief named
+`nfdm.py` as possibly the missing file, and the Chief was
+right.
+
+The AI's job is to type. The Chief's job is to think.
+
+### End of entry.
+
+
+
 
