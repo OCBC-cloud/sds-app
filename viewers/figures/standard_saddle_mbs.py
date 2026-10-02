@@ -45,7 +45,6 @@ from viewers.figures._shared import (
     arclength_parametrisation,
     find_index_at_arclength_fraction,
 )
-from engine.form_finding import solve_fdm
 from engine.mesh_triangulated import build_mesh_triangulated
 
 
@@ -207,20 +206,25 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     )
 
     points = result["points"]
+    points_initial = result["points_initial"]
     edges = result["edges"]
     triangles = result["triangles"]
     fixed_indices = result["fixed_indices"]
     q = result["q"]
     diag = result["diagnostics"]
 
-    # ---- 6. Solve FDM.
-    res = solve_fdm(points, edges, fixed_indices, q)
-    coords = res["coordinates"]
+    # ---- 6. The engine already form-found the mesh.
+    # build_mesh_triangulated runs solve_fdm internally at
+    # step 8. The viewer reads the result. It does not call
+    # solve_fdm again. This matches the professional FDM
+    # workflow: the form-finder owns the solve, the results
+    # page reads the answer.
+    coords = points
 
     # ---- 7. Diagnostics.
     n_nodes = coords.shape[0]
 
-    disp = np.linalg.norm(coords - points, axis=1)
+    disp = np.linalg.norm(coords - points_initial, axis=1)
     order = np.argsort(disp)[::-1]
     top_disp = []
     for rank, k in enumerate(order[:20]):
