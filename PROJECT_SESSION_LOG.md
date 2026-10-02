@@ -2034,5 +2034,24 @@ robust to bad hand-written tangents.
 
 Then Level 2 begins.
 
+2026-10-02 evening (Stage 2 begins)
+
+- SDS_HYPAR_TENSION_FIELD.py confirmed not to exist as a file.
+  The document was a specification, not a program. Search ended.
+- engine/nfdm.py found: a real, working, tested Pauletti NFDM
+  kernel from 2026-09-23. The handover had classified it
+  "reference only". It is the true foundation of Stage 2.
+- engine/nfdm_tension_field.py written. project_tension_field
+  and two helpers. 145 lines. Committed.
+- engine/nfdm_tension_field_test.py written. Six hand-checkable
+  tests. Committed.
+- run_tests.py updated to include the new test. Run #412 Success.
+- Workflow lesson: the iPhone GitHub editor auto-indents on paste.
+  Four CI failures tonight, all whitespace, all from that.
+  Counter-measure for next session: edits to existing files will
+  be done as complete-file replacements, not partial pastes.
+- Next session begins with solve_nfdm_tension_field, the wrapper
+  that will reproduce the −1215.76 / 0.0 benchmark.
+
 End of entry.
 
