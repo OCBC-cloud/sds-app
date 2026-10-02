@@ -1832,4 +1832,208 @@ produce q <= 0 through the anisotropic blend. The
 guard protects future direct callers — the benchmark,
 the Tester, any viewer — from a silent NaN.
 
+## 2026-10-01 - Evening addendum - Level 1 limitation
+## and the tension-field roadmap
+
+### The 50:1 collapse - diagnosis
+
+Late in the day, the Chief set warp to 50.0 kN/m and
+weft to 1.0 kN/m on the Standard Saddle. The membrane
+did not rise toward the apex. It flattened and dropped.
+The Chief asked whether the physics was wrong.
+
+It is. The cause is in build_mesh_triangulated:
+
+  - Step 4 assembles the interior nodes at z = 0 in
+    the plan plane. All interior nodes start flat.
+  - Step 8 runs solve_fdm from that flat start.
+  - At moderate q ratios, the boundary z dominates and
+    the shape is correct.
+  - At extreme q ratios, the warp edges pull the
+    interior hard toward the boundary and the weft
+    edges offer little resistance. The interior
+    collapses onto the warp edges.
+
+The Laplace lift is the missing piece. It solved for
+interior z from the boundary z. Removing it removed
+the mechanism that lifted the interior toward the
+boundary shape. The FDM solver was designed to refine
+a reasonable initial geometry, not to invent one.
+
+### The fix - tomorrow's first task
+
+Restore the Laplace lift as a pre-step before the FDM
+solve in build_mesh_triangulated:
+
+  4. Assemble points.
+  4a. Laplace lift: interior z from boundary z.
+  4b. FDM solve with anisotropic q.
+  5. Edges.
+  6. Fixed indices.
+  7-9. As now.
+
+The _laplace_lift function is still in the file,
+unused but intact. It can be called again.
+
+Then re-test at warp 50 / weft 1. The shape should
+rise toward the boundary profile, not collapse.
+
+### The three levels of membrane analysis
+
+The Chief described the current state of the art in
+the field, and the method being developed on this
+project. Four stages, not three:
+
+  Level 0 - Mesh generation. Triangulated engine.
+            DONE.
+
+  Level 1 - Force Density Method. Shape only.
+            Anisotropic on 2026-10-01. DONE.
+
+  Level 2 - Nonlinear membrane FEM. Green-Lagrange
+            strain, plane-stress constitutive.
+            Physically consistent prestressed
+            equilibrium. NOT BUILT.
+
+  Level 3 - Tension-field nonlinear FEM. Principal
+            stress projection to remove compression.
+            Tension-only re-equilibration.
+            NOT BUILT.
+
+The correct framing for the whole chain:
+
+  FDM-assisted nonlinear tension-field membrane
+  equilibrium solver.
+
+### The governing equations
+
+Equilibrium at every free node:
+
+  R_i = sum_e f_{i,e}^int - F_i^ext = 0
+
+The nonlinear solver changes free-node coordinates
+until max |R_i| -> 0.
+
+Strain - Green-Lagrange, geometrically nonlinear:
+
+  E = 1/2 (F^T F - I)
+
+  F = dx/dX, the deformation gradient.
+
+Constitutive - plane stress:
+
+  sigma = C E
+
+  C = E/(1-nu^2) * [1, nu, 0; nu, 1, 0; 0, 0,
+      (1-nu)/2]
+
+Tension field projection - remove compression:
+
+  sigma = Q diag(sigma_1, sigma_2) Q^T
+  sigma_1+ = max(sigma_1, 0)
+  sigma_2+ = max(sigma_2, 0)
+  sigma_TF = Q diag(sigma_1+, sigma_2+) Q^T
+
+Compression is not allowed to contribute to the
+load-carrying stress state. The solver re-equilibrates
+with this modified response.
+
+### The reference program
+
+The Chief provided a working reference implementation:
+SDS_HYPAR_TENSION_FIELD.py. One Python file, separated
+into functions so every stage is auditable.
+
+Functions:
+  create_hypar_geometry()
+  create_triangular_mesh()
+  create_boundary_conditions()
+  fdm_form_finding()
+  deformation_gradient()
+  green_lagrange_strain()
+  constitutive_matrix()
+  membrane_stress()
+  tension_field_projection()
+  element_internal_force()
+  assemble_global_residual()
+  nonlinear_equilibrium_solver()
+  calculate_principal_stresses()
+  calculate_displacements()
+  independent_equilibrium_check()
+
+The nonlinear solve uses scipy.optimize.least_squares
+with tight tolerances. Residual independently verified
+after the solve.
+
+### The orthotropic extension - the next big step
+
+Beyond Level 3, the target is the orthotropic fabric
+model:
+
+  E_1, E_2        - Young's moduli along warp/weft.
+  nu_12           - Poisson ratio across.
+  G_12            - in-plane shear modulus.
+  N_{1,0}, N_{2,0} - prestress resultants.
+
+That replaces our single q per edge with a full
+orthotropic stiffness matrix per element, and
+replaces warp_q/weft_q with prescribed initial
+stress resultants.
+
+The prestress triad we already expose maps cleanly:
+
+  warp_q          -> N_{1,0}
+  weft_q          -> N_{2,0}
+  edge_cable      -> boundary condition on cables
+  warp_dir        -> anisotropy direction
+
+Our anisotropic FDM work today is not wasted. It is
+the Level 1 initial guess for a Level 2 orthotropic
+solver.
+
+### The "full element library" document
+
+Also received on this date: a "full element library"
+document offering a complete nonlinear membrane
+solver with geometric stiffness, tension-field
+projection, phase-field wrinkling regularization,
+and arc-length continuation.
+
+Examination finding: the document is a sketch, not
+an implementation. _material_stiffness returns
+zeros. _load_stiffness is empty (pass). The
+deformation gradient is dimensionally incorrect.
+The tension-field tangent indexes a Voigt matrix by
+a principal-direction index. The arc-length solver
+uses a finite-difference approximation for the load
+vector.
+
+The concepts are correct and worth recording:
+  - material + geometric stiffness
+  - tension-field projection (Roddeman)
+  - follower-force load stiffness
+  - phase-field regularization for wrinkling
+
+The code is not usable. Do not adopt it as
+engine/nonlinear_tension_field.py.
+
+For Level 2, use the Chief's working reference
+program SDS_HYPAR_TENSION_FIELD.py instead. It runs.
+It uses scipy.optimize.least_squares, which is
+robust to bad hand-written tangents.
+
+### Tomorrow's plan
+
+  1. Restore the Laplace lift as a pre-FDM step.
+  2. Re-verify 50:1 warp/weft.
+  3. Record SPEC_stages.md.
+  4. Delete HANDOVER_2026-10-01.
+  5. Delete engine/mesh_universal.py and its test.
+  6. Mark SPEC_mesh_topology.md and
+     SPEC_mesh_universal.md as superseded.
+
+Then Level 2 begins.
+
+End of entry.
+
 End of entry.
