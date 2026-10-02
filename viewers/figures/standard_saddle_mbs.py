@@ -519,6 +519,55 @@ def build_standard_saddle():
 
     fig = apply_common_layout(fig, rise)
 
+    # ---- Shape tuning expander.
+    with st.expander("Shape tuning (warp / weft ratio)", expanded=True):
+        st.markdown(
+            "Adjust the warp-to-weft ratio. The absolute prestress "
+            "stays anchored to the fabric's recommended band. "
+            "Only the shape responds."
+        )
+
+        cur_warp = float(
+            st.session_state.get("ws_ss_warp_pretension", 1.0)
+        )
+        cur_weft = float(
+            st.session_state.get("ws_ss_weft_pretension", 1.0)
+        )
+
+        # The ratio is expressed as log10(warp/weft).
+        # 0 means balanced. Positive means warp dominant.
+        if cur_weft < 1e-9:
+            cur_ratio = 0.0
+        else:
+            cur_ratio = float(np.log10(cur_warp / cur_weft))
+
+        # Clamp to the ratio_limit of the material: 4.0.
+        # log10(4) = 0.602, so the slider runs from -0.60 to +0.60.
+        slider_val = st.slider(
+            "Warp / Weft ratio (log10)",
+            min_value=-0.60,
+            max_value=0.60,
+            value=max(-0.60, min(0.60, cur_ratio)),
+            step=0.02,
+            key="ws_ss_ratio_slider",
+        )
+
+        # Convert back to warp and weft inputs.
+        ratio = float(10.0 ** slider_val)
+        mean_val = 0.5 * (cur_warp + cur_weft)
+        if mean_val < 1e-9:
+            mean_val = 1.0
+        new_warp = mean_val * ratio
+        new_weft = mean_val / ratio
+
+        st.session_state["ws_ss_warp_pretension"] = float(new_warp)
+        st.session_state["ws_ss_weft_pretension"] = float(new_weft)
+
+        st.markdown(
+            "Current: **Warp %.2f kN/m** | **Weft %.2f kN/m** | "
+            "**Ratio %.2f:1**"
+            % (new_warp, new_weft, ratio)
+        )
     # ---- Diagnostics expander.
     with st.expander("FDM diagnostics (temporary)", expanded=False):
         st.markdown("**Boundary loop:**")
