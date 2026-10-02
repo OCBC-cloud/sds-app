@@ -326,9 +326,16 @@ def build_standard_saddle():
         tiedown_pretension=tiedown_pretension,
     )
     coords = built["points"]
+    points_initial = built["points_initial"]
+    edges = built["edges"]
     triangles = built["triangles"]
+    fixed_indices = built["fixed_indices"]
+    q = built["q"]
     boundary_loop = built["boundary_loop"]
     diag = built["diagnostics"]
+    warp_q = built["warp_q"]
+    weft_q = built["weft_q"]
+    edge_q = built["edge_q"]
 
     # ---- Beam curves for drawing.
     n_pts = 200
