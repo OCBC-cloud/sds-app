@@ -320,7 +320,7 @@ def _triangulate_polygon(pts_2d, target_edge_length):
     else:
         interior_pts = np.zeros((len(used_interior), 2))
         remap = {}
-    for new_idx, old_idx in enumerate(used_interior):
+        for new_idx, old_idx in enumerate(used_interior):
             interior_pts[new_idx] = all_pts[old_idx]
             remap[old_idx] = n_boundary + new_idx
 
@@ -636,16 +636,34 @@ def build_mesh_triangulated(
     v = np.cross(normal, u)
     v = v / (np.linalg.norm(v) + 1e-30)
 
-    # Lift every node from plan coordinates to 3D. Boundary nodes
-    # use their true 3D positions. Interior nodes start on the
-    # plan plane; the FDM step below moves them to equilibrium.
+    # Lift every node from plan coordinates to 3D. Boundary
+    # nodes use their true 3D positions.
     all_points = np.zeros((all_pts_2d.shape[0], 3))
     for i in range(pts_3d.shape[0]):
         all_points[i] = pts_3d[i]
-    for i in range(pts_3d.shape[0], all_pts_2d.shape[0]):
-        a = all_pts_2d[i, 0]
-        b = all_pts_2d[i, 1]
-        all_points[i] = origin + a * u + b * v
+
+    # For the interior nodes, use the Laplace lift as the
+    # initial z guess. Without it, every interior node would
+    # start at the same z (the plane origin), and the FDM
+    # solve would have to move them all by the same large
+    # amount — swamping the warp/weft signal.
+    if n_interior > 0:
+        boundary_z = np.array([
+            float(np.dot(p - origin, normal)) for p in pts_3d
+        ])
+        z_init = _laplace_lift(
+            all_pts_2d, normal, origin, boundary_z, n_boundary
+        )
+        for i in range(pts_3d.shape[0], all_pts_2d.shape[0]):
+            a = all_pts_2d[i, 0]
+            b = all_pts_2d[i, 1]
+            z = float(z_init[i])
+            all_points[i] = origin + a * u + b * v + z * normal
+    else:
+        for i in range(pts_3d.shape[0], all_pts_2d.shape[0]):
+            a = all_pts_2d[i, 0]
+            b = all_pts_2d[i, 1]
+            all_points[i] = origin + a * u + b * v
 
     # ---- 5. Edges.
     edges = _edges_from_triangles(triangles, all_points.shape[0])
