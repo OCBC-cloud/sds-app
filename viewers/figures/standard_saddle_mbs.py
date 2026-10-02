@@ -529,6 +529,81 @@ def build_standard_saddle():
                     "Empty today. Populated in Stage 3.")
         st.markdown("- (none)")
 
+        # ---- Full mesh diagnostic - copy to clipboard.
+        st.markdown("---")
+        st.markdown("**Full mesh diagnostic** - one tap to copy.")
+
+        if st.button("Generate diagnostic", key="ss_diag_gen"):
+            lines = []
+            lines.append("SDSe MESH DIAGNOSTIC")
+            lines.append("=" * 40)
+            lines.append("Shape: Standard Saddle")
+            lines.append("Attachment: " + diag["attachment_type"])
+            lines.append("")
+            lines.append("INPUTS")
+            lines.append("-" * 40)
+            lines.append("Anchors: %d" % diag["n_anchors"])
+            lines.append("Segments: %d" % diag["n_segments"])
+            lines.append("Target edge: %.4f" % diag["target_edge_length"])
+            lines.append("L_avg: %.4f" % diag["L_avg"])
+            lines.append("Warp pre (kN/m): %.4f" % warp_pre)
+            lines.append("Weft pre (kN/m): %.4f" % weft_pre)
+            lines.append("Edge pre (kN): %.4f" % edge_pre)
+            lines.append("Warp q (N/m): %.4f" % warp_q)
+            lines.append("Weft q (N/m): %.4f" % weft_q)
+            lines.append("Edge q (N/m): %.4f" % edge_q)
+            lines.append("")
+            lines.append("MESH")
+            lines.append("-" * 40)
+            lines.append("Nodes: %d" % diag["n_nodes"])
+            lines.append("Edges: %d" % diag["n_edges"])
+            lines.append("Triangles: %d" % diag["n_triangles"])
+            lines.append("Fixed: %d" % diag["n_fixed"])
+            lines.append("Free: %d" % diag["n_free"])
+            lines.append("")
+            lines.append("NODES  (i | x0 y0 z0 | x1 y1 z1 | dz | fixed)")
+            lines.append("-" * 40)
+            for i in range(points_initial.shape[0]):
+                xi = points_initial[i]
+                xf = coords[i]
+                dz = float(xf[2] - xi[2])
+                fx = "T" if i in fixed_indices else "F"
+                lines.append(
+                    "%4d | %8.4f %8.4f %8.4f | %8.4f %8.4f %8.4f | %8.4f | %s"
+                    % (i, xi[0], xi[1], xi[2],
+                       xf[0], xf[1], xf[2], dz, fx)
+                )
+            lines.append("")
+            lines.append("EDGES  (k | a b | L0 L1 | q | T=q*L1)")
+            lines.append("-" * 40)
+            T_vals = []
+            for k, (a, b) in enumerate(edges):
+                L0 = float(np.linalg.norm(points_initial[b] - points_initial[a]))
+                L1 = float(np.linalg.norm(coords[b] - coords[a]))
+                qk = float(q[k])
+                T = qk * L1
+                T_vals.append(T)
+                lines.append(
+                    "%4d | %4d %4d | %8.4f %8.4f | %10.2f | %10.2f"
+                    % (k, a, b, L0, L1, qk, T)
+                )
+            lines.append("")
+            lines.append("FORCE SUMMARY")
+            lines.append("-" * 40)
+            if T_vals:
+                lines.append("Min T: %.4f" % min(T_vals))
+                lines.append("Max T: %.4f" % max(T_vals))
+                lines.append("Mean T: %.4f" % (sum(T_vals) / len(T_vals)))
+            lines.append("")
+            lines.append("END")
+
+            st.code("\n".join(lines), language="text")
+        else:
+            st.markdown(
+                "_Tap 'Generate diagnostic', then tap the copy "
+                "icon on the code block._"
+            )
+
     return fig
 
 
