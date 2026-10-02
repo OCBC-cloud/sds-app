@@ -190,8 +190,38 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     if L_avg < 1e-9:
         L_avg = 1.0
 
-    warp_q = max(0.1, float(warp_pretension)) * 1000.0 / L_avg
-    weft_q = max(0.1, float(weft_pretension)) * 1000.0 / L_avg
+    # The user's warp/weft inputs are interpreted as a *ratio*,
+    # not an absolute force. The absolute force level is anchored
+    # to the baseline prestress of the selected fabric.
+    #
+    # This matches ixForten's approach: the shape responds to the
+    # ratio of force densities, while the absolute magnitude stays
+    # within the material's safe band.
+    #
+    # Baseline: 2.0 kN/m (Ferrari 702 recommended prestress).
+    # Ratio limit: 4.0 (warp/weft or weft/warp must not exceed this).
+    baseline_kN_per_m = 2.0
+    ratio_limit = 4.0
+
+    warp_input = max(0.1, float(warp_pretension))
+    weft_input = max(0.1, float(weft_pretension))
+
+    mean_input = 0.5 * (warp_input + weft_input)
+    if mean_input < 1e-9:
+        mean_input = 1.0
+
+    # Relative multipliers around 1.0.
+    warp_rel = warp_input / mean_input
+    weft_rel = weft_input / mean_input
+
+    # Clamp the ratio so we stay inside the material's safe band.
+    if warp_rel / weft_rel > ratio_limit:
+        warp_rel = ratio_limit * weft_rel
+    if weft_rel / warp_rel > ratio_limit:
+        weft_rel = ratio_limit * warp_rel
+
+    warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_avg
+    weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_avg
     edge_q = max(0.1, float(edge_cable_pretension)) * 1000.0 / L_avg
 
     # ---- 5. Call the engine.
