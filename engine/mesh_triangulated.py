@@ -714,6 +714,7 @@ def build_mesh_triangulated(
 
     return {
         "points": all_points,
+        "points_initial": points_initial,
         "edges": edges,
         "triangles": triangles,
         "fixed_indices": fixed_indices,
