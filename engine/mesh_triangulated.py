@@ -676,6 +676,13 @@ def build_mesh_triangulated(
     )
 
     # ---- 8. Form-find with FDM.
+    # Save the initial mesh BEFORE the solve, so the caller
+    # can compare starting shape with equilibrium shape.
+    # This matches the professional FDM workflow: initial
+    # mesh and equilibrium mesh are two separate states.
+    points_initial = all_points.copy()
+
+    fdm_result = None
     if len(fixed_indices) > 0:
         fdm_result = solve_fdm(
             all_points,
