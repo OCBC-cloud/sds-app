@@ -4,6 +4,13 @@
 # Runs the engine tests. Called by GitHub Actions on every push.
 # Add new test functions here as we build more engine modules.
 #
+# Updated 2026-10-03:
+#   - Fixed the __main__ guard. It was indented inside main(),
+#     so running this file as a script defined main() and then
+#     exited without calling it. The CI was green because the
+#     tests were never actually running.
+#   - Removed test_mesh_universal(). It is dead code.
+#
 # Updated 2026-09-30:
 #   - Switched to the triangulated mesh engine test.
 #     The universal (structured) engine test remains in
@@ -85,28 +92,8 @@ def test_hypar_benchmark():
         print("  " + str(e))
         print("-" * 60)
         return False
+        
 
-
-def test_mesh_universal():
-    """Run the universal mesh engine test. Returns True if pass."""
-    print("=" * 60)
-    print("TEST: engine/mesh_universal.py - universal mesh engine")
-    print("=" * 60)
-    try:
-        from engine.mesh_universal_test import run
-        ok = run()
-        print("-" * 60)
-        if ok:
-            print("RESULT: PASS")
-            return True
-        else:
-            print("RESULT: FAIL")
-            return False
-    except Exception as e:
-        print("RESULT: FAIL")
-        print("  " + str(e))
-        print("-" * 60)
-        return False
 def test_mesh_triangulated():
     """Run the triangulated mesh engine test. Returns True if pass."""
     print("=" * 60)
@@ -127,6 +114,8 @@ def test_mesh_triangulated():
         print("  " + str(e))
         print("-" * 60)
         return False
+
+
 def test_nfdm_tension_field():
     """Run the NFDM tension-field projection test. Returns True if pass."""
     print("=" * 60)
@@ -163,6 +152,7 @@ def main():
         all_pass = False
     if not test_nfdm_tension_field():
         all_pass = False
+
     print()
     print("=" * 60)
     if all_pass:
@@ -173,15 +163,10 @@ def main():
         sys.exit(1)
 
 
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
 
 
 # =============================================================================
 # END OF run_tests.py
 # =============================================================================
-
-
-
-
-
