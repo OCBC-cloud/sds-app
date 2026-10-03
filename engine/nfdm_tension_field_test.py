@@ -71,7 +71,7 @@ def _test_pure_compression():
 
     ok_tensor = np.allclose(sigma_tf, np.zeros((2, 2)), atol=TOL)
     ok_flag = (comp is True)
-    ok_principal = (s[1] <= TOL) and (s[1] < 0.0)
+    ok_principal = (s[0] < 0.0) and (abs(s[1]) < TOL)
 
     return ok_tensor and ok_flag and ok_principal
 
