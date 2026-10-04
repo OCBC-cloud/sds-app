@@ -17,19 +17,31 @@
 #   Beam R: from near tip P1, back along the beam, to far tip P0.
 #
 # The closed boundary loop:
-#   Beam L forward (all anchors), then Beam R interior (skip both
+#   Beam L forward (all points), then Beam R interior (skip both
 #   tips since they are shared). The loop is closed by convention.
 #
-# Anchors and segments:
-#   The anchors are the two tips plus the intermediate anchors
-#   along each beam. Segments between them are classified by
-#   attachment_type: "kader" -> all beam, "cable_supported" ->
-#   all cable.
+# Anchors and segments (Step 2E, 2026-10-04):
+#   The anchors are the attachment points. They are placed at
+#   equal arc fractions along each beam. Between consecutive
+#   anchors, the boundary is subdivided into interior points
+#   spaced by mesh_spacing.
+#
+#   The engine then holds the anchors. It holds or releases the
+#   interior points based on the segment type:
+#     kader            -> all segments are "beam"  -> all held.
+#     cable_supported  -> all segments are "cable" -> released.
+#
+#   In cable_supported mode, the released points move to a new
+#   equilibrium. The edge cable runs between the anchors and
+#   carries the load.
 #
 # History:
 #   2026-09-29 - Step 2C. First MBS version. Hand-built mesh.
 #   2026-09-30 - Step 2D. Wired to a structured engine.
 #   2026-09-30 - Step 5. Rewritten to use the triangulated engine.
+#   2026-10-04 - Step 2E. Anchors and subdivision. Cable toggle
+#                finally works. Edge cable drawn between anchors.
+#                Edge cable length reported.
 # =============================================================================
 
 import math
@@ -46,6 +58,67 @@ from viewers.figures._shared import (
     find_index_at_arclength_fraction,
 )
 from engine.mesh_triangulated import build_mesh_triangulated
+from data.materials import CABLE_PROPERTIES
+
+
+# =============================================================================
+# CABLE SIZE PICKER (internal)
+# =============================================================================
+
+def _pick_cable_diameter(cable_type, material, pretension_kN,
+                          safety_factor=5.0):
+    """
+    Pick the smallest cable diameter in the given family whose
+    breaking load exceeds pretension * safety_factor.
+
+    Returns a dict with the chosen entry's fields, or None.
+    The user does not see this. It is reported in diagnostics.
+    """
+    family = None
+    if cable_type == "6x19":
+        family = CABLE_PROPERTIES.get("Strand", {})
+    elif cable_type == "Locked Coil":
+        family = CABLE_PROPERTIES.get("Locked Coil", {})
+    elif cable_type == "Spiral":
+        family = CABLE_PROPERTIES.get("Spiral", {})
+
+    if not family:
+        return None
+
+    required_kN = float(pretension_kN) * float(safety_factor)
+
+    # Sort the family by area, ascending.
+    entries = []
+    for name, props in family.items():
+        if name == "default":
+            continue
+        try:
+            A_mm2 = float(props.get("A", 0.0))
+            f_u = float(props.get("f_u", 0.0))
+        except Exception:
+            continue
+        if A_mm2 <= 0 or f_u <= 0:
+            continue
+        breaking_kN = A_mm2 * f_u / 1000.0
+        entries.append({
+            "name": name,
+            "d": float(props.get("d", 0.0)),
+            "A": A_mm2,
+            "f_u": f_u,
+            "E": float(props.get("E", 0.0)),
+            "kg_m": float(props.get("kg_m", 0.0)),
+            "breaking_kN": breaking_kN,
+        })
+
+    entries.sort(key=lambda e: e["A"])
+    for e in entries:
+        if e["breaking_kN"] >= required_kN:
+            return e
+
+    # Nothing satisfies the requirement. Return the largest.
+    if entries:
+        return entries[-1]
+    return None
 
 
 # =============================================================================
@@ -53,35 +126,33 @@ from engine.mesh_triangulated import build_mesh_triangulated
 # =============================================================================
 
 def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
-                          attachment_type):
+                          mesh_spacing, attachment_type):
     """
     Build the closed boundary loop, the anchor indices, and
     the segment types for the triangulated engine.
 
-    Layout:
+    Layout (Step 2E):
         Beam L:  anchor_count anchors from far tip P0 to near tip P1.
+                 Between consecutive anchors, sub interior points.
         Beam R:  anchor_count anchors from near tip P1 to far tip P0.
-        The two tips are shared. The closed loop is:
-            Beam L anchors[0..N-1]
-            + Beam R anchors[1..N-2] (skip both tips)
-        Total loop size: 2 * anchor_count - 2.
+                 Between consecutive anchors, sub interior points.
+        The two tips are shared.
+        The closed loop is:
+            Beam L all points,
+            then Beam R interior (skip both tips, they are already
+            in Beam L).
 
-    Anchor indices into the loop:
-        anchors = [0, 1, 2, ..., anchor_count-1, anchor_count, ...,
-                   2*anchor_count-3]
-        Every loop index is an anchor, because the beam is
-        segmented between consecutive anchors. So anchors =
-        list(range(loop_size)).
+    Anchors: only the true anchor points. Not every loop point.
 
-    Actually: for the saddle, the segment count between the two
-    beams is (anchor_count - 1) per beam. We place anchor points
-    at every loop vertex. The segment types list is one per
-    loop vertex pair.
+    Segments: one per consecutive anchor pair. All "beam" for kader,
+    all "cable" for cable_supported.
 
     Returns:
         boundary_loop : (n, 3) array
-        anchors       : list of int (all loop vertices)
-        seg_types     : list of str, length = n (loops around)
+        anchors       : list of int, indices into boundary_loop
+        seg_types     : list of str, one per segment
+        anchor_pos    : (anchor_count * 2 - 2, 3) array of the
+                        anchor points themselves
     """
     n_pts = len(x)
     s, total = arclength_parametrisation(x, z_beam)
@@ -89,43 +160,104 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
         s = np.linspace(0.0, 1.0, n_pts)
         total = 1.0
 
-    # Anchors at equal arc fractions, including both tips.
+    # Anchor arc-length targets on one beam: anchor_count equally
+    # spaced values from 0 to total.
     arc_targets = np.linspace(0.0, total, anchor_count)
 
+    # Subdivision between consecutive anchors: derived from
+    # mesh_spacing and the segment arc length.
+    if anchor_count > 1:
+        seg_arc = total / float(anchor_count - 1)
+    else:
+        seg_arc = total
+    if mesh_spacing is None or mesh_spacing <= 0:
+        sub = 1
+    else:
+        sub = int(round(seg_arc / float(mesh_spacing)))
+        if sub < 1:
+            sub = 1
+        if sub > 20:
+            sub = 20
+
+    # Build one beam's point list (anchor + interior points).
+    def _beam_points(y_curve, reverse=False):
+        pts = []
+        anchors_local = []
+        for k in range(anchor_count):
+            target = arc_targets[k]
+            bx = float(np.interp(target, s, x))
+            bz = float(np.interp(target, s, z_beam))
+            by = float(np.interp(target, s, y_curve))
+            anchors_local.append(len(pts))
+            pts.append((bx, by, bz))
+            # Interior points between this anchor and the next.
+            if k < anchor_count - 1 and sub > 0:
+                a0 = arc_targets[k]
+                a1 = arc_targets[k + 1]
+                for j in range(1, sub + 1):
+                    frac = float(j) / float(sub + 1)
+                    target_mid = a0 + (a1 - a0) * frac
+                    mx = float(np.interp(target_mid, s, x))
+                    mz = float(np.interp(target_mid, s, z_beam))
+                    my = float(np.interp(target_mid, s, y_curve))
+                    pts.append((mx, my, mz))
+        if reverse:
+            # Reverse the order but keep track of anchors.
+            n = len(pts)
+            rev_pts = [pts[n - 1 - i] for i in range(n)]
+            rev_anchors = [n - 1 - a for a in anchors_local]
+            return rev_pts, rev_anchors
+        return pts, anchors_local
+
     # Beam L: far tip -> near tip.
-    beam_L = np.zeros((anchor_count, 3))
-    for k, target in enumerate(arc_targets):
-        bx = float(np.interp(target, s, x))
-        bz = float(np.interp(target, s, z_beam))
-        by = float(np.interp(target, s, y1))
-        beam_L[k] = (bx, by, bz)
+    beam_L_pts, beam_L_anchors = _beam_points(y1, reverse=False)
 
-    # Beam R: near tip -> far tip (reverse).
-    beam_R = np.zeros((anchor_count, 3))
-    for k, target in enumerate(arc_targets[::-1]):
-        bx = float(np.interp(target, s, x))
-        bz = float(np.interp(target, s, z_beam))
-        by = float(np.interp(target, s, y2))
-        beam_R[k] = (bx, by, bz)
+    # Beam R: near tip -> far tip. Reverse so its first point
+    # is the near tip (already in Beam L) and its last is the
+    # far tip (also in Beam L).
+    beam_R_pts, beam_R_anchors = _beam_points(y2, reverse=True)
 
-    # Closed loop: Beam L forward, Beam R interior (skip both tips).
-    boundary_loop = np.vstack([beam_L, beam_R[1:-1]])
+    # Assemble the loop.
+    # Beam L: all points.
+    # Beam R: skip the first (near tip) and the last (far tip).
+    loop_pts = list(beam_L_pts)
+    # Beam R interior points: skip index 0 (near tip) and index n-1 (far tip).
+    for i in range(1, len(beam_R_pts) - 1):
+        loop_pts.append(beam_R_pts[i])
+
+    boundary_loop = np.asarray(loop_pts, dtype=float)
     n_loop = boundary_loop.shape[0]
 
-    # Every loop vertex is an anchor.
-    anchors = list(range(n_loop))
+    # Build the anchors list, in loop order.
+    # Beam L anchors are already at the correct loop indices.
+    anchors = list(beam_L_anchors)
+    # Beam R anchors: map to loop indices. Beam R interior points
+    # start at loop index len(beam_L_pts) and correspond to
+    # beam_R indices 1..n-2.
+    offset = len(beam_L_pts)
+    for a in beam_R_anchors:
+        if a == 0:
+            # Near tip. Same as beam_L_anchors[-1].
+            continue
+        if a == len(beam_R_pts) - 1:
+            # Far tip. Same as beam_L_anchors[0].
+            continue
+        loop_idx = offset + (a - 1)
+        anchors.append(loop_idx)
 
-    # Segment types. All "beam" for kader. All "cable" for
-    # cable_supported.
+    anchors = sorted(set(anchors))
+
+    # Segment types: one per consecutive anchor pair.
+    n_seg = len(anchors)
     if str(attachment_type).lower() == "cable_supported":
-        seg_types = ["cable"] * n_loop
+        seg_types = ["cable"] * n_seg
     else:
-        seg_types = ["beam"] * n_loop
+        seg_types = ["beam"] * n_seg
 
-    return boundary_loop, anchors, seg_types
+    # Anchor positions, for drawing and length computation.
+    anchor_pos = boundary_loop[anchors]
 
-
-
+    return boundary_loop, anchors, seg_types, anchor_pos
 
 
 # =============================================================================
@@ -136,28 +268,14 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
                        anchor_count, mesh_spacing, transverse_count,
                        warp_pretension, weft_pretension,
                        edge_cable_pretension,
-                       attachment_type, tiedown_pretension):
+                       attachment_type, tiedown_pretension,
+                       edge_cable_type, edge_cable_material,
+                       tiedown_cable_type, tiedown_cable_material):
     """
     Build the boundary loop, call the triangulated engine,
     solve FDM. Return everything the viewer needs.
 
-    The engine runs form-finding internally. The viewer
-    reads both the initial mesh and the equilibrium mesh.
-
-    Returns a dict with:
-        points            (n_nodes, 3) array (solved)
-        points_initial    (n_nodes, 3) array (before FDM)
-        edges             list of (i, j)
-        triangles         list of (a, b, c)
-        fixed_indices     list of int
-        q                 (n_edges,) force densities
-        boundary_loop     (n, 3) input boundary
-        anchors           list of int
-        seg_types         list of str
-        diagnostics       dict
-        warp_q            float (N/m)
-        weft_q            float (N/m)
-        edge_q            float (N/m)
+    Returns a dict with the engine output plus diagnostics.
     """
     # ---- 1. Beam curve geometry.
     n_pts = 200
@@ -169,8 +287,9 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
 
     # ---- 2. Boundary loop and metadata.
-    boundary_loop, anchors, seg_types = _build_boundary_loop(
-        x, z_beam, y1, y2, span, anchor_count, attachment_type
+    boundary_loop, anchors, seg_types, anchor_pos = _build_boundary_loop(
+        x, z_beam, y1, y2, span, anchor_count, mesh_spacing,
+        attachment_type,
     )
 
     # ---- 3. Target edge length from mesh spacing.
@@ -190,16 +309,7 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     if L_avg < 1e-9:
         L_avg = 1.0
 
-    # The user's warp/weft inputs are interpreted as a *ratio*,
-    # not an absolute force. The absolute force level is anchored
-    # to the baseline prestress of the selected fabric.
-    #
-    # This matches ixForten's approach: the shape responds to the
-    # ratio of force densities, while the absolute magnitude stays
-    # within the material's safe band.
-    #
-    # Baseline: 2.0 kN/m (Ferrari 702 recommended prestress).
-    # Ratio limit: 4.0 (warp/weft or weft/warp must not exceed this).
+    # Ratio-anchored force density, ratio limit 4.0.
     baseline_kN_per_m = 2.0
     ratio_limit = 4.0
 
@@ -210,11 +320,9 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     if mean_input < 1e-9:
         mean_input = 1.0
 
-    # Relative multipliers around 1.0.
     warp_rel = warp_input / mean_input
     weft_rel = weft_input / mean_input
 
-    # Clamp the ratio so we stay inside the material's safe band.
     if warp_rel / weft_rel > ratio_limit:
         warp_rel = ratio_limit * weft_rel
     if weft_rel / warp_rel > ratio_limit:
@@ -244,7 +352,27 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
     q = result["q"]
     diag = result["diagnostics"]
 
-    # ---- 6. Diagnostics.
+    # ---- 6. Edge cable: length, mass, diameter.
+    edge_cable_length_m = 0.0
+    edge_cable_entries = []
+    if str(attachment_type).lower() == "cable_supported":
+        # Sum of anchor-to-anchor distances along the loop.
+        n_a = len(anchors)
+        for k in range(n_a):
+            a = anchor_pos[k]
+            b = anchor_pos[(k + 1) % n_a]
+            edge_cable_length_m += float(np.linalg.norm(b - a))
+
+    chosen_edge = _pick_cable_diameter(
+        edge_cable_type, edge_cable_material,
+        float(edge_cable_pretension),
+    )
+    chosen_tiedown = _pick_cable_diameter(
+        tiedown_cable_type, tiedown_cable_material,
+        float(tiedown_pretension),
+    )
+
+    # ---- 7. Diagnostics.
     n_nodes = coords.shape[0]
 
     disp = np.linalg.norm(coords - points_initial, axis=1)
@@ -257,7 +385,6 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
             "disp": float(disp[k]),
         })
 
-    # Triangle areas on the solved mesh.
     tri_areas = []
     for (a, b, c) in triangles:
         p0 = coords[a]
@@ -282,7 +409,17 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
         "mean_tri_area": float(tri_areas.mean()),
         "max_tri_area": float(tri_areas.max()),
         "attachment_type": str(attachment_type),
-        "tiedown_pretension": float(tiedown_pretension),
+        "anchor_count": int(anchor_count),
+        "mesh_spacing": float(mesh_spacing),
+        "edge_cable_length_m": float(edge_cable_length_m),
+        "edge_cable_type": str(edge_cable_type),
+        "edge_cable_material": str(edge_cable_material),
+        "edge_cable_pretension_kN": float(edge_cable_pretension),
+        "edge_cable_chosen": chosen_edge,
+        "tiedown_cable_type": str(tiedown_cable_type),
+        "tiedown_cable_material": str(tiedown_cable_material),
+        "tiedown_pretension_kN": float(tiedown_pretension),
+        "tiedown_cable_chosen": chosen_tiedown,
         "top_displacements": top_disp,
         "structural_connections": [],
     }
@@ -296,6 +433,7 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
         "q": q,
         "boundary_loop": boundary_loop,
         "anchors": anchors,
+        "anchor_pos": anchor_pos,
         "seg_types": seg_types,
         "diagnostics": diagnostics,
         "warp_q": float(warp_q),
@@ -303,9 +441,6 @@ def _build_saddle_mbs(span, apex, rise, curve_type,
         "edge_q": float(edge_q),
     }
     return built
-
-
-
 
 
 # =============================================================================
@@ -326,11 +461,22 @@ def build_standard_saddle():
     edge_pre = float(st.session_state.get("ws_ss_edge_cable_pretension", 5.0))
     attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
 
-    anchor_count = int(st.session_state.get("ws_ss_anchor_count", 15))
+    anchor_count = int(st.session_state.get("ws_ss_anchor_count", 8))
     mesh_spacing = float(st.session_state.get("ws_ss_mesh_spacing", 0.5))
     transverse_count = int(st.session_state.get("ws_ss_transverse_count", 8))
-    tiedown_pretension = float(
-        st.session_state.get("ws_ss_tiedown_pretension", 2.5)
+
+    tiedown_pre = float(st.session_state.get("ws_ss_tiedown_pretension", 2.5))
+    edge_cable_type = str(
+        st.session_state.get("ws_ss_edge_cable_type", "6x19")
+    )
+    edge_cable_material = str(
+        st.session_state.get("ws_ss_edge_cable_material", "stainless")
+    )
+    tiedown_cable_type = str(
+        st.session_state.get("ws_ss_tiedown_cable_type", "6x19")
+    )
+    tiedown_cable_material = str(
+        st.session_state.get("ws_ss_tiedown_cable_material", "galvanised")
     )
 
     if span <= 0 or apex <= 0 or rise <= 0:
@@ -353,7 +499,11 @@ def build_standard_saddle():
         weft_pretension=weft_pre,
         edge_cable_pretension=edge_pre,
         attachment_type=attach_type,
-        tiedown_pretension=tiedown_pretension,
+        tiedown_pretension=tiedown_pre,
+        edge_cable_type=edge_cable_type,
+        edge_cable_material=edge_cable_material,
+        tiedown_cable_type=tiedown_cable_type,
+        tiedown_cable_material=tiedown_cable_material,
     )
     coords = built["points"]
     points_initial = built["points_initial"]
@@ -362,6 +512,7 @@ def build_standard_saddle():
     fixed_indices = built["fixed_indices"]
     q = built["q"]
     boundary_loop = built["boundary_loop"]
+    anchor_pos = built["anchor_pos"]
     diag = built["diagnostics"]
     warp_q = built["warp_q"]
     weft_q = built["weft_q"]
@@ -410,10 +561,10 @@ def build_standard_saddle():
         hoverinfo="skip",
     ))
 
-    # ---- Anchors along both beams.
-    anchor_x = [float(boundary_loop[i][0]) for i in range(len(boundary_loop))]
-    anchor_y = [float(boundary_loop[i][1]) for i in range(len(boundary_loop))]
-    anchor_z = [float(boundary_loop[i][2]) for i in range(len(boundary_loop))]
+    # ---- Anchor markers.
+    anchor_x = anchor_pos[:, 0].tolist()
+    anchor_y = anchor_pos[:, 1].tolist()
+    anchor_z = anchor_pos[:, 2].tolist()
 
     fig.add_trace(go.Scatter3d(
         x=anchor_x, y=anchor_y, z=anchor_z,
@@ -426,15 +577,41 @@ def build_standard_saddle():
 
     # ---- Attachment method drawing.
     if attach_type == "cable_supported":
+        # Edge cable: line between consecutive anchors, closed loop.
+        # Split into two polylines: one per beam.
+        n_a = len(anchor_pos)
+        half = n_a // 2
+
+        # Beam L edge cable: anchors 0..half-1
+        beamL_anchors = anchor_pos[:half + 1]
         fig.add_trace(go.Scatter3d(
-            x=anchor_x, y=anchor_y, z=anchor_z,
-            mode="lines",
-            line=dict(color="#f1c40f", width=3),
-            name="Fabric edge cable",
-            showlegend=True,
+            x=beamL_anchors[:, 0].tolist(),
+            y=beamL_anchors[:, 1].tolist(),
+            z=beamL_anchors[:, 2].tolist(),
+            mode="lines+markers",
+            line=dict(color="#f1c40f", width=4),
+            marker=dict(color="#f1c40f", size=4),
+            name="Edge cable L",
+            hoverinfo="skip",
+        ))
+
+        # Beam R edge cable: anchors half..end, plus closing to anchor 0.
+        beamR_anchors = anchor_pos[half:]
+        close = anchor_pos[:1]
+        beamR_full = np.vstack([beamR_anchors, close])
+        fig.add_trace(go.Scatter3d(
+            x=beamR_full[:, 0].tolist(),
+            y=beamR_full[:, 1].tolist(),
+            z=beamR_full[:, 2].tolist(),
+            mode="lines+markers",
+            line=dict(color="#f1c40f", width=4),
+            marker=dict(color="#f1c40f", size=4),
+            name="Edge cable R",
+            showlegend=False,
             hoverinfo="skip",
         ))
     else:
+        # Kader track lines along both beams.
         fig.add_trace(go.Scatter3d(
             x=x, y=y1, z=z_beam,
             mode="lines",
@@ -519,62 +696,13 @@ def build_standard_saddle():
 
     fig = apply_common_layout(fig, rise)
 
-    # ---- Shape tuning expander.
-    with st.expander("Shape tuning (warp / weft ratio)", expanded=True):
-        st.markdown(
-            "Adjust the warp-to-weft ratio. The absolute prestress "
-            "stays anchored to the fabric's recommended band. "
-            "Only the shape responds."
-        )
-
-        cur_warp = float(
-            st.session_state.get("ws_ss_warp_pretension", 1.0)
-        )
-        cur_weft = float(
-            st.session_state.get("ws_ss_weft_pretension", 1.0)
-        )
-
-        # The ratio is expressed as log10(warp/weft).
-        # 0 means balanced. Positive means warp dominant.
-        if cur_weft < 1e-9:
-            cur_ratio = 0.0
-        else:
-            cur_ratio = float(np.log10(cur_warp / cur_weft))
-
-        # Clamp to the ratio_limit of the material: 4.0.
-        # log10(4) = 0.602, so the slider runs from -0.60 to +0.60.
-        slider_val = st.slider(
-            "Warp / Weft ratio (log10)",
-            min_value=-0.60,
-            max_value=0.60,
-            value=max(-0.60, min(0.60, cur_ratio)),
-            step=0.02,
-            key="ws_ss_ratio_slider",
-        )
-
-        # Convert back to warp and weft inputs.
-        ratio = float(10.0 ** slider_val)
-        mean_val = 0.5 * (cur_warp + cur_weft)
-        if mean_val < 1e-9:
-            mean_val = 1.0
-        new_warp = mean_val * ratio
-        new_weft = mean_val / ratio
-
-        st.session_state["ws_ss_warp_pretension"] = float(new_warp)
-        st.session_state["ws_ss_weft_pretension"] = float(new_weft)
-
-        st.markdown(
-            "Current: **Warp %.2f kN/m** | **Weft %.2f kN/m** | "
-            "**Ratio %.2f:1**"
-            % (new_warp, new_weft, ratio)
-        )
     # ---- Diagnostics expander.
     with st.expander("FDM diagnostics (temporary)", expanded=False):
-        st.markdown("**Boundary loop:**")
+        st.markdown("**Shape inputs:**")
         c0, c0b, c0c = st.columns(3)
-        c0.metric("Loop vertices", diag["n_anchors"])
-        c0b.metric("Segments", diag["n_segments"])
-        c0c.metric("Target edge", "%.3f" % diag["target_edge_length"])
+        c0.metric("Anchors/beam", diag["anchor_count"])
+        c0b.metric("Mesh spacing", "%.2f" % diag["mesh_spacing"])
+        c0c.metric("Loop anchors", diag["n_anchors"])
 
         st.markdown("**Triangulated mesh:**")
         c1, c2, c3, c4 = st.columns(4)
@@ -590,9 +718,47 @@ def build_standard_saddle():
         d3.metric("Mean tri area", "%.6e" % diag["mean_tri_area"])
 
         st.markdown("**Fabric attachment:** " + diag["attachment_type"])
-        st.markdown("**Tie-down pretension (kN):** "
-                    + ("%.2f" % diag["tiedown_pretension"])
-                    + "  (not yet wired into FDM)")
+
+        if diag["attachment_type"] == "cable_supported":
+            st.markdown("**Edge cable:**")
+            ce = diag["edge_cable_chosen"]
+            st.markdown(
+                "- Type: " + diag["edge_cable_type"] +
+                "  |  Material: " + diag["edge_cable_material"] +
+                "  |  Prestress: " +
+                ("%.1f kN" % diag["edge_cable_pretension_kN"])
+            )
+            st.markdown(
+                "- Length: " +
+                ("%.3f m" % diag["edge_cable_length_m"])
+            )
+            if ce is not None:
+                st.markdown(
+                    "- System-selected diameter: " +
+                    ("%.1f mm" % ce["d"]) +
+                    "  |  Area: " + ("%.1f mm2" % ce["A"]) +
+                    "  |  Breaking: " + ("%.2f kN" % ce["breaking_kN"])
+                )
+                total_mass = ce["kg_m"] * diag["edge_cable_length_m"]
+                st.markdown(
+                    "- Total mass: " + ("%.3f kg" % total_mass)
+                )
+
+        st.markdown("**Tie-down cables:**")
+        ct = diag["tiedown_cable_chosen"]
+        st.markdown(
+            "- Type: " + diag["tiedown_cable_type"] +
+            "  |  Material: " + diag["tiedown_cable_material"] +
+            "  |  Prestress: " +
+            ("%.1f kN" % diag["tiedown_pretension_kN"])
+        )
+        if ct is not None:
+            st.markdown(
+                "- System-selected diameter: " +
+                ("%.1f mm" % ct["d"]) +
+                "  |  Area: " + ("%.1f mm2" % ct["A"]) +
+                "  |  Breaking: " + ("%.2f kN" % ct["breaking_kN"])
+            )
 
         st.markdown("**Top 20 largest node displacements:**")
         rows = []
@@ -608,101 +774,20 @@ def build_standard_saddle():
                     "Empty today. Populated in Stage 3.")
         st.markdown("- (none)")
 
-        # ---- Full mesh diagnostic - copy to clipboard.
-        st.markdown("---")
-        st.markdown("**Full mesh diagnostic** - one tap to copy.")
-
-        if st.button("Generate diagnostic", key="ss_diag_gen"):
-            lines = []
-            lines.append("SDSe MESH DIAGNOSTIC")
-            lines.append("=" * 40)
-            lines.append("Shape: Standard Saddle")
-            lines.append("Attachment: " + diag["attachment_type"])
-            lines.append("")
-            lines.append("INPUTS")
-            lines.append("-" * 40)
-            lines.append("Anchors: %d" % diag["n_anchors"])
-            lines.append("Segments: %d" % diag["n_segments"])
-            lines.append("Target edge: %.4f" % diag["target_edge_length"])
-            lines.append("L_avg: %.4f" % diag["L_avg"])
-            lines.append("Warp pre (kN/m): %.4f" % warp_pre)
-            lines.append("Weft pre (kN/m): %.4f" % weft_pre)
-            lines.append("Edge pre (kN): %.4f" % edge_pre)
-            lines.append("Warp q (N/m): %.4f" % warp_q)
-            lines.append("Weft q (N/m): %.4f" % weft_q)
-            lines.append("Edge q (N/m): %.4f" % edge_q)
-            lines.append("")
-            lines.append("MESH")
-            lines.append("-" * 40)
-            lines.append("Nodes: %d" % diag["n_nodes"])
-            lines.append("Edges: %d" % diag["n_edges"])
-            lines.append("Triangles: %d" % diag["n_triangles"])
-            lines.append("Fixed: %d" % diag["n_fixed"])
-            lines.append("Free: %d" % diag["n_free"])
-            lines.append("")
-            lines.append("NODES  (i | x0 y0 z0 | x1 y1 z1 | dz | fixed)")
-            lines.append("-" * 40)
-            for i in range(points_initial.shape[0]):
-                xi = points_initial[i]
-                xf = coords[i]
-                dz = float(xf[2] - xi[2])
-                fx = "T" if i in fixed_indices else "F"
-                lines.append(
-                    "%4d | %8.4f %8.4f %8.4f | %8.4f %8.4f %8.4f | %8.4f | %s"
-                    % (i, xi[0], xi[1], xi[2],
-                       xf[0], xf[1], xf[2], dz, fx)
-                )
-            lines.append("")
-            lines.append("EDGES  (k | a b | L0 L1 | q | T=q*L1)")
-            lines.append("-" * 40)
-            T_vals = []
-            for k, (a, b) in enumerate(edges):
-                L0 = float(np.linalg.norm(points_initial[b] - points_initial[a]))
-                L1 = float(np.linalg.norm(coords[b] - coords[a]))
-                qk = float(q[k])
-                T = qk * L1
-                T_vals.append(T)
-                lines.append(
-                    "%4d | %4d %4d | %8.4f %8.4f | %10.2f | %10.2f"
-                    % (k, a, b, L0, L1, qk, T)
-                )
-            lines.append("")
-            lines.append("FORCE SUMMARY")
-            lines.append("-" * 40)
-            if T_vals:
-                lines.append("Min T: %.4f" % min(T_vals))
-                lines.append("Max T: %.4f" % max(T_vals))
-                lines.append("Mean T: %.4f" % (sum(T_vals) / len(T_vals)))
-            lines.append("")
-            lines.append("END")
-
-            st.code("\n".join(lines), language="text")
-        else:
-            st.markdown(
-                "_Tap 'Generate diagnostic', then tap the copy "
-                "icon on the code block._"
-            )
-
     return fig
 
 
 # =============================================================================
 # END OF viewers/figures/standard_saddle_mbs.py
-# =============================================================================
 #
-# This file is Step 5 of the migration. It uses the triangulated
-# mesh engine (engine/mesh_triangulated.py). The tips close
-# naturally by triangulation. No fan, no degenerate column.
+# This file is Step 2E of the migration. It uses the
+# triangulated mesh engine (engine/mesh_triangulated.py).
+# The boundary loop now carries proper anchors and proper
+# segment types. The cable toggle releases the boundary
+# points between anchors.
 #
 # Files untouched by this rewrite:
 #   engine/form_finding.py
-#   engine/mesh_universal.py         (still live as fallback)
-#   engine/mesh_universal_test.py    (still live)
 #   engine/mesh_triangulated.py
 #   engine/mesh_triangulated_test.py
 # =============================================================================
-
-
-
-
-
