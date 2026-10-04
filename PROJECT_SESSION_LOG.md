@@ -2731,4 +2731,171 @@ The record is the Chief's protection.
 The record is the AI's discipline.
 Both are needed. Both are kept.
 
+
+
+## 2026-10-05 — Planning session: pull-back, cache, tier split
+
+**Branch:** modular-v10
+**Time:** late evening, after the 2026-10-04 session.
+
+### Context
+
+The 2026-10-04 session ended with the real NFDM solver
+committed and wired into the viewer. It works. The
+self-tests pass. The CI is green.
+
+But the app was throttled by Streamlit Cloud that evening.
+The cold solve takes 2-3 minutes on the free tier. Each
+input change triggers a fresh solve. The user is
+throttled.
+
+The Chief called the session and asked for a plan to make
+the app fast.
+
+### What we decided
+
+Three steps. In this order.
+
+**Step 1 — pull-back initial guess.**
+
+Compute the cable tensions directly from the membrane
+pull-back at the FDM form-found shape. No iteration. A
+direct arithmetic computation from the mesh geometry and
+the membrane prestress.
+
+The pull-back is:
+  For each mesh edge on the boundary, find the adjacent
+  triangle. Compute the membrane stress resultant N at that
+  triangle. The pull-back force on the edge is N . n * L,
+  where n is the outward normal of the edge and L is the
+  edge length. Resolve into the cable direction. That is
+  the tension the cable must carry.
+
+This gives us a physically meaningful starting state:
+- The FDM shape.
+- The cable tensions that balance the membrane at that
+  shape.
+- The membrane at its design prestress.
+
+Newton starts from this. It converges in 2-3 iterations
+instead of 15-20. The cold solve drops from 3 minutes to
+about 20 seconds.
+
+**Step 2 — cache the solve.**
+
+`@st.cache_data` around the whole solve. Hash the inputs
+(span, apex, rise, mode, membrane prestress, cable
+pretension, materials). If the inputs do not change, the
+result returns instantly. The solver runs only when an
+input actually changes.
+
+After the cache, the app is interactive. Cold solve ~20
+seconds (Step 1). Warm render instant (Step 2).
+
+**Step 3 — sparse tangent.**
+
+Only if Steps 1 and 2 are not enough. Change the tangent
+assembly from dense to scipy.sparse. Estimated 5x-20x
+speedup at larger meshes.
+
+### The tier split — a new architectural decision
+
+While discussing the pull-back, the Chief named the
+commercial tier boundary.
+
+**Free and Pro tiers get the FDM form-found shape with the
+pull-back cable tensions. That is the finished product for
+those tiers. The shape is real, balanced, drains. It is
+the shape on screen.**
+
+**Owner, Studio, Beta tiers get the same shape as the
+starting point. The NFDM solver refines it to the true
+coupled equilibrium. The forces and stresses and
+utilisation and BQ come from the refinement.**
+
+The shape is nearly identical between tiers. The
+difference is the depth of the physics — the numbers
+behind the shape.
+
+This is the correct commercial split. It is what ixForten
+and similar tools do. The free viewer shows the shape.
+The paid product shows the numbers.
+
+It also means the pull-back FDM shape is the natural
+stopping point for the lower tiers. The system computes
+until the pull-back. Free and Pro consume the result.
+Owner, Studio, Beta continue into NFDM.
+
+### Why this is right
+
+The FDM + pull-back shape is not a fake shape. It is a
+physically meaningful form-found equilibrium. The
+membrane is at its design prestress. The cables are at
+the tension required by the membrane. The geometry
+satisfies the boundary conditions.
+
+What it lacks is the exact strain-compatible refinement.
+The NFDM solver provides that.
+
+For a shape sketch, the FDM + pull-back is enough.
+For structural analysis, the NFDM is required.
+
+Same shape. Different depth. Same physics underneath.
+
+### What to build tomorrow
+
+In order:
+
+1. `pullback_cable_initial_tensions(mesh_result,
+   material, segments)` in
+   `engine/nonlinear_equilibrium.py`. New function.
+   ~100 lines. No change to the Newton loop.
+
+2. FDM path uses the pull-back. In
+   `viewers/figures/standard_saddle_mbs.py`, replace the
+   current `edge_q` calculation with the pull-back result.
+   Cable tensions become physical.
+
+3. NFDM path uses the pull-back. Replace the current
+   cable initialization in the viewer with the pull-back
+   result. Newton converges in fewer iterations.
+
+4. Verify the speedup. The 3-minute cold solve must drop
+   to about 20 seconds. Measure the iteration count.
+
+5. Add `@st.cache_data` around the solve.
+
+6. Verify the cache. Every render except input change must
+   be instant.
+
+7. Rule 23 in PROJECT_CONSTITUTION.md — the two-path
+   doctrine. Already drafted on 2026-10-04. It is the
+   formalisation of the tier split above.
+
+8. Update TIERS.md with the feature matrix.
+
+### The one thing that must not be lost
+
+**The 2026-10-04 commitment is on record.** The real
+solver was built. It works. It stays. No wrappers. No
+stage excuses.
+
+The pull-back is not a substitute for the solver. It is
+a better initial guess for the solver. The solver still
+runs for the high tiers. It is the source of the numbers.
+
+### The Chief's words
+
+"Will this pull back give a nice initial form find? If
+yes, this could be the commercial tier's viewer state
+where free user gets their membrane from here and the
+system worked until here."
+
+Yes. That is exactly what it is.
+
+The shape is the product.
+The depth is the tier.
+Both are correct.
+
 End of entry.
+
