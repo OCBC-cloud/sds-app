@@ -5,7 +5,7 @@ Then read PROJECT_CONSTITUTION.md for the doctrines.
 Then read PROJECT_VISION.md for the destination.
 Then read FILE_INVENTORY.md for what exists.
 
-Last updated: 2026-10-01.
+Last updated: 2026-10-04.
 Branch: modular-v10.
 App URL: sds-modular-preview.streamlit.app.
 
@@ -152,6 +152,29 @@ warp/weft pretension in the 3 - 6 kN/m band, edge
 cable 30 - 150 kN. The app exposes the range so the
 engineer can explore.
 
+**Update 2026-10-03 — CI now actually runs.**
+
+The `run_tests.py` entry point was trapped inside
+`main()`. No tests were executing. GitHub was reporting
+green because nothing was tested. Fixed on 2026-10-03.
+Run #425 is the reference green run. 27 seconds. Real
+work for the first time.
+
+**Update 2026-10-03 — tension-field projection verified.**
+
+`engine/nfdm_tension_field.py` contains the projection
+`sigma_TF = Q @ diag(max(s1,0), max(s2,0)) @ Q.T`. Six
+tests in `engine/nfdm_tension_field_test.py`. All pass.
+The projection is the foundation for Stage 2.
+
+**Update 2026-10-04 — Rule 22 added to the constitution.**
+
+One file, one block, one copy. Format, not size, is the
+copy-and-paste failure mode. See PROJECT_SESSION_LOG.md,
+2026-10-04 entry.
+
+---
+
 # 3. THE UNIVERSAL WORKSHOP RENDERER
 
 `ui/workshops/_renderer.py`. Built. Committed.
@@ -183,13 +206,22 @@ Step 5: viewers/figures/standard_saddle_mbs.py rewritten
         to use the triangulated engine. Committed and
         verified in the app.
 
-## Two bugs fixed on 2026-10-01
+## Bugs fixed on 2026-10-01
 
   1. Paste corruption in _triangulate_polygon, at lines
      317 and 323. Two surgical line replacements.
   2. KD-tree overrun in _laplace_lift for meshes with
      fewer than 9 points. Fixed by clamping
      k = min(8, n_nodes - 1).
+
+## Bugs fixed on 2026-10-03
+
+  1. engine/nfdm_tension_field_test.py was empty. The
+     six tests were rewritten. All pass.
+  2. run_tests.py __main__ guard was inside main().
+     Dedented to module level. Tests now execute.
+  3. Test 2 principal check was wrong. Asserted
+     s[1] < 0 on a test where s[1] is exactly 0. Fixed.
 
 ## Still to do
 
@@ -199,34 +231,56 @@ Step 7: Mark SPEC_mesh_topology.md and
 FILE_INVENTORY.md update to reflect the new engine.
 HANDOVER_2026-10-01 deletion.
 
-
 ---
 
 # 5. THE IMMEDIATE NEXT STEP
 
-Add a q > 0 guard to `solve_fdm` in
-`engine/form_finding.py`. Reject q <= 0 explicitly
-instead of producing NaN. Small. Ten lines.
+Three tasks remain. In order.
 
-Then, in order:
-
-  1. Delete HANDOVER_2026-10-01 (diagnosis was wrong).
-  2. Delete engine/mesh_universal.py and its test.
-  3. Mark SPEC_mesh_topology.md and
-     SPEC_mesh_universal.md as superseded at the top.
-  4. Add the three Shape inputs to
+  1. Step 2E. Expose three Shape inputs in
      data/recipes/standard_saddle.py:
+
        anchor_count        default 15
        mesh_spacing        default 0.5
        transverse_count    default 8
-  5. Migrate Beam Supported Saddle to the
-     triangulated engine.
-  6. Migrate Crown, Triangle, Lens.
-  7. Coordinate file path (custom boundary workshop).
-  8. DXF path (custom boundary workshop).
 
-Then Stage 2 — NFDM.
+     Required to make Cable Supported do something.
+     Half a day. Requires a design decision on how
+     anchor_count interacts with the loop size, and
+     how _build_boundary_loop is reworked.
 
+  2. The wrapper design conversation for
+     solve_nfdm_tension_field. Not code. Design.
+
+     The handover's proposed wrapper (call solve_nfdm,
+     project outside, re-solve) is wrong. The
+     projection must fire inside the element routine.
+     That makes it Level 2 work, not a wrapper.
+
+     See PROJECT_SESSION_LOG.md, 2026-10-01 evening
+     addendum, and the 2026-10-03 entry.
+
+  3. FILE_INVENTORY.md rewrite and DIRECTORY_MAP.md
+     creation. Both deferred until Step 2E is done,
+     so the rewrite is done once and reflects the
+     final state.
+
+Then Stage 2 — NFDM, in the tension-field form.
+
+The following tasks were completed or superseded:
+
+  - q > 0 guard in solve_fdm. Done 2026-10-01.
+  - Delete HANDOVER_2026-10-01. Still to do, small.
+  - Delete engine/mesh_universal.py and its test.
+    Still to do, Step 6 above.
+  - Mark SPEC_mesh_topology.md and
+    SPEC_mesh_universal.md as superseded. Step 7 above.
+  - Migrate Beam Supported Saddle to the triangulated
+    engine. Deferred. Not urgent.
+  - Migrate Crown, Triangle, Lens. Deferred.
+  - Coordinate file path (custom boundary workshop).
+    Deferred.
+  - DXF path (custom boundary workshop). Deferred.
 
 ---
 
@@ -247,6 +301,9 @@ updates FILE_INVENTORY.md.
 
 Every major decision is recorded in PROJECT_SESSION_LOG.md,
 appended, not overwritten.
+
+Files written for GitHub follow Rule 22 — one file, one
+block, one copy. See PROJECT_CONSTITUTION.md.
 
 ---
 
@@ -271,10 +328,20 @@ path, driven by an anisotropic q. It works. The
 saddle responds. The loop that had been open since
 the morning was closed by the afternoon.
 
+On 2026-10-03 the Chief caught two of three things
+the previous handover claimed were working that were
+not. The empty test file. The CI that never ran.
+
+On 2026-10-04 the Chief ran a chunk transfer test
+and proved that the copy-and-paste failures were
+caused by the writer's formatting, not by file size.
+Rule 22 was added as a result.
+
 The pattern holds. The Chief's architectural
 instinct has been right every time. The AI's
 detours — the Laplace lift, the minimal surface,
-the three structured topologies — cost days.
+the three structured topologies, the misdiagnosed
+size limit — cost days.
 
 **When the Chief raises an architectural question,
 the Chief has usually already seen the answer.
