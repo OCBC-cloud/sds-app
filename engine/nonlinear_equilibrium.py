@@ -307,7 +307,8 @@ def _assemble_tangent(points, triangles, cables, ref_points,
     Membrane: local 9x9 stiffness per triangle.
     Cable: axial stiffness contribution in the current direction.
     """
-    n_free = int(free_mask.sum())
+    n_free_nodes = int(free_mask.sum())
+    n_free = 3 * n_free_nodes
     K = np.zeros((n_free, n_free), dtype=float)
 
     free_idx = np.where(free_mask)[0]
