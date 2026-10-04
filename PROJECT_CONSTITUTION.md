@@ -519,6 +519,8 @@ Copy button.
    Do not cut it into pieces to hide the breakage. Pieces hide
    the problem. One clean file solves it.
 
+Note: Rule 22 above is placed at the end of this file for
+convenience. It belongs in PART II — THE RULES, after Rule 21.
 
 End of PROJECT_CONSTITUTION.md.
 
