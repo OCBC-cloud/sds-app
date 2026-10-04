@@ -2431,4 +2431,5 @@ The files carry the memory. Not the AI.
 
 That is the whole doctrine. Everything else is implementation.
 
+session log: 2026-10-04 - chunk transfer test and Rule 22
 
