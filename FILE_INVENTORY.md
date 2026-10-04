@@ -10,7 +10,7 @@ Status values:
   DOC        — documentation.
   TEST       — test-only, not called by the app.
 
-Last updated: 2026-09-29.
+Last updated: 2026-10-04.
 
 ---
 
@@ -23,7 +23,8 @@ Last updated: 2026-09-29.
 
 - run_tests.py
     Test runner for GitHub Actions. Runs all engine tests.
-    Updated 2026-09-29: added the universal mesh engine test.
+    Fixed 2026-10-03: the __main__ guard was trapped inside
+    main(). The tests now actually execute.
     ACTIVE.
 
 - benchmark_hypar.py
@@ -49,7 +50,8 @@ Last updated: 2026-09-29.
 
 - PROJECT_CONSTITUTION.md
     The doctrines. Part III-B: the Universal Engine Doctrine.
-    Part V: two kinds of constraint.
+    Part V: two kinds of constraint. Rule 22: one file, one
+    block, one copy.
     DOC.
 
 - PROJECT_VISION.md
@@ -62,6 +64,24 @@ Last updated: 2026-09-29.
 
 - FILE_INVENTORY.md
     This file.
+    DOC.
+
+- SUBSTRUCTURES.md
+    The seven substructure categories. The input map for the
+    four existing workshops. Exposure table per access mode.
+    Design only. Not executed.
+    DOC.
+
+- UI_ARCHITECTURE.md
+    The universal workshop pattern. Six groups plus additional.
+    The migration guide for the four existing workshops.
+    Design only. Not executed.
+    DOC.
+
+- TIERS.md
+    The five access modes. The access gate. The beta window.
+    The Owner role. URL resilience plan. Design only. Not
+    executed.
     DOC.
 
 - COMMERCIAL_MODEL.md
@@ -80,6 +100,14 @@ Last updated: 2026-09-29.
     Readme for the modular-v10 branch.
     DOC.
 
+- HANDOVER_2026-10-03.md
+    The handover that opened the 2026-10-03 session. Its
+    diagnosis was incomplete: two of three things it claimed
+    were working were not. Kept for history. Superseded by
+    PROJECT_STATE.md and PROJECT_SESSION_LOG.md. Should be
+    deleted.
+    REFERENCE.
+
 ---
 
 # /core/
@@ -90,7 +118,6 @@ Last updated: 2026-09-29.
 
 - navigation.py
     Page router. Maps page keys to render functions.
-    Updated 2026-09-29: added renderer_test route.
     ACTIVE.
 
 - state.py
@@ -115,6 +142,8 @@ Last updated: 2026-09-29.
 
 - materials.py
     Material properties: steel grades, fabric types, grades.
+    Ferrari 702 record for Type III PVDF is complete. Other
+    PVDF grades are placeholders.
     ACTIVE.
 
 - sections.py
@@ -127,8 +156,6 @@ Last updated: 2026-09-29.
 
 # /data/recipes/
 
-New in 2026-09-29. Workshop recipes for the universal renderer.
-
 - __init__.py
     Package marker.
     ACTIVE.
@@ -136,6 +163,8 @@ New in 2026-09-29. Workshop recipes for the universal renderer.
 - standard_saddle.py
     Recipe for the Cable Supported Saddle workshop.
     Six groups. Read by ui/workshops/_renderer.py.
+    Has NOT yet gained the three Shape inputs
+    (anchor_count, mesh_spacing, transverse_count).
     ACTIVE.
 
 ---
@@ -148,8 +177,23 @@ New in 2026-09-29. Workshop recipes for the universal renderer.
 
 - form_finding.py
     FDM solver. solve_fdm() and mesh_size_for_shape().
+    Plus the anisotropic q functions:
+    assign_anisotropic_q, auto_warp_dir, rotate_warp_dir.
     Linear form-finding. Core of the shape engine.
     ACTIVE.
+
+- mesh_triangulated.py
+    The universal mesh engine. build_mesh_triangulated()
+    takes a closed boundary loop, projects to plan, runs
+    scipy.spatial.Delaunay, filters to the polygon interior,
+    lifts interior nodes, and runs FDM.
+    The universal engine. Live.
+    ACTIVE.
+
+- mesh_triangulated_test.py
+    Five boundary inputs. All pass. Zero zero-area
+    triangles, machine-zero FDM residuals.
+    TEST.
 
 - membrane.py
     System A helper. Mesh handling utilities.
@@ -159,34 +203,32 @@ New in 2026-09-29. Workshop recipes for the universal renderer.
 - membrane_boundary.py
     Old MBS engine. Four-sided TFI path.
     Still called by the Tester shapes.
-    Superseded for mixed boundaries by mesh_universal.py.
     ACTIVE (legacy).
 
 - membrane_surface.py
     Lens surface builder. Called by the Tester Lens recipe.
     ACTIVE (legacy).
 
-- mesh_universal.py
-    NEW 2026-09-29. The universal mesh engine.
-    Builds a mesh from a closed boundary loop, divided into
-    segments, each classified beam / cable / wall.
-    Three fills: tfi, polar, barycentric.
-    Tested and proven. Not yet wired into any viewer.
-    ACTIVE (isolated).
-
-- mesh_universal_test.py
-    NEW 2026-09-29. Standalone test for mesh_universal.py.
-    Called by run_tests.py.
-    TEST.
-
 - leaf_arrangement.py
     Placement engine for Cantilever Leaf.
     ACTIVE.
 
 - nfdm.py
-    Old Natural Force Density Method kernel. Iterative nonlinear.
-    Wrong method for NFDM. Kept as reference.
+    Pauletti Natural Force Density Method kernel.
+    Newton-Raphson with backtracking line search.
+    Isolated and tested. Nothing in the shipping app calls it.
+    Stage 2 foundation.
     REFERENCE.
+
+- nfdm_tension_field.py
+    Tension-field projection. project_tension_field() plus
+    two helpers. sigma_TF = Q diag(max(s1,0), max(s2,0)) Q^T.
+    Verified. Stage 2 foundation.
+    REFERENCE.
+
+- nfdm_tension_field_test.py
+    Six tests for the projection. All pass.
+    TEST.
 
 - render_prompts.py
     Marketing render prompt engine.
@@ -214,26 +256,23 @@ New in 2026-09-29. Workshop recipes for the universal renderer.
     DOC.
 
 - SPEC_dxf_import.md
-    NEW 2026-09-29. DXF import design.
-    Layer names, file size limits, bay limit.
+    DXF import design.
     DOC.
 
 - SPEC_coordinate_file.md
-    NEW 2026-09-29. Coordinate file design.
-    Plain CSV, four columns, two loops.
+    Coordinate file design.
     DOC.
 
 - SPEC_custom_boundary.md
-    NEW 2026-09-29. Custom boundary structure design.
-    A new structure type that uses DXF or coordinate file.
+    Custom boundary structure design.
     DOC.
 
-- SPEC_mesh_universal.md
-    NEW 2026-09-29. Universal mesh engine specification.
-    The contract for mesh_universal.py.
+- SPEC_mesh_triangulation.md
+    The live universal mesh specification. Constrained
+    Delaunay triangulation of the boundary loop.
     DOC.
 
-- SPEC_saddle_viewer_fd.md
+- SPEC_saddle_viewer_fdm.md
     Saddle viewer FDM specification.
     DOC.
 
@@ -292,20 +331,18 @@ New in 2026-09-29. Workshop recipes for the universal renderer.
     ACTIVE.
 
 - _renderer.py
-    NEW 2026-09-29. Universal workshop renderer.
-    Reads a recipe. Builds the input page.
-    Not yet called by any real workshop.
-    ACTIVE (isolated).
+    Universal workshop renderer. Reads a recipe. Builds
+    the input page.
+    ACTIVE.
 
 - _renderer_test.py
-    NEW 2026-09-29. Temporary test page for the renderer.
-    Removed after the first real workshop migrates.
+    Temporary test page for the renderer. Removed after
+    the first real workshop migrates.
     TEST.
 
 - saddle_standard.py
-    Cable Supported Saddle workshop.
-    Migrated to the recipe pattern 2026-09-29.
-    Now 12 lines. Calls render_workshop(STANDARD_SADDLE_RECIPE).
+    Cable Supported Saddle workshop. Migrated to the recipe
+    pattern. 12 lines. Calls render_workshop().
     ACTIVE.
 
 - saddle_frame.py
@@ -321,7 +358,7 @@ New in 2026-09-29. Workshop recipes for the universal renderer.
     ACTIVE.
 
 - tester_mbs.py
-    Shape laboratory. Five shape recipes built on the MBS
+    Shape laboratory. Shape recipes built on the MBS
     engine. Experimental. Owner-only.
     ACTIVE (temporary).
 
@@ -336,8 +373,6 @@ New in 2026-09-29. Workshop recipes for the universal renderer.
 - results_viewer.py
     Dispatcher. Routes on variant_key to the correct figure
     builder.
-    Updated 2026-09-29: standard_saddle now routes to
-    standard_saddle_mbs.
     ACTIVE.
 
 ---
@@ -363,10 +398,8 @@ New in 2026-09-29. Workshop recipes for the universal renderer.
     ACTIVE (legacy).
 
 - standard_saddle_mbs.py
-    NEW 2026-09-29. MBS version of the Standard Saddle viewer.
-    Still builds its own mesh via _build_saddle_mbs.
-    To be replaced by a thin viewer that calls
-    engine/mesh_universal.py. That is Step 2D.
+    MBS version of the Standard Saddle viewer. Uses the
+    triangulated engine. Live.
     ACTIVE.
 
 - beam_supported_saddle.py
@@ -401,9 +434,32 @@ New in 2026-09-29. Workshop recipes for the universal renderer.
 
 ---
 
+# /.devcontainer/
+
+- devcontainer.json
+    Dev container configuration.
+    REFERENCE.
+
+---
+
+# FILES DELETED (no longer present)
+
+These were listed in older versions of this file. They are
+gone from the repository. Kept here as a record.
+
+- engine/mesh_universal.py — superseded by mesh_triangulated.py.
+- engine/mesh_universal_test.py — its test.
+- engine/SPEC_mesh_topology.md — superseded by
+  SPEC_mesh_triangulation.md.
+- engine/SPEC_mesh_universal.md — superseded.
+- engine/SPEC_mesh_from_segments.md — superseded.
+- HANDOVER_2026-10-01 — superseded by HANDOVER_2026-10-03.md.
+- TEST_CHUNK_TRANSFER_LIMITS_001.md — test artifact, deleted.
+- EST_CHUNK_TRANSFER_LIMITS_001.md — test artifact, deleted.
+
+---
+
 # END OF FILE INVENTORY
 
 Keep this file current. One line per change. Ten seconds
 of discipline saves half a day of re-orientation.
-
-
