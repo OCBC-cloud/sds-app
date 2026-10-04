@@ -2208,4 +2208,227 @@ The AI's job is to type. The Chief's job is to think.
 
 
 
+## 2026-10-03 evening — CI actually runs; tension-field projection verified
+
+**Branch:** modular-v10
+**CI status at close:** green (run #425, Success, 27s)
+
+### What the handover said, and what was actually true
+
+The handover (HANDOVER_TO_NEXT_SESSION, dated 2026-10-03) claimed:
+
+  - engine/nfdm_tension_field_test.py contained six tests. False.
+    The file on disk contained only a header comment. The body was
+    clobbered after the 2026-10-02 commit.
+  - run_tests.py was a working CI runner, last green at run #421.
+    False. The __main__ guard was indented four spaces, inside the
+    body of main(). When GitHub Actions ran python run_tests.py,
+    the file defined main() and exited without calling it. The CI
+    had been green because nothing was tested. Run #421 was not a
+    green test run. It was a no-op.
+
+Two of the three things the handover presented as working were not
+working. The handover was written from memory, not from the repo. This
+is the third time a handover has made this error (see 2026-10-01 entry).
+
+### What was fixed
+
+Fix 1 — engine/nfdm_tension_field_test.py rewritten.
+
+The six tests from the 2026-10-02 evening entry were restored. Each
+test is a physical statement about the projection:
+
+  1. Pure tension    -> unchanged. Tension is admissible.
+  2. Pure compression -> zero. Compression is not admissible.
+  3. Pure shear      -> rank-one tension field.
+  4. Biaxial tension -> unchanged.
+  5. Mixed           -> keeps the tensile principal only.
+  6. Helper round-trip -> tensor -> components -> tensor.
+
+Pasted in two chunks, read back, committed. Complete-file
+replacement, not surgical edit.
+
+Fix 2 — run_tests.py __main__ guard.
+
+Dedented the if __name__ == "__main__": block to module level.
+Two lines moved left by four spaces. Removed the dead
+test_mesh_universal() function.
+
+The file was pasted in two chunks and read back at each boundary.
+This was the fix that mattered most. Before it, the CI lied. After
+it, the CI tells the truth.
+
+Fix 3 — Test 2 principal check.
+
+The first run after Fix 1 and Fix 2 showed:
+
+  1. Pure tension  -> unchanged: PASS
+  2. Pure compress -> zero: FAIL
+  3. Pure shear    -> rank-one: PASS
+  4. Biaxial tens  -> unchanged: PASS
+  5. Mixed         -> keeps tensile part: PASS
+  6. Helper round-trip: PASS
+
+Test 2's assertion was:
+
+    ok_principal = (s[1] <= TOL) and (s[1] < 0.0)
+
+For sigma = diag(-10, 0), np.linalg.eigh returns the principals
+in ascending order: s = [-10, 0]. So s[1] is exactly 0.0, and
+s[1] < 0.0 is False. The test failed on a CORRECT projection.
+
+The projection was never wrong. The test was wrong. Corrected to:
+
+    ok_principal = (s[0] < 0.0) and (abs(s[1]) < TOL)
+
+The compressive principal is s[0] (negative), the other is zero.
+This is unambiguous.
+
+### Run #425 — the first green run that is actually green
+
+Status:    Success.
+Duration:  27 seconds.
+Job:       test (23 seconds).
+
+The 27-second duration is itself the proof. Before tonight, the CI
+ran in under one second because the __main__ block never fired. Now
+it takes 27 seconds because every test is executing.
+
+The two annotations on the run (Node.js 20 deprecation, Ubuntu label
+migration) are GitHub infrastructure warnings. They do not affect the
+result and need no action today.
+
+### Verification: the Standard Saddle mesh is healthy
+
+Late in the evening the Chief ran the FDM diagnostic from the live
+Standard Saddle viewer. The output confirms the mesh is correct:
+
+    Anchors:      28
+    Segments:     28
+    Nodes:        292
+    Edges:        845
+    Triangles:    554
+    Fixed:        28
+    Free:         264
+
+    28 fixed, 264 free. 28 + 264 = 292. Correct.
+    All 28 fixed nodes are on the boundary loop (indices 0-27).
+    Every fixed node has dz = 0.0000. The anchors do not move.
+    Every free node has non-zero dz. The membrane sags between them.
+
+    Force band: min T = 52.9 N, max T = 668.8 N, mean T = 251.1 N.
+    For a membrane at 1 kN/m pretension and 0.5-1.5 m edge lengths,
+    this is the right order of magnitude.
+
+The shape is a real hypar. Boundary heights: 0.00 m at the two tips,
+6.20 m at the two arch tops. Interior settles between.
+
+The warp/weft inputs showed 0.75 / 11.94, a raw ratio of 15.9:1. The
+material ratio limit is 4:1. The applied q values were 169.70 and
+678.80, an exact ratio of 4.00. The clamp works. The shape is a
+4:1 saddle, not a 16:1 one. This is correct behaviour.
+
+### The Cable Supported radio button question
+
+The Chief asked whether switching from Kader Guider to Cable Supported
+would release the boundary nodes.
+
+The answer is: not in the current mesh, and here is why.
+
+Look at viewers/figures/standard_saddle_mbs.py:
+
+    if str(attachment_type).lower() == "cable_supported":
+        seg_types = ["cable"] * n_loop
+    else:
+        seg_types = ["beam"] * n_loop
+
+The engine holds a boundary point if it is an anchor, or if it sits
+on a segment whose type is "beam". Points on "cable" segments are
+released and can move to equilibrium.
+
+But in the current mesh, anchor_count = 28 and the loop is 28 points.
+Every loop point is an anchor. There are no segment interiors to
+release. The engine holds all 28 points in either mode. Switching the
+radio button would produce an identical mesh.
+
+To exercise Cable Supported, the recipe must expose anchor_count as
+a user input, and it must be smaller than the loop size. That is the
+missing Step 2E from the handover, deferred three times now.
+
+### What remains
+
+  1. PROJECT_STATE.md update. Small. Two pastes.
+  2. Step 2E. Expose anchor_count, mesh_spacing, transverse_count in
+     data/recipes/standard_saddle.py. Half a day. Requires a design
+     decision: the anchor count interacts with the loop size, and the
+     _build_boundary_loop function needs rethinking.
+  3. solve_nfdm_tension_field. The wrapper. The handover's design is
+     wrong. The projection must fire inside the element routine, not
+     outside the solver. That makes it Level 2 work, not a wrapper.
+     Design conversation first. Three to five sessions to build.
+  4. FILE_INVENTORY.md rewrite. Deferred until after Step 2E, so the
+     rewrite is done once and reflects the final state.
+  5. DIRECTORY_MAP.md. Does not exist. Deferred until after the
+     viewer migrations (see handover section 9).
+
+### What was learned
+
+1. A handover is a claim, not a fact. Read the files it describes
+   before acting on its plan. Three handovers now have made this
+   error.
+2. A CI that runs in under one second is not running. A real test
+   suite takes real time. 27 seconds is the honest number.
+3. A test that fails on correct code is worse than no test. It
+   teaches the wrong lesson. Test 2 was written against an assumption
+   (s[1] < 0), not against what eigh actually returns.
+4. The paste protocol works when followed. Two chunks, read back
+   at each boundary, commit between. Zero corruptions tonight. The
+   opposite of the 2026-09-27 session, where twenty edits on one file
+   produced eight corruptions.
+
+### The Chief's role, recorded
+
+The Chief asked, early in the session:
+
+  "You see the other room before migrating here told me that
+   everything is working fine."
+
+The Chief's instinct was correct. Two of the three things the other
+room claimed were working were not. The Chief asked me to check rather
+than accept. That is the third time in three sessions that the Chief's
+architectural instinct has caught a claim that did not survive
+inspection.
+
+When the Chief asks a direct question, the Chief has usually already
+seen the answer. Listen first. Confirm second. Propose third.
+
+### The state of the project at close
+
+Live and correct:
+  - engine/mesh_triangulated.py — universal mesh engine. Live.
+  - engine/form_finding.py — FDM solver. Live.
+  - engine/mesh_triangulated_test.py — five boundary tests. Passing.
+  - viewers/figures/standard_saddle_mbs.py — saddle viewer. Live.
+  - data/recipes/standard_saddle.py — recipe. Live.
+  - data/materials.py — Ferrari 702 record for Type III PVDF. Live.
+  - ui/workshops/tester_mbs.py — the MBS Tester. Live.
+  - engine/nfdm.py — Pauletti NFDM kernel. Isolated, tested, unused.
+  - engine/nfdm_tension_field.py — projection. Verified.
+  - engine/nfdm_tension_field_test.py — six tests. All pass.
+  - run_tests.py — CI runner, fixed. Green at run #425.
+
+Awaiting:
+  - PROJECT_STATE.md update (this session).
+  - Step 2E (three Shape inputs in the recipe).
+  - The wrapper design conversation.
+  - FILE_INVENTORY.md rewrite.
+  - DIRECTORY_MAP.md.
+
+### End of entry.
+
+The run is green. The mesh is healthy. The projection is verified.
+The files carry the memory. Not the AI.
+
+That is the whole doctrine. Everything else is implementation.
+
 
