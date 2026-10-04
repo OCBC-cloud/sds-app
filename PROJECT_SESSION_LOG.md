@@ -2432,3 +2432,160 @@ The files carry the memory. Not the AI.
 That is the whole doctrine. Everything else is implementation.
 
 
+
+## 2026-10-04 — Chunk transfer test and Rule 22
+
+**Branch:** modular-v10
+**CI status at close:** to be confirmed after commit
+
+### Why this entry exists
+
+The Chief ran a controlled test today. The question was: why
+does copy-and-paste from the chat room into GitHub sometimes
+fail? Earlier in the session, a 250-line session log entry
+failed twice. The failure was blamed on size. The Chief
+disagreed. He said it was the writer's fault, not the size.
+He was right. This entry records the test, the proof, and the
+doctrine that comes from it.
+
+### The two tests
+
+**Test 001 — text file.**
+
+A 1000-line plain text file, filler content, one code block,
+one Copy button, no nested fences inside. Pasted into GitHub.
+Line 1 through line 1000 landed whole. 55.9 KB. The file ended
+with a proper closing line. No truncation.
+
+**Test 002 — coding file.**
+
+A fragment of the real NumPy `numpy/_core/numeric.py`. Real
+Python, real functions, real docstrings, real indentation,
+real string literals, real code structure. The Chief stopped
+the write deliberately at 4067 lines, before copying. One code
+block, one Copy button, no nested fences inside. Pasted into
+GitHub. Line 1 through line 4067 landed whole. 155 KB.
+
+### The finding
+
+Long files transfer cleanly. Size is not the problem.
+
+The earlier failures — the 250-line session log entry that
+failed twice — were caused by the format of the writing, not
+by the length of the content. Specifically:
+
+- Nested code fences inside a document meant for GitHub. A
+  document that contains fenced code blocks inside it, and is
+  itself delivered inside an outer code block, splits the
+  chat message into multiple pieces. The copy cannot carry
+  the whole.
+
+- Splitting content into chunks presented as separate blocks
+  or separate messages. Each block is copyable on its own, but
+  the reassembly is left to the Chief, and any missing piece
+  breaks the whole.
+
+When the writer produces ONE outer code block, with NO nested
+fences inside, no matter how large the content, the copy
+survives. 1000 lines survived. 4067 lines survived. The limit,
+if there is one, is far above what any project file needs.
+
+### The doctrine
+
+Rule 22 has been added to PROJECT_CONSTITUTION.md. It is
+placed at the end of the file with a note that it belongs in
+PART II — THE RULES, after Rule 21. The text of the rule:
+
+Rule 22 — One File, One Block, One Copy.
+
+Every file written by the AI and carried to GitHub by the
+Chief is written as ONE complete file, in ONE outer code
+block, with ONE Copy button.
+
+1. No nested code fences inside the file.
+2. No chunking unless the Chief asks.
+3. No prose before the block. The message is the block.
+4. The writer is responsible for the format.
+5. Proven by test. 2026-10-04.
+6. Do not shrink to hide. If a file is broken, fix the format.
+
+### The Chief's line
+
+"Rigid in principal but fluid in application."
+
+The principle is firm. One file, one block, one copy. The
+practice bends to the situation. The rule sits wherever it
+can be added cleanly, with a note that tells the next reader
+where it belongs. The principle does not move. The practice
+does.
+
+### What was learned
+
+1. The writer is responsible for the format. Not the platform.
+   Not the phone. Not the clipboard.
+
+2. A failure that is diagnosed as a size limit is probably not
+   a size limit. It is probably a formatting problem dressed up
+   as a size problem.
+
+3. The 150-line chunk rule, which had been in the constitution
+   since 2026-09-13, was a precaution against a failure mode
+   that was never correctly diagnosed. It has now been retired
+   for this purpose. Chunking is only used when the Chief asks
+   for it.
+
+4. A test that is designed to fail at the limits is worth more
+   than a working example. The Chief called it "test for
+   ultimate failure." He was right. The failure point tells us
+   where the real ceiling is. The working example tells us
+   nothing we did not already know.
+
+### The files touched today
+
+- PROJECT_CONSTITUTION.md — Rule 22 added, plus the placement
+  note.
+- PROJECT_SESSION_LOG.md — this entry.
+
+### The files to delete
+
+Two test files remain in the repo. They served their purpose.
+They do not belong to the app.
+
+- TEST_CHUNK_TRANSFER_LIMITS_001.md
+- EST_CHUNK_TRANSFER_LIMITS_001.md (note: missing the leading T
+  in the filename, created by accident, contains the 4067-line
+  Python fragment)
+
+Both should be deleted before the next session begins.
+
+### The state of the project at close
+
+Live and correct:
+- engine/mesh_triangulated.py — universal mesh engine. Live.
+- engine/form_finding.py — FDM solver. Live.
+- engine/mesh_triangulated_test.py — five boundary tests.
+- viewers/figures/standard_saddle_mbs.py — saddle viewer. Live.
+- data/recipes/standard_saddle.py — recipe. Live.
+- data/materials.py — Ferrari 702 record for Type III PVDF.
+- ui/workshops/tester_mbs.py — the MBS Tester.
+- engine/nfdm.py — Pauletti NFDM kernel. Isolated, tested.
+- engine/nfdm_tension_field.py — projection. Verified.
+- engine/nfdm_tension_field_test.py — six tests. All pass.
+- run_tests.py — CI runner, fixed. Green at run #425.
+- PROJECT_CONSTITUTION.md — Rule 22 added.
+
+Awaiting:
+- Deletion of the two test files.
+- PROJECT_STATE.md update.
+- Step 2E (three Shape inputs in the recipe).
+- The wrapper design conversation for solve_nfdm_tension_field.
+- FILE_INVENTORY.md rewrite.
+- DIRECTORY_MAP.md.
+
+### End of entry.
+
+The test is done. The proof is on record.
+The doctrine is now on record.
+Rule 22. One file, one block, one copy.
+
+End of entry.
