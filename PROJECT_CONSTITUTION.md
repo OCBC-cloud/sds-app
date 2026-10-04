@@ -481,6 +481,45 @@ doctrine:
 
 ---
 
+
+
+## Rule 22 — One File, One Block, One Copy
+
+Every file written by the AI and carried to GitHub by the Chief is
+written as ONE complete file, in ONE outer code block, with ONE
+Copy button.
+
+1. No nested code fences inside the file. A document may not
+   contain backtick fence markers inside it. If the content is
+   code, the outer block is the only fence. If the content is a
+   document that references code, the code is written as plain
+   indented text, not as a fenced block.
+
+2. No chunking unless the Chief asks. Size is not the reason to
+   split. The 150-line chunk rule is retired for this purpose. A
+   file of 1000 lines, of 4000 lines, of any length, is delivered
+   whole. The chat room carries it.
+
+3. No prose before the block. The message is the block.
+   Instructions, if needed, come after the block, not before it.
+   The Chief taps Copy on the block, pastes into the target file,
+   and reads back the last three lines.
+
+4. The writer is responsible for the format. If the file does not
+   transfer, the fault is in the writing, not in the platform. The
+   writer fixes the format, not the size.
+
+5. Proven by test. 2026-10-04. A 1000-line text file and a
+   4067-line Python file, each in one outer code block with no
+   nested fences, both transferred whole to GitHub in one paste.
+   The failures earlier in the session were caused by nested
+   fences and split messages, not by size.
+
+6. Do not shrink to hide. If a file is broken, fix the format.
+   Do not cut it into pieces to hide the breakage. Pieces hide
+   the problem. One clean file solves it.
+
+
 End of PROJECT_CONSTITUTION.md.
 
 
