@@ -1,38 +1,39 @@
 # =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.5)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.6)
 # =============================================================================
 # Prestressed-reference coupled nonlinear solver.
 # Real CST + geometric tangent. Slack-cable aware.
 # Relative convergence. Prestress baked into the reference.
 #
+# v4.6 changes (2026-10-06):
+#   - Cable tangent material term sign corrected.
+#     K_mat = -k_axial * u u^T, not +k_axial * u u^T.
+#     The correct Jacobian of F_a = +T u is
+#         K_aa = -(EA/L0) u u^T - (T/L)(I - u u^T)
+#     The previous version had the material term positive,
+#     which flipped the tangent sign at a sagged node and
+#     made the second Newton step point uphill.
+#
 # v4.5 changes (2026-10-06):
-#   - Cable geometric stiffness sign corrected. The
-#     contribution is -(T/L)(I - u u^T), not +(T/L)(...).
-#     The correct Jacobian of F_int[a] = +T u with respect
-#     to p_a is -T/L perpendicular, not +T/L. This is the
-#     fix for the line_search_failed in Test 2 and Test 4.
+#   - Cable geometric stiffness sign corrected to
+#     -(T/L)(I - u u^T).
 #
 # v4.4 changes (2026-10-06):
-#   - Residual convention: R = F_int + loads, where
-#     loads is the external force on the node in the
-#     positive axis direction. A downward load is a
-#     negative z value.
+#   - Residual convention: R = F_int + loads.
 #
 # v4.3 changes (2026-10-06):
 #   - Cable tangent includes the geometric stiffness term.
-#   - Reason reporting fixed. Inner failures propagate.
+#   - Reason reporting fixed.
 #
 # v4.2 changes (2026-10-06):
 #   - Test 4 starts from flat reference geometry.
 #   - Cable direction sign corrected.
-#   - Test 4 reports reason strings.
 #
 # v4.1 changes (2026-10-05 evening):
 #   - membrane_stress adds the prestress as a stress
 #     resultant instead of subtracting a reference strain.
 #   - Geometric stiffness no longer double-counts the
 #     prestress.
-#   - Test 4 uses a realistic 10 m x 10 m hypar.
 #
 # Conventions:
 #   Length m, force N, stress N/m^2, thickness m, EA in N.
@@ -52,6 +53,7 @@
 #   2026-10-06 - v4.3. Cable geometric stiffness. Reason fix.
 #   2026-10-06 - v4.4. Residual sign fix. R = F + loads.
 #   2026-10-06 - v4.5. Cable geometric stiffness sign fix.
+#   2026-10-06 - v4.6. Cable material stiffness sign fix.
 # =============================================================================
 
 import math
@@ -364,17 +366,19 @@ def _cable_stiffness(p_a, p_b, L0, EA):
     Return the 3x3 block of the cable tangent matrix for the
     (a, a) or (b, b) diagonal block.
 
-    Two contributions, in the residual convention
-    R = F_int + loads with F_int[a] = +T u:
+    Derivation. The internal force on node a is
+        F_a = +T u
+    with T = EA (L - L0) / L0 and u = (p_b - p_a) / L.
 
-        K_mat = (EA / L0) * u u^T        (material, axial)
-        K_geo = -(T / L) * (I - u u^T)   (geometric, perpendicular)
+    The Jacobian dF_a / dp_a is
+        K_aa = -(EA / L0) u u^T - (T / L)(I - u u^T)
+    and dF_a / dp_b = -K_aa.
 
-    The geometric term is NEGATIVE. This is because
-    dF_int[a]_z / dp_a_z = -T/L for a horizontal cable:
-    moving the node down makes the cable pull it up harder,
-    which is a negative derivative of the internal force
-    with respect to the displacement in the same direction.
+    Both terms are NEGATIVE. The material term reflects
+    axial stretching; the geometric term reflects
+    perpendicular restoring at a fixed tension. The signs
+    follow from dT/dp_a = -(EA/L0) u and
+    du/dp_a = -(I - u u^T) / L.
 
     Returns (K_block, ok). ok is False if the cable is slack,
     in which case the block is zero.
@@ -391,7 +395,7 @@ def _cable_stiffness(p_a, p_b, L0, EA):
     k_axial = EA / L0
     I3 = np.eye(3)
     uu = np.outer(u, u)
-    K_mat = k_axial * uu
+    K_mat = -k_axial * uu
     K_geo = -(T / L) * (I3 - uu)
     return (K_mat + K_geo), True
 
@@ -1113,7 +1117,7 @@ def _test_saddle_with_cable():
 
 def run_all_tests():
     print("=" * 60)
-    print("Nonlinear Equilibrium v4.5 - self-tests")
+    print("Nonlinear Equilibrium v4.6 - self-tests")
     print("=" * 60)
     all_ok = True
 
