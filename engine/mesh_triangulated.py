@@ -35,19 +35,22 @@
 #   Boundary edge on cable segment:        edge_q.
 #   Interior edge:                         weft_q.
 #
+# Updated 2026-10-05:
+#   - edge_q may be a scalar (uniform) or a dict keyed by
+#     (i, j) mesh node pairs (per-edge). When a dict is
+#     provided, it is passed to assign_anisotropic_q as
+#     boundary_edge_q. This allows the pull-back function
+#     to feed per-edge cable tensions from the membrane
+#     equilibrium at the FDM form-found shape.
+#
 # Dependencies:
 #   scipy.spatial.Delaunay and scipy.sparse.
 #   scipy is on Streamlit Cloud.
-#   The `triangle` package is NOT used: it cannot be built
-#   on Streamlit Cloud. See SPEC_mesh_triangulation.md
-#   section 10.
 #
 # History:
-#   2026-09-30 - First build. Replaces engine/mesh_universal.py
-#                and engine/mesh_topology.py.
-#   2026-10-01 - Interior points and Laplace lift. The earlier
-#                version had no interior nodes and used mean-z;
-#                the result was a flat membrane.
+#   2026-09-30 - First build.
+#   2026-10-01 - Interior points and Laplace lift.
+#   2026-10-05 - Per-edge edge_q support.
 # =============================================================================
 
 import numpy as np
@@ -61,7 +64,6 @@ _VALID_TYPES = ("beam", "cable", "wall")
 # =============================================================================
 
 def _validate_boundary(boundary_loop):
-    """Raise ValueError if the boundary is malformed. Return (n, 3) array."""
     arr = np.asarray(boundary_loop, dtype=float)
     if arr.ndim != 2 or arr.shape[1] != 3:
         raise ValueError(
@@ -77,7 +79,6 @@ def _validate_boundary(boundary_loop):
 
 
 def _validate_anchors(anchor_indices, n_boundary):
-    """Raise ValueError if anchors are malformed. Return sorted list."""
     if anchor_indices is None:
         return list(range(n_boundary))
     anchors = sorted(set(int(i) for i in anchor_indices))
@@ -91,7 +92,6 @@ def _validate_anchors(anchor_indices, n_boundary):
 
 
 def _validate_segment_types(segment_types, n_segments):
-    """Raise ValueError if segment types are malformed. Return list."""
     if segment_types is None:
         return ["cable"] * n_segments
     segment_types = list(segment_types)
@@ -110,7 +110,6 @@ def _validate_segment_types(segment_types, n_segments):
 
 
 def _validate_target_edge_length(length, boundary_loop):
-    """Return a positive float. Default = mean boundary edge length."""
     if length is None:
         n = boundary_loop.shape[0]
         total = 0.0
@@ -127,38 +126,14 @@ def _validate_target_edge_length(length, boundary_loop):
     return length
 
 
-
-
-
 # =============================================================================
 # PLAN PROJECTION
 # =============================================================================
-#
-# Project the 3D boundary onto a 2D plane.
-#
-# Default plane is the XY plane (normal = Z).
-# A caller may supply a different plane as (normal, origin).
 
 def _project_to_plane(boundary_loop, plan_plane):
-    """
-    Project 3D boundary points onto a 2D plane.
-
-    Parameters
-    ----------
-    boundary_loop : (n, 3) array
-    plan_plane : ((3,) normal, (3,) origin) or None
-
-    Returns
-    -------
-    pts_2d : (n, 2) array, plan coordinates
-    pts_3d : (n, 3) array, original boundary points
-    normal : (3,) unit vector
-    origin : (3,) point on the plane
-    """
     pts_3d = np.asarray(boundary_loop, dtype=float)
 
     if plan_plane is None:
-        # Default: XY plane.
         normal = np.array([0.0, 0.0, 1.0])
         origin = pts_3d.mean(axis=0)
     else:
@@ -169,7 +144,6 @@ def _project_to_plane(boundary_loop, plan_plane):
             raise ValueError("plan_plane normal has zero length")
         normal = normal / n
 
-    # Build an orthonormal basis (u, v) in the plane.
     ref = np.array([1.0, 0.0, 0.0])
     if abs(float(np.dot(ref, normal))) > 0.9:
         ref = np.array([0.0, 1.0, 0.0])
@@ -188,11 +162,6 @@ def _project_to_plane(boundary_loop, plan_plane):
 
 
 def _point_in_polygon(x, y, polygon):
-    """
-    Ray-casting test: is (x, y) inside the closed polygon?
-
-    Polygon is (n, 2). Edges are (i, i+1) with wraparound.
-    """
     n = polygon.shape[0]
     inside = False
     j = n - 1
@@ -208,14 +177,6 @@ def _point_in_polygon(x, y, polygon):
 
 
 def _grid_interior_points(pts_2d, target_edge_length):
-    """
-    Generate candidate interior points on a grid, keeping
-    only those inside the polygon.
-
-    The grid spacing is target_edge_length. Points too close
-    to the boundary (within 0.4 * spacing) are dropped to
-    avoid sliver triangles.
-    """
     pts_2d = np.asarray(pts_2d, dtype=float)
     h = float(target_edge_length)
     if h <= 0:
@@ -255,46 +216,22 @@ def _grid_interior_points(pts_2d, target_edge_length):
 # =============================================================================
 
 def _triangulate_polygon(pts_2d, target_edge_length):
-    """
-    Constrained Delaunay triangulation of a simple polygon.
-
-    Interior points are generated on a grid with spacing
-    approximately target_edge_length. The Delaunay
-    triangulation is then built over the boundary and the
-    interior points together. Triangles whose centroid is
-    outside the polygon are discarded.
-
-    Parameters
-    ----------
-    pts_2d : (n, 2) array of polygon vertices, closed loop
-    target_edge_length : float
-
-    Returns
-    -------
-    interior_pts : (k, 2) array of interior points
-    triangles    : list of (a, b, c) tuples, indices into the
-                   combined point list [boundary; interior]
-    """
     from scipy.spatial import Delaunay
 
     pts_2d = np.asarray(pts_2d, dtype=float)
     n_boundary = pts_2d.shape[0]
 
-    # ---- 1. Generate interior candidate points.
     interior_candidates = _grid_interior_points(
         pts_2d, target_edge_length
     )
 
-    # ---- 2. Combine boundary and interior candidates.
     if interior_candidates.shape[0] > 0:
         all_pts = np.vstack([pts_2d, interior_candidates])
     else:
         all_pts = pts_2d.copy()
 
-    # ---- 3. Delaunay over the combined point set.
     tri = Delaunay(all_pts)
 
-    # ---- 4. Keep triangles whose centroid is inside the polygon.
     tri_indices = tri.simplices
     triangles_inside = []
     for simplex in tri_indices:
@@ -304,7 +241,6 @@ def _triangulate_polygon(pts_2d, target_edge_length):
         if _point_in_polygon(cx, cy, pts_2d):
             triangles_inside.append((a, b, c))
 
-    # ---- 5. Which candidates are actually used?
     used = set()
     for (a, b, c) in triangles_inside:
         used.add(a)
@@ -313,7 +249,6 @@ def _triangulate_polygon(pts_2d, target_edge_length):
 
     used_interior = sorted(i for i in used if i >= n_boundary)
 
-    # ---- 6. Compact the interior list, remap indices.
     if len(used_interior) == 0:
         interior_pts = np.zeros((0, 2))
         remap = {}
@@ -336,18 +271,11 @@ def _triangulate_polygon(pts_2d, target_edge_length):
     return interior_pts, compacted
 
 
-
-
-
 # =============================================================================
 # EDGES
 # =============================================================================
 
 def _edges_from_triangles(triangles, n_points):
-    """
-    Build a unique edge list from a triangle list.
-    Each edge (i, j) is stored with i < j.
-    """
     seen = set()
     edges = []
     for (a, b, c) in triangles:
@@ -365,23 +293,10 @@ def _edges_from_triangles(triangles, n_points):
 # FIXED INDICES
 # =============================================================================
 
-def _compute_fixed_indices(boundary_loop, anchor_indices,
-                            segment_types):
-    """
-    Decide which boundary nodes are held in the FDM solve.
-
-    Rule:
-        - Anchor                        -> held.
-        - Segment interior, beam        -> held.
-        - Segment interior, wall        -> held.
-        - Segment interior, cable       -> released.
-
-    Returns a sorted list of boundary node indices.
-    """
+def _compute_fixed_indices(boundary_loop, anchor_indices, segment_types):
     n = boundary_loop.shape[0]
     n_anchors = len(anchor_indices)
 
-    # For each boundary index i, which segment does it belong to?
     seg_of_node = [-1] * n
     for k in range(n_anchors):
         start = anchor_indices[k]
@@ -419,12 +334,6 @@ def _compute_fixed_indices(boundary_loop, anchor_indices,
 
 def _compute_q(edges, n_boundary, boundary_loop, anchor_indices,
                segment_types, warp_q, weft_q, edge_q):
-    """
-    Assign a force density to every edge.
-
-    Boundary edges: by segment type at their midpoint.
-    Interior edges: weft_q.
-    """
     n_anchors = len(anchor_indices)
     n = n_boundary
 
@@ -441,7 +350,6 @@ def _compute_q(edges, n_boundary, boundary_loop, anchor_indices,
             if i == start:
                 break
 
-    # Which edges are boundary edges?
     boundary_pair_set = set()
     for i in range(n):
         j = (i + 1) % n
@@ -452,7 +360,6 @@ def _compute_q(edges, n_boundary, boundary_loop, anchor_indices,
     for k, (a, b) in enumerate(edges):
         key = (a, b) if a < b else (b, a)
         if key in boundary_pair_set:
-            # Boundary edge.
             seg_a = seg_of_node[a] if a < n else -1
             seg_b = seg_of_node[b] if b < n else -1
             seg_idx = seg_a if seg_a >= 0 else seg_b
@@ -469,51 +376,14 @@ def _compute_q(edges, n_boundary, boundary_loop, anchor_indices,
     return q
 
 
-
-
-
 # =============================================================================
 # LAPLACE LIFT (2D -> 3D)
 # =============================================================================
-#
-# The triangulation produces a 2D mesh in the plan plane. The
-# interior nodes need a z value. The z values are found by
-# solving Laplace's equation on the triangulated mesh, with
-# the boundary z values as the boundary condition.
-#
-#     L z = 0 for interior nodes
-#     z = boundary_z for boundary nodes
-#
-# where L is the graph Laplacian over the mesh: for each
-# interior node i, the equation is
-#
-#     z_i = mean of z at its neighbours
-#
-# This is the discrete harmonic function. It is exact at the
-# boundary and smooth inside. It works for any boundary shape
-# - saddle, dome, crown, irregular.
 
 def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
-    """
-    Solve Laplace's equation for the interior z values.
-
-    Parameters
-    ----------
-    points_2d  : (n_nodes, 2) array of plan coordinates.
-                 First n_boundary rows are boundary nodes.
-    normal     : (3,) unit vector of the plan plane.
-    origin     : (3,) point on the plane.
-    boundary_z : (n_boundary,) array of boundary z values
-                 (heights along the plane normal).
-    n_boundary : int
-    n_nodes    : int = points_2d.shape[0]
-
-    Returns
-    -------
-    z_all : (n_nodes,) array of z values for every node.
-    """
     import scipy.sparse as sp
     import scipy.sparse.linalg as spla
+    from scipy.spatial import cKDTree
 
     n_nodes = points_2d.shape[0]
     n_interior = n_nodes - n_boundary
@@ -524,30 +394,18 @@ def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
     if n_interior == 0:
         return z_all
 
-    # Build the sparse graph Laplacian over the mesh.
-    # We need the edges. Build them from the triangulation by
-    # asking the caller to provide them. Here we build a simple
-    # nearest-neighbour graph with a KD-tree, so the Laplacian
-    # is over the mesh regardless of how it was triangulated.
-    from scipy.spatial import cKDTree
-
     tree = cKDTree(points_2d)
-    # For each point, connect to its k nearest neighbours.
-    # k = 8 is a reasonable default for a triangulated mesh.
-    # Clamp k to n_nodes - 1 so small meshes (fewer than
-    # 9 points) do not overrun the KD-tree.
     k = min(8, n_nodes - 1)
     if k < 1:
         return z_all
     dists, idxs = tree.query(points_2d, k=k + 1)
-    # idxs[:, 0] is the point itself.
 
     rows = []
     cols = []
     data = []
 
     for i in range(n_nodes):
-        nbrs = idxs[i, 1:]  # exclude self
+        nbrs = idxs[i, 1:]
         degree = len(nbrs)
         if degree == 0:
             continue
@@ -564,7 +422,6 @@ def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
         shape=(n_nodes, n_nodes)
     )
 
-    # Partition into interior and boundary.
     int_idx = np.arange(n_boundary, n_nodes)
     bnd_idx = np.arange(0, n_boundary)
 
@@ -573,7 +430,6 @@ def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
 
     rhs = -L_ib @ z_all[:n_boundary]
 
-    # Solve the sparse system.
     z_interior = spla.spsolve(L_ii.tocsc(), rhs)
 
     z_all[int_idx] = z_interior
@@ -597,9 +453,17 @@ def build_mesh_triangulated(
     """
     Build a triangulated mesh from a closed boundary loop.
 
+    Parameters
+    ----------
+    edge_q : float or dict
+        Scalar: uniform force density on cable boundary edges.
+        Dict: per-edge values, keyed by (i, j) mesh node pairs
+        (sorted). Missing keys fall back to the pull-back value
+        computed from the membrane equilibrium if pull-back is
+        available, else warp_q. See assign_anisotropic_q.
+
     See engine/SPEC_mesh_triangulation.md for the full design.
     """
-    # ---- 1. Validate.
     boundary = _validate_boundary(boundary_loop)
     n_boundary = boundary.shape[0]
 
@@ -610,24 +474,20 @@ def build_mesh_triangulated(
         target_edge_length, boundary
     )
 
-    # ---- 2. Plan projection.
     pts_2d, pts_3d, normal, origin = _project_to_plane(
         boundary, plan_plane
     )
 
-    # ---- 3. Triangulate the polygon (with interior points).
     interior_pts_2d, triangles = _triangulate_polygon(
         pts_2d, target_len
     )
     n_interior = interior_pts_2d.shape[0]
 
-    # ---- 4. Assemble the full 3D point set.
     if n_interior > 0:
         all_pts_2d = np.vstack([pts_2d, interior_pts_2d])
     else:
         all_pts_2d = pts_2d.copy()
 
-    # Rebuild the orthonormal basis (u, v) for the plan plane.
     ref = np.array([1.0, 0.0, 0.0])
     if abs(float(np.dot(ref, normal))) > 0.9:
         ref = np.array([0.0, 1.0, 0.0])
@@ -636,17 +496,10 @@ def build_mesh_triangulated(
     v = np.cross(normal, u)
     v = v / (np.linalg.norm(v) + 1e-30)
 
-    # Lift every node from plan coordinates to 3D. Boundary
-    # nodes use their true 3D positions.
     all_points = np.zeros((all_pts_2d.shape[0], 3))
     for i in range(pts_3d.shape[0]):
         all_points[i] = pts_3d[i]
 
-    # For the interior nodes, use the Laplace lift as the
-    # initial z guess. Without it, every interior node would
-    # start at the same z (the plane origin), and the FDM
-    # solve would have to move them all by the same large
-    # amount — swamping the warp/weft signal.
     if n_interior > 0:
         boundary_z = np.array([
             float(np.dot(p - origin, normal)) for p in pts_3d
@@ -665,16 +518,13 @@ def build_mesh_triangulated(
             b = all_pts_2d[i, 1]
             all_points[i] = origin + a * u + b * v
 
-    # ---- 5. Edges.
     edges = _edges_from_triangles(triangles, all_points.shape[0])
 
-    # ---- 6. Fixed indices.
     fixed_boundary = _compute_fixed_indices(
         boundary, anchors, seg_types
     )
     fixed_indices = list(fixed_boundary)
 
-    # ---- 7. Anisotropic force densities.
     from engine.form_finding import (
         assign_anisotropic_q,
         auto_warp_dir,
@@ -683,6 +533,8 @@ def build_mesh_triangulated(
 
     warp_dir = auto_warp_dir(pts_2d)
 
+    # Pass edge_q through as either a scalar or a dict.
+    # assign_anisotropic_q handles both.
     q_aniso = assign_anisotropic_q(
         edges,
         all_pts_2d,
@@ -693,11 +545,6 @@ def build_mesh_triangulated(
         boundary_edge_q=edge_q,
     )
 
-    # ---- 8. Form-find with FDM.
-    # Save the initial mesh BEFORE the solve, so the caller
-    # can compare starting shape with equilibrium shape.
-    # This matches the professional FDM workflow: initial
-    # mesh and equilibrium mesh are two separate states.
     points_initial = all_points.copy()
 
     fdm_result = None
@@ -709,7 +556,7 @@ def build_mesh_triangulated(
             q_aniso,
         )
         all_points = fdm_result["coordinates"]
-# ---- 9. Diagnostics.
+
     diagnostics = {
         "n_nodes": int(all_points.shape[0]),
         "n_edges": len(edges),
@@ -741,10 +588,6 @@ def build_mesh_triangulated(
     }
 
 
-
-
-
-
-
-
-
+# =============================================================================
+# END OF engine/mesh_triangulated.py
+# =============================================================================
