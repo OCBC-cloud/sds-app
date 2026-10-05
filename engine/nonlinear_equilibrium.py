@@ -1,22 +1,30 @@
 # =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.6)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.7)
 # =============================================================================
 # Prestressed-reference coupled nonlinear solver.
 # Real CST + geometric tangent. Slack-cable aware.
 # Relative convergence. Prestress baked into the reference.
 #
+# v4.7 changes (2026-10-06):
+#   - Membrane internal force sign corrected. The
+#     function previously returned f0, f1, f2 computed
+#     from the outward-facing tractions sigma @ n_out.
+#     That is the traction of the outside on the
+#     material, not the internal force the material
+#     exerts on its own boundary. The correct internal
+#     force at each node is the negative:
+#         return -f0, -f1, -f2
+#     This is why Test 4's boundary nodes moved outward
+#     instead of inward, and why the line search failed
+#     on step 0. Test 1 is unaffected because at interior
+#     nodes the contributions cancel either way.
+#
 # v4.6 changes (2026-10-06):
 #   - Cable tangent material term sign corrected.
-#     K_mat = -k_axial * u u^T, not +k_axial * u u^T.
-#     The correct Jacobian of F_a = +T u is
-#         K_aa = -(EA/L0) u u^T - (T/L)(I - u u^T)
-#     The previous version had the material term positive,
-#     which flipped the tangent sign at a sagged node and
-#     made the second Newton step point uphill.
+#     K_mat = -k_axial u u^T.
 #
 # v4.5 changes (2026-10-06):
-#   - Cable geometric stiffness sign corrected to
-#     -(T/L)(I - u u^T).
+#   - Cable geometric stiffness sign corrected.
 #
 # v4.4 changes (2026-10-06):
 #   - Residual convention: R = F_int + loads.
@@ -54,6 +62,7 @@
 #   2026-10-06 - v4.4. Residual sign fix. R = F + loads.
 #   2026-10-06 - v4.5. Cable geometric stiffness sign fix.
 #   2026-10-06 - v4.6. Cable material stiffness sign fix.
+#   2026-10-06 - v4.7. Membrane internal force sign fix.
 # =============================================================================
 
 import math
@@ -226,7 +235,22 @@ def membrane_stress(p0, p1, p2, P0, P1, P2, material):
 
 
 def _membrane_internal_force(p0, p1, p2, P0, P1, P2, material):
-    """Return (f0, f1, f2) internal forces at three nodes."""
+    """
+    Return (f0, f1, f2) internal forces at the three nodes.
+
+    Sign convention: the internal force is the force the
+    material exerts on its own boundary. For an edge with
+    outward normal n, the traction of the outside on the
+    material is (sigma @ n). The internal force is the
+    NEGATIVE of that: the material pulls its boundary INTO
+    itself. So the returned forces are the negation of the
+    outward-traction assembly.
+
+    At interior nodes of a uniform mesh the contributions
+    cancel either way, so this sign does not affect Test 1.
+    At free boundary nodes it determines the direction of
+    the residual, and hence which way the boundary settles.
+    """
     sigma, _c, _s = membrane_stress(p0, p1, p2, P0, P1, P2, material)
     t1, t2, _n = _triangle_basis(p0, p1, p2)
 
@@ -259,7 +283,7 @@ def _membrane_internal_force(p0, p1, p2, P0, P1, P2, material):
     f0 = (1.0 / 3.0) * (fe20 - fe01)
     f1 = (1.0 / 3.0) * (fe01 - fe12)
     f2 = (1.0 / 3.0) * (fe12 - fe20)
-    return f0, f1, f2
+    return -f0, -f1, -f2
 
 
 # =============================================================================
@@ -366,22 +390,17 @@ def _cable_stiffness(p_a, p_b, L0, EA):
     Return the 3x3 block of the cable tangent matrix for the
     (a, a) or (b, b) diagonal block.
 
-    Derivation. The internal force on node a is
-        F_a = +T u
-    with T = EA (L - L0) / L0 and u = (p_b - p_a) / L.
+    Derivation. F_a = +T u with T = EA (L - L0)/L0 and
+    u = (p_b - p_a)/L. Then
 
-    The Jacobian dF_a / dp_a is
         K_aa = -(EA / L0) u u^T - (T / L)(I - u u^T)
-    and dF_a / dp_b = -K_aa.
+        K_ab = -K_aa
 
-    Both terms are NEGATIVE. The material term reflects
+    Both terms are negative. The material term reflects
     axial stretching; the geometric term reflects
-    perpendicular restoring at a fixed tension. The signs
-    follow from dT/dp_a = -(EA/L0) u and
-    du/dp_a = -(I - u u^T) / L.
+    perpendicular restoring at fixed tension.
 
-    Returns (K_block, ok). ok is False if the cable is slack,
-    in which case the block is zero.
+    Returns (K_block, ok). ok is False if the cable is slack.
     """
     d = p_b - p_a
     L = float(np.linalg.norm(d))
@@ -1117,7 +1136,7 @@ def _test_saddle_with_cable():
 
 def run_all_tests():
     print("=" * 60)
-    print("Nonlinear Equilibrium v4.6 - self-tests")
+    print("Nonlinear Equilibrium v4.7 - self-tests")
     print("=" * 60)
     all_ok = True
 
