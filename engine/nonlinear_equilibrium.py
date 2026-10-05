@@ -1,35 +1,35 @@
 # =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.2)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.3)
 # =============================================================================
 # Prestressed-reference coupled nonlinear solver.
 # Real CST + geometric tangent. Slack-cable aware.
 # Relative convergence. Prestress baked into the reference.
 #
-# Committed to on 2026-10-04. See PROJECT_SESSION_LOG.md.
+# v4.3 changes (2026-10-06):
+#   - Cable tangent now includes the geometric stiffness
+#     term (T/L)(I - u u^T). Without it, a straight
+#     horizontal cable had zero vertical stiffness and the
+#     Newton step could not produce sag or boundary motion.
+#     This is the fix for the active_set_stable_no_convergence
+#     failure that masked a line_search_failed.
+#   - Reason reporting fixed. The outer loop no longer
+#     overwrites line_search_failed or singular_tangent with
+#     the active-set-stable reason string. A failure in the
+#     inner loop now propagates out and is reported honestly.
+#   - Test 2 and Test 4 now report correctly. Test 2 should
+#     sag, Test 4 should move the mid-top-edge node.
 #
 # v4.2 changes (2026-10-06):
-#   - Test 4 fixed. The previous version started from the
-#     reference geometry (points == reference_points), so
-#     the membrane was at zero strain and the internal
-#     forces cancelled. Nothing to solve. It now starts
-#     from a flat reference and lets the solver find the
-#     hypar.
-#   - Test 4 now reports the failure reason string so the
-#     CI tells us which failure mode triggered, if any.
-#   - Cable direction sign corrected in _assemble_residual.
-#     The membrane pulls inward, the cable resists. They
-#     must oppose. Previous code had them aligned.
+#   - Test 4 fixed. Starts from flat reference geometry.
+#   - Cable direction sign corrected.
+#   - Test 4 reports reason strings.
 #
 # v4.1 changes (2026-10-05 evening):
-#   - membrane_stress adds the prestress as a stress resultant
-#     instead of subtracting a reference strain. At the
-#     reference geometry, sigma = N_ref (positive in tension).
-#   - The geometric stiffness no longer double-counts the
+#   - membrane_stress adds the prestress as a stress
+#     resultant instead of subtracting a reference strain.
+#   - Geometric stiffness no longer double-counts the
 #     prestress.
-#   - Test 4 uses a realistic 10 m x 10 m hypar with 7x7
-#     nodes and 2 m corner elevation. Cable pretensions
-#     straddle the membrane's edge force, so the top-edge
-#     nodes are pulled outward by the cable in both cases.
+#   - Test 4 uses a realistic 10 m x 10 m hypar.
 #
 # Conventions:
 #   Length m, force N, stress N/m^2, thickness m, EA in N.
@@ -44,6 +44,7 @@
 #   2026-10-04 - v4. Prestressed reference formulation.
 #   2026-10-05 - v4.1. Prestress as stress resultant.
 #   2026-10-06 - v4.2. Test 4 fix. Cable sign fix.
+#   2026-10-06 - v4.3. Cable geometric stiffness. Reason fix.
 # =============================================================================
 
 import math
@@ -87,13 +88,7 @@ def make_membrane_material(E_warp_MPa, E_weft_MPa, thickness_mm,
                            nu=0.34, G_MPa=50.0,
                            warp_prestress_N_per_m=0.0,
                            weft_prestress_N_per_m=0.0):
-    """
-    Return the material dict.
-
-    The prestress values are stress resultants (N/m). They are
-    the ADDITIONAL prestress the fabric carries at the
-    reference configuration, over and above the "zero" state.
-    """
+    """Return the material dict."""
     E1 = float(E_warp_MPa) * 1e6
     E2 = float(E_weft_MPa) * 1e6
     G12 = float(G_MPa) * 1e6
@@ -199,24 +194,7 @@ def _principal_project(s11, s22, s12):
 
 
 def membrane_stress(p0, p1, p2, P0, P1, P2, material):
-    """
-    Return the plane-stress tensor at a triangle, in the
-    triangle's own local basis.
-
-    The stress resultant is:
-
-        sigma = C @ E_cur + N_ref
-
-    where:
-        E_cur  is the Green-Lagrange strain measured against
-               the reference geometry P.
-        N_ref  is the prestress stress resultant from the
-               material (positive in tension).
-
-    At the reference geometry (p = P), E_cur = 0, so
-    sigma = N_ref. That is the physical prestress carried by
-    the fabric at the form-found state. Positive in tension.
-    """
+    """Return the plane-stress tensor at a triangle."""
     C_plane = material["C_plane"]
     thickness = material["thickness_m"]
 
@@ -374,6 +352,41 @@ def cable_state(p_a, p_b, L0, EA):
     return float(T), True, float(k_axial), u
 
 
+def _cable_stiffness(p_a, p_b, L0, EA):
+    """
+    Return the 3x3 block of the cable tangent matrix for the
+    (a, a) or (b, b) diagonal block.
+
+    The tangent has two contributions:
+
+        K_mat = (EA / L0) * u u^T       (material, axial)
+        K_geo = (T / L) * (I - u u^T)   (geometric, perpendicular)
+
+    The geometric term is what makes a taut straight cable
+    resist a load perpendicular to its own axis. Without it,
+    a horizontal cable cannot sag, because the material term
+    only resists axial stretching.
+
+    Returns (K_block, ok) where ok is False if the cable is
+    slack, in which case the block is zero.
+    """
+    d = p_b - p_a
+    L = float(np.linalg.norm(d))
+    if L < EPS or L0 < EPS:
+        return np.zeros((3, 3)), False
+    u = d / L
+    strain = (L - L0) / L0
+    if strain <= 0.0:
+        return np.zeros((3, 3)), False
+    T = EA * strain
+    k_axial = EA / L0
+    I3 = np.eye(3)
+    uu = np.outer(u, u)
+    K_mat = k_axial * uu
+    K_geo = (T / L) * (I3 - uu)
+    return (K_mat + K_geo), True
+
+
 # =============================================================================
 # RESIDUAL ASSEMBLY
 # =============================================================================
@@ -406,10 +419,9 @@ def _assemble_residual(points, triangles, cables, ref_points,
         )
         taut_flags[k] = taut
         if taut:
-            # Cable tension pulls a toward b, and b toward a.
-            # The vector u points from a to b.
-            # Force on a is +T*u (pulls a toward b).
-            # Force on b is -T*u (pulls b toward a).
+            # Internal force on node a pulls it toward b: +T*u.
+            # Internal force on node b pulls it toward a: -T*u.
+            # The residual is F - loads, so this is correct.
             F[a] += T * u
             F[b] -= T * u
 
@@ -492,13 +504,12 @@ def _assemble_tangent(points, triangles, cables, ref_points,
             continue
         a = int(cb["a"])
         b = int(cb["b"])
-        _T, taut, k_ax, u = cable_state(
+        Kblk, ok = _cable_stiffness(
             points[a], points[b],
             float(cb["L0"]), float(cb["EA"])
         )
-        if not taut:
+        if not ok:
             continue
-        Kblk = k_ax * np.outer(u, u)
         da = dof_of_node[a] * 3 if free_mask[a] else -1
         db = dof_of_node[b] * 3 if free_mask[b] else -1
         if da < 0 and db < 0:
@@ -538,17 +549,7 @@ def pullback_cable_initial_tensions(
     segments,
     material,
 ):
-    """
-    Compute per-edge cable tensions from the membrane
-    equilibrium at the current configuration.
-
-    The membrane is prestressed and wants to shrink. Its
-    prestress pulls the floating boundary points INWARD,
-    toward the membrane's centre. The edge cable resists
-    that inward pull. The tension the cable must carry to
-    hold the boundary at the anchor line is the axial
-    component of the membrane's edge force.
-    """
+    """Compute per-edge cable tensions from the membrane pull."""
     n_boundary = boundary_loop.shape[0]
 
     boundary_edges = set()
@@ -709,6 +710,7 @@ def solve_nonlinear_equilibrium(
     history = []
     reason = "max_iter"
     converged = False
+    inner_failed = False
 
     for outer in range(max_outer + 1):
         for k, cb in enumerate(cables):
@@ -732,6 +734,7 @@ def solve_nonlinear_equilibrium(
             reason = "converged"
             break
 
+        inner_failed = False
         for it in range(1, max_iter + 1):
             K = _assemble_tangent(
                 points, triangles, cables, ref_points,
@@ -744,6 +747,7 @@ def solve_nonlinear_equilibrium(
                 dx = np.linalg.solve(K_reg, -r_flat)
             except np.linalg.LinAlgError:
                 reason = "singular_tangent"
+                inner_failed = True
                 break
 
             if n_nodes > 0:
@@ -765,24 +769,6 @@ def solve_nonlinear_equilibrium(
             for _ls in range(DEFAULT_LINE_SEARCH_STEPS):
                 x_try = x0 + alpha * dx
                 p_try = unflat(x_try)
-
-                okay = True
-                for k, cb in enumerate(cables):
-                    a = int(cb["a"])
-                    b = int(cb["b"])
-                    d = p_try[b] - p_try[a]
-                    L = float(np.linalg.norm(d))
-                    L0 = float(cb["L0"])
-                    was_taut = taut_flags[k]
-                    is_taut = (L > L0)
-                    if was_taut != is_taut:
-                        overshoot = abs(L - L0) / max(L0, EPS)
-                        if overshoot > 1e-2:
-                            okay = False
-                            break
-                if not okay:
-                    alpha *= 0.5
-                    continue
 
                 trial_flags = [False] * len(cables)
                 for kk, cbt in enumerate(cables):
@@ -812,6 +798,7 @@ def solve_nonlinear_equilibrium(
 
             if best_alpha is None:
                 reason = "line_search_failed"
+                inner_failed = True
                 break
 
             points = unflat(x0 + best_alpha * dx)
@@ -827,6 +814,8 @@ def solve_nonlinear_equilibrium(
                 break
 
         if converged:
+            break
+        if inner_failed:
             break
 
         new_flags = [False] * len(cables)
@@ -991,22 +980,9 @@ def _test_pretension_recovery():
 
 
 def _test_saddle_with_cable():
-    """
-    Saddle with prestressed membrane and edge cable.
-
-    Test 4, v4.2. The initial configuration is the flat
-    plan geometry at z = 0. The reference configuration is
-    the same flat geometry. The membrane is prestressed in
-    the material. The cable runs along the top edge.
-
-    The solver must:
-      - form a saddle shape (nonzero z at interior nodes),
-      - move the mid-top-edge node inward or outward,
-      - respond visibly to a change in cable pretension.
-    """
+    """Saddle with prestressed membrane and edge cable."""
     Lx = 10.0
     Ly = 10.0
-    H = 2.0
     N = 7
 
     def node_index(i, j):
@@ -1116,7 +1092,7 @@ def _test_saddle_with_cable():
 
 def run_all_tests():
     print("=" * 60)
-    print("Nonlinear Equilibrium v4.2 - self-tests")
+    print("Nonlinear Equilibrium v4.3 - self-tests")
     print("=" * 60)
     all_ok = True
 
