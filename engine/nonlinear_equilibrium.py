@@ -187,43 +187,37 @@ def _principal_project(s11, s22, s12):
 def membrane_stress(p0, p1, p2, P0, P1, P2, material):
     """
     Return the plane-stress tensor at a triangle, in the
-    triangle's own local basis. The prestress is subtracted so
-    that at the reference state, sigma = 0 (nothing to add).
+    triangle's own local basis.
 
-    Uses material["C_plane"], material["thickness_m"], and
-    material["E_ref_2x2"] to remove the reference strain.
+    The stress resultant is:
+
+        sigma = C @ E_cur + N_ref
+
+    where:
+        E_cur  is the Green-Lagrange strain measured against
+               the reference geometry P.
+        N_ref  is the prestress stress resultant from the
+               material (positive in tension).
+
+    At the reference geometry (p = P), E_cur = 0, so
+    sigma = N_ref. That is the physical prestress carried by
+    the fabric at the form-found state. Positive in tension.
     """
     C_plane = material["C_plane"]
     thickness = material["thickness_m"]
-    E_ref = material["E_ref_2x2"]
+
+    N_warp = float(material.get("warp_prestress_N_per_m", 0.0))
+    N_weft = float(material.get("weft_prestress_N_per_m", 0.0))
 
     t1, t2, _ = _triangle_basis(p0, p1, p2)
     eps_vec = _strain_vector_from_ref(p0, p1, p2, P0, P1, P2, t1, t2)
 
-    # Build the 2x2 strain tensor.
-    E_cur = np.array([
-        [eps_vec[0], 0.5 * eps_vec[2]],
-        [0.5 * eps_vec[2], eps_vec[1]],
-    ], dtype=float)
+    # Constitutive stress from the current strain (N/m^2).
+    stress = C_plane @ eps_vec
 
-    # Rotate the reference strain into the current triangle frame?
-    # For simplicity in this version, we subtract the reference
-    # strain tensor evaluated in the same local basis. This is
-    # approximate when the triangle has rotated significantly,
-    # and is exact when the rotation is small (which is the case
-    # in the tests here).
-    E_net = E_cur - E_ref
-
-    # Back to Voigt for the constitutive.
-    eps_net_vec = np.array([
-        E_net[0, 0],
-        E_net[1, 1],
-        2.0 * E_net[0, 1],
-    ], dtype=float)
-
-    stress = C_plane @ eps_net_vec  # N/m^2
-    s11 = float(stress[0]) * thickness
-    s22 = float(stress[1]) * thickness
+    # Convert to stress resultant (N/m) and add prestress.
+    s11 = float(stress[0]) * thickness + N_warp
+    s22 = float(stress[1]) * thickness + N_weft
     s12 = float(stress[2]) * thickness
 
     s11p, s22p, s12p, comp = _principal_project(s11, s22, s12)
@@ -316,17 +310,12 @@ def _membrane_local_stiffness_3node(p0, p1, p2, P0, P1, P2, material):
 
     K_mat = thickness * area * (B.T @ C_plane @ B)
 
-    # Total current stress resultant for the geometric part:
-    # current sigma (from strain net of reference) PLUS the
-    # reference prestress.
-    sigma_net, _comp, _sp = membrane_stress(
+    # Total current stress resultant for the geometric part.
+    # membrane_stress now returns the total stress resultant
+    # including the prestress. Do NOT add the prestress again.
+    sigma_total, _comp, _sp = membrane_stress(
         p0, p1, p2, P0, P1, P2, material
     )
-    sigma_ref = np.array([
-        [material["warp_prestress_N_per_m"], 0.0],
-        [0.0, material["weft_prestress_N_per_m"]],
-    ], dtype=float)
-    sigma_total = sigma_net + sigma_ref
 
     dN = np.zeros((3, 2), dtype=float)
     dN[0, 0] = (y1 - y2) * inv_2A
