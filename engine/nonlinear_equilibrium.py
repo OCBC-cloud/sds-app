@@ -1,26 +1,30 @@
 # =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.3)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.4)
 # =============================================================================
 # Prestressed-reference coupled nonlinear solver.
 # Real CST + geometric tangent. Slack-cable aware.
 # Relative convergence. Prestress baked into the reference.
 #
+# v4.4 changes (2026-10-06):
+#   - Residual sign fixed. R = F_int + loads, not
+#     R = F_int - loads. The external load vector is
+#     interpreted as "force applied to the node in the
+#     positive axis direction." A downward load is a
+#     negative value, and it produces a negative residual.
+#     Previous convention double-negated the load and
+#     made the Newton step point away from equilibrium.
+#     This is the fix for the line_search_failed in Test 2.
+#   - Test 4 unchanged from v4.3. Same geometry, same
+#     reference, same cable pretensions.
+#
 # v4.3 changes (2026-10-06):
-#   - Cable tangent now includes the geometric stiffness
-#     term (T/L)(I - u u^T). Without it, a straight
-#     horizontal cable had zero vertical stiffness and the
-#     Newton step could not produce sag or boundary motion.
-#     This is the fix for the active_set_stable_no_convergence
-#     failure that masked a line_search_failed.
-#   - Reason reporting fixed. The outer loop no longer
-#     overwrites line_search_failed or singular_tangent with
-#     the active-set-stable reason string. A failure in the
-#     inner loop now propagates out and is reported honestly.
-#   - Test 2 and Test 4 now report correctly. Test 2 should
-#     sag, Test 4 should move the mid-top-edge node.
+#   - Cable tangent includes the geometric stiffness
+#     term (T/L)(I - u u^T).
+#   - Reason reporting fixed. Inner-loop failures
+#     propagate out and are reported honestly.
 #
 # v4.2 changes (2026-10-06):
-#   - Test 4 fixed. Starts from flat reference geometry.
+#   - Test 4 starts from flat reference geometry.
 #   - Cable direction sign corrected.
 #   - Test 4 reports reason strings.
 #
@@ -36,6 +40,8 @@
 #   Membrane prestress in N/m (stress resultant).
 #   Cable pretension in N (axial force).
 #   Cable tension T = EA (L - L0) / L0 if taut, else 0.
+#   loads: external force applied to each node, positive
+#          in the axis direction. Downward load = negative z.
 #
 # History:
 #   2026-10-04 - First build.
@@ -45,6 +51,7 @@
 #   2026-10-05 - v4.1. Prestress as stress resultant.
 #   2026-10-06 - v4.2. Test 4 fix. Cable sign fix.
 #   2026-10-06 - v4.3. Cable geometric stiffness. Reason fix.
+#   2026-10-06 - v4.4. Residual sign fix. R = F + loads.
 # =============================================================================
 
 import math
@@ -357,18 +364,9 @@ def _cable_stiffness(p_a, p_b, L0, EA):
     Return the 3x3 block of the cable tangent matrix for the
     (a, a) or (b, b) diagonal block.
 
-    The tangent has two contributions:
-
-        K_mat = (EA / L0) * u u^T       (material, axial)
-        K_geo = (T / L) * (I - u u^T)   (geometric, perpendicular)
-
-    The geometric term is what makes a taut straight cable
-    resist a load perpendicular to its own axis. Without it,
-    a horizontal cable cannot sag, because the material term
-    only resists axial stretching.
-
-    Returns (K_block, ok) where ok is False if the cable is
-    slack, in which case the block is zero.
+    Two contributions:
+        K_mat = (EA / L0) * u u^T        (material, axial)
+        K_geo = (T / L) * (I - u u^T)    (geometric, perpendicular)
     """
     d = p_b - p_a
     L = float(np.linalg.norm(d))
@@ -394,7 +392,22 @@ def _cable_stiffness(p_a, p_b, L0, EA):
 def _assemble_residual(points, triangles, cables, ref_points,
                         material, loads, free_mask, n_nodes,
                         taut_flags):
-    """Assemble the residual. Slack cables contribute zero force."""
+    """
+    Assemble the residual.
+
+    R = F_int + loads
+
+    where F_int is the internal resisting force at each node
+    (the force the elements exert on their nodes, pulling
+    toward the element's own ends) and loads is the external
+    force applied to each node, positive in the axis
+    direction. A downward load is a negative z value.
+
+    At equilibrium R = 0, i.e. F_int = -loads, which is the
+    correct balance: the elements resist the applied load.
+
+    Slack cables contribute zero force.
+    """
     F = np.zeros((n_nodes, 3), dtype=float)
 
     for (a, b, c) in triangles:
@@ -419,13 +432,10 @@ def _assemble_residual(points, triangles, cables, ref_points,
         )
         taut_flags[k] = taut
         if taut:
-            # Internal force on node a pulls it toward b: +T*u.
-            # Internal force on node b pulls it toward a: -T*u.
-            # The residual is F - loads, so this is correct.
             F[a] += T * u
             F[b] -= T * u
 
-    R = F - loads
+    R = F + loads
     R[~free_mask] = 0.0
     return R
 
@@ -644,7 +654,12 @@ def solve_nonlinear_equilibrium(
     max_iter=DEFAULT_MAX_ITER, max_outer=DEFAULT_MAX_OUTER,
     tol=DEFAULT_TOL,
 ):
-    """Coupled nonlinear equilibrium with prestressed reference."""
+    """
+    Coupled nonlinear equilibrium with prestressed reference.
+
+    loads: external force applied to each node, positive in
+    the axis direction. A downward load is a negative z value.
+    """
     points = np.asarray(points, dtype=float).copy()
     ref_points = np.asarray(reference_points, dtype=float).copy()
     triangles = list(triangles)
@@ -1092,7 +1107,7 @@ def _test_saddle_with_cable():
 
 def run_all_tests():
     print("=" * 60)
-    print("Nonlinear Equilibrium v4.3 - self-tests")
+    print("Nonlinear Equilibrium v4.4 - self-tests")
     print("=" * 60)
     all_ok = True
 
