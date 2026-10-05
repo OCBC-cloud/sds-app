@@ -11,21 +11,31 @@
 # The rule:
 #   NONLINEAR_TIERS = ("owner", "studio", "beta")
 #   If Cable Supported AND access_mode in NONLINEAR_TIERS:
-#       run solve_nonlinear_equilibrium.
+#       run the NFDM path.
 #   Else:
-#       run build_mesh_triangulated (FDM).
+#       run the FDM path.
 #
-# The access gate is not built yet (see TIERS.md). Until then,
-# access_mode defaults to "owner" so the Chief sees the real
-# engine. When the gate lands, the default becomes "free" and
-# the gate sets the true mode.
+# Performance:
+#   Both paths are cached with st.cache_data. First render on
+#   a fresh input set takes the full solve time. Every
+#   subsequent render with the same inputs returns instantly.
+#   Inputs are rounded to 6 decimals before hashing, so
+#   floating-point drift does not defeat the cache.
+#
+#   The FDM path is a single build: mesh, pull-back, one
+#   solve_fdm call. No second mesh build.
+#
+# Marker toggles:
+#   Streamlit checkboxes below the chart. Plotly's own legend
+#   does not toggle reliably inside Streamlit.
 #
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
 #   2026-09-30 - Step 5. Rewritten to use the triangulated engine.
 #   2026-10-04 - Step 2E. Anchors and subdivision.
 #   2026-10-04 - Two-path solver. NFDM for high tiers.
-#   2026-10-05 - Pull-back initial guess. Spinner. Legend toggles.
+#   2026-10-05 - Pull-back initial guess. Single-build FDM.
+#                Cache. Loading message. Checkbox toggles.
 # =============================================================================
 
 import math
@@ -47,6 +57,7 @@ from engine.nonlinear_equilibrium import (
     make_membrane_material,
     pullback_cable_initial_tensions,
 )
+from engine.form_finding import solve_fdm, assign_anisotropic_q, auto_warp_dir
 from data.materials import CABLE_PROPERTIES, FABRIC_PROPERTIES
 
 
@@ -72,7 +83,7 @@ def _has_nonlinear():
 # =============================================================================
 
 def _read_fabric_constants(fabric_type, fabric_grade):
-    """Return (E_warp_MPa, E_weft_MPa, thickness_mm) from FABRIC_PROPERTIES."""
+    """Return (E_warp_MPa, E_weft_MPa, thickness_mm)."""
     try:
         rec = FABRIC_PROPERTIES[fabric_type][fabric_grade]
         E1 = float(rec.get("E_warp", 1400.0))
@@ -84,7 +95,7 @@ def _read_fabric_constants(fabric_type, fabric_grade):
 
 
 def _pretension_to_N_per_m(value, recipe_units):
-    """Convert the session value to N/m."""
+    """Convert a session value to N/m."""
     v = max(0.0, float(value))
     if recipe_units == "daN/5cm":
         return v * 200.0
@@ -94,7 +105,7 @@ def _pretension_to_N_per_m(value, recipe_units):
 def _pick_cable_diameter(cable_type, material, pretension_kN,
                           safety_factor=5.0):
     """Return the smallest cable whose breaking load exceeds
-    pretension * safety_factor. Returns a dict or None."""
+    pretension * safety_factor, or None."""
     family = None
     if cable_type == "6x19":
         family = CABLE_PROPERTIES.get("Strand", {})
@@ -133,28 +144,6 @@ def _pick_cable_diameter(cable_type, material, pretension_kN,
     return entries[-1] if entries else None
 
 
-def _pullback_to_edge_q_dict(tensions, points):
-    """
-    Convert a pull-back tension dict (keyed by (i, j) mesh
-    node pairs, values in N) into a per-edge q dict for the
-    boundary. q = T / L.
-
-    Returns dict keyed by (i, j) sorted pairs with q values
-    in N/m.
-    """
-    q_dict = {}
-    for key, T in tensions.items():
-        i, j = int(key[0]), int(key[1])
-        try:
-            L = float(np.linalg.norm(points[j] - points[i]))
-        except Exception:
-            continue
-        if L < 1e-9:
-            continue
-        q_dict[(i, j) if i < j else (j, i)] = float(T) / L
-    return q_dict
-
-
 # =============================================================================
 # BOUNDARY LOOP
 # =============================================================================
@@ -162,8 +151,9 @@ def _pullback_to_edge_q_dict(tensions, points):
 def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
                           mesh_spacing, attachment_type):
     """
-    Build the closed boundary loop, the anchor indices, and
-    the segment types for the triangulated engine.
+    Build the closed boundary loop, the anchor indices, the
+    segment types, the anchor positions, and the segment
+    structure (anchor-to-anchor with interior point lists).
     """
     n_pts = len(x)
     s, total = arclength_parametrisation(x, z_beam)
@@ -189,7 +179,6 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
     def _beam_points(y_curve, reverse=False):
         pts = []
         anchors_local = []
-        interior_local = []
         for k in range(anchor_count):
             target = arc_targets[k]
             bx = float(np.interp(target, s, x))
@@ -200,28 +189,22 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
             if k < anchor_count - 1 and sub > 0:
                 a0 = arc_targets[k]
                 a1 = arc_targets[k + 1]
-                seg_interior = []
                 for j in range(1, sub + 1):
                     frac = float(j) / float(sub + 1)
                     tm = a0 + (a1 - a0) * frac
                     mx = float(np.interp(tm, s, x))
                     mz = float(np.interp(tm, s, z_beam))
                     my = float(np.interp(tm, s, y_curve))
-                    seg_interior.append(len(pts))
                     pts.append((mx, my, mz))
-                interior_local.append((k, seg_interior))
         if reverse:
             n = len(pts)
             rev_pts = [pts[n - 1 - i] for i in range(n)]
             rev_anchors = [n - 1 - a for a in anchors_local]
-            rev_interior = []
-            for k, lst in interior_local:
-                rev_interior.append((k, [n - 1 - i for i in lst]))
-            return rev_pts, rev_anchors, rev_interior
-        return pts, anchors_local, interior_local
+            return rev_pts, rev_anchors
+        return pts, anchors_local
 
-    beam_L_pts, beam_L_anchors, beam_L_interior = _beam_points(y1, reverse=False)
-    beam_R_pts, beam_R_anchors, beam_R_interior = _beam_points(y2, reverse=True)
+    beam_L_pts, beam_L_anchors = _beam_points(y1, reverse=False)
+    beam_R_pts, beam_R_anchors = _beam_points(y2, reverse=True)
 
     loop_pts = list(beam_L_pts)
     for i in range(1, len(beam_R_pts) - 1):
@@ -267,29 +250,33 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
     return boundary_loop, anchors, seg_types, anchor_pos, segments
 
 
-# =============================================================================
-# FDM PATH (Stage 1)
-# =============================================================================
-
-def _build_saddle_fdm(span, apex, rise, curve_type,
-                       anchor_count, mesh_spacing,
-                       warp_pretension, weft_pretension,
-                       edge_cable_pretension,
-                       attachment_type,
-                       warp_prest_N_per_m, weft_prest_N_per_m,
-                       fabric_type, fabric_grade):
-    """
-    FDM path. Uses the triangulated engine's internal FDM.
-    Computes the pull-back, converts to per-edge q values,
-    and passes as a dict so the FDM mesh reflects the
-    physical cable tensions.
-    """
-    n_pts = 200
+def _build_beam_curves(span, apex, rise, curve_type, n_pts=200):
+    """Return the plan-plane beam curves (x, y1, y2, z_beam, s, total)."""
     x = np.linspace(-span / 2.0, span / 2.0, n_pts)
     z_beam = beam_curve(x, span, rise, curve_type)
+    s, total = arclength_parametrisation(x, z_beam)
     base_width = apex * 0.5
     y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
     y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
+    return x, y1, y2, z_beam, s, total
+
+
+# =============================================================================
+# FDM PATH (single build)
+# =============================================================================
+
+def _solve_fdm_path(span, apex, rise, curve_type,
+                     anchor_count, mesh_spacing,
+                     warp_pre, weft_pre, edge_pre,
+                     attachment_type,
+                     fabric_type, fabric_grade):
+    """
+    FDM path. Single mesh build. Then pull-back for the
+    per-edge q on boundary cable edges. Then one FDM solve.
+    """
+    x, y1, y2, z_beam, s, total = _build_beam_curves(
+        span, apex, rise, curve_type
+    )
 
     boundary_loop, anchors, seg_types, anchor_pos, segments = (
         _build_boundary_loop(
@@ -300,7 +287,7 @@ def _build_saddle_fdm(span, apex, rise, curve_type,
 
     target_len = float(mesh_spacing) if mesh_spacing and mesh_spacing > 0 else None
 
-    # --- Force densities. Ratio-anchored.
+    # Average boundary segment length.
     n = boundary_loop.shape[0]
     total_len = 0.0
     for i in range(n):
@@ -311,10 +298,11 @@ def _build_saddle_fdm(span, apex, rise, curve_type,
     if L_avg < 1e-9:
         L_avg = 1.0
 
+    # Ratio-anchored force densities.
     baseline_kN_per_m = 2.0
     ratio_limit = 4.0
-    warp_input = max(0.1, float(warp_pretension))
-    weft_input = max(0.1, float(weft_pretension))
+    warp_input = max(0.1, float(warp_pre))
+    weft_input = max(0.1, float(weft_pre))
     mean_input = 0.5 * (warp_input + weft_input)
     if mean_input < 1e-9:
         mean_input = 1.0
@@ -326,12 +314,13 @@ def _build_saddle_fdm(span, apex, rise, curve_type,
         weft_rel = ratio_limit * warp_rel
     warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_avg
     weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_avg
-    edge_q_scalar = max(0.1, float(edge_cable_pretension)) * 1000.0 / L_avg
+    edge_q_scalar = max(0.1, float(edge_pre)) * 1000.0 / L_avg
 
-    # --- First mesh build: use the uniform edge_q. We get
-    # points_initial and topology. Then we compute the
-    # pull-back and rebuild the FDM q values per edge.
-    mesh_pre = build_mesh_triangulated(
+    # Single mesh build. The mesh itself is produced by the
+    # triangulated engine, which also runs solve_fdm internally
+    # with the uniform edge_q. That gives us the topology and
+    # a first-pass shape.
+    mesh_result = build_mesh_triangulated(
         boundary_loop=boundary_loop,
         anchor_indices=anchors,
         segment_types=seg_types,
@@ -342,23 +331,24 @@ def _build_saddle_fdm(span, apex, rise, curve_type,
         edge_q=edge_q_scalar,
     )
 
-    points_initial = mesh_pre["points_initial"]
-    triangles = mesh_pre["triangles"]
-    edges = mesh_pre["edges"]
-    fixed_indices = mesh_pre["fixed_indices"]
+    points_initial = mesh_result["points_initial"]
+    edges = mesh_result["edges"]
+    triangles = mesh_result["triangles"]
+    fixed_indices = mesh_result["fixed_indices"]
 
-    # --- Membrane material for the pull-back computation.
+    # Pull-back on the topology from the mesh build.
     E1, E2, t_mm = _read_fabric_constants(fabric_type, fabric_grade)
+    warp_prest_N = _pretension_to_N_per_m(warp_pre, "kN/m")
+    weft_prest_N = _pretension_to_N_per_m(weft_pre, "kN/m")
     mat = make_membrane_material(
         E_warp_MPa=E1, E_weft_MPa=E2, thickness_mm=t_mm,
         nu=0.34, G_MPa=50.0,
-        warp_prestress_N_per_m=warp_prest_N_per_m,
-        weft_prestress_N_per_m=weft_prest_N_per_m,
+        warp_prestress_N_per_m=warp_prest_N,
+        weft_prestress_N_per_m=weft_prest_N,
     )
 
-    # --- Compute pull-back. Only in Cable Supported mode.
-    edge_q_for_engine = edge_q_scalar
     pullback_summary = None
+    q_dict = None
     if str(attachment_type).lower() == "cable_supported":
         try:
             tensions = pullback_cable_initial_tensions(
@@ -369,42 +359,60 @@ def _build_saddle_fdm(span, apex, rise, curve_type,
                 segments=segments,
                 material=mat,
             )
-            q_dict = _pullback_to_edge_q_dict(tensions, points_initial)
-            if q_dict:
-                edge_q_for_engine = q_dict
-                # Summary for diagnostics.
-                tvals = list(tensions.values())
-                tvals = [v for v in tvals if v > 0.0]
-                if tvals:
-                    pullback_summary = {
-                        "min_N": float(min(tvals)),
-                        "max_N": float(max(tvals)),
-                        "mean_N": float(sum(tvals) / len(tvals)),
-                        "n_edges": len(tvals),
-                    }
+            q_dict = {}
+            for key, T in tensions.items():
+                i, j = int(key[0]), int(key[1])
+                L = float(np.linalg.norm(points_initial[j] - points_initial[i]))
+                if L < 1e-9:
+                    continue
+                q_dict[(i, j) if i < j else (j, i)] = float(T) / L
+            tvals = [v for v in tensions.values() if v > 0.0]
+            if tvals:
+                pullback_summary = {
+                    "min_N": float(min(tvals)),
+                    "max_N": float(max(tvals)),
+                    "mean_N": float(sum(tvals) / len(tvals)),
+                    "n_edges": len(tvals),
+                }
         except Exception as e:
             pullback_summary = {"error": str(e)}
 
-    # --- Final mesh build with the per-edge q dict.
-    result = build_mesh_triangulated(
-        boundary_loop=boundary_loop,
-        anchor_indices=anchors,
-        segment_types=seg_types,
-        target_edge_length=target_len,
-        plan_plane=None,
-        warp_q=warp_q,
-        weft_q=weft_q,
-        edge_q=edge_q_for_engine,
+    # Single FDM solve, using the pull-back q on boundary
+    # cable edges if available, else uniform warp_q on beams.
+    pts_2d = points_initial[:, :2]
+    warp_dir = auto_warp_dir(pts_2d)
+
+    n_boundary_pts = boundary_loop.shape[0]
+    if q_dict is not None:
+        q_aniso = assign_anisotropic_q(
+            edges,
+            pts_2d,
+            warp_dir,
+            warp_q,
+            weft_q,
+            n_boundary=n_boundary_pts,
+            boundary_edge_q=q_dict,
+        )
+    else:
+        q_aniso = assign_anisotropic_q(
+            edges,
+            pts_2d,
+            warp_dir,
+            warp_q,
+            weft_q,
+            n_boundary=n_boundary_pts,
+            boundary_edge_q=edge_q_scalar,
+        )
+
+    fdm_result = solve_fdm(
+        points_initial.copy(),
+        edges,
+        fixed_indices,
+        q_aniso,
     )
+    coords = fdm_result["coordinates"]
 
-    coords = result["points"]
-    points_initial = result["points_initial"]
-    edges = result["edges"]
-    triangles = result["triangles"]
-    fixed_indices = result["fixed_indices"]
-    q = result["q"]
-    diag = result["diagnostics"]
-
+    # Edge cable length from the anchors.
     edge_cable_length_m = 0.0
     if str(attachment_type).lower() == "cable_supported":
         n_a = len(anchors)
@@ -415,8 +423,8 @@ def _build_saddle_fdm(span, apex, rise, curve_type,
 
     diagnostics = {
         "solver": "FDM (Stage 1)",
-        "residual_norm": float(diag.get("residual_norm", 0.0)),
-        "n_free": int(diag.get("n_free", 0)),
+        "residual_norm": float(fdm_result.get("residual_norm", 0.0)),
+        "n_free": int(fdm_result.get("n_free", 0)),
         "n_fixed": int(len(fixed_indices)),
         "n_nodes": int(coords.shape[0]),
         "n_edges": len(edges),
@@ -440,7 +448,7 @@ def _build_saddle_fdm(span, apex, rise, curve_type,
         "edges": edges,
         "triangles": triangles,
         "fixed_indices": fixed_indices,
-        "q": q,
+        "q": q_aniso,
         "boundary_loop": boundary_loop,
         "anchors": anchors,
         "anchor_pos": anchor_pos,
@@ -451,27 +459,22 @@ def _build_saddle_fdm(span, apex, rise, curve_type,
 
 
 # =============================================================================
-# NFDM PATH (Stage 2)
+# NFDM PATH
 # =============================================================================
 
-def _build_saddle_nfdm(span, apex, rise, curve_type,
-                       anchor_count, mesh_spacing,
-                       attachment_type,
-                       warp_prest_N_per_m, weft_prest_N_per_m,
-                       edge_cable_type, edge_cable_material,
-                       edge_cable_pretension_kN,
-                       fabric_type, fabric_grade):
+def _solve_nfdm_path(span, apex, rise, curve_type,
+                      anchor_count, mesh_spacing,
+                      warp_pre, weft_pre, edge_pre,
+                      attachment_type,
+                      edge_cable_type, edge_cable_material,
+                      fabric_type, fabric_grade):
     """
-    Nonlinear path. Real membrane. Real cables. Coupled solve.
-    Uses the pull-back tensions as the per-cable initial
-    pretension. Newton converges faster.
+    NFDM path. One mesh build, pull-back for initial cable
+    tensions, one nonlinear solve.
     """
-    n_pts = 200
-    x = np.linspace(-span / 2.0, span / 2.0, n_pts)
-    z_beam = beam_curve(x, span, rise, curve_type)
-    base_width = apex * 0.5
-    y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
-    y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
+    x, y1, y2, z_beam, s, total = _build_beam_curves(
+        span, apex, rise, curve_type
+    )
 
     boundary_loop, anchors, seg_types, anchor_pos, segments = (
         _build_boundary_loop(
@@ -482,7 +485,6 @@ def _build_saddle_nfdm(span, apex, rise, curve_type,
 
     target_len = float(mesh_spacing) if mesh_spacing and mesh_spacing > 0 else None
 
-    # --- Topology from FDM.
     n = boundary_loop.shape[0]
     total_len = 0.0
     for i in range(n):
@@ -510,28 +512,29 @@ def _build_saddle_nfdm(span, apex, rise, curve_type,
     fixed_indices = mesh_result["fixed_indices"]
     n_nodes = points_initial.shape[0]
 
-    # --- Membrane material.
+    # Membrane material.
     E1, E2, t_mm = _read_fabric_constants(fabric_type, fabric_grade)
+    warp_prest_N = _pretension_to_N_per_m(warp_pre, "kN/m")
+    weft_prest_N = _pretension_to_N_per_m(weft_pre, "kN/m")
     mat = make_membrane_material(
         E_warp_MPa=E1, E_weft_MPa=E2, thickness_mm=t_mm,
         nu=0.34, G_MPa=50.0,
-        warp_prestress_N_per_m=warp_prest_N_per_m,
-        weft_prestress_N_per_m=weft_prest_N_per_m,
+        warp_prestress_N_per_m=warp_prest_N,
+        weft_prestress_N_per_m=weft_prest_N,
     )
 
-    # --- Cable properties.
+    # Cable properties.
     chosen = _pick_cable_diameter(
-        edge_cable_type, edge_cable_material,
-        float(edge_cable_pretension_kN),
+        edge_cable_type, edge_cable_material, float(edge_pre),
     )
     if chosen is None:
         chosen = {"A": 162.9, "E": 160000.0}
     A_m2 = float(chosen["A"]) * 1e-6
     E_Pa = float(chosen["E"]) * 1e6
     EA_N = A_m2 * E_Pa
-    T_pre_user_N = float(edge_cable_pretension_kN) * 1000.0
+    T_pre_user_N = float(edge_pre) * 1000.0
 
-    # --- Pull-back to get initial per-cable tensions.
+    # Pull-back for initial cable tensions.
     pullback_tensions = {}
     pullback_summary = None
     if str(attachment_type).lower() == "cable_supported":
@@ -555,8 +558,6 @@ def _build_saddle_nfdm(span, apex, rise, curve_type,
         except Exception as e:
             pullback_summary = {"error": str(e)}
 
-    # --- Build cables. Use pull-back per edge, or user's
-    # pretension as a fallback.
     cables = []
     if str(attachment_type).lower() == "cable_supported":
         for seg in segments:
@@ -579,7 +580,6 @@ def _build_saddle_nfdm(span, apex, rise, curve_type,
                     "EA": EA_N,
                 })
 
-    # --- Nonlinear solve with pull-back pretensions.
     res = solve_nonlinear_equilibrium(
         points=points_initial.copy(),
         triangles=triangles,
@@ -624,10 +624,10 @@ def _build_saddle_nfdm(span, apex, rise, curve_type,
         "edge_cable_length_m": float(edge_cable_length_m),
         "edge_cable_type": str(edge_cable_type),
         "edge_cable_material": str(edge_cable_material),
-        "edge_cable_pretension_kN": float(edge_cable_pretension_kN),
+        "edge_cable_pretension_kN": float(edge_pre),
         "edge_cable_chosen": chosen,
-        "warp_prestress_N_per_m": float(warp_prest_N_per_m),
-        "weft_prestress_N_per_m": float(weft_prest_N_per_m),
+        "warp_prestress_N_per_m": float(warp_prest_N),
+        "weft_prestress_N_per_m": float(weft_prest_N),
         "pullback_summary": pullback_summary,
         "top_displacements": [],
         "structural_connections": [],
@@ -652,25 +652,72 @@ def _build_saddle_nfdm(span, apex, rise, curve_type,
 
 
 # =============================================================================
+# CACHED WRAPPERS
+# =============================================================================
+#
+# All numerical arguments are rounded to 6 decimals before
+# being passed to the cached function. This guarantees that
+# floating-point drift between renders does not defeat the
+# cache. The physics is unchanged.
+
+def _r6(v):
+    return round(float(v), 6)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_fdm(span, apex, rise, curve_type,
+                 anchor_count, mesh_spacing,
+                 warp_pre, weft_pre, edge_pre,
+                 attachment_type, fabric_type, fabric_grade):
+    """Cached FDM path. All numeric args are hashable scalars."""
+    return _solve_fdm_path(
+        span=span, apex=apex, rise=rise, curve_type=curve_type,
+        anchor_count=anchor_count, mesh_spacing=mesh_spacing,
+        warp_pre=warp_pre, weft_pre=weft_pre, edge_pre=edge_pre,
+        attachment_type=attachment_type,
+        fabric_type=fabric_type, fabric_grade=fabric_grade,
+    )
+
+
+@st.cache_data(show_spinner=False)
+def _cached_nfdm(span, apex, rise, curve_type,
+                  anchor_count, mesh_spacing,
+                  warp_pre, weft_pre, edge_pre,
+                  attachment_type,
+                  edge_cable_type, edge_cable_material,
+                  fabric_type, fabric_grade):
+    """Cached NFDM path. All numeric args are hashable scalars."""
+    return _solve_nfdm_path(
+        span=span, apex=apex, rise=rise, curve_type=curve_type,
+        anchor_count=anchor_count, mesh_spacing=mesh_spacing,
+        warp_pre=warp_pre, weft_pre=weft_pre, edge_pre=edge_pre,
+        attachment_type=attachment_type,
+        edge_cable_type=edge_cable_type,
+        edge_cable_material=edge_cable_material,
+        fabric_type=fabric_type, fabric_grade=fabric_grade,
+    )
+
+
+# =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
 
 def build_standard_saddle():
     """Standard Saddle viewer entry point."""
-    span = float(st.session_state.get("ws_ss_span", 10.0))
-    apex = float(st.session_state.get("ws_ss_apex", 15.0))
-    rise = float(st.session_state.get("ws_ss_rise", 6.2))
-    curve_type = st.session_state.get("ws_ss_curve_type", "parabolic")
+    span = _r6(st.session_state.get("ws_ss_span", 10.0))
+    apex = _r6(st.session_state.get("ws_ss_apex", 15.0))
+    rise = _r6(st.session_state.get("ws_ss_rise", 6.2))
+    curve_type = str(st.session_state.get("ws_ss_curve_type", "parabolic"))
     n_intervals = int(st.session_state.get("ws_ss_tiedown_intervals", 2))
     uplift = float(st.session_state.get("ws_ss_uplift_angle", 45))
     spread = float(st.session_state.get("ws_ss_spread_angle", 30))
-    warp_pre = float(st.session_state.get("ws_ss_warp_pretension", 2.0))
-    weft_pre = float(st.session_state.get("ws_ss_weft_pretension", 2.0))
-    edge_pre = float(st.session_state.get("ws_ss_edge_cable_pretension", 5.0))
+    warp_pre = _r6(st.session_state.get("ws_ss_warp_pretension", 2.0))
+    weft_pre = _r6(st.session_state.get("ws_ss_weft_pretension", 2.0))
+    edge_pre = _r6(st.session_state.get("ws_ss_edge_cable_pretension", 5.0))
     attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
 
     anchor_count = int(st.session_state.get("ws_ss_anchor_count", 8))
-    mesh_spacing = float(st.session_state.get("ws_ss_mesh_spacing", 0.5))
+    mesh_spacing = _r6(st.session_state.get("ws_ss_mesh_spacing", 0.5))
 
     edge_cable_type = str(st.session_state.get("ws_ss_edge_cable_type", "6x19"))
     edge_cable_material = str(st.session_state.get("ws_ss_edge_cable_material", "stainless"))
@@ -689,34 +736,27 @@ def build_standard_saddle():
 
     use_nfdm = (_has_nonlinear() and attach_type == "cable_supported")
 
-    with st.spinner("Preparing your design..."):
+    msg = st.empty()
+    msg.info("Preparing design...Do not refresh or leave the page")
+    try:
         if use_nfdm:
-            warp_prest_N = _pretension_to_N_per_m(warp_pre, "kN/m")
-            weft_prest_N = _pretension_to_N_per_m(weft_pre, "kN/m")
-            built = _build_saddle_nfdm(
-                span=span, apex=apex, rise=rise, curve_type=curve_type,
-                anchor_count=anchor_count, mesh_spacing=mesh_spacing,
-                attachment_type=attach_type,
-                warp_prest_N_per_m=warp_prest_N,
-                weft_prest_N_per_m=weft_prest_N,
-                edge_cable_type=edge_cable_type,
-                edge_cable_material=edge_cable_material,
-                edge_cable_pretension_kN=edge_pre,
-                fabric_type=fabric_type, fabric_grade=fabric_grade,
+            built = _cached_nfdm(
+                span, apex, rise, curve_type,
+                anchor_count, mesh_spacing,
+                warp_pre, weft_pre, edge_pre,
+                attach_type,
+                edge_cable_type, edge_cable_material,
+                fabric_type, fabric_grade,
             )
         else:
-            warp_prest_N = _pretension_to_N_per_m(warp_pre, "kN/m")
-            weft_prest_N = _pretension_to_N_per_m(weft_pre, "kN/m")
-            built = _build_saddle_fdm(
-                span=span, apex=apex, rise=rise, curve_type=curve_type,
-                anchor_count=anchor_count, mesh_spacing=mesh_spacing,
-                warp_pretension=warp_pre, weft_pretension=weft_pre,
-                edge_cable_pretension=edge_pre,
-                attachment_type=attach_type,
-                warp_prest_N_per_m=warp_prest_N,
-                weft_prest_N_per_m=weft_prest_N,
-                fabric_type=fabric_type, fabric_grade=fabric_grade,
+            built = _cached_fdm(
+                span, apex, rise, curve_type,
+                anchor_count, mesh_spacing,
+                warp_pre, weft_pre, edge_pre,
+                attach_type, fabric_type, fabric_grade,
             )
+    finally:
+        msg.empty()
 
     coords = built["points"]
     points_initial = built["points_initial"]
@@ -725,68 +765,79 @@ def build_standard_saddle():
     anchor_pos = built["anchor_pos"]
     diag = built["diagnostics"]
 
-    # --- Beam curves for drawing.
-    n_pts = 200
-    x = np.linspace(-span / 2.0, span / 2.0, n_pts)
-    z_beam = beam_curve(x, span, rise, curve_type)
-    s, total = arclength_parametrisation(x, z_beam)
-    base_width = apex * 0.5
-    y1 = -base_width * (1.0 - (2.0 * x / span) ** 2)
-    y2 = base_width * (1.0 - (2.0 * x / span) ** 2)
+    # Beam curves for drawing.
+    x, y1, y2, z_beam, s, total = _build_beam_curves(
+        span, apex, rise, curve_type
+    )
+
+    # --- Checkbox toggles for markers.
+    st.markdown("**Show / hide:**")
+    cb1, cb2, cb3, cb4, cb5, cb6 = st.columns(6)
+    with cb1:
+        show_beams = st.checkbox("Beams", value=True, key="ss_show_beams")
+    with cb2:
+        show_membrane = st.checkbox("Membrane", value=True, key="ss_show_membrane")
+    with cb3:
+        show_anchors = st.checkbox("Anchors", value=True, key="ss_show_anchors")
+    if attach_type == "cable_supported":
+        with cb4:
+            show_edge = st.checkbox("Edge cable", value=True, key="ss_show_edge")
+    else:
+        with cb4:
+            show_edge = st.checkbox("Kader", value=True, key="ss_show_kader")
+    with cb5:
+        show_tiedown = st.checkbox("Tie-downs", value=True, key="ss_show_tiedown")
+    with cb6:
+        show_ground = st.checkbox("Supports", value=True, key="ss_show_ground")
 
     fig = go.Figure()
 
-    # --- Beams. Legend entry "Beams".
-    fig.add_trace(go.Scatter3d(
-        x=x, y=y1, z=z_beam,
-        mode="lines",
-        line=dict(color="#FF6B6B", width=8),
-        name="Beams",
-        showlegend=True,
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=x, y=y2, z=z_beam,
-        mode="lines",
-        line=dict(color="#FF6B6B", width=8),
-        name="Beam R",
-        showlegend=False,
-    ))
+    if show_beams:
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y1, z=z_beam,
+            mode="lines",
+            line=dict(color="#FF6B6B", width=8),
+            name="Beam L",
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y2, z=z_beam,
+            mode="lines",
+            line=dict(color="#FF6B6B", width=8),
+            name="Beam R",
+        ))
 
-    # --- Membrane. Toggleable.
-    node_x = coords[:, 0].tolist()
-    node_y = coords[:, 1].tolist()
-    node_z = coords[:, 2].tolist()
-    tri_i = [int(t[0]) for t in triangles]
-    tri_j = [int(t[1]) for t in triangles]
-    tri_k = [int(t[2]) for t in triangles]
+    if show_membrane:
+        node_x = coords[:, 0].tolist()
+        node_y = coords[:, 1].tolist()
+        node_z = coords[:, 2].tolist()
+        tri_i = [int(t[0]) for t in triangles]
+        tri_j = [int(t[1]) for t in triangles]
+        tri_k = [int(t[2]) for t in triangles]
+        fig.add_trace(go.Mesh3d(
+            x=node_x, y=node_y, z=node_z,
+            i=tri_i, j=tri_j, k=tri_k,
+            color="#4a7a9c",
+            opacity=0.55,
+            flatshading=True,
+            name="Membrane",
+            showlegend=False,
+            hoverinfo="skip",
+        ))
 
-    fig.add_trace(go.Mesh3d(
-        x=node_x, y=node_y, z=node_z,
-        i=tri_i, j=tri_j, k=tri_k,
-        color="#4a7a9c",
-        opacity=0.55,
-        flatshading=True,
-        name="Membrane",
-        showlegend=True,
-        hoverinfo="skip",
-    ))
+    if show_anchors:
+        anchor_x = anchor_pos[:, 0].tolist()
+        anchor_y = anchor_pos[:, 1].tolist()
+        anchor_z = anchor_pos[:, 2].tolist()
+        fig.add_trace(go.Scatter3d(
+            x=anchor_x, y=anchor_y, z=anchor_z,
+            mode="markers",
+            marker=dict(color="#f39c12", size=5, symbol="circle"),
+            name="Anchors",
+            showlegend=False,
+            hoverinfo="skip",
+        ))
 
-    # --- Anchors. Toggleable.
-    anchor_x = anchor_pos[:, 0].tolist()
-    anchor_y = anchor_pos[:, 1].tolist()
-    anchor_z = anchor_pos[:, 2].tolist()
-
-    fig.add_trace(go.Scatter3d(
-        x=anchor_x, y=anchor_y, z=anchor_z,
-        mode="markers",
-        marker=dict(color="#f39c12", size=5, symbol="circle"),
-        name="Anchors",
-        showlegend=True,
-        hoverinfo="skip",
-    ))
-
-    # --- Edge cable or Kader track. Toggleable.
-    if attach_type == "cable_supported":
+    if attach_type == "cable_supported" and show_edge:
         segments = built["segments"]
         first = True
         for seg in segments:
@@ -799,18 +850,19 @@ def build_standard_saddle():
                 mode="lines+markers",
                 line=dict(color="#f1c40f", width=4),
                 marker=dict(color="#f1c40f", size=3),
-                name="Edge cable" if first else "Edge cable ",
+                name="Edge cable" if first else " ",
                 showlegend=first,
                 hoverinfo="skip",
             ))
             first = False
-    else:
+
+    elif attach_type != "cable_supported" and show_edge:
         fig.add_trace(go.Scatter3d(
             x=x, y=y1, z=z_beam,
             mode="lines",
             line=dict(color="#f39c12", width=2),
-            showlegend=True,
-            name="Kader track",
+            showlegend=False,
+            name="Kader L",
             hoverinfo="skip",
         ))
         fig.add_trace(go.Scatter3d(
@@ -818,61 +870,57 @@ def build_standard_saddle():
             mode="lines",
             line=dict(color="#f39c12", width=2),
             showlegend=False,
-            name="Kader track R",
+            name="Kader R",
             hoverinfo="skip",
         ))
 
-    # --- Tie-downs. One legend entry, grouped.
-    if n_intervals == 4:
-        per_beam_fractions = [0.175, 0.825]
-    elif n_intervals == 8:
-        per_beam_fractions = [0.175, 0.225, 0.775, 0.825]
-    else:
-        per_beam_fractions = [0.175, 0.825]
+    if show_tiedown:
+        if n_intervals == 4:
+            per_beam_fractions = [0.175, 0.825]
+        elif n_intervals == 8:
+            per_beam_fractions = [0.175, 0.225, 0.775, 0.825]
+        else:
+            per_beam_fractions = [0.175, 0.825]
 
-    td_first = True
-    for frac in per_beam_fractions:
-        idx = find_index_at_arclength_fraction(s, total, frac)
-        x_tie = x[idx]
-        beam_z = z_beam[idx]
-        for side, y_beam in ((-1, y1[idx]), (+1, y2[idx])):
-            drop = beam_z if beam_z > 0 else 0.5
-            horizontal = drop / math.tan(math.radians(uplift)) if uplift > 0 else drop
-            x_offset = horizontal * 0.5
-            y_offset = horizontal * 0.5 * math.tan(math.radians(spread))
-            if x_tie < 0:
-                anchor_x_t = x_tie - x_offset
-            elif x_tie > 0:
-                anchor_x_t = x_tie + x_offset
-            else:
-                anchor_x_t = x_tie + x_offset
-            anchor_y_t = y_beam + side * y_offset
-            fig.add_trace(go.Scatter3d(
-                x=[x_tie, anchor_x_t], y=[y_beam, anchor_y_t], z=[beam_z, 0],
-                mode="lines",
-                line=dict(color="#f1c40f", width=2, dash="dot"),
-                name="Tie-down cables" if td_first else "Tie-down cables ",
-                showlegend=td_first,
-                hoverinfo="skip",
-            ))
-            td_first = False
-            fig.add_trace(go.Scatter3d(
-                x=[anchor_x_t], y=[anchor_y_t], z=[0],
-                mode="markers",
-                marker=dict(color="#f1c40f", size=5, symbol="square"),
-                showlegend=False,
-                name="Tie-down anchors",
-                hoverinfo="skip",
-            ))
+        for frac in per_beam_fractions:
+            idx = find_index_at_arclength_fraction(s, total, frac)
+            x_tie = x[idx]
+            beam_z = z_beam[idx]
+            for side, y_beam in ((-1, y1[idx]), (+1, y2[idx])):
+                drop = beam_z if beam_z > 0 else 0.5
+                horizontal = drop / math.tan(math.radians(uplift)) if uplift > 0 else drop
+                x_offset = horizontal * 0.5
+                y_offset = horizontal * 0.5 * math.tan(math.radians(spread))
+                if x_tie < 0:
+                    anchor_x_t = x_tie - x_offset
+                elif x_tie > 0:
+                    anchor_x_t = x_tie + x_offset
+                else:
+                    anchor_x_t = x_tie + x_offset
+                anchor_y_t = y_beam + side * y_offset
+                fig.add_trace(go.Scatter3d(
+                    x=[x_tie, anchor_x_t], y=[y_beam, anchor_y_t], z=[beam_z, 0],
+                    mode="lines",
+                    line=dict(color="#f1c40f", width=2, dash="dot"),
+                    showlegend=False, hoverinfo="skip",
+                    name="Tie-down",
+                ))
+                fig.add_trace(go.Scatter3d(
+                    x=[anchor_x_t], y=[anchor_y_t], z=[0],
+                    mode="markers",
+                    marker=dict(color="#f1c40f", size=5, symbol="square"),
+                    showlegend=False, hoverinfo="skip",
+                    name="Tie-down anchor",
+                ))
 
-    # --- Ground supports. Toggleable.
-    fig.add_trace(go.Scatter3d(
-        x=[-span / 2.0, span / 2.0], y=[0, 0], z=[0, 0],
-        mode="markers",
-        marker=dict(color="#2ecc71", size=10, symbol="diamond"),
-        name="Ground supports",
-        showlegend=True,
-    ))
+    if show_ground:
+        fig.add_trace(go.Scatter3d(
+            x=[-span / 2.0, span / 2.0], y=[0, 0], z=[0, 0],
+            mode="markers",
+            marker=dict(color="#2ecc71", size=10, symbol="diamond"),
+            name="Ground supports",
+            showlegend=False,
+        ))
 
     fig = apply_common_layout(fig, rise)
 
@@ -912,7 +960,6 @@ def build_standard_saddle():
             d2.metric("Min tri area", "%.6e" % 0.0)
             d3.metric("Mean tri area", "%.6e" % 0.0)
 
-        # --- Pull-back summary.
         ps = diag.get("pullback_summary", None)
         if ps is not None:
             st.markdown("**Pull-back (membrane edge force):**")
@@ -944,11 +991,9 @@ def build_standard_saddle():
 # =============================================================================
 # END OF viewers/figures/standard_saddle_mbs.py
 #
-# This file has two solver paths:
-#   FDM  (Stage 1) - all tiers
-#   NFDM (Stage 2) - owner, studio, beta
-#
-# The rule lives in NONLINEAR_TIERS at the top of the file.
+# Two solver paths: FDM (all tiers), NFDM (owner/studio/beta).
+# Both cached. Single mesh build per path. Loading message.
+# Checkbox toggles for markers.
 #
 # Files untouched by this rewrite:
 #   engine/form_finding.py
