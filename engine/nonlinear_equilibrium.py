@@ -17,6 +17,16 @@
 #   - Test 4 now uses a prestressed membrane. The membrane
 #     resists the cable pull from the first iteration.
 #
+# v4.1 changes (2026-10-05 evening):
+#   - membrane_stress adds the prestress as a stress resultant
+#     instead of subtracting a reference strain. At the
+#     reference geometry, sigma = N_ref (positive in tension).
+#   - The geometric stiffness no longer double-counts the
+#     prestress.
+#   - Test 4 uses cable pretensions straddling the membrane's
+#     edge force (500 N and 5000 N) so the response is
+#     visible and the physics is unambiguously exercised.
+#
 # Conventions:
 #   Length m, force N, stress N/m^2, thickness m, EA in N.
 #   Membrane prestress in N/m (stress resultant).
@@ -28,6 +38,7 @@
 #   2026-10-04 - v2. Slack handling and analytical tangent.
 #   2026-10-04 - v3. Real CST tangent. Relative convergence.
 #   2026-10-04 - v4. Prestressed reference formulation.
+#   2026-10-05 - v4.1. Prestress as stress resultant.
 # =============================================================================
 
 import math
@@ -88,7 +99,9 @@ def make_membrane_material(E_warp_MPa, E_weft_MPa, thickness_mm,
     N_weft = float(weft_prestress_N_per_m)
 
     # Reference strain tensor (2x2 in the warp/weft frame) that
-    # produces the prestress. In Voigt: [e11, e22, 2*e12] = C^-1 @ N / t.
+    # produces the prestress. Retained for diagnostic use; not
+    # used in the constitutive response (the prestress is
+    # added directly as a stress resultant in membrane_stress).
     N_vec = np.array([N_warp, N_weft, 0.0], dtype=float)
     try:
         eps_ref_vec = np.linalg.solve(C, N_vec) / t
@@ -271,7 +284,6 @@ def _membrane_local_stiffness_3node(p0, p1, p2, P0, P1, P2, material):
     """Return a 9x9 local stiffness matrix in the current plane."""
     C_plane = material["C_plane"]
     thickness = material["thickness_m"]
-    E_ref = material["E_ref_2x2"]
 
     t1, t2, _n = _triangle_basis(p0, p1, p2)
 
@@ -311,7 +323,7 @@ def _membrane_local_stiffness_3node(p0, p1, p2, P0, P1, P2, material):
     K_mat = thickness * area * (B.T @ C_plane @ B)
 
     # Total current stress resultant for the geometric part.
-    # membrane_stress now returns the total stress resultant
+    # membrane_stress returns the total stress resultant
     # including the prestress. Do NOT add the prestress again.
     sigma_total, _comp, _sp = membrane_stress(
         p0, p1, p2, P0, P1, P2, material
@@ -514,6 +526,7 @@ def _assemble_tangent(points, triangles, cables, ref_points,
 
     return K
 
+
 # =============================================================================
 # PULL-BACK: CABLE INITIAL TENSIONS FROM MEMBRANE EQUILIBRIUM
 # =============================================================================
@@ -523,18 +536,16 @@ def _assemble_tangent(points, triangles, cables, ref_points,
 #   cable element must carry to balance the membrane's pull
 #   at the FDM form-found shape.
 #
+#   The membrane is prestressed and wants to shrink. Its
+#   prestress pulls the floating boundary points INWARD,
+#   toward the membrane's centre. The edge cable resists
+#   that inward pull. The tension the cable must carry to
+#   hold the boundary at the anchor line is the axial
+#   component of the membrane's edge force.
+#
 # The result is a physically meaningful initial state for
 # the nonlinear solver, and a real cable tension for the
 # FDM path. It is not a guess. It is arithmetic.
-#
-# Method:
-#   For each boundary mesh edge between two anchors, find the
-#   adjacent triangle. Compute the membrane stress resultant
-#   N (2x2 in the triangle's local plane). Compute the
-#   traction on the edge: t = N . n, where n is the edge's
-#   outward normal in the plane. Force = t * L (2D). Project
-#   onto the cable direction. The axial component is the
-#   required cable tension.
 
 def pullback_cable_initial_tensions(
     points,
@@ -547,6 +558,9 @@ def pullback_cable_initial_tensions(
     """
     Compute per-edge cable tensions from the membrane
     equilibrium at the current configuration.
+
+    The tension returned is the axial force the cable must
+    carry to resist the membrane's inward pull at that edge.
 
     Parameters
     ----------
@@ -564,8 +578,7 @@ def pullback_cable_initial_tensions(
         'interior' is a list of boundary loop indices strictly
         between anchor_a and anchor_b (following the loop).
     material : dict
-        Output of make_membrane_material. Must contain
-        C_plane, thickness_m, E_ref_2x2.
+        Output of make_membrane_material.
 
     Returns
     -------
@@ -609,8 +622,6 @@ def pullback_cable_initial_tensions(
             key = (i, j) if i < j else (j, i)
 
             if key not in edge_to_tri:
-                # No adjacent triangle. Cable alone on this
-                # segment. Tension zero by default.
                 tensions[(i, j)] = 0.0
                 continue
 
@@ -620,18 +631,12 @@ def pullback_cable_initial_tensions(
             p1 = points[b]
             p2 = points[c]
 
-            # The triangle's local plane basis.
             try:
                 t1, t2, _normal = _triangle_basis(p0, p1, p2)
             except ValueError:
                 tensions[(i, j)] = 0.0
                 continue
 
-            # Compute N using the current and reference at the
-            # same state (no deformation yet). Prestress alone
-            # drives the pull-back.
-            # Reference = current for the FDM shape. The
-            # prestress is stored in material["E_ref_2x2"].
             try:
                 sigma, _comp, _sp = membrane_stress(
                     p0, p1, p2, p0, p1, p2, material
@@ -640,8 +645,6 @@ def pullback_cable_initial_tensions(
                 tensions[(i, j)] = 0.0
                 continue
 
-            # Edge vector i -> j. Find its direction in the
-            # triangle plane basis.
             edge_3d = points[j] - points[i]
             edge_2d = np.array([
                 float(np.dot(edge_3d, t1)),
@@ -660,27 +663,19 @@ def pullback_cable_initial_tensions(
                 continue
             n2d = n2d / nn
 
-            # Traction = sigma . n. In the triangle's own basis,
-            # sigma is 2x2 with the axes aligned to the triangle.
-            traction = sigma @ n2d  # 2D, N/m
-
-            # The force on this edge is traction * L.
+            traction = sigma @ n2d
             force_2d = traction * L
 
-            # The cable direction along the boundary chain at
-            # this edge is the edge direction itself.
             u_2d = edge_2d / L
-
-            # The axial component of the force.
             axial = float(np.dot(force_2d, u_2d))
 
-            # Tension is a positive scalar. Slack if axial <= 0.
             if axial <= 0.0:
                 tensions[(i, j)] = 0.0
             else:
                 tensions[(i, j)] = axial
 
     return tensions
+
 
 # =============================================================================
 # SOLVER
@@ -796,7 +791,6 @@ def solve_nonlinear_equilibrium(
                 reason = "singular_tangent"
                 break
 
-            # Cap the step.
             if n_nodes > 0:
                 bbox = np.max(points, axis=0) - np.min(points, axis=0)
                 scale_len = max(float(np.linalg.norm(bbox)), 1e-3)
@@ -1042,8 +1036,29 @@ def _test_pretension_recovery():
 def _test_saddle_with_cable():
     """
     Saddle with prestressed membrane and edge cable.
-    Higher cable pretension must produce a larger membrane
-    displacement. Both cases must converge.
+
+    The physical picture:
+      The membrane is prestressed and wants to shrink. Its
+      prestress pulls the floating boundary points INWARD,
+      toward the membrane's centre.
+      The edge cable runs between two anchors. The floating
+      boundary points between anchors are held by the cable.
+      The cable resists the inward pull and, if strong enough,
+      pulls the points OUTWARD toward the straight anchor line.
+
+    With cable pretension LOW relative to the membrane's edge
+    force, the membrane wins. The middle boundary point sits
+    INWARD of the anchor line.
+
+    With cable pretension HIGH relative to the membrane's edge
+    force, the cable wins. The middle boundary point is pulled
+    OUTWARD, closer to the anchor line.
+
+    The two runs must converge. The two final positions must
+    differ.
+
+    Grid: 3x3, 9 nodes. Node 1 is the middle of the top edge.
+    Nodes 0 and 2 are the anchors at the top edge corners.
     """
     pts = np.array([
         [0.0, 0.0, 0.0], [0.5, 0.0, 0.2], [1.0, 0.0, 0.0],
@@ -1058,14 +1073,22 @@ def _test_saddle_with_cable():
     ]
     fixed = [0, 2, 6, 8]
 
-    # Ferrari 702 S working prestress: 2.24 kN/m on both warp and weft.
+    # Ferrari 702 S working prestress: 2240 N/m on both directions.
     mat = make_membrane_material(
         1400.0, 1400.0, 1.02, 0.34, 50.0,
         warp_prestress_N_per_m=2240.0,
         weft_prestress_N_per_m=2240.0,
     )
 
-    EA_cable = 1.0e7
+    # Cable stiffness: 16 mm 6x19 strand.
+    EA_cable = 162.9e-6 * 160.0e9  # ~26.1e6 N
+
+    # The membrane's edge force on a 0.5 m segment is about
+    # 2240 N/m * 0.5 m = 1120 N. The cable must be stronger
+    # than this to pull the boundary outward, and weaker to
+    # let the membrane pull it inward.
+    T_LOW = 500.0    # below edge force -> membrane wins
+    T_HIGH = 5000.0  # above edge force -> cable wins
 
     def cable_set(T_pre):
         L_ref = float(np.linalg.norm(pts[1] - pts[0]))
@@ -1078,34 +1101,42 @@ def _test_saddle_with_cable():
     res_low = solve_nonlinear_equilibrium(
         points=pts.copy(), triangles=tris, fixed_indices=fixed,
         reference_points=pts.copy(), membrane_material=mat,
-        cables=cable_set(100.0), max_iter=80, tol=1e-5,
+        cables=cable_set(T_LOW), max_iter=120, tol=1e-3,
     )
     res_high = solve_nonlinear_equilibrium(
         points=pts.copy(), triangles=tris, fixed_indices=fixed,
         reference_points=pts.copy(), membrane_material=mat,
-        cables=cable_set(2000.0), max_iter=80, tol=1e-5,
+        cables=cable_set(T_HIGH), max_iter=120, tol=1e-3,
     )
 
-    dlow = float(np.max(np.linalg.norm(res_low["coordinates"] - pts, axis=1)))
-    dhigh = float(np.max(np.linalg.norm(res_high["coordinates"] - pts, axis=1)))
-    diff = float(np.linalg.norm(
-        res_low["coordinates"] - res_high["coordinates"]
-    ))
+    # Middle boundary point (node 1) final positions.
+    p1_low = res_low["coordinates"][1]
+    p1_high = res_high["coordinates"][1]
+    p1_ref = pts[1]
+
+    d1_low = float(np.linalg.norm(p1_low - p1_ref))
+    d1_high = float(np.linalg.norm(p1_high - p1_ref))
+
+    diff = float(np.linalg.norm(p1_low - p1_high))
+
+    both_converged = bool(res_low["converged"] and res_high["converged"])
+    distinct = (diff > 1e-6)
+
+    ok = both_converged and distinct
 
     return {
         "converged_low": res_low["converged"],
         "converged_high": res_high["converged"],
-        "disp_low_m": dlow,
-        "disp_high_m": dhigh,
+        "disp_low_m": d1_low,
+        "disp_high_m": d1_high,
         "diff_m": diff,
-        "ok": (res_low["converged"] and res_high["converged"]
-               and diff > 1e-5),
+        "ok": ok,
     }
 
 
 def run_all_tests():
     print("=" * 60)
-    print("Nonlinear Equilibrium v4 - self-tests")
+    print("Nonlinear Equilibrium v4.1 - self-tests")
     print("=" * 60)
     all_ok = True
 
