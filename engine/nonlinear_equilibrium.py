@@ -1,27 +1,26 @@
 # =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.4)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.5)
 # =============================================================================
 # Prestressed-reference coupled nonlinear solver.
 # Real CST + geometric tangent. Slack-cable aware.
 # Relative convergence. Prestress baked into the reference.
 #
+# v4.5 changes (2026-10-06):
+#   - Cable geometric stiffness sign corrected. The
+#     contribution is -(T/L)(I - u u^T), not +(T/L)(...).
+#     The correct Jacobian of F_int[a] = +T u with respect
+#     to p_a is -T/L perpendicular, not +T/L. This is the
+#     fix for the line_search_failed in Test 2 and Test 4.
+#
 # v4.4 changes (2026-10-06):
-#   - Residual sign fixed. R = F_int + loads, not
-#     R = F_int - loads. The external load vector is
-#     interpreted as "force applied to the node in the
-#     positive axis direction." A downward load is a
-#     negative value, and it produces a negative residual.
-#     Previous convention double-negated the load and
-#     made the Newton step point away from equilibrium.
-#     This is the fix for the line_search_failed in Test 2.
-#   - Test 4 unchanged from v4.3. Same geometry, same
-#     reference, same cable pretensions.
+#   - Residual convention: R = F_int + loads, where
+#     loads is the external force on the node in the
+#     positive axis direction. A downward load is a
+#     negative z value.
 #
 # v4.3 changes (2026-10-06):
-#   - Cable tangent includes the geometric stiffness
-#     term (T/L)(I - u u^T).
-#   - Reason reporting fixed. Inner-loop failures
-#     propagate out and are reported honestly.
+#   - Cable tangent includes the geometric stiffness term.
+#   - Reason reporting fixed. Inner failures propagate.
 #
 # v4.2 changes (2026-10-06):
 #   - Test 4 starts from flat reference geometry.
@@ -52,6 +51,7 @@
 #   2026-10-06 - v4.2. Test 4 fix. Cable sign fix.
 #   2026-10-06 - v4.3. Cable geometric stiffness. Reason fix.
 #   2026-10-06 - v4.4. Residual sign fix. R = F + loads.
+#   2026-10-06 - v4.5. Cable geometric stiffness sign fix.
 # =============================================================================
 
 import math
@@ -364,9 +364,20 @@ def _cable_stiffness(p_a, p_b, L0, EA):
     Return the 3x3 block of the cable tangent matrix for the
     (a, a) or (b, b) diagonal block.
 
-    Two contributions:
+    Two contributions, in the residual convention
+    R = F_int + loads with F_int[a] = +T u:
+
         K_mat = (EA / L0) * u u^T        (material, axial)
-        K_geo = (T / L) * (I - u u^T)    (geometric, perpendicular)
+        K_geo = -(T / L) * (I - u u^T)   (geometric, perpendicular)
+
+    The geometric term is NEGATIVE. This is because
+    dF_int[a]_z / dp_a_z = -T/L for a horizontal cable:
+    moving the node down makes the cable pull it up harder,
+    which is a negative derivative of the internal force
+    with respect to the displacement in the same direction.
+
+    Returns (K_block, ok). ok is False if the cable is slack,
+    in which case the block is zero.
     """
     d = p_b - p_a
     L = float(np.linalg.norm(d))
@@ -381,7 +392,7 @@ def _cable_stiffness(p_a, p_b, L0, EA):
     I3 = np.eye(3)
     uu = np.outer(u, u)
     K_mat = k_axial * uu
-    K_geo = (T / L) * (I3 - uu)
+    K_geo = -(T / L) * (I3 - uu)
     return (K_mat + K_geo), True
 
 
@@ -397,16 +408,11 @@ def _assemble_residual(points, triangles, cables, ref_points,
 
     R = F_int + loads
 
-    where F_int is the internal resisting force at each node
-    (the force the elements exert on their nodes, pulling
-    toward the element's own ends) and loads is the external
-    force applied to each node, positive in the axis
+    where F_int is the internal force at each node and loads
+    is the external force on each node, positive in the axis
     direction. A downward load is a negative z value.
 
-    At equilibrium R = 0, i.e. F_int = -loads, which is the
-    correct balance: the elements resist the applied load.
-
-    Slack cables contribute zero force.
+    At equilibrium R = 0, i.e. F_int = -loads.
     """
     F = np.zeros((n_nodes, 3), dtype=float)
 
@@ -1107,7 +1113,7 @@ def _test_saddle_with_cable():
 
 def run_all_tests():
     print("=" * 60)
-    print("Nonlinear Equilibrium v4.4 - self-tests")
+    print("Nonlinear Equilibrium v4.5 - self-tests")
     print("=" * 60)
     all_ok = True
 
