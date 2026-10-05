@@ -11,35 +11,18 @@
 #   equal the external load on that node. This gives a linear
 #   system in the free-node coordinates: K * x = p.
 #
-# Node constraints:
-#   - fixed_indices: node cannot move at all (x, y, z fixed).
-#   - z_only_indices: node can move in z only. Its x and y stay at
-#     their initial values. Use this for nodes on a rigid beam edge,
-#     where the beam does not move in plan but the fabric can pull
-#     the edge up or down.
-#   - All other nodes: free in all three directions.
-#
-# Note on residual:
-#   residual_norm is computed over all non-fixed nodes. For a
-#   z-only node loaded in a direction it is not free to move in,
-#   the residual in that direction is the constrained reaction —
-#   it is correct and it must not be zero. Do not gate tests on
-#   residual_norm when a constrained-direction load is present.
+# Updated 2026-10-05:
+#   - assign_anisotropic_q accepts a per-edge boundary_edge_q.
+#     A dict keyed by (i, j) edge pairs (or a scalar). This
+#     allows the pull-back function to feed per-edge force
+#     densities on the boundary. The pull-back is computed
+#     from the membrane stress at the form-found shape.
 #
 # Reference:
 #   Schek, H.-J. (1974). The force density method for form-finding
 #   and computation of general networks.
 #
 # Units: m, N, N/m.
-#
-# History:
-#   2026-09-22 - First build with flat and saddle self-tests.
-#   2026-09-22 - mesh_size_for_span() added.
-#   2026-09-23 - z_only_indices argument added.
-#   2026-09-23 - mesh_size_for_shape() added. Mesh divisibility rule.
-#                mesh_size_for_span() kept as a rectangle wrapper.
-#   2026-09-23 - z-only test: residual check dropped from gate.
-#                Constraint check (x,y fixed; z free) is the gate.
 # =============================================================================
 
 import math
@@ -50,52 +33,18 @@ import numpy as np
 # =============================================================================
 # MESH SIZE RULE
 # =============================================================================
-# The mesh must divide the shape's sides evenly, after the corners
-# are removed.
-#
-#   n = N * k + C
-#
-#   N = number of sides
-#   C = number of corners
-#   k = any positive integer
-#
-# Examples:
-#   Rectangle, square, rhombus (N=4, C=4): 8, 12, 16, 20, 24, 28, ...
-#   Triangle (N=3, C=3):                   6, 9, 12, 15, 18, 21, 24, ...
-#   Hexagon (N=6, C=6):                    12, 18, 24, 30, ...
-#
-# The mesh size must be one of these values. It must be at least 21
-# nodes along the span, and at most 101.
 
 MESH_MIN = 21
 MESH_MAX = 101
 
 
 def mesh_size_for_shape(span_m, n_sides, n_corners):
-    """
-    Return the recommended mesh size along the span, in nodes.
-
-    The result belongs to the series n = n_sides * k + n_corners,
-    bounded between MESH_MIN and MESH_MAX.
-
-    Parameters
-    ----------
-    span_m : float
-        The span along which the mesh size is being computed.
-        If None or <= 0, the smallest valid value is returned.
-    n_sides : int
-        Number of sides of the shape (4 for rectangle, 3 for
-        triangle, 6 for hexagon).
-    n_corners : int
-        Number of corners of the shape (usually equal to n_sides
-        for a simple polygon).
-    """
+    """Return the recommended mesh size along the span, in nodes."""
     if n_sides is None or n_corners is None:
         raise ValueError("n_sides and n_corners must be provided.")
     if n_sides <= 0 or n_corners < 0:
         raise ValueError("n_sides must be positive; n_corners >= 0.")
 
-    # Nominal target: one node per metre, clamped to [MESH_MIN, MESH_MAX].
     if span_m is None or span_m <= 0:
         nominal = MESH_MIN
     else:
@@ -105,8 +54,6 @@ def mesh_size_for_shape(span_m, n_sides, n_corners):
         if nominal > MESH_MAX:
             nominal = MESH_MAX
 
-    # Find the valid value in the series nearest to the nominal target.
-    # Series: n = n_sides * k + n_corners, for k = 0, 1, 2, ...
     best = None
     best_dist = None
     k = 0
@@ -121,18 +68,13 @@ def mesh_size_for_shape(span_m, n_sides, n_corners):
         k += 1
 
     if best is None:
-        # No valid value in range. Fall back to the smallest valid
-        # value in the series, even if it is below MESH_MIN.
         best = n_sides * 1 + n_corners
 
     return best
 
 
 def mesh_size_for_span(span_m):
-    """
-    Backward-compatible wrapper. Rectangular shapes only (N=4, C=4).
-    New code should call mesh_size_for_shape directly.
-    """
+    """Backward-compatible wrapper. Rectangular shapes only (N=4, C=4)."""
     return mesh_size_for_shape(span_m, 4, 4)
 
 
@@ -142,36 +84,7 @@ def mesh_size_for_span(span_m):
 
 def solve_fdm(points, edges, fixed_indices, force_densities,
               loads=None, z_only_indices=None):
-    """
-    Solve the Force Density Method equilibrium.
-
-    Parameters
-    ----------
-    points : (n, 3) array of node coordinates
-    edges : list of (i, j) edge pairs
-    fixed_indices : list of int
-        Nodes fixed in x, y, z.
-    force_densities : float or (m,) array
-        Scalar applies the same q to all edges.
-    loads : (n, 3) array or None
-        External load at each node in N. Default: no load.
-    z_only_indices : list of int or None
-        Nodes that can move only in z. Their x and y are fixed
-        at the values in points. Default: None.
-
-    Returns
-    -------
-    result : dict
-        coordinates, residual_norm, n_free, n_fixed
-
-    Note
-    ----
-    residual_norm is computed over all non-fixed nodes. For a
-    z-only node loaded in x or y, the residual in that axis is
-    the constrained reaction. It is correct and must not be
-    zero. Do not use residual_norm as a convergence gate when a
-    constrained-direction load is present.
-    """
+    """Solve the Force Density Method equilibrium."""
     points = np.asarray(points, dtype=float)
     edges = list(edges)
     fixed_indices = list(fixed_indices)
@@ -198,11 +111,6 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
                 % (q.shape[0], m)
             )
 
-    # Force density must be strictly positive. q <= 0 would
-    # make the stiffness matrix singular or indefinite. The
-    # anisotropic blend in assign_anisotropic_q guarantees
-    # q > 0 when warp_q > 0 and weft_q > 0, but a caller
-    # could still pass a bad array. Reject it here.
     q_min = float(np.min(q))
     if q_min <= 0.0:
         raise ValueError(
@@ -217,7 +125,6 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         if loads.shape != (n, 3):
             raise ValueError("loads must have shape (n, 3)")
 
-    # ---- Build masks
     fixed_mask = np.zeros(n, dtype=bool)
     for i in fixed_indices:
         if i < 0 or i >= n:
@@ -232,7 +139,6 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
             continue
         z_only_mask[i] = True
 
-    # ---- Assemble the global K matrix
     K = np.zeros((n, n), dtype=float)
     for k, (i, j) in enumerate(edges):
         qk = q[k]
@@ -272,25 +178,15 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         "n_fixed": int(fixed_mask.sum()),
     }
 
+
 # =============================================================================
-# ANISOTROPIC FORCE DENSITIES FOR FABRIC
+# ANISOTROPIC FORCE DENSITIES
 # =============================================================================
-#
-# A woven fabric has two thread directions: warp and weft. They are
-# perpendicular in the plane of the fabric. The force density along
-# an edge depends on how that edge aligns with the two directions.
-#
-#     q_edge = warp_q * cos^2(theta) + weft_q * sin^2(theta)
-#
-# where theta is the angle between the edge (projected to the plan
-# plane) and the warp direction.
-#
-#   Edge parallel to warp   : theta = 0,  q = warp_q.
-#   Edge parallel to weft   : theta = 90, q = weft_q.
-#   Edge at 45 degrees      : q = (warp_q + weft_q) / 2.
-#
-# Boundary edges keep the segment-type rule (beam/wall use warp_q,
-# cable uses boundary_edge_q). Only interior edges are blended.
+
+def _edge_key(a, b):
+    """Return a canonical key for an undirected edge."""
+    return (a, b) if a < b else (b, a)
+
 
 def assign_anisotropic_q(
     edges,
@@ -303,37 +199,32 @@ def assign_anisotropic_q(
     boundary_edge_type=None,
 ):
     """
-    Build a per-edge force density array using the anisotropic
-    fabric rule for interior edges, and the segment-type rule
-    for boundary edges.
+    Build a per-edge force density array.
+
+    Interior edges use the anisotropic fabric blend.
+    Boundary edges use either a uniform value, or a
+    per-edge dict of values.
 
     Parameters
     ----------
-    edges : list of (i, j) edge pairs
-    points_2d : (n, 2) array of plan-plane coordinates.
-                Boundary nodes must come first, in the same order
-                as the boundary loop, if n_boundary is supplied.
-    warp_dir : (2,) unit vector. The warp direction, expressed
-               in the plan-plane coordinate system.
-    warp_q : float. Force density parallel to the warp.
-    weft_q : float. Force density parallel to the weft.
+    edges : list of (i, j)
+    points_2d : (n, 2) array
+    warp_dir : (2,) unit vector
+    warp_q, weft_q : float
     n_boundary : int or None
-        Number of boundary nodes at the start of points_2d. If
-        None, every edge is treated as interior.
-    boundary_edge_q : float or None
-        Force density for boundary edges on cable segments. If
-        None, warp_q is used for every boundary edge.
+    boundary_edge_q : float or dict
+        If scalar, all boundary edges use this value.
+        If dict, keyed by (i, j) in sorted order.
+        Missing keys fall back to warp_q.
+        Can be a numpy array of length len(edges).
     boundary_edge_type : list of str or None
-        One entry per boundary edge (i.e. per boundary segment
-        edge), giving "beam", "cable", or "wall". If None, every
-        boundary edge uses warp_q (or boundary_edge_q if given).
+        One per edge, giving "beam", "cable", "wall".
+        Used only if boundary_edge_q is scalar.
 
     Returns
     -------
-    q : (m,) array of force densities, one per edge.
+    q : (m,) array
     """
-    import math
-
     edges = list(edges)
     points_2d = np.asarray(points_2d, dtype=float)
     m = len(edges)
@@ -348,8 +239,85 @@ def assign_anisotropic_q(
     if n_boundary is None:
         n_boundary = 0
 
+    # --- Case 1: boundary_edge_q is a dict keyed by edge pairs.
+    if isinstance(boundary_edge_q, dict):
+        for k, (a, b) in enumerate(edges):
+            is_boundary_edge = (
+                n_boundary > 0
+                and a < n_boundary
+                and b < n_boundary
+                and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
+            )
+            if is_boundary_edge:
+                key = _edge_key(int(a), int(b))
+                val = boundary_edge_q.get(key, None)
+                if val is None:
+                    # Try reversed key (defensive)
+                    val = boundary_edge_q.get((key[1], key[0]), None)
+                if val is not None:
+                    q[k] = float(val)
+                    continue
+                q[k] = float(warp_q)
+                continue
+            # Interior edge: anisotropic blend.
+            pa = points_2d[a]
+            pb = points_2d[b]
+            d = pb - pa
+            dn = float(np.linalg.norm(d))
+            if dn < 1e-12:
+                q[k] = float(warp_q)
+                continue
+            d = d / dn
+            cos_t = float(np.dot(d, warp_dir))
+            if cos_t > 1.0:
+                cos_t = 1.0
+            elif cos_t < -1.0:
+                cos_t = -1.0
+            cos2 = cos_t * cos_t
+            sin2 = 1.0 - cos2
+            q[k] = float(warp_q) * cos2 + float(weft_q) * sin2
+        return q
+
+    # --- Case 2: boundary_edge_q is an array.
+    if isinstance(boundary_edge_q, np.ndarray):
+        if boundary_edge_q.shape[0] != m:
+            raise ValueError(
+                "boundary_edge_q array length %d does not match edges %d"
+                % (boundary_edge_q.shape[0], m)
+            )
+        for k, (a, b) in enumerate(edges):
+            is_boundary_edge = (
+                n_boundary > 0
+                and a < n_boundary
+                and b < n_boundary
+                and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
+            )
+            if is_boundary_edge:
+                q[k] = float(boundary_edge_q[k])
+                continue
+            pa = points_2d[a]
+            pb = points_2d[b]
+            d = pb - pa
+            dn = float(np.linalg.norm(d))
+            if dn < 1e-12:
+                q[k] = float(warp_q)
+                continue
+            d = d / dn
+            cos_t = float(np.dot(d, warp_dir))
+            if cos_t > 1.0:
+                cos_t = 1.0
+            elif cos_t < -1.0:
+                cos_t = -1.0
+            cos2 = cos_t * cos_t
+            sin2 = 1.0 - cos2
+            q[k] = float(warp_q) * cos2 + float(weft_q) * sin2
+        return q
+
+    # --- Case 3: scalar boundary_edge_q. Original behaviour.
     if boundary_edge_q is None:
-        boundary_edge_q = float(warp_q)
+        boundary_edge_q_scalar = float(warp_q)
+    else:
+        boundary_edge_q_scalar = float(boundary_edge_q)
 
     for k, (a, b) in enumerate(edges):
         is_boundary_edge = (
@@ -358,20 +326,16 @@ def assign_anisotropic_q(
             and b < n_boundary
             and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
         )
-
         if is_boundary_edge:
-            # Boundary edge: use segment-type rule.
             if boundary_edge_type is not None and k < len(boundary_edge_type):
                 seg_type = boundary_edge_type[k]
                 if seg_type == "cable":
-                    q[k] = float(boundary_edge_q)
+                    q[k] = float(boundary_edge_q_scalar)
                 else:
                     q[k] = float(warp_q)
             else:
                 q[k] = float(warp_q)
             continue
-
-        # Interior edge: anisotropic blend.
         pa = points_2d[a]
         pb = points_2d[b]
         d = pb - pa
@@ -381,7 +345,6 @@ def assign_anisotropic_q(
             continue
         d = d / dn
         cos_t = float(np.dot(d, warp_dir))
-        # Clamp for numerical safety.
         if cos_t > 1.0:
             cos_t = 1.0
         elif cos_t < -1.0:
@@ -394,14 +357,7 @@ def assign_anisotropic_q(
 
 
 def auto_warp_dir(points_2d):
-    """
-    Return a (2,) unit vector giving the long axis of the plan
-    bounding box of the supplied 2D points. This is the automatic
-    default for the warp direction.
-
-    If the bounding box is degenerate (a point or a line), returns
-    (1, 0).
-    """
+    """Return the long axis of the plan bounding box."""
     pts = np.asarray(points_2d, dtype=float)
     if pts.shape[0] < 2:
         return np.array([1.0, 0.0])
@@ -417,15 +373,11 @@ def auto_warp_dir(points_2d):
 
 
 def rotate_warp_dir(warp_dir, angle_rad):
-    """
-    Return a (2,) unit vector rotated from warp_dir by angle_rad
-    (counter-clockwise) in the plan plane.
-    """
+    """Return a rotated unit vector."""
     c = math.cos(angle_rad)
     s = math.sin(angle_rad)
     w = np.asarray(warp_dir, dtype=float)
     return np.array([c * w[0] - s * w[1], s * w[0] + c * w[1]])
-
 
 
 # =============================================================================
@@ -433,7 +385,6 @@ def rotate_warp_dir(warp_dir, angle_rad):
 # =============================================================================
 
 def _test_flat_mesh():
-    """Verify FDM keeps a flat mesh flat."""
     nx = 4
     ny = 4
     points = []
@@ -477,7 +428,6 @@ def _test_flat_mesh():
 
 
 def _test_hypar_saddle():
-    """Verify FDM forms a saddle from a non-planar boundary."""
     nx = 7
     ny = 7
     side = 2.0
@@ -542,15 +492,6 @@ def _test_hypar_saddle():
 
 
 def _test_z_only_constraint():
-    """
-    Verify that a z_only node moves only in z.
-
-    The gate is the constraint itself: x fixed, y fixed, z free.
-    The residual is NOT a gate here, because the y-load is a
-    constrained reaction — it must not be resolved by node motion,
-    so residual_norm stays non-zero. The residual is reported for
-    information only.
-    """
     points = [
         (0.0, 0.0, 0.0),
         (1.0, 0.0, 0.0),
@@ -588,7 +529,6 @@ def _test_z_only_constraint():
 
 
 def _test_mesh_size_for_shape():
-    """Verify the mesh divisibility rule returns valid values."""
     r1 = mesh_size_for_shape(25.0, 4, 4)
     r2 = mesh_size_for_shape(28.0, 4, 4)
     r3 = mesh_size_for_shape(50.0, 4, 4)
@@ -628,7 +568,6 @@ def _test_mesh_size_for_shape():
 
 
 def _verify_form_finding():
-    """Run all form-finding self-tests. Returns a dict with results."""
     results = {}
 
     t1 = _test_flat_mesh()
@@ -704,8 +643,3 @@ if __name__ == "__main__":
     print("  mesh_rule_ok     :", res["mesh_rule_ok"])
     print("-" * 70)
     print("GATE:", "PASS" if res["pass"] else "FAIL")
-
-
-
-
-
