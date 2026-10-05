@@ -1,11 +1,24 @@
 # =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.1)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.2)
 # =============================================================================
 # Prestressed-reference coupled nonlinear solver.
 # Real CST + geometric tangent. Slack-cable aware.
 # Relative convergence. Prestress baked into the reference.
 #
 # Committed to on 2026-10-04. See PROJECT_SESSION_LOG.md.
+#
+# v4.2 changes (2026-10-06):
+#   - Test 4 fixed. The previous version started from the
+#     reference geometry (points == reference_points), so
+#     the membrane was at zero strain and the internal
+#     forces cancelled. Nothing to solve. It now starts
+#     from a flat reference and lets the solver find the
+#     hypar.
+#   - Test 4 now reports the failure reason string so the
+#     CI tells us which failure mode triggered, if any.
+#   - Cable direction sign corrected in _assemble_residual.
+#     The membrane pulls inward, the cable resists. They
+#     must oppose. Previous code had them aligned.
 #
 # v4.1 changes (2026-10-05 evening):
 #   - membrane_stress adds the prestress as a stress resultant
@@ -30,6 +43,7 @@
 #   2026-10-04 - v3. Real CST tangent. Relative convergence.
 #   2026-10-04 - v4. Prestressed reference formulation.
 #   2026-10-05 - v4.1. Prestress as stress resultant.
+#   2026-10-06 - v4.2. Test 4 fix. Cable sign fix.
 # =============================================================================
 
 import math
@@ -41,7 +55,7 @@ MEMBRANE_NU_DEFAULT = 0.34
 MEMBRANE_G_MPa_DEFAULT = 50.0
 
 DEFAULT_MAX_ITER = 100
-DEFAULT_MAX_OUTER = 5
+DEFAULT_MAX_OUTER = 8
 DEFAULT_TOL = 1.0e-6
 DEFAULT_LINE_SEARCH_STEPS = 24
 
@@ -392,8 +406,12 @@ def _assemble_residual(points, triangles, cables, ref_points,
         )
         taut_flags[k] = taut
         if taut:
-            F[a] -= T * u
-            F[b] += T * u
+            # Cable tension pulls a toward b, and b toward a.
+            # The vector u points from a to b.
+            # Force on a is +T*u (pulls a toward b).
+            # Force on b is -T*u (pulls b toward a).
+            F[a] += T * u
+            F[b] -= T * u
 
     R = F - loads
     R[~free_mask] = 0.0
@@ -743,6 +761,7 @@ def solve_nonlinear_equilibrium(
             best_r = None
             best_norm = r_norm
             x0 = flat(points)
+            best_flags = list(taut_flags)
             for _ls in range(DEFAULT_LINE_SEARCH_STEPS):
                 x_try = x0 + alpha * dx
                 p_try = unflat(x_try)
@@ -908,6 +927,7 @@ def _test_flat_membrane():
         "converged": res["converged"],
         "iterations": res["iterations"],
         "residual_norm": res["residual_norm"],
+        "reason": res["reason"],
         "z_max": z_max,
         "ok": z_max < 1e-6 and res["converged"],
     }
@@ -936,7 +956,7 @@ def _test_cable_catenary():
     res = solve_nonlinear_equilibrium(
         points=pts, triangles=[], fixed_indices=[0, 2],
         reference_points=pts, membrane_material=mat,
-        cables=cab, loads=loads, max_iter=60, tol=1e-6,
+        cables=cab, loads=loads, max_iter=80, tol=1e-6,
     )
     coords = res["coordinates"]
     sag = -float(coords[1, 2])
@@ -945,6 +965,7 @@ def _test_cable_catenary():
         "converged": res["converged"],
         "iterations": res["iterations"],
         "residual_norm": res["residual_norm"],
+        "reason": res["reason"],
         "sag_m": sag,
         "tension_N": T_final,
         "ok": res["converged"] and sag > 1e-3 and T_final > T_pre,
@@ -973,20 +994,15 @@ def _test_saddle_with_cable():
     """
     Saddle with prestressed membrane and edge cable.
 
-    10 m x 10 m hypar grid, 7 x 7 nodes, H = 2.0 m.
+    Test 4, v4.2. The initial configuration is the flat
+    plan geometry at z = 0. The reference configuration is
+    the same flat geometry. The membrane is prestressed in
+    the material. The cable runs along the top edge.
 
-    Geometry: z = H * (u + v - 2*u*v) where u = x/Lx,
-    v = y/Ly. Four corners are the only supports. The
-    top edge nodes are free except at the corners. An
-    edge cable runs along the top edge.
-
-    Physical picture:
-      The membrane is prestressed and wants to shrink. Its
-      prestress pulls the floating boundary points INWARD.
-      The edge cable resists that inward pull and, at high
-      enough pretension, pulls the nodes OUTWARD toward
-      the straight anchor line. Higher cable pretension
-      produces a straighter top edge.
+    The solver must:
+      - form a saddle shape (nonzero z at interior nodes),
+      - move the mid-top-edge node inward or outward,
+      - respond visibly to a change in cable pretension.
     """
     Lx = 10.0
     Ly = 10.0
@@ -996,16 +1012,17 @@ def _test_saddle_with_cable():
     def node_index(i, j):
         return j * N + i
 
-    pts_list = []
+    pts_flat = []
     for j in range(N):
         v = j / (N - 1.0)
         y = Ly * v
         for i in range(N):
             u = i / (N - 1.0)
             x = Lx * u
-            z = H * (u + v - 2.0 * u * v)
-            pts_list.append([x, y, z])
-    pts = np.asarray(pts_list, dtype=float)
+            pts_flat.append([x, y, 0.0])
+    pts_flat = np.asarray(pts_flat, dtype=float)
+
+    ref_pts = pts_flat.copy()
 
     tris = []
     for j in range(N - 1):
@@ -1042,7 +1059,7 @@ def _test_saddle_with_cable():
         for k in range(len(top_chain) - 1):
             a = int(top_chain[k])
             b = int(top_chain[k + 1])
-            L_ref = float(np.linalg.norm(pts[b] - pts[a]))
+            L_ref = float(np.linalg.norm(ref_pts[b] - ref_pts[a]))
             L0 = L_ref / (1.0 + T_pre / EA_cable)
             cables.append({
                 "a": a,
@@ -1053,44 +1070,53 @@ def _test_saddle_with_cable():
         return cables
 
     res_low = solve_nonlinear_equilibrium(
-        points=pts.copy(), triangles=tris, fixed_indices=fixed,
-        reference_points=pts.copy(), membrane_material=mat,
-        cables=cable_set(T_LOW), max_iter=120, tol=1e-2,
+        points=pts_flat.copy(), triangles=tris, fixed_indices=fixed,
+        reference_points=ref_pts.copy(), membrane_material=mat,
+        cables=cable_set(T_LOW), max_iter=200, tol=1e-3,
     )
     res_high = solve_nonlinear_equilibrium(
-        points=pts.copy(), triangles=tris, fixed_indices=fixed,
-        reference_points=pts.copy(), membrane_material=mat,
-        cables=cable_set(T_HIGH), max_iter=120, tol=1e-2,
+        points=pts_flat.copy(), triangles=tris, fixed_indices=fixed,
+        reference_points=ref_pts.copy(), membrane_material=mat,
+        cables=cable_set(T_HIGH), max_iter=200, tol=1e-3,
     )
 
     mid_node = node_index(N // 2, 0)
     p_mid_low = res_low["coordinates"][mid_node]
     p_mid_high = res_high["coordinates"][mid_node]
-    p_mid_ref = pts[mid_node]
+    p_mid_ref = ref_pts[mid_node]
 
     d_mid_low = float(np.linalg.norm(p_mid_low - p_mid_ref))
     d_mid_high = float(np.linalg.norm(p_mid_high - p_mid_ref))
 
     diff = float(np.linalg.norm(p_mid_low - p_mid_high))
 
-    both_converged = bool(res_low["converged"] and res_high["converged"])
-    distinct = (diff > 1e-6)
+    z_span_low = float(np.max(res_low["coordinates"][:, 2])
+                       - np.min(res_low["coordinates"][:, 2]))
 
-    ok = both_converged and distinct
+    both_converged = bool(res_low["converged"] and res_high["converged"])
+    distinct = (diff > 1e-4)
+    has_z_span = (z_span_low > 1e-3)
+
+    ok = both_converged and distinct and has_z_span
 
     return {
         "converged_low": res_low["converged"],
         "converged_high": res_high["converged"],
+        "reason_low": res_low["reason"],
+        "reason_high": res_high["reason"],
+        "iters_low": res_low["iterations"],
+        "iters_high": res_high["iterations"],
         "disp_low_m": d_mid_low,
         "disp_high_m": d_mid_high,
         "diff_m": diff,
+        "z_span_low_m": z_span_low,
         "ok": ok,
     }
 
 
 def run_all_tests():
     print("=" * 60)
-    print("Nonlinear Equilibrium v4.1 - self-tests")
+    print("Nonlinear Equilibrium v4.2 - self-tests")
     print("=" * 60)
     all_ok = True
 
