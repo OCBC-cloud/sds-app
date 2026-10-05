@@ -525,6 +525,173 @@ def _assemble_tangent(points, triangles, cables, ref_points,
 
     return K
 
+# =============================================================================
+# PULL-BACK: CABLE INITIAL TENSIONS FROM MEMBRANE EQUILIBRIUM
+# =============================================================================
+#
+# Purpose:
+#   Compute, without iteration, the tension each boundary
+#   cable element must carry to balance the membrane's pull
+#   at the FDM form-found shape.
+#
+# The result is a physically meaningful initial state for
+# the nonlinear solver, and a real cable tension for the
+# FDM path. It is not a guess. It is arithmetic.
+#
+# Method:
+#   For each boundary mesh edge between two anchors, find the
+#   adjacent triangle. Compute the membrane stress resultant
+#   N (2x2 in the triangle's local plane). Compute the
+#   traction on the edge: t = N . n, where n is the edge's
+#   outward normal in the plane. Force = t * L (2D). Project
+#   onto the cable direction. The axial component is the
+#   required cable tension.
+
+def pullback_cable_initial_tensions(
+    points,
+    triangles,
+    boundary_loop,
+    anchors,
+    segments,
+    material,
+):
+    """
+    Compute per-edge cable tensions from the membrane
+    equilibrium at the current configuration.
+
+    Parameters
+    ----------
+    points : (n, 3) array
+        Current node coordinates (usually points_initial from
+        the mesh build).
+    triangles : list of (a, b, c)
+        The mesh triangles.
+    boundary_loop : (m, 3) array
+        The boundary loop points, in loop order.
+    anchors : list of int
+        Indices into boundary_loop of the anchor points.
+    segments : list of dicts
+        Each with keys 'anchor_a', 'anchor_b', 'interior'.
+        'interior' is a list of boundary loop indices strictly
+        between anchor_a and anchor_b (following the loop).
+    material : dict
+        Output of make_membrane_material. Must contain
+        C_plane, thickness_m, E_ref_2x2.
+
+    Returns
+    -------
+    tensions : dict
+        Keys are (int(a), int(b)) mesh node index pairs.
+        Values are the required axial tension in Newtons.
+        Only boundaries of the input mesh appear. Interior
+        edges are not included.
+    """
+    n_boundary = boundary_loop.shape[0]
+
+    # Build a set of boundary mesh edges (i, j) with i < j.
+    boundary_edges = set()
+    for k in range(n_boundary):
+        i = int(k)
+        j = int((k + 1) % n_boundary)
+        key = (i, j) if i < j else (j, i)
+        boundary_edges.add(key)
+
+    # For each boundary edge, find the adjacent triangle.
+    edge_to_tri = {}
+    for tri in triangles:
+        a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
+        for i, j in ((a, b), (b, c), (c, a)):
+            key = (i, j) if i < j else (j, i)
+            if key in boundary_edges:
+                edge_to_tri[key] = (a, b, c)
+
+    # For each boundary edge, compute the membrane pull-back
+    # and project onto the cable direction.
+    tensions = {}
+    for seg in segments:
+        anchor_a = int(seg["anchor_a"])
+        anchor_b = int(seg["anchor_b"])
+        interior = list(seg["interior"])
+        chain = [anchor_a] + interior + [anchor_b]
+
+        for k in range(len(chain) - 1):
+            i = int(chain[k])
+            j = int(chain[k + 1])
+            key = (i, j) if i < j else (j, i)
+
+            if key not in edge_to_tri:
+                # No adjacent triangle. Cable alone on this
+                # segment. Tension zero by default.
+                tensions[(i, j)] = 0.0
+                continue
+
+            tri = edge_to_tri[key]
+            a, b, c = tri
+            p0 = points[a]
+            p1 = points[b]
+            p2 = points[c]
+
+            # The triangle's local plane basis.
+            try:
+                t1, t2, _normal = _triangle_basis(p0, p1, p2)
+            except ValueError:
+                tensions[(i, j)] = 0.0
+                continue
+
+            # Compute N using the current and reference at the
+            # same state (no deformation yet). Prestress alone
+            # drives the pull-back.
+            # Reference = current for the FDM shape. The
+            # prestress is stored in material["E_ref_2x2"].
+            try:
+                sigma, _comp, _sp = membrane_stress(
+                    p0, p1, p2, p0, p1, p2, material
+                )
+            except ValueError:
+                tensions[(i, j)] = 0.0
+                continue
+
+            # Edge vector i -> j. Find its direction in the
+            # triangle plane basis.
+            edge_3d = points[j] - points[i]
+            edge_2d = np.array([
+                float(np.dot(edge_3d, t1)),
+                float(np.dot(edge_3d, t2)),
+            ], dtype=float)
+            L = float(np.linalg.norm(edge_2d))
+            if L < EPS:
+                tensions[(i, j)] = 0.0
+                continue
+
+            # Outward normal of the edge in 2D (rotate CCW).
+            n2d = np.array([-edge_2d[1], edge_2d[0]], dtype=float)
+            nn = float(np.linalg.norm(n2d))
+            if nn < EPS:
+                tensions[(i, j)] = 0.0
+                continue
+            n2d = n2d / nn
+
+            # Traction = sigma . n. In the triangle's own basis,
+            # sigma is 2x2 with the axes aligned to the triangle.
+            traction = sigma @ n2d  # 2D, N/m
+
+            # The force on this edge is traction * L.
+            force_2d = traction * L
+
+            # The cable direction along the boundary chain at
+            # this edge is the edge direction itself.
+            u_2d = edge_2d / L
+
+            # The axial component of the force.
+            axial = float(np.dot(force_2d, u_2d))
+
+            # Tension is a positive scalar. Slack if axial <= 0.
+            if axial <= 0.0:
+                tensions[(i, j)] = 0.0
+            else:
+                tensions[(i, j)] = axial
+
+    return tensions
 
 # =============================================================================
 # SOLVER
