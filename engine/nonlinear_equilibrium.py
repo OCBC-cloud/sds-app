@@ -819,7 +819,8 @@ def solve_nonlinear_equilibrium(
             new_flags[k] = taut
         if new_flags == taut_flags:
             reason = "active_set_stable_no_convergence"
-            break        taut_flags = new_flags
+            break
+        taut_flags = new_flags
 
     membrane_stress_list = []
     for (a, b, c) in triangles:
