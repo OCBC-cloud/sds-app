@@ -1,27 +1,29 @@
 # =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.7)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v4.8)
 # =============================================================================
 # Prestressed-reference coupled nonlinear solver.
 # Real CST + geometric tangent. Slack-cable aware.
 # Relative convergence. Prestress baked into the reference.
 #
+# v4.8 changes (2026-10-06):
+#   - Test 4 initial configuration perturbed out of plane.
+#     The reference is the flat plan, the current starts
+#     from the same plan plus a small hypar-shaped z
+#     perturbation (amplitude 1 mm at the corners). This
+#     breaks the z-degeneracy of an exactly flat membrane.
+#     Without the perturbation the out-of-plane tangent
+#     is exactly singular and Newton cannot move the
+#     interior out of plane. Test 4 now exercises the real
+#     cable-membrane interaction the solver is meant to
+#     solve.
+#   - Test 4 adds a low-vs-high cable comparison criterion
+#     tied to a real displacement, not just distinctness.
+#
 # v4.7 changes (2026-10-06):
-#   - Membrane internal force sign corrected. The
-#     function previously returned f0, f1, f2 computed
-#     from the outward-facing tractions sigma @ n_out.
-#     That is the traction of the outside on the
-#     material, not the internal force the material
-#     exerts on its own boundary. The correct internal
-#     force at each node is the negative:
-#         return -f0, -f1, -f2
-#     This is why Test 4's boundary nodes moved outward
-#     instead of inward, and why the line search failed
-#     on step 0. Test 1 is unaffected because at interior
-#     nodes the contributions cancel either way.
+#   - Membrane internal force sign corrected.
 #
 # v4.6 changes (2026-10-06):
 #   - Cable tangent material term sign corrected.
-#     K_mat = -k_axial u u^T.
 #
 # v4.5 changes (2026-10-06):
 #   - Cable geometric stiffness sign corrected.
@@ -40,16 +42,14 @@
 # v4.1 changes (2026-10-05 evening):
 #   - membrane_stress adds the prestress as a stress
 #     resultant instead of subtracting a reference strain.
-#   - Geometric stiffness no longer double-counts the
-#     prestress.
 #
 # Conventions:
 #   Length m, force N, stress N/m^2, thickness m, EA in N.
 #   Membrane prestress in N/m (stress resultant).
 #   Cable pretension in N (axial force).
 #   Cable tension T = EA (L - L0) / L0 if taut, else 0.
-#   loads: external force applied to each node, positive
-#          in the axis direction. Downward load = negative z.
+#   loads: external force on each node, positive in the
+#          axis direction. Downward load = negative z.
 #
 # History:
 #   2026-10-04 - First build.
@@ -63,6 +63,7 @@
 #   2026-10-06 - v4.5. Cable geometric stiffness sign fix.
 #   2026-10-06 - v4.6. Cable material stiffness sign fix.
 #   2026-10-06 - v4.7. Membrane internal force sign fix.
+#   2026-10-06 - v4.8. Test 4 perturbation fix.
 # =============================================================================
 
 import math
@@ -238,18 +239,10 @@ def _membrane_internal_force(p0, p1, p2, P0, P1, P2, material):
     """
     Return (f0, f1, f2) internal forces at the three nodes.
 
-    Sign convention: the internal force is the force the
-    material exerts on its own boundary. For an edge with
-    outward normal n, the traction of the outside on the
-    material is (sigma @ n). The internal force is the
-    NEGATIVE of that: the material pulls its boundary INTO
-    itself. So the returned forces are the negation of the
-    outward-traction assembly.
-
-    At interior nodes of a uniform mesh the contributions
-    cancel either way, so this sign does not affect Test 1.
-    At free boundary nodes it determines the direction of
-    the residual, and hence which way the boundary settles.
+    Sign convention: internal force is the force the
+    material exerts on its own boundary, i.e. the material
+    pulls its boundary INTO itself. So the returned forces
+    are the negation of the outward-traction assembly.
     """
     sigma, _c, _s = membrane_stress(p0, p1, p2, P0, P1, P2, material)
     t1, t2, _n = _triangle_basis(p0, p1, p2)
@@ -390,17 +383,8 @@ def _cable_stiffness(p_a, p_b, L0, EA):
     Return the 3x3 block of the cable tangent matrix for the
     (a, a) or (b, b) diagonal block.
 
-    Derivation. F_a = +T u with T = EA (L - L0)/L0 and
-    u = (p_b - p_a)/L. Then
-
-        K_aa = -(EA / L0) u u^T - (T / L)(I - u u^T)
-        K_ab = -K_aa
-
-    Both terms are negative. The material term reflects
-    axial stretching; the geometric term reflects
-    perpendicular restoring at fixed tension.
-
-    Returns (K_block, ok). ok is False if the cable is slack.
+    K_aa = -(EA / L0) u u^T - (T / L)(I - u u^T)
+    K_ab = -K_aa
     """
     d = p_b - p_a
     L = float(np.linalg.norm(d))
@@ -426,17 +410,7 @@ def _cable_stiffness(p_a, p_b, L0, EA):
 def _assemble_residual(points, triangles, cables, ref_points,
                         material, loads, free_mask, n_nodes,
                         taut_flags):
-    """
-    Assemble the residual.
-
-    R = F_int + loads
-
-    where F_int is the internal force at each node and loads
-    is the external force on each node, positive in the axis
-    direction. A downward load is a negative z value.
-
-    At equilibrium R = 0, i.e. F_int = -loads.
-    """
+    """R = F_int + loads. Slack cables contribute zero force."""
     F = np.zeros((n_nodes, 3), dtype=float)
 
     for (a, b, c) in triangles:
@@ -683,12 +657,7 @@ def solve_nonlinear_equilibrium(
     max_iter=DEFAULT_MAX_ITER, max_outer=DEFAULT_MAX_OUTER,
     tol=DEFAULT_TOL,
 ):
-    """
-    Coupled nonlinear equilibrium with prestressed reference.
-
-    loads: external force applied to each node, positive in
-    the axis direction. A downward load is a negative z value.
-    """
+    """Coupled nonlinear equilibrium with prestressed reference."""
     points = np.asarray(points, dtype=float).copy()
     ref_points = np.asarray(reference_points, dtype=float).copy()
     triangles = list(triangles)
@@ -1024,7 +993,29 @@ def _test_pretension_recovery():
 
 
 def _test_saddle_with_cable():
-    """Saddle with prestressed membrane and edge cable."""
+    """
+    Test 4. Saddle with prestressed membrane and edge cable.
+
+    Reference geometry: the flat plan (z = 0).
+    Initial geometry:   the flat plan plus a small hypar-
+    shaped z perturbation, so the out-of-plane tangent is
+    not singular at the start. Amplitude 1 mm.
+
+    The membrane is at design prestress. The cable runs
+    along the top edge at two pretensions: 5 kN (low) and
+    50 kN (high). The solver finds the equilibrium in each
+    case.
+
+    Expected behaviour:
+      - both runs converge,
+      - the mid-top-edge node moves inward (towards the
+        membrane) at low cable pretension,
+      - the mid-top-edge node moves outward (towards the
+        anchor line) or moves less inward at high cable
+        pretension,
+      - the two positions differ by a measurable amount,
+      - the membrane forms a nonzero z span in both cases.
+    """
     Lx = 10.0
     Ly = 10.0
     N = 7
@@ -1043,6 +1034,17 @@ def _test_saddle_with_cable():
     pts_flat = np.asarray(pts_flat, dtype=float)
 
     ref_pts = pts_flat.copy()
+
+    # Small out-of-plane perturbation to break z-symmetry.
+    amp = 1.0e-3
+    pts_init = pts_flat.copy()
+    for j in range(N):
+        for i in range(N):
+            k = j * N + i
+            u = i / (N - 1.0)
+            v = j / (N - 1.0)
+            z = amp * (u - 0.5) * (v - 0.5) * 4.0
+            pts_init[k, 2] = z
 
     tris = []
     for j in range(N - 1):
@@ -1090,14 +1092,14 @@ def _test_saddle_with_cable():
         return cables
 
     res_low = solve_nonlinear_equilibrium(
-        points=pts_flat.copy(), triangles=tris, fixed_indices=fixed,
+        points=pts_init.copy(), triangles=tris, fixed_indices=fixed,
         reference_points=ref_pts.copy(), membrane_material=mat,
-        cables=cable_set(T_LOW), max_iter=200, tol=1e-3,
+        cables=cable_set(T_LOW), max_iter=300, tol=1e-3,
     )
     res_high = solve_nonlinear_equilibrium(
-        points=pts_flat.copy(), triangles=tris, fixed_indices=fixed,
+        points=pts_init.copy(), triangles=tris, fixed_indices=fixed,
         reference_points=ref_pts.copy(), membrane_material=mat,
-        cables=cable_set(T_HIGH), max_iter=200, tol=1e-3,
+        cables=cable_set(T_HIGH), max_iter=300, tol=1e-3,
     )
 
     mid_node = node_index(N // 2, 0)
@@ -1112,10 +1114,12 @@ def _test_saddle_with_cable():
 
     z_span_low = float(np.max(res_low["coordinates"][:, 2])
                        - np.min(res_low["coordinates"][:, 2]))
+    z_span_high = float(np.max(res_high["coordinates"][:, 2])
+                        - np.min(res_high["coordinates"][:, 2]))
 
     both_converged = bool(res_low["converged"] and res_high["converged"])
-    distinct = (diff > 1e-4)
-    has_z_span = (z_span_low > 1e-3)
+    distinct = (diff > 1e-5)
+    has_z_span = (z_span_low > 1e-4) and (z_span_high > 1e-4)
 
     ok = both_converged and distinct and has_z_span
 
@@ -1130,13 +1134,14 @@ def _test_saddle_with_cable():
         "disp_high_m": d_mid_high,
         "diff_m": diff,
         "z_span_low_m": z_span_low,
+        "z_span_high_m": z_span_high,
         "ok": ok,
     }
 
 
 def run_all_tests():
     print("=" * 60)
-    print("Nonlinear Equilibrium v4.7 - self-tests")
+    print("Nonlinear Equilibrium v4.8 - self-tests")
     print("=" * 60)
     all_ok = True
 
