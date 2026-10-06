@@ -18,6 +18,14 @@
 #                Cable group split into Tie-down and Edge.
 #                Three inputs per cable group:
 #                type, material, pretension.
+#   2026-10-06 - Default edge cable pretension 5.0 -> 0.2 kN.
+#                The previous default (5 kN) put the boundary
+#                edge force ten times above the membrane
+#                prestress. The boundary could not bow. The
+#                new default is below the threshold so the
+#                bow appears at first open. The user raises
+#                it to a design value to straighten the edge
+#                and to run the structural analysis.
 # =============================================================================
 
 from data.materials import FABRIC_PROPERTIES
@@ -53,7 +61,7 @@ DEFAULTS = {
     "anchor_type": "pinned",
     "edge_cable_type": "6x19",
     "edge_cable_material": "stainless",
-    "edge_cable_pretension": 5.0,
+    "edge_cable_pretension": 0.2,
     "warp_pretension": 1.0,
     "weft_pretension": 1.0,
     "soil_bearing": 150.0,
@@ -129,11 +137,11 @@ def _preview_edge_cable(state, prefix):
     """Show the current edge cable settings."""
     ctype = state.get(prefix + "_edge_cable_type", "6x19")
     cmat = state.get(prefix + "_edge_cable_material", "stainless")
-    cpre = state.get(prefix + "_edge_cable_pretension", 5.0)
+    cpre = state.get(prefix + "_edge_cable_pretension", 0.2)
     return (
         'Type: <span class="num">' + str(ctype) + '</span>  |  '
         'Material: <span class="num">' + str(cmat) + '</span>  |  '
-        'Prestress: <span class="num">' + ("%.1f" % cpre) + ' kN</span>'
+        'Prestress: <span class="num">' + ("%.2f" % cpre) + ' kN</span>'
     )
 
 
@@ -487,10 +495,10 @@ STANDARD_SADDLE_RECIPE = {
                     "key": "edge_cable_pretension",
                     "label": "Edge Cable Pretension (kN)",
                     "type": "number",
-                    "default": 5.0,
-                    "min": 0.1,
+                    "default": 0.2,
+                    "min": 0.05,
                     "max": 500.0,
-                    "step": 0.5,
+                    "step": 0.05,
                     "show_if": _show_edge_cable,
                 },
             ],
