@@ -17,6 +17,16 @@
 #   disabled with a note explaining that the deeper physics is
 #   available in the higher tiers.
 #
+# Auto-scaled edge cable pretension:
+#   The edge cable pretension at the bow threshold scales with
+#   the anchor spacing, not the total span. The correct default
+#   is T_default = N_membrane * L_anchor, where N_membrane is
+#   the membrane prestress (N/m) and L_anchor is the distance
+#   between two adjacent anchors along the beam. If the user
+#   enters a value > 0 in the workshop, that value is used. If
+#   the user enters 0 (or leaves the recipe default at 0), the
+#   auto-scaled value is computed from the geometry and used.
+#
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
 #   2026-09-30 - Step 5. Rewritten to use the triangulated engine.
@@ -27,19 +37,13 @@
 #   2026-10-06 - FDM path fallback added.
 #   2026-10-06 - Digitised node data added to diagnostics.
 #   2026-10-06 - q array print added to diagnostics.
-#   2026-10-06 - Mode selector added. High tiers choose FDM or
-#                NFDM at will. Free and Pro are forced to FDM.
-#   2026-10-06 - Pull-back threshold raised from 0.0 to 1.0 N.
-#                The pull-back returns numerically tiny positive
-#                values on some boundary edges (1e-10 to 1e-6),
-#                not exactly zero. The old test `T > 0.0`
-#                accepted those and stored them as nearly-zero
-#                q values, which collapsed the boundary. The new
-#                test treats anything below 1 N as a failed
-#                pull-back and falls back to edge_q_scalar.
-#                This is why the boundary q was near zero on
-#                half the edges: they were being assigned tiny
-#                pull-back values instead of the fallback.
+#   2026-10-06 - Mode selector added.
+#   2026-10-06 - Pull-back threshold raised to 1 N.
+#   2026-10-06 - Auto-scaled edge cable pretension added.
+#                T_default = N_membrane * L_anchor. Used when
+#                edge_pre <= 0. Scales the bow threshold with
+#                the anchor spacing. Correct for any structure
+#                size, from 5 m to 30 m and beyond.
 # =============================================================================
 
 import math
@@ -344,6 +348,54 @@ def _build_beam_curves(span, apex, rise, curve_type, n_pts=200):
 
 
 # =============================================================================
+# AUTO-SCALED EDGE CABLE PRETENSION
+# =============================================================================
+
+def _auto_edge_pretension_kN(arc_total, anchor_count,
+                              warp_pre, weft_pre):
+    """
+    Return the auto-scaled edge cable pretension in kN.
+
+    The bow threshold scales with the anchor spacing, not the
+    total span. The threshold is:
+
+        T = N_membrane * L_anchor
+
+    where:
+        N_membrane  = the membrane prestress resultant (N/m),
+                      taken as max(warp_pre, weft_pre).
+        L_anchor    = the distance between two adjacent anchors
+                      along the beam = arc_total / (anchor_count - 1).
+
+    The value returned is in kN. It is the pretension at which
+    the edge cable and the membrane have equal force density
+    at the boundary. The boundary will bow at this value and
+    straighten above it.
+
+    For 10 m saddle, 8 anchors, N=1000 N/m:
+        L_anchor = 16 / 7 = 2.3 m
+        T = 1000 * 2.3 = 2300 N = 2.3 kN
+
+    For 30 m saddle, 8 anchors, N=1000 N/m:
+        L_anchor = 48 / 7 = 6.9 m
+        T = 1000 * 6.9 = 6900 N = 6.9 kN
+
+    For 5 m saddle, 8 anchors, N=1000 N/m:
+        L_anchor = 8 / 7 = 1.1 m
+        T = 1000 * 1.1 = 1100 N = 1.1 kN
+    """
+    if anchor_count < 2:
+        return 0.0
+    L_anchor = float(arc_total) / float(anchor_count - 1)
+    N_membrane = max(
+        float(warp_pre) * 1000.0,
+        float(weft_pre) * 1000.0,
+    )
+    T_N = N_membrane * L_anchor
+    return T_N / 1000.0
+
+
+# =============================================================================
 # FDM PATH
 # =============================================================================
 
@@ -375,6 +427,19 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     if L_avg < 1e-9:
         L_avg = 1.0
 
+    # Auto-scaled edge cable pretension.
+    # If the user entered a value > 0 in the workshop, use it.
+    # Otherwise compute from the geometry: N_membrane * L_anchor.
+    edge_pre_used = float(edge_pre)
+    edge_pre_source = "user"
+    if edge_pre_used <= 0.0:
+        edge_pre_used = _auto_edge_pretension_kN(
+            total, anchor_count, warp_pre, weft_pre
+        )
+        edge_pre_source = "auto"
+    if edge_pre_used <= 0.0:
+        edge_pre_used = 0.05
+
     baseline_kN_per_m = 2.0
     ratio_limit = 4.0
     warp_input = max(0.1, float(warp_pre))
@@ -390,7 +455,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         weft_rel = ratio_limit * warp_rel
     warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_avg
     weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_avg
-    edge_q_scalar = max(0.05, float(edge_pre)) * 1000.0 / L_avg
+    edge_q_scalar = edge_pre_used * 1000.0 / L_avg
 
     mesh_result = build_mesh_triangulated(
         boundary_loop=boundary_loop,
@@ -438,11 +503,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                 if L < 1e-9:
                     continue
                 q_kk = (i, j) if i < j else (j, i)
-                # Threshold: pull-back values below 1 N are treated
-                # as failed. The pull-back returns numerically tiny
-                # positive values (1e-10 to 1e-6) on straight
-                # boundary edges, not exactly zero. Those must fall
-                # back to edge_q_scalar, or the boundary q collapses.
                 if T is not None and T > 1.0:
                     q_dict[q_kk] = float(T) / L
                 else:
@@ -534,6 +594,9 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         "warp_q": float(warp_q),
         "weft_q": float(weft_q),
         "edge_q_scalar": float(edge_q_scalar),
+        "edge_pretension_kN": float(edge_pre_used),
+        "edge_pretension_source": str(edge_pre_source),
+        "L_anchor_m": float(total) / max(1.0, float(anchor_count - 1)),
         "top_displacements": [],
         "structural_connections": [],
     }
@@ -587,6 +650,16 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
     if L_avg < 1e-9:
         L_avg = 1.0
 
+    edge_pre_used = float(edge_pre)
+    edge_pre_source = "user"
+    if edge_pre_used <= 0.0:
+        edge_pre_used = _auto_edge_pretension_kN(
+            total, anchor_count, warp_pre, weft_pre
+        )
+        edge_pre_source = "auto"
+    if edge_pre_used <= 0.0:
+        edge_pre_used = 0.05
+
     mesh_result = build_mesh_triangulated(
         boundary_loop=boundary_loop,
         anchor_indices=anchors,
@@ -615,14 +688,14 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
     )
 
     chosen = _pick_cable_diameter(
-        edge_cable_type, edge_cable_material, float(edge_pre),
+        edge_cable_type, edge_cable_material, edge_pre_used,
     )
     if chosen is None:
         chosen = {"A": 162.9, "E": 160000.0}
     A_m2 = float(chosen["A"]) * 1e-6
     E_Pa = float(chosen["E"]) * 1e6
     EA_N = A_m2 * E_Pa
-    T_pre_user_N = float(edge_pre) * 1000.0
+    T_pre_user_N = edge_pre_used * 1000.0
 
     pullback_tensions = {}
     pullback_summary = None
@@ -713,7 +786,8 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
         "edge_cable_length_m": float(edge_cable_length_m),
         "edge_cable_type": str(edge_cable_type),
         "edge_cable_material": str(edge_cable_material),
-        "edge_cable_pretension_kN": float(edge_pre),
+        "edge_cable_pretension_kN": float(edge_pre_used),
+        "edge_pretension_source": str(edge_pre_source),
         "edge_cable_chosen": chosen,
         "warp_prestress_N_per_m": float(warp_prest_N),
         "weft_prestress_N_per_m": float(weft_prest_N),
@@ -722,6 +796,7 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
         "structural_connections": [],
         "cable_tensions": res.get("cable_tension", []),
         "q_path": "n/a (nfdm)",
+        "L_anchor_m": float(total) / max(1.0, float(anchor_count - 1)),
     }
 
     return {
@@ -795,7 +870,7 @@ def build_standard_saddle():
     spread = float(st.session_state.get("ws_ss_spread_angle", 30))
     warp_pre = _r6(st.session_state.get("ws_ss_warp_pretension", 2.0))
     weft_pre = _r6(st.session_state.get("ws_ss_weft_pretension", 2.0))
-    edge_pre = _r6(st.session_state.get("ws_ss_edge_cable_pretension", 0.2))
+    edge_pre = _r6(st.session_state.get("ws_ss_edge_cable_pretension", 0.0))
     attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
 
     anchor_count = int(st.session_state.get("ws_ss_anchor_count", 8))
@@ -1042,6 +1117,17 @@ def build_standard_saddle():
         c2.metric("Edges", diag["n_edges"])
         c3.metric("Triangles", diag["n_triangles"])
         c4.metric("Fixed", diag["n_fixed"])
+
+        # Auto-scaled edge pretension info
+        st.markdown(
+            "**Edge cable pretension:** "
+            + ("%.3f kN" % diag.get("edge_pretension_kN", 0.0))
+            + " (" + str(diag.get("edge_pretension_source", "?")) + ")"
+        )
+        st.markdown(
+            "**Anchor spacing L_anchor:** "
+            + ("%.3f m" % diag.get("L_anchor_m", 0.0))
+        )
 
         if diag["solver"].startswith("NFDM"):
             st.markdown("**Convergence:** " +
