@@ -29,7 +29,17 @@
 #   2026-10-06 - q array print added to diagnostics.
 #   2026-10-06 - Mode selector added. High tiers choose FDM or
 #                NFDM at will. Free and Pro are forced to FDM.
-#                The tier gate restricts upward, not downward.
+#   2026-10-06 - Pull-back threshold raised from 0.0 to 1.0 N.
+#                The pull-back returns numerically tiny positive
+#                values on some boundary edges (1e-10 to 1e-6),
+#                not exactly zero. The old test `T > 0.0`
+#                accepted those and stored them as nearly-zero
+#                q values, which collapsed the boundary. The new
+#                test treats anything below 1 N as a failed
+#                pull-back and falls back to edge_q_scalar.
+#                This is why the boundary q was near zero on
+#                half the edges: they were being assigned tiny
+#                pull-back values instead of the fallback.
 # =============================================================================
 
 import math
@@ -428,12 +438,17 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                 if L < 1e-9:
                     continue
                 q_kk = (i, j) if i < j else (j, i)
-                if T is not None and T > 0.0:
+                # Threshold: pull-back values below 1 N are treated
+                # as failed. The pull-back returns numerically tiny
+                # positive values (1e-10 to 1e-6) on straight
+                # boundary edges, not exactly zero. Those must fall
+                # back to edge_q_scalar, or the boundary q collapses.
+                if T is not None and T > 1.0:
                     q_dict[q_kk] = float(T) / L
                 else:
                     q_dict[q_kk] = float(edge_q_scalar)
                     n_fallback_edges += 1
-            tvals = [v for v in tensions.values() if v > 0.0]
+            tvals = [v for v in tensions.values() if v > 1.0]
             if tvals:
                 pullback_summary = {
                     "min_N": float(min(tvals)),
@@ -449,7 +464,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                     "mean_N": 0.0,
                     "n_edges": 0,
                     "n_fallback_edges": int(n_fallback_edges),
-                    "note": "pull-back returned zero on every boundary edge; fell back to edge_q_scalar",
+                    "note": "pull-back returned zero or below 1 N on every boundary edge; fell back to edge_q_scalar",
                 }
         except Exception as e:
             pullback_summary = {"error": str(e)}
@@ -621,7 +636,7 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
                 segments=segments,
                 material=mat,
             )
-            tvals = [v for v in pullback_tensions.values() if v > 0.0]
+            tvals = [v for v in pullback_tensions.values() if v > 1.0]
             if tvals:
                 pullback_summary = {
                     "min_N": float(min(tvals)),
@@ -643,7 +658,7 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
                 T_pull = pullback_tensions.get(key, None)
                 if T_pull is None:
                     T_pull = pullback_tensions.get((key[1], key[0]), None)
-                if T_pull is None or T_pull <= 0.0:
+                if T_pull is None or T_pull <= 1.0:
                     T_cable = T_pre_user_N
                 else:
                     T_cable = float(T_pull)
@@ -801,7 +816,6 @@ def build_standard_saddle():
         )
         return apply_common_layout(fig, 10.0)
 
-    # --- Solver mode selector ---------------------------------------------
     has_nfdm = _has_nonlinear()
     if has_nfdm:
         st.markdown("**Solver mode:**")
