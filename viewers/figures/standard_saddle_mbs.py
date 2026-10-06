@@ -26,17 +26,13 @@
 #                tension is zero or negative on a boundary
 #                edge, the FDM path now falls back to the
 #                uniform edge_q_scalar value on that edge.
-#                The pull-back is a straight-boundary
-#                approximation that returns zero on a flat
-#                boundary (the axial component of the
-#                membrane edge traction is zero when the
-#                outward normal is exactly perpendicular to
-#                the edge). A zero q on the boundary edge
-#                collapses the boundary inward with no bow.
-#                The fallback restores the strong boundary
-#                force that produces the bow loop, and is
-#                what the earlier viewer did with
-#                SIDE_CABLE_STIFFNESS_FACTOR.
+#   2026-10-06 - Digitised node data added to the Solver
+#                diagnostics expander. Boundary nodes, top
+#                20 displaced nodes, all nodes. Fixed-width
+#                monospace, copyable on iPhone. Chief's
+#                request: the solver output must be visible
+#                and copyable for analysis, not only drawn
+#                as a shape.
 # =============================================================================
 
 import math
@@ -143,6 +139,48 @@ def _pick_cable_diameter(cable_type, material, pretension_kN,
         if e["breaking_kN"] >= required_kN:
             return e
     return entries[-1] if entries else None
+
+
+# =============================================================================
+# NODE TABLE FORMATTER
+# =============================================================================
+
+def _format_node_table(points_initial, points_solved, indices=None):
+    """
+    Return a fixed-width string with one line per node.
+
+    Columns:
+        idx        x_init     y_init     z_init
+                   x_solved   y_solved   z_solved   disp
+    """
+    if indices is None:
+        indices = range(points_initial.shape[0])
+    lines = []
+    header = (
+        "%6s  %11s  %11s  %11s  %11s  %11s  %11s  %11s"
+        % ("idx", "x_init", "y_init", "z_init",
+           "x_solved", "y_solved", "z_solved", "disp")
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+    for k in indices:
+        xi, yi, zi = points_initial[k]
+        xs, ys, zs = points_solved[k]
+        d = float(np.linalg.norm(
+            np.array([xs - xi, ys - yi, zs - zi])
+        ))
+        lines.append(
+            "%6d  %11.6f  %11.6f  %11.6f  %11.6f  %11.6f  %11.6f  %11.6e"
+            % (k, xi, yi, zi, xs, ys, zs, d)
+        )
+    return "\n".join(lines)
+
+
+def _top_displaced_indices(points_initial, points_solved, n_top=20):
+    """Return indices of the n_top nodes with largest displacement."""
+    d = np.linalg.norm(points_solved - points_initial, axis=1)
+    order = np.argsort(d)[::-1]
+    return [int(k) for k in order[:n_top]]
 
 
 # =============================================================================
@@ -373,7 +411,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                 if T is not None and T > 0.0:
                     q_dict[q_kk] = float(T) / L
                 else:
-                    # Fallback: uniform boundary q.
                     q_dict[q_kk] = float(edge_q_scalar)
                     n_fallback_edges += 1
             tvals = [v for v in tensions.values() if v > 0.0]
@@ -995,6 +1032,54 @@ def build_standard_saddle():
                     "  |  Area: " + ("%.1f mm2" % ce["A"]) +
                     "  |  Breaking: " + ("%.2f kN" % ce["breaking_kN"])
                 )
+
+        # ---------------------------------------------------------------------
+        # DIGITISED NODE DATA
+        # ---------------------------------------------------------------------
+        st.markdown("---")
+        st.markdown("**Digitised node data**")
+
+        n_boundary_local = int(boundary_loop.shape[0])
+        boundary_idx = list(range(min(n_boundary_local, coords.shape[0])))
+
+        st.markdown(
+            "**Boundary nodes** — "
+            + str(len(boundary_idx))
+            + " rows. Columns: idx, x_init, y_init, z_init, "
+            + "x_solved, y_solved, z_solved, disp"
+        )
+        st.code(
+            _format_node_table(
+                points_initial, coords, indices=boundary_idx
+            ),
+            language="text",
+        )
+
+        top_idx = _top_displaced_indices(
+            points_initial, coords, n_top=20
+        )
+        st.markdown(
+            "**Top 20 displaced nodes** — sorted by displacement, "
+            + "largest first"
+        )
+        st.code(
+            _format_node_table(
+                points_initial, coords, indices=top_idx
+            ),
+            language="text",
+        )
+
+        st.markdown(
+            "**All nodes** — "
+            + str(coords.shape[0])
+            + " rows. Same columns."
+        )
+        st.code(
+            _format_node_table(
+                points_initial, coords, indices=None
+            ),
+            language="text",
+        )
 
     return fig
 
