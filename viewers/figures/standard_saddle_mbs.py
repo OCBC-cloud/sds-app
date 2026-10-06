@@ -4,9 +4,18 @@
 # Builds the 3D figure for the Standard Saddle variant.
 #
 # Two solver paths:
-#   FDM (Stage 1)   - the shape only. Fast. All tiers.
+#   FDM (Stage 1)   - the shape only. Fast. Milliseconds. All tiers.
 #   NFDM (Stage 2)  - real membrane + cable coupled equilibrium.
 #                     Owner, Studio, Beta only.
+#
+# Mode selection:
+#   Owner, Studio, Beta: a radio selector lets the user choose
+#   FDM or NFDM at will. High tiers get BOTH modes. The tier
+#   gate restricts upward, not downward.
+#
+#   Free and Pro: FDM is the only mode. The selector is shown
+#   disabled with a note explaining that the deeper physics is
+#   available in the higher tiers.
 #
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
@@ -17,13 +26,10 @@
 #                Cache. Loading message. Checkbox toggles.
 #   2026-10-06 - FDM path fallback added.
 #   2026-10-06 - Digitised node data added to diagnostics.
-#   2026-10-06 - q array print added to diagnostics. First 40
-#                edges: index, endpoints, is_boundary, q value.
-#                Plus summary of boundary q vs interior q. This
-#                is a diagnostic to determine why the boundary
-#                does not bow. The q value on boundary edges is
-#                the number that decides whether the membrane
-#                pulls the boundary inward.
+#   2026-10-06 - q array print added to diagnostics.
+#   2026-10-06 - Mode selector added. High tiers choose FDM or
+#                NFDM at will. Free and Pro are forced to FDM.
+#                The tier gate restricts upward, not downward.
 # =============================================================================
 
 import math
@@ -161,10 +167,6 @@ def _top_displaced_indices(points_initial, points_solved, n_top=20):
 
 
 def _format_q_table(edges, q_values, n_boundary, n_show=40):
-    """
-    Return a fixed-width table of the first n_show edges:
-    edge index, (a, b), is_boundary, q_value.
-    """
     lines = []
     header = "%6s  %14s  %12s  %14s" % (
         "edge", "endpoints", "is_boundary", "q_value")
@@ -187,9 +189,6 @@ def _format_q_table(edges, q_values, n_boundary, n_show=40):
 
 
 def _summarise_q(edges, q_values, n_boundary):
-    """
-    Return a summary of boundary vs interior q values.
-    """
     m = len(edges)
     boundary_qs = []
     interior_qs = []
@@ -802,7 +801,32 @@ def build_standard_saddle():
         )
         return apply_common_layout(fig, 10.0)
 
-    use_nfdm = (_has_nonlinear() and attach_type == "cable_supported")
+    # --- Solver mode selector ---------------------------------------------
+    has_nfdm = _has_nonlinear()
+    if has_nfdm:
+        st.markdown("**Solver mode:**")
+        mode_choice = st.radio(
+            "Solver mode",
+            options=["NFDM (Stage 2, coupled nonlinear)",
+                     "FDM (Stage 1, form-found shape)"],
+            index=0,
+            key="ss_solver_mode",
+            label_visibility="collapsed",
+        )
+        use_nfdm_selected = mode_choice.startswith("NFDM")
+    else:
+        st.info(
+            "Stage 1 form-finding is active. "
+            "Coupled nonlinear refinement (Stage 2) "
+            "is available in higher access tiers."
+        )
+        use_nfdm_selected = False
+
+    use_nfdm = (
+        use_nfdm_selected
+        and has_nfdm
+        and attach_type == "cable_supported"
+    )
 
     msg = st.empty()
     msg.info("Preparing design...Do not refresh or leave the page")
@@ -1025,7 +1049,6 @@ def build_standard_saddle():
             d2.metric("Min tri area", "%.6e" % 0.0)
             d3.metric("Mean tri area", "%.6e" % 0.0)
 
-        # q diagnostics (FDM only)
         if diag["solver"].startswith("FDM"):
             st.markdown("---")
             st.markdown("**q values**")
