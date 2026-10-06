@@ -15,20 +15,6 @@
 #   Else:
 #       run the FDM path.
 #
-# Performance:
-#   Both paths are cached with st.cache_data. First render on
-#   a fresh input set takes the full solve time. Every
-#   subsequent render with the same inputs returns instantly.
-#   Inputs are rounded to 6 decimals before hashing, so
-#   floating-point drift does not defeat the cache.
-#
-#   The FDM path is a single build: mesh, pull-back, one
-#   solve_fdm call. No second mesh build.
-#
-# Marker toggles:
-#   Streamlit checkboxes below the chart. Plotly's own legend
-#   does not toggle reliably inside Streamlit.
-#
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
 #   2026-09-30 - Step 5. Rewritten to use the triangulated engine.
@@ -36,6 +22,21 @@
 #   2026-10-04 - Two-path solver. NFDM for high tiers.
 #   2026-10-05 - Pull-back initial guess. Single-build FDM.
 #                Cache. Loading message. Checkbox toggles.
+#   2026-10-06 - FDM path fallback added. When the pull-back
+#                tension is zero or negative on a boundary
+#                edge, the FDM path now falls back to the
+#                uniform edge_q_scalar value on that edge.
+#                The pull-back is a straight-boundary
+#                approximation that returns zero on a flat
+#                boundary (the axial component of the
+#                membrane edge traction is zero when the
+#                outward normal is exactly perpendicular to
+#                the edge). A zero q on the boundary edge
+#                collapses the boundary inward with no bow.
+#                The fallback restores the strong boundary
+#                force that produces the bow loop, and is
+#                what the earlier viewer did with
+#                SIDE_CABLE_STIFFNESS_FACTOR.
 # =============================================================================
 
 import math
@@ -273,6 +274,15 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     """
     FDM path. Single mesh build. Then pull-back for the
     per-edge q on boundary cable edges. Then one FDM solve.
+
+    Fallback rule: when the pull-back tension for a boundary
+    edge is zero or negative, that edge uses the uniform
+    edge_q_scalar value instead. The pull-back is exact only
+    on a curved boundary; on a straight boundary its axial
+    component is zero. A zero q on the boundary edge would
+    let the membrane pull the boundary inward with no bow.
+    The fallback keeps the strong boundary force that
+    produces the bow.
     """
     x, y1, y2, z_beam, s, total = _build_beam_curves(
         span, apex, rise, curve_type
@@ -287,7 +297,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
 
     target_len = float(mesh_spacing) if mesh_spacing and mesh_spacing > 0 else None
 
-    # Average boundary segment length.
     n = boundary_loop.shape[0]
     total_len = 0.0
     for i in range(n):
@@ -298,7 +307,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     if L_avg < 1e-9:
         L_avg = 1.0
 
-    # Ratio-anchored force densities.
     baseline_kN_per_m = 2.0
     ratio_limit = 4.0
     warp_input = max(0.1, float(warp_pre))
@@ -316,10 +324,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_avg
     edge_q_scalar = max(0.1, float(edge_pre)) * 1000.0 / L_avg
 
-    # Single mesh build. The mesh itself is produced by the
-    # triangulated engine, which also runs solve_fdm internally
-    # with the uniform edge_q. That gives us the topology and
-    # a first-pass shape.
     mesh_result = build_mesh_triangulated(
         boundary_loop=boundary_loop,
         anchor_indices=anchors,
@@ -336,7 +340,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     triangles = mesh_result["triangles"]
     fixed_indices = mesh_result["fixed_indices"]
 
-    # Pull-back on the topology from the mesh build.
     E1, E2, t_mm = _read_fabric_constants(fabric_type, fabric_grade)
     warp_prest_N = _pretension_to_N_per_m(warp_pre, "kN/m")
     weft_prest_N = _pretension_to_N_per_m(weft_pre, "kN/m")
@@ -349,6 +352,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
 
     pullback_summary = None
     q_dict = None
+    n_fallback_edges = 0
     if str(attachment_type).lower() == "cable_supported":
         try:
             tensions = pullback_cable_initial_tensions(
@@ -365,7 +369,13 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                 L = float(np.linalg.norm(points_initial[j] - points_initial[i]))
                 if L < 1e-9:
                     continue
-                q_dict[(i, j) if i < j else (j, i)] = float(T) / L
+                q_kk = (i, j) if i < j else (j, i)
+                if T is not None and T > 0.0:
+                    q_dict[q_kk] = float(T) / L
+                else:
+                    # Fallback: uniform boundary q.
+                    q_dict[q_kk] = float(edge_q_scalar)
+                    n_fallback_edges += 1
             tvals = [v for v in tensions.values() if v > 0.0]
             if tvals:
                 pullback_summary = {
@@ -373,12 +383,20 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                     "max_N": float(max(tvals)),
                     "mean_N": float(sum(tvals) / len(tvals)),
                     "n_edges": len(tvals),
+                    "n_fallback_edges": int(n_fallback_edges),
+                }
+            else:
+                pullback_summary = {
+                    "min_N": 0.0,
+                    "max_N": 0.0,
+                    "mean_N": 0.0,
+                    "n_edges": 0,
+                    "n_fallback_edges": int(n_fallback_edges),
+                    "note": "pull-back returned zero on every boundary edge; fell back to edge_q_scalar",
                 }
         except Exception as e:
             pullback_summary = {"error": str(e)}
 
-    # Single FDM solve, using the pull-back q on boundary
-    # cable edges if available, else uniform warp_q on beams.
     pts_2d = points_initial[:, :2]
     warp_dir = auto_warp_dir(pts_2d)
 
@@ -412,7 +430,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     )
     coords = fdm_result["coordinates"]
 
-    # Edge cable length from the anchors.
     edge_cable_length_m = 0.0
     if str(attachment_type).lower() == "cable_supported":
         n_a = len(anchors)
@@ -438,6 +455,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         "mesh_spacing": float(mesh_spacing),
         "edge_cable_length_m": float(edge_cable_length_m),
         "pullback_summary": pullback_summary,
+        "n_fallback_edges": int(n_fallback_edges),
         "top_displacements": [],
         "structural_connections": [],
     }
@@ -512,7 +530,6 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
     fixed_indices = mesh_result["fixed_indices"]
     n_nodes = points_initial.shape[0]
 
-    # Membrane material.
     E1, E2, t_mm = _read_fabric_constants(fabric_type, fabric_grade)
     warp_prest_N = _pretension_to_N_per_m(warp_pre, "kN/m")
     weft_prest_N = _pretension_to_N_per_m(weft_pre, "kN/m")
@@ -523,7 +540,6 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
         weft_prestress_N_per_m=weft_prest_N,
     )
 
-    # Cable properties.
     chosen = _pick_cable_diameter(
         edge_cable_type, edge_cable_material, float(edge_pre),
     )
@@ -534,7 +550,6 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
     EA_N = A_m2 * E_Pa
     T_pre_user_N = float(edge_pre) * 1000.0
 
-    # Pull-back for initial cable tensions.
     pullback_tensions = {}
     pullback_summary = None
     if str(attachment_type).lower() == "cable_supported":
@@ -654,11 +669,6 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
 # =============================================================================
 # CACHED WRAPPERS
 # =============================================================================
-#
-# All numerical arguments are rounded to 6 decimals before
-# being passed to the cached function. This guarantees that
-# floating-point drift between renders does not defeat the
-# cache. The physics is unchanged.
 
 def _r6(v):
     return round(float(v), 6)
@@ -669,7 +679,7 @@ def _cached_fdm(span, apex, rise, curve_type,
                  anchor_count, mesh_spacing,
                  warp_pre, weft_pre, edge_pre,
                  attachment_type, fabric_type, fabric_grade):
-    """Cached FDM path. All numeric args are hashable scalars."""
+    """Cached FDM path."""
     return _solve_fdm_path(
         span=span, apex=apex, rise=rise, curve_type=curve_type,
         anchor_count=anchor_count, mesh_spacing=mesh_spacing,
@@ -686,7 +696,7 @@ def _cached_nfdm(span, apex, rise, curve_type,
                   attachment_type,
                   edge_cable_type, edge_cable_material,
                   fabric_type, fabric_grade):
-    """Cached NFDM path. All numeric args are hashable scalars."""
+    """Cached NFDM path."""
     return _solve_nfdm_path(
         span=span, apex=apex, rise=rise, curve_type=curve_type,
         anchor_count=anchor_count, mesh_spacing=mesh_spacing,
@@ -765,12 +775,10 @@ def build_standard_saddle():
     anchor_pos = built["anchor_pos"]
     diag = built["diagnostics"]
 
-    # Beam curves for drawing.
     x, y1, y2, z_beam, s, total = _build_beam_curves(
         span, apex, rise, curve_type
     )
 
-    # --- Checkbox toggles for markers.
     st.markdown("**Show / hide:**")
     cb1, cb2, cb3, cb4, cb5, cb6 = st.columns(6)
     with cb1:
@@ -924,7 +932,6 @@ def build_standard_saddle():
 
     fig = apply_common_layout(fig, rise)
 
-    # --- Diagnostics expander.
     with st.expander("Solver diagnostics", expanded=False):
         st.markdown("**Solver path:** " + str(diag["solver"]))
         st.markdown("**Access mode:** " + str(_access_mode()))
@@ -972,6 +979,10 @@ def build_standard_saddle():
                     "  |  Mean: " + ("%.2f N" % ps["mean_N"])
                 )
                 st.markdown("- Edges: " + str(ps["n_edges"]))
+                if "n_fallback_edges" in ps:
+                    st.markdown("- Fallback edges: " + str(ps["n_fallback_edges"]))
+                if "note" in ps:
+                    st.markdown("- note: " + ps["note"])
 
         if diag["attachment_type"] == "cable_supported":
             st.markdown("**Edge cable:**")
@@ -990,14 +1001,4 @@ def build_standard_saddle():
 
 # =============================================================================
 # END OF viewers/figures/standard_saddle_mbs.py
-#
-# Two solver paths: FDM (all tiers), NFDM (owner/studio/beta).
-# Both cached. Single mesh build per path. Loading message.
-# Checkbox toggles for markers.
-#
-# Files untouched by this rewrite:
-#   engine/form_finding.py
-#   engine/mesh_triangulated.py
-#   engine/mesh_triangulated_test.py
-#   engine/nonlinear_equilibrium.py
 # =============================================================================
