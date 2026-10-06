@@ -3145,4 +3145,223 @@ The record is the Chief's protection.
 The record is the AI's discipline.
 Both are needed. Both are kept.
 
-End of entry.
+## 2026-10-06 morning — The FDM-to-NFDM architecture, and the record
+
+**Branch:** modular-v10
+**CI status at open:** green (engine/nonlinear_equilibrium.py v5.3)
+**App status at open:** solver runs, does not converge at 468 nodes, wall clock exceeded at 9 iterations
+**Chief's time:** 09:07 local
+
+### Why this entry exists
+
+Last night produced ten versions of the nonlinear
+solver. It ended at v5.3, CI green on the four
+self-tests. The App run at 468 nodes still did not
+converge: 9 iterations, residual 5.4e3, wall-clock
+guard fired at 25 seconds. The physics is correct on
+the CI case. The App case is too heavy.
+
+Mid-way through the night the Chief described the
+architecture he had in mind — the architecture he was
+working toward with the previous room before that room
+was lost. This entry records that architecture, the
+eight pieces that implement it, and the record-keeping
+that will carry it forward.
+
+### Part 1 — The architecture, in the Chief's words
+
+> "You see earlier with the other room. The edges
+> did form loops but edge cable was not there.
+> Can you find out why the loops formed back then?"
+
+> "One thing even the result obtains from FDM, all
+> floating points of the membrane must be freed
+> again before firing the NFDM."
+
+> "For cable supported edge all points except the
+> anchor points at the anchors must be freed
+> before FDM or NFDM working. Then only can get
+> the bow loops."
+
+> "When drawing the cables it must be from anchor
+> point to each and every triangular beam facing
+> lines or segments then anchor; the line is not
+> a straight line from anchor to anchor."
+
+> "When user input a new prestress value to
+> replace the previous value the worked out shape
+> and form of the saddle must be cached first as
+> the starting of the new NFDM iteration starting
+> point so that the whole thing don't have to
+> start from scratch again."
+
+> "We should retain the caches of the worked out
+> shape and forms and the sets of data. So that
+> user with a click of the previous or forward
+> button can instantly recall the worked out
+> model without reworking again."
+
+> "By itself the files also store valuable
+> information."
+
+### Part 2 — The architecture, restated
+
+The membrane is prestressed and wants to shrink.
+Wherever the boundary is not held, it bows inward.
+Where it is held — only at the anchors — it stays.
+Between two anchors the boundary settles into
+whatever curve the membrane's inward pull
+produces. That curve is the loop.
+
+The FDM finds that settled shape with only the
+anchors fixed. It gives the position of every node
+and the force in every edge. That is the initial
+form-found membrane.
+
+After that, a cable is drawn along the boundary
+loop, following every mesh boundary edge, node by
+node, anchor to anchor. Not a straight line. A
+polyline through the mesh boundary. Each short
+cable segment carries the force the FDM boundary
+edge was already carrying.
+
+The NFDM then takes over. All points except the
+anchors stay free. The membrane and the cable are
+both real. The solver adjusts the shape for the
+coupled interaction. The user changes the edge
+cable pretension and the loop responds.
+
+Free and Pro tiers see only the FDM shape. The
+loop is already there. Fast. Milliseconds.
+
+Owner, Studio, Beta tiers see the NFDM refinement.
+The user adjusts the edge cable pretension, the
+loop responds, the forces are real, and the
+numbers behind the shape are trustworthy.
+
+### Part 3 — The eight pieces
+
+In order:
+
+  1. engine/mesh_triangulated.py — release the
+     boundary interior points when segment type
+     is "cable". Only the anchors remain fixed.
+     Loops appear in the App.
+  2. engine/nonlinear_equilibrium.py — add
+     cable_tensions_from_fdm. Each cable
+     segment's initial pretension comes from the
+     FDM boundary edge force: T = q_edge * L.
+  3. viewers/figures/standard_saddle_mbs.py —
+     NFDM runs from the FDM shape as the current
+     geometry, the flat pattern as the reference,
+     real cable chains along every mesh boundary
+     edge, anchors only fixed.
+  4. engine/nonlinear_equilibrium.py — accept a
+     warm_start_points argument. If provided, use
+     it as the starting current geometry.
+  5. viewers/figures/standard_saddle_mbs.py —
+     warm start from the previous NFDM result
+     when only the prestress changes.
+  6. Viewer UI — forward and back buttons to
+     step through the history of solved states.
+  7. Persistent solved-state store — every
+     solved state saved to a file, loaded on app
+     start.
+  8. Project file format — the container that
+     carries inputs, materials, sections, solved
+     state, history, and the engine version. Every
+     project is a file.
+
+### Part 4 — What the project file carries
+
+A project file contains everything the user did
+to reach a solved state:
+
+  - project identity: name, structure type,
+    variant, date,
+  - which recipe was used, and the recipe version,
+  - every input value: span, apex, rise, curve
+    type, anchor count, mesh spacing, materials,
+    prestress values, cable pretensions,
+    foundation, loads, design standard,
+  - the material selection, exact record,
+  - the section selection,
+  - the solved state: coordinates, cable
+    tensions, membrane stresses, iterations,
+    reason,
+  - the solved history, so the user can step
+    back and forward,
+  - the timestamp of every solve,
+  - the version of the engine that solved it.
+
+The App is disposable. The project files are
+permanent. The engine evolves but the files carry
+the intent.
+
+### Part 5 — What is not touched
+
+  - viewers/figures/beam_supported_saddle.py
+  - the Beam Supported Saddle recipe, workshop,
+    and viewer
+  - engine/form_finding.py — the FDM solver
+  - data/materials.py
+  - data/recipes/standard_saddle.py
+  - run_tests.py and the existing test suite
+
+The Beam Supported model works. It will not be
+disturbed.
+
+### Part 6 — The record
+
+The Chief's instruction, morning of 2026-10-06:
+
+  "I think it's about time to safe files so that
+   we don't have to rebuild every time, just
+   recall to do the work."
+
+To prevent the rebuild-every-session pattern, the
+following documents are written and kept current:
+
+  - ARCHITECTURE.md      — the system as it is.
+  - DECISIONS.md         — every governing decision,
+                           append only.
+  - CURRENT_STATE.md     — what each file is at,
+                           what works, what is in flight.
+  - PLAN.md              — the eight pieces, in
+                           order, with acceptance tests.
+  - OPEN_QUESTIONS.md    — anything unresolved.
+  - PROJECT_SESSION_LOG.md — this file. Append only.
+
+These are read on day one of every new session,
+before any code is written.
+
+### Part 7 — The lesson
+
+The Chief worked toward this architecture with the
+previous room. That room was lost. The architecture
+was not written down. It had to be reconstructed
+from the Chief's memory at 01:00 in the morning.
+
+That must not happen again. The record is not a
+nicety. It is the survival mechanism of the project.
+
+The record is the Chief's protection.
+The record is the AI's discipline.
+Both are needed. Both are kept.
+
+### The state of the code at open
+
+engine/nonlinear_equilibrium.py at v5.3. CI green.
+Ten prior versions (v4.2 through v5.3) corrected
+the physics, the tangent signs, the residual
+convention, the outer-loop logic, the line search,
+the sparse assembly, and the tests.
+
+The physics of the solver is settled.
+What remains is the architecture:
+FDM shape to cable to NFDM refinement to
+project file.
+
+### End of entry.
+
+
