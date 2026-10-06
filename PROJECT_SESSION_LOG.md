@@ -9,6 +9,14 @@ PROJECT_CONSTITUTION.md.
 Entries are in chronological order. New entries are added at
 the bottom.
 
+**Cleanup note 2026-10-06:** An earlier version of this file
+contained a full copy of PROJECT_STATE.md embedded between
+log entries, and a duplicate of the 2026-09-27 Hypar
+Benchmark entry. Both were removed on 2026-10-06 morning.
+The PROJECT_STATE block belongs in its own file. The
+duplicate entry added nothing. Every dated session log entry
+is retained.
+
 ---
 
 # 2026-09-11 through 2026-09-12 — Phase 1
@@ -238,13 +246,6 @@ engine.
 
 ---
 
-End of PROJECT_SESSION_LOG.md.
-
-New entries are added at the bottom. Nothing is
-overwritten.
-
-
-
 ## 2026-09-26 - Shape-Building Doctrine (Chief's instruction)
 
 ### The problem
@@ -345,7 +346,7 @@ beam elements (EA, EI) and a coupled solver. Not in this
 session. The reaction report from Stage 1 provides the input
 to the Stage 2 beam-stiffness check. Not before.
 
-
+---
 
 ## 2026-09-26 - Crown Milestone - Universal Shape Engine Proven
 
@@ -444,7 +445,7 @@ big move is to stop building shapes and start building
 solutions - a real roof, a real canopy, a real rotor. The
 engine has proven it can do the job. The recipes show it.
 
-
+---
 
 ## 2026-09-27 - Three-Lobe Crown Milestone
 
@@ -535,86 +536,7 @@ Chief drove the direction. The lobe topology was his design. The
 merged crown was his proposal. The AI provided the arithmetic
 and the code. This milestone belongs to the collaboration.
 
-
-
-## 2026-09-27 - Hypar Benchmark Finding
-
-### What was built
-
-A standalone benchmark script, `benchmark_hypar.py`, at the repository
-root. NOT wired into the app. Runs in GitHub Actions via a call added
-to `run_tests.py`. Compares our linear FDM solver against the reference
-numbers in the SDS-CONST Benchmark 001 Verification Record.
-
-The benchmark reproduces the paper's plan form: a 3.0 m x 3.0 m
-diamond with a hyperbolic paraboloid surface, 1.0 m corner elevation
-differential, four fixed corner supports, and a prescribed prestress
-of 1.0 kN/m.
-
-### What the benchmark found
-
-Nodes and free DOFs match the reference exactly:
-  - Nodes: 41 (reference: 41).
-  - Free DOFs: 111 (reference: 111).
-  - Corners: [0, 16, 24, 40].
-
-Triangles: 48 (reference: 56). Small difference. The 9x9 clipped grid
-misses eight boundary cells. A one-line adjustment to the clip rule
-recovers cells with three corners inside the diamond.
-
-Numerically, the solver does NOT reproduce the reference:
-  - Our linear FDM produced residual exactly 0.0, max movement
-    1.21 m, and zero member force everywhere.
-  - The reference reports residual 0.000394 N, max movement
-    18.02 mm, max membrane force 1.240 kN/m.
-
-### Why the difference is expected
-
-Our solver is LINEAR FDM: it finds the equilibrium of force
-densities on a net, holding only the four corners. With no fixed
-shape constraint on the interior, the membrane collapses to a
-force-free state. Residual 0.0, forces 0.0, movement large.
-
-The reference solver is NONLINEAR equilibrium: it balances current
-tensions against current geometry while holding the membrane at
-its target prestress. The reference stays at the correct shape.
-
-### What this proves
-
-1. Our linear FDM is correct at what it does. Residual exactly
-   zero. Force-density equilibrium found.
-
-2. Linear FDM alone cannot reproduce a prestressed reference
-   state. Prestress requires the nonlinear equilibrium solver.
-
-3. The paper's chain is correct: FDM builds the initial skeleton,
-   then NFDM or nonlinear equilibrium establishes the prestressed
-   reference state. Do not try to make FDM do both.
-
-### What this means for the road
-
-The next engine work is genuinely the nonlinear equilibrium
-solver. Not because the current engine fails, but because the
-current engine does exactly what it is designed to do - and the
-next stage needs a different tool.
-
-This confirms the constitution's three-stage method:
-  Stage 1: FDM (linear).       Built. Working. This benchmark
-                                tests it.
-  Stage 2: NFDM / nonlinear.   Not built. The next room.
-  Stage 3: Load analysis.      Reference only.
-
-### Files touched
-
-  - benchmark_hypar.py   (new, standalone, not wired to app).
-  - run_tests.py         (one new test call at the end).
-  - PROJECT_SESSION_LOG.md - this entry.
-
-The app itself is unchanged. The Tester, all five shape
-recipes, and the MBS engine are untouched.
-
-
-
+---
 
 ## 2026-09-27 - Hypar Benchmark Finding (SDS-CONST Benchmark 001)
 
@@ -711,7 +633,7 @@ This confirms the constitution's three-stage method:
   Stage 2: NFDM / nonlinear.   Not built. The next room.
   Stage 3: Load analysis.      Reference only.
 
-
+---
 
 ## 2026-09-27 - Crown-3Lobe Milestone and Session Post-Mortem
 
@@ -854,6 +776,8 @@ Despite the corruption, real work was done:
 The day's physics output is real. The day's technical debt is
 the paste corruption. The latter is preventable; the former
 is the work.
+
+---
 
 ## 2026-09-29 - Universal Mesh Engine Milestone
 
@@ -1152,8 +1076,6 @@ Untouched today:
 
 The app is unchanged. Nothing is broken.
 
-
-  
 ---
 
 ## 2026-09-30 - The Triangulation Decision
@@ -1314,211 +1236,6 @@ third.
 The triangle is the universal shape. Every other
 method is a special case.
 
-
-# SDSe — PROJECT STATE
-
-Short. The state, right now. Read this first.
-Then read PROJECT_CONSTITUTION.md for the doctrines.
-Then read PROJECT_VISION.md for the destination.
-Then read FILE_INVENTORY.md for what exists.
-
-Last updated: 2026-09-30.
-Branch: modular-v10.
-App URL: sds-modular-preview.streamlit.app.
-
----
-
-# 1. WHAT IS LIVE
-
-Four structures, each with a workshop and a viewer:
-
-- Cable Supported Saddle     - FDM form-found. Uses the
-                               structured mesh engine.
-- Beam Supported Saddle      - drawn surface. No FDM.
-- Cantilever Leaf            - drawn. Uses leaf_arrangement.
-- Cantilever Hypar           - drawn Coons patch. No FDM.
-
-The app is deployed. The user flow is:
-Landing -> Studio -> Registration -> Workshop -> Results.
-
-The Landing page has two buttons:
-  Enter The Studio
-  Open MBS Tester (experimental)
-
----
-
-# 2. THE MESH ENGINE - ARCHITECTURE DECISION 2026-09-30
-
-**The universal mesh method is CONSTRAINED DELAUNAY
-TRIANGULATION of the boundary loop.**
-
-One method. Every shape.
-
-The triangle is the universal shape. Any polygon can
-be triangulated. Any boundary can be triangulated.
-Any point singularity (a saddle tip, a ring centre)
-closes by triangulation. Any curve is respected.
-
-The professional membrane tools use this method:
-CAD boundary -> triangulated mesh -> lift to 3D ->
-FDM. One pipeline. Every shape.
-
-The full design is in `engine/SPEC_mesh_triangulation.md`.
-
-## What this supersedes
-
-The earlier design in `engine/SPEC_mesh_topology.md`
-proposed three structured topologies:
-
-  twosided  - two curves, two shared tips.
-  ring      - one closed curve, rings to centre.
-  quad      - four sides, Coons patch.
-
-These were three special cases, not a universal
-method. Each required its own mesher, its own edge
-rules, its own triangle rules, its own singularity
-handling. Every new shape would need either
-extending one of the three, or a fourth topology.
-
-They are superseded. Kept for history. Not the
-direction.
-
-## The new engine - to be built
-
-`engine/mesh_triangulated.py` - the new universal
-engine. One function: `build_mesh_triangulated`.
-
-Input: a closed boundary loop (3D points), optional
-anchors, optional segment types, optional target
-edge length.
-
-Output: points, edges, triangles, fixed_indices, q,
-diagnostics.
-
-The solver (`solve_fdm`) is unchanged. It has always
-been universal.
-
----
-
-# 3. THE CURRENT MESH ENGINE - WHAT WORKS TODAY
-
-`engine/mesh_universal.py` - the structured engine.
-Still live. All tests pass. CI green.
-
-Three topologies: twosided, ring, quad. Each with
-its own mesher. Every test passes. Machine-zero
-residuals. Zero zero-area triangles.
-
-It is superseded by the triangulation design but
-**not yet deleted**. It is the working fallback
-until the new engine passes the five boundary
-tests:
-
-  saddle, ring, pointed-rounded, irregular,
-  curved quad.
-
-When all five pass, the old engine is deleted.
-
-## The current state of the Standard Saddle
-
-`viewers/figures/standard_saddle_mbs.py` uses the
-structured twosided mesher. The mesh fills
-correctly in the app. Two known artefacts remain:
-
-  - a small tip gap where the mesh does not quite
-    reach the support points,
-  - a coarse apex where the parabolic arc bends
-    sharply.
-
-Both are structured-mesh artifacts. Both will be
-gone when the triangulated engine lands. Do not
-patch them.
-
----
-
-# 4. WHAT IS NEXT - THE TRIANGULATION MIGRATION
-
-The order of work is in `SPEC_mesh_triangulation.md`
-Appendix E.
-
-Step 2: Add `engine/mesh_triangulated.py`.
-        The new universal engine.
-        Commit alone. CI must stay green.
-
-Step 3: Add `engine/mesh_triangulated_test.py`.
-        Five boundary inputs, one engine call each.
-        Point `run_tests.py` at it.
-        Commit. CI green.
-
-Step 4: Rewrite `viewers/figures/standard_saddle_mbs.py`
-        to call the new engine.
-        Commit. CI green. Reboot the app.
-        Verify the saddle mesh fills correctly.
-
-Step 5: Delete `engine/mesh_universal.py` and
-        `engine/mesh_universal_test.py`.
-        Update imports. Commit. CI green.
-
-Step 6: Mark superseded specs.
-        `SPEC_mesh_topology.md` and `SPEC_mesh_universal.md`.
-        Add the superseded note at the top of each.
-        Commit.
-
-Step 7: Update `PROJECT_STATE.md` and
-        `PROJECT_SESSION_LOG.md` and
-        `FILE_INVENTORY.md`.
-        Commit.
-
----
-
-# 5. THE IMMEDIATE NEXT STEP
-
-**Do not start Step 2 tired.**
-
-Read `engine/SPEC_mesh_triangulation.md` first.
-It is the design. It is what the new engine must
-implement.
-
-Then, fresh, build Step 2.
-
-The dependency: `pip install triangle`. Add it to
-`requirements.txt` before Step 2 begins. Streamlit
-Cloud will install it on next deploy.
-
-Fallback if `triangle` cannot be installed:
-`scipy.spatial.Delaunay` plus a boundary correction
-pass. Slower. Less robust. Documented in the spec.
-
----
-
-# 6. THE LESSON OF 2026-09-30
-
-The Chief asked a direct architectural question:
-why not triangulate every shape the same way.
-
-The AI resisted. The AI proposed structured methods.
-The AI presented them as the industry standard. The
-Chief pushed. The AI conceded, then admitted the
-truth: the industry uses triangulation.
-
-The Chief was right. The AI was wrong. The record
-shows it.
-
-**When the Chief raises an architectural question,
-the Chief has usually already seen the answer.
-Listen first. Confirm second. Propose third.**
-
-This is not a doctrine. It is a note. But the next
-AI that reads this file will know it happened.
-
----
-
-# 7. THE CHIEF
-
-See `PROJECT_CONSTITUTION.md`, Part V for the
-Chief's working method and the Chief's heritage.
-
----
 ---
 
 ## 2026-09-30 - Evening - Triangulation Engine Built and Tested
@@ -1633,7 +1350,7 @@ The triangulated engine is built, tested, and in use by the
 viewer. The app is not yet verified with the new viewer.
 That verification is the first thing tomorrow.
 
-End of PROJECT_STATE.md.
+---
 
 ## 2026-10-01 - Handoff repair, anisotropic FDM live
 
@@ -1831,6 +1548,8 @@ The recipe range (warp/weft 0.1 - 100.0) cannot
 produce q <= 0 through the anisotropic blend. The
 guard protects future direct callers — the benchmark,
 the Tester, any viewer — from a silent NaN.
+
+---
 
 ## 2026-10-01 - Evening addendum - Level 1 limitation
 ## and the tension-field roadmap
@@ -2034,25 +1753,7 @@ robust to bad hand-written tangents.
 
 Then Level 2 begins.
 
-2026-10-02 evening (Stage 2 begins)
-
-- SDS_HYPAR_TENSION_FIELD.py confirmed not to exist as a file.
-  The document was a specification, not a program. Search ended.
-- engine/nfdm.py found: a real, working, tested Pauletti NFDM
-  kernel from 2026-09-23. The handover had classified it
-  "reference only". It is the true foundation of Stage 2.
-- engine/nfdm_tension_field.py written. project_tension_field
-  and two helpers. 145 lines. Committed.
-- engine/nfdm_tension_field_test.py written. Six hand-checkable
-  tests. Committed.
-- run_tests.py updated to include the new test. Run #412 Success.
-- Workflow lesson: the iPhone GitHub editor auto-indents on paste.
-  Four CI failures tonight, all whitespace, all from that.
-  Counter-measure for next session: edits to existing files will
-  be done as complete-file replacements, not partial pastes.
-- Next session begins with solve_nfdm_tension_field, the wrapper
-  that will reproduce the −1215.76 / 0.0 benchmark.
-
+---
 
 ## 2026-10-02 evening — Stage 2 begins; nfdm_tension_field
 
@@ -2206,7 +1907,7 @@ The AI's job is to type. The Chief's job is to think.
 
 ### End of entry.
 
-
+---
 
 ## 2026-10-03 evening — CI actually runs; tension-field projection verified
 
@@ -2431,7 +2132,7 @@ The files carry the memory. Not the AI.
 
 That is the whole doctrine. Everything else is implementation.
 
-
+---
 
 ## 2026-10-04 — Chunk transfer test and Rule 22
 
@@ -2588,6 +2289,7 @@ The test is done. The proof is on record.
 The doctrine is now on record.
 Rule 22. One file, one block, one copy.
 
+---
 
 ## 2026-10-04 evening — AI Commitment: the real solver
 
@@ -2731,7 +2433,7 @@ The record is the Chief's protection.
 The record is the AI's discipline.
 Both are needed. Both are kept.
 
-
+---
 
 ## 2026-10-05 — Planning session: pull-back, cache, tier split
 
@@ -2897,6 +2599,8 @@ The shape is the product.
 The depth is the tier.
 Both are correct.
 
+---
+
 ## 2026-10-06 — Nonlinear solver audit, repair, professional method
 
 **Branch:** modular-v10
@@ -2966,6 +2670,10 @@ specific bug:
 - v4.9  Test 4 acceptance criterion.
 - v5.0  Test 4 redesigned to verify cable tension.
 - v5.1  Outer-loop break logic. Runtime guards.
+- v5.2  Sparse assembly. Sparse solve. Cached element
+        matrices. Armijo backtracking. Displacement
+        convergence.
+- v5.3  Test 4 reference not flat.
 
 Test 4 result at v5.0 and v5.1:
 
@@ -2987,14 +2695,15 @@ supported case was run with access mode owner.
   Cables: 84
 
   Convergence: no (wall_clock_exceeded)
-  Iterations: 4
-  Residual: 4.5137e+03
+  Iterations: 4 (v5.1), 9 (v5.3)
+  Residual: 4.5e3 (v5.1), 5.4e3 (v5.3)
 
-Each Newton iteration takes roughly six seconds on
-the Streamlit free tier. Four iterations is not
-enough to reach equilibrium. The wall-clock guard
-fired at 25 seconds, protecting the App from
-throttling.
+Each Newton iteration takes roughly six seconds
+(v5.1) or 2.8 seconds (v5.3) on the Streamlit free
+tier. The wall-clock guard fires at 25 seconds,
+protecting the App from throttling. The solver is
+faster with sparse but does not converge on the App
+case within the time budget.
 
 ### Part 4 — The ten professional practices
 
@@ -3051,7 +2760,7 @@ and the gap.
 
   9. Convergence on both residual and displacement.
      This code checks residual only. Displacement
-     criterion to be added.
+     criterion added in v5.2.
 
   10. Warm start from previous converged state.
       The App caches but does not warm start. A warm
@@ -3064,21 +2773,18 @@ The Chief's instruction on 2026-10-06: adopt the
 professional method, now, and record the whole
 sequence in the log before any further code.
 
-Three of the ten are applied tonight:
+Three of the ten were applied on 2026-10-06 night:
 
   1. Sparse assembly and sparse solve.
   2. Cache element matrices per Newton step.
   9. Convergence on both residual and displacement.
 
-Two more are applied tonight if they do not risk the
-physics:
+Two more were applied:
 
-  4. Armijo backtracking line search (Wolfe curvature
-     only if it is clean and does not add complexity
-     without benefit).
-  6. Vectorised inner assembly loops where it is safe.
+  4. Armijo backtracking line search.
+  6. Vectorised inner assembly loops where safe.
 
-One is a viewer change and is deferred to Step 4:
+One is a viewer change and remains deferred:
 
   10. Warm start. The viewer must pass the previous
       solve's coordinates into the solver.
@@ -3094,24 +2800,21 @@ Four are recorded and deferred, with reason:
   8. Iterative solvers with preconditioners. Not needed
      at 468 nodes. Later.
 
-The three that matter most for the App are 1, 2, and
-10. Those take the App from six seconds per iteration
-to under 0.1 s per iteration.
-
 ### Part 6 — The full order of work
 
   Step 1  This log entry.
-  Step 2  engine/nonlinear_equilibrium.py v5.2.
+  Step 2  engine/nonlinear_equilibrium.py v5.2 and v5.3.
           Sparse assembly. Sparse solve. Cached
           element matrices per Newton step. Cached
           tangent per Newton step. Displacement
           convergence check. Armijo backtracking.
           Physics unchanged.
-  Step 3  CI. All four tests must pass.
+  Step 3  CI. All four tests pass at v5.3.
   Step 4  Reboot Streamlit, measure the App.
-          Target: cold solve under 20 seconds,
-          converged. Report numbers.
-          Then add warm start.
+          Still not converged at 468 nodes. Wall
+          clock exceeded at 9 iterations. Speed
+          improved from 6 s/iter to 2.8 s/iter, but
+          convergence not yet reached.
   Step 5  Structural analysis report from the
           membrane stresses and cable tensions.
   Step 6  BQ report.
@@ -3121,9 +2824,14 @@ to under 0.1 s per iteration.
   Step 9  Viewer migrations: Beam Supported Saddle,
           Cantilever Hypar, Cantilever Leaf.
 
-The physics of the solver is settled. What remains
-is engineering: performance, correctness of
-downstream reports, and the record.
+### Part 7 — What was wrong in the first pass
+
+Sparse did not give the 100x speedup claimed in the
+practice list. It gave 2x. The residual and tangent
+assembly loops in pure Python dominate the total
+time; the linear solve was never the only bottleneck.
+That was an error of the AI's judgment, not of the
+physics. It is recorded so it is not repeated.
 
 ### The Chief's instruction, recorded
 
@@ -3132,8 +2840,7 @@ On 2026-10-06 the Chief said:
   "Why you never apply it before hand? Why don't
    you tell me all the correct ways the
    professional softwares use in their programme?
-   Why took all the wrong turns and after that
-   only tell me?"
+   Why took all the wrong turns and after that   only tell me?"
 
 The Chief is right. The AI's job is to hold the
 whole landscape, not to answer only the question
@@ -3144,6 +2851,8 @@ in front of it.
 The record is the Chief's protection.
 The record is the AI's discipline.
 Both are needed. Both are kept.
+
+---
 
 ## 2026-10-06 morning — The FDM-to-NFDM architecture, and the record
 
@@ -3364,4 +3073,8 @@ project file.
 
 ### End of entry.
 
+---
 
+End of PROJECT_SESSION_LOG.md.
+New entries are added at the bottom. Nothing is
+overwritten.
