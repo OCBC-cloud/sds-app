@@ -8,13 +8,6 @@
 #   NFDM (Stage 2)  - real membrane + cable coupled equilibrium.
 #                     Owner, Studio, Beta only.
 #
-# The rule:
-#   NONLINEAR_TIERS = ("owner", "studio", "beta")
-#   If Cable Supported AND access_mode in NONLINEAR_TIERS:
-#       run the NFDM path.
-#   Else:
-#       run the FDM path.
-#
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
 #   2026-09-30 - Step 5. Rewritten to use the triangulated engine.
@@ -22,17 +15,15 @@
 #   2026-10-04 - Two-path solver. NFDM for high tiers.
 #   2026-10-05 - Pull-back initial guess. Single-build FDM.
 #                Cache. Loading message. Checkbox toggles.
-#   2026-10-06 - FDM path fallback added. When the pull-back
-#                tension is zero or negative on a boundary
-#                edge, the FDM path now falls back to the
-#                uniform edge_q_scalar value on that edge.
-#   2026-10-06 - Digitised node data added to the Solver
-#                diagnostics expander. Boundary nodes, top
-#                20 displaced nodes, all nodes. Fixed-width
-#                monospace, copyable on iPhone. Chief's
-#                request: the solver output must be visible
-#                and copyable for analysis, not only drawn
-#                as a shape.
+#   2026-10-06 - FDM path fallback added.
+#   2026-10-06 - Digitised node data added to diagnostics.
+#   2026-10-06 - q array print added to diagnostics. First 40
+#                edges: index, endpoints, is_boundary, q value.
+#                Plus summary of boundary q vs interior q. This
+#                is a diagnostic to determine why the boundary
+#                does not bow. The q value on boundary edges is
+#                the number that decides whether the membrane
+#                pulls the boundary inward.
 # =============================================================================
 
 import math
@@ -66,12 +57,10 @@ NONLINEAR_TIERS = ("owner", "studio", "beta")
 
 
 def _access_mode():
-    """Return the current access mode. Default 'owner' until the gate is built."""
     return str(st.session_state.get("access_mode", "owner")).lower()
 
 
 def _has_nonlinear():
-    """Return True if the current access mode has the nonlinear engine."""
     return _access_mode() in NONLINEAR_TIERS
 
 
@@ -80,7 +69,6 @@ def _has_nonlinear():
 # =============================================================================
 
 def _read_fabric_constants(fabric_type, fabric_grade):
-    """Return (E_warp_MPa, E_weft_MPa, thickness_mm)."""
     try:
         rec = FABRIC_PROPERTIES[fabric_type][fabric_grade]
         E1 = float(rec.get("E_warp", 1400.0))
@@ -92,7 +80,6 @@ def _read_fabric_constants(fabric_type, fabric_grade):
 
 
 def _pretension_to_N_per_m(value, recipe_units):
-    """Convert a session value to N/m."""
     v = max(0.0, float(value))
     if recipe_units == "daN/5cm":
         return v * 200.0
@@ -101,8 +88,6 @@ def _pretension_to_N_per_m(value, recipe_units):
 
 def _pick_cable_diameter(cable_type, material, pretension_kN,
                           safety_factor=5.0):
-    """Return the smallest cable whose breaking load exceeds
-    pretension * safety_factor, or None."""
     family = None
     if cable_type == "6x19":
         family = CABLE_PROPERTIES.get("Strand", {})
@@ -146,13 +131,6 @@ def _pick_cable_diameter(cable_type, material, pretension_kN,
 # =============================================================================
 
 def _format_node_table(points_initial, points_solved, indices=None):
-    """
-    Return a fixed-width string with one line per node.
-
-    Columns:
-        idx        x_init     y_init     z_init
-                   x_solved   y_solved   z_solved   disp
-    """
     if indices is None:
         indices = range(points_initial.shape[0])
     lines = []
@@ -177,10 +155,72 @@ def _format_node_table(points_initial, points_solved, indices=None):
 
 
 def _top_displaced_indices(points_initial, points_solved, n_top=20):
-    """Return indices of the n_top nodes with largest displacement."""
     d = np.linalg.norm(points_solved - points_initial, axis=1)
     order = np.argsort(d)[::-1]
     return [int(k) for k in order[:n_top]]
+
+
+def _format_q_table(edges, q_values, n_boundary, n_show=40):
+    """
+    Return a fixed-width table of the first n_show edges:
+    edge index, (a, b), is_boundary, q_value.
+    """
+    lines = []
+    header = "%6s  %14s  %12s  %14s" % (
+        "edge", "endpoints", "is_boundary", "q_value")
+    lines.append(header)
+    lines.append("-" * len(header))
+    m = len(edges)
+    for k in range(min(n_show, m)):
+        a, b = edges[k]
+        is_b = (
+            n_boundary > 0
+            and a < n_boundary
+            and b < n_boundary
+            and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
+        )
+        lines.append(
+            "%6d  %6d,%6d  %12s  %14.6e"
+            % (k, int(a), int(b), str(is_b), float(q_values[k]))
+        )
+    return "\n".join(lines)
+
+
+def _summarise_q(edges, q_values, n_boundary):
+    """
+    Return a summary of boundary vs interior q values.
+    """
+    m = len(edges)
+    boundary_qs = []
+    interior_qs = []
+    for k in range(m):
+        a, b = edges[k]
+        is_b = (
+            n_boundary > 0
+            and a < n_boundary
+            and b < n_boundary
+            and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
+        )
+        if is_b:
+            boundary_qs.append(float(q_values[k]))
+        else:
+            interior_qs.append(float(q_values[k]))
+    out = {}
+    if boundary_qs:
+        out["boundary_n"] = len(boundary_qs)
+        out["boundary_min"] = float(np.min(boundary_qs))
+        out["boundary_max"] = float(np.max(boundary_qs))
+        out["boundary_mean"] = float(np.mean(boundary_qs))
+    if interior_qs:
+        out["interior_n"] = len(interior_qs)
+        out["interior_min"] = float(np.min(interior_qs))
+        out["interior_max"] = float(np.max(interior_qs))
+        out["interior_mean"] = float(np.mean(interior_qs))
+    if boundary_qs and interior_qs:
+        out["ratio_mean_boundary_over_interior"] = (
+            float(np.mean(boundary_qs)) / max(float(np.mean(interior_qs)), 1e-30)
+        )
+    return out
 
 
 # =============================================================================
@@ -189,11 +229,6 @@ def _top_displaced_indices(points_initial, points_solved, n_top=20):
 
 def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
                           mesh_spacing, attachment_type):
-    """
-    Build the closed boundary loop, the anchor indices, the
-    segment types, the anchor positions, and the segment
-    structure (anchor-to-anchor with interior point lists).
-    """
     n_pts = len(x)
     s, total = arclength_parametrisation(x, z_beam)
     if total <= 0:
@@ -290,7 +325,6 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
 
 
 def _build_beam_curves(span, apex, rise, curve_type, n_pts=200):
-    """Return the plan-plane beam curves (x, y1, y2, z_beam, s, total)."""
     x = np.linspace(-span / 2.0, span / 2.0, n_pts)
     z_beam = beam_curve(x, span, rise, curve_type)
     s, total = arclength_parametrisation(x, z_beam)
@@ -301,7 +335,7 @@ def _build_beam_curves(span, apex, rise, curve_type, n_pts=200):
 
 
 # =============================================================================
-# FDM PATH (single build)
+# FDM PATH
 # =============================================================================
 
 def _solve_fdm_path(span, apex, rise, curve_type,
@@ -309,19 +343,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                      warp_pre, weft_pre, edge_pre,
                      attachment_type,
                      fabric_type, fabric_grade):
-    """
-    FDM path. Single mesh build. Then pull-back for the
-    per-edge q on boundary cable edges. Then one FDM solve.
-
-    Fallback rule: when the pull-back tension for a boundary
-    edge is zero or negative, that edge uses the uniform
-    edge_q_scalar value instead. The pull-back is exact only
-    on a curved boundary; on a straight boundary its axial
-    component is zero. A zero q on the boundary edge would
-    let the membrane pull the boundary inward with no bow.
-    The fallback keeps the strong boundary force that
-    produces the bow.
-    """
     x, y1, y2, z_beam, s, total = _build_beam_curves(
         span, apex, rise, curve_type
     )
@@ -360,7 +381,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         weft_rel = ratio_limit * warp_rel
     warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_avg
     weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_avg
-    edge_q_scalar = max(0.1, float(edge_pre)) * 1000.0 / L_avg
+    edge_q_scalar = max(0.05, float(edge_pre)) * 1000.0 / L_avg
 
     mesh_result = build_mesh_triangulated(
         boundary_loop=boundary_loop,
@@ -448,6 +469,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
             n_boundary=n_boundary_pts,
             boundary_edge_q=q_dict,
         )
+        q_path = "dict"
     else:
         q_aniso = assign_anisotropic_q(
             edges,
@@ -458,6 +480,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
             n_boundary=n_boundary_pts,
             boundary_edge_q=edge_q_scalar,
         )
+        q_path = "scalar"
 
     fdm_result = solve_fdm(
         points_initial.copy(),
@@ -493,6 +516,10 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         "edge_cable_length_m": float(edge_cable_length_m),
         "pullback_summary": pullback_summary,
         "n_fallback_edges": int(n_fallback_edges),
+        "q_path": q_path,
+        "warp_q": float(warp_q),
+        "weft_q": float(weft_q),
+        "edge_q_scalar": float(edge_q_scalar),
         "top_displacements": [],
         "structural_connections": [],
     }
@@ -523,10 +550,6 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
                       attachment_type,
                       edge_cable_type, edge_cable_material,
                       fabric_type, fabric_grade):
-    """
-    NFDM path. One mesh build, pull-back for initial cable
-    tensions, one nonlinear solve.
-    """
     x, y1, y2, z_beam, s, total = _build_beam_curves(
         span, apex, rise, curve_type
     )
@@ -684,6 +707,7 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
         "top_displacements": [],
         "structural_connections": [],
         "cable_tensions": res.get("cable_tension", []),
+        "q_path": "n/a (nfdm)",
     }
 
     return {
@@ -716,7 +740,6 @@ def _cached_fdm(span, apex, rise, curve_type,
                  anchor_count, mesh_spacing,
                  warp_pre, weft_pre, edge_pre,
                  attachment_type, fabric_type, fabric_grade):
-    """Cached FDM path."""
     return _solve_fdm_path(
         span=span, apex=apex, rise=rise, curve_type=curve_type,
         anchor_count=anchor_count, mesh_spacing=mesh_spacing,
@@ -733,7 +756,6 @@ def _cached_nfdm(span, apex, rise, curve_type,
                   attachment_type,
                   edge_cable_type, edge_cable_material,
                   fabric_type, fabric_grade):
-    """Cached NFDM path."""
     return _solve_nfdm_path(
         span=span, apex=apex, rise=rise, curve_type=curve_type,
         anchor_count=anchor_count, mesh_spacing=mesh_spacing,
@@ -750,7 +772,6 @@ def _cached_nfdm(span, apex, rise, curve_type,
 # =============================================================================
 
 def build_standard_saddle():
-    """Standard Saddle viewer entry point."""
     span = _r6(st.session_state.get("ws_ss_span", 10.0))
     apex = _r6(st.session_state.get("ws_ss_apex", 15.0))
     rise = _r6(st.session_state.get("ws_ss_rise", 6.2))
@@ -760,7 +781,7 @@ def build_standard_saddle():
     spread = float(st.session_state.get("ws_ss_spread_angle", 30))
     warp_pre = _r6(st.session_state.get("ws_ss_warp_pretension", 2.0))
     weft_pre = _r6(st.session_state.get("ws_ss_weft_pretension", 2.0))
-    edge_pre = _r6(st.session_state.get("ws_ss_edge_cable_pretension", 5.0))
+    edge_pre = _r6(st.session_state.get("ws_ss_edge_cable_pretension", 0.2))
     attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
 
     anchor_count = int(st.session_state.get("ws_ss_anchor_count", 8))
@@ -1004,6 +1025,51 @@ def build_standard_saddle():
             d2.metric("Min tri area", "%.6e" % 0.0)
             d3.metric("Mean tri area", "%.6e" % 0.0)
 
+        # q diagnostics (FDM only)
+        if diag["solver"].startswith("FDM"):
+            st.markdown("---")
+            st.markdown("**q values**")
+            st.markdown(
+                "- q path: " + str(diag.get("q_path", "n/a")) +
+                "   |   warp_q: " + ("%.4f" % diag.get("warp_q", 0.0)) +
+                "   |   weft_q: " + ("%.4f" % diag.get("weft_q", 0.0)) +
+                "   |   edge_q_scalar: " + ("%.4f" % diag.get("edge_q_scalar", 0.0))
+            )
+            q_vals = built.get("q", None)
+            edges_local = built.get("edges", None)
+            if q_vals is not None and edges_local is not None:
+                n_boundary_local = int(boundary_loop.shape[0])
+                summary = _summarise_q(
+                    edges_local, q_vals, n_boundary_local
+                )
+                st.markdown(
+                    "- boundary: n=" + str(summary.get("boundary_n", 0)) +
+                    "   min=" + ("%.4f" % summary.get("boundary_min", 0.0)) +
+                    "   max=" + ("%.4f" % summary.get("boundary_max", 0.0)) +
+                    "   mean=" + ("%.4f" % summary.get("boundary_mean", 0.0))
+                )
+                st.markdown(
+                    "- interior: n=" + str(summary.get("interior_n", 0)) +
+                    "   min=" + ("%.4f" % summary.get("interior_min", 0.0)) +
+                    "   max=" + ("%.4f" % summary.get("interior_max", 0.0)) +
+                    "   mean=" + ("%.4f" % summary.get("interior_mean", 0.0))
+                )
+                ratio = summary.get(
+                    "ratio_mean_boundary_over_interior", None
+                )
+                if ratio is not None:
+                    st.markdown(
+                        "- **ratio boundary_mean / interior_mean = "
+                        + ("%.4f" % ratio) + "**"
+                    )
+                st.markdown("**First 40 edges** (index, endpoints, is_boundary, q_value):")
+                st.code(
+                    _format_q_table(
+                        edges_local, q_vals, n_boundary_local, n_show=40
+                    ),
+                    language="text",
+                )
+
         ps = diag.get("pullback_summary", None)
         if ps is not None:
             st.markdown("**Pull-back (membrane edge force):**")
@@ -1033,9 +1099,6 @@ def build_standard_saddle():
                     "  |  Breaking: " + ("%.2f kN" % ce["breaking_kN"])
                 )
 
-        # ---------------------------------------------------------------------
-        # DIGITISED NODE DATA
-        # ---------------------------------------------------------------------
         st.markdown("---")
         st.markdown("**Digitised node data**")
 
