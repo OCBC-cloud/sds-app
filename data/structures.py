@@ -8,6 +8,24 @@
 # STRUCTURE_VARIANTS - sub-types under each main type
 # MEMBER_SCHEMA      - members present in each structure + variant
 #
+# MEMBER_SCHEMA conventions
+# -------------------------
+# Each entry is a dict. The report generator and the Member Schedule
+# read the rows in this physical order:
+#
+#   1. membrane_first         - the membrane surface itself
+#   2. cables_before_beams    - boundary cables that sit at the
+#                               membrane edge, inside the beam line
+#   3. beam_expandable        - the main beam, expanded via
+#                               expand_beam_rows(construction_type)
+#   4. extra_rows_before_cables - secondary beams, purlins, or
+#                               other members between beam and cables
+#   5. cables_last            - tie-down cables and other cables
+#                               below the structure
+#
+# Any of these keys may be absent. A variant uses only the keys that
+# its physical form requires.
+#
 # History:
 #   2026-09-13 - Reduced from 27 legacy types to 8 final mains.
 #                Cantilever promoted to a main type.
@@ -20,6 +38,8 @@
 #                for future reference but are hidden from the
 #                registration page.
 #                Hypar entry added to MEMBER_SCHEMA.
+#   2026-10-07 - Added cables_before_beams convention.
+#                Added Edge Cable row to Cable Supported Saddle.
 # =============================================================================
 
 STRUCTURE_TYPES = {
@@ -197,6 +217,18 @@ STRUCTURE_VARIANTS = {
 # =============================================================================
 # MEMBER SCHEMA
 # =============================================================================
+#
+# Row ordering convention, read top to bottom by the report generator
+# and the Member Schedule:
+#
+#   membrane_first              - the membrane surface
+#   cables_before_beams         - boundary cables at the membrane edge
+#   beam_expandable             - the main beam
+#   extra_rows_before_cables    - secondary members between beam and cables
+#   cables_last                 - tie-down cables and cables below
+#
+# See the file header for the full convention.
+# =============================================================================
 
 _PLANAR_TRUSS_ROWS = [
     {"key": "truss_top", "label": "Top Chord",
@@ -226,6 +258,11 @@ _SPACE_TRUSS_ROWS = [
 MEMBER_SCHEMA = {
     ("saddle_span", "standard_saddle"): {
         "membrane_first": True,
+        "cables_before_beams": [
+            {"key": "edge_cable", "label": "Edge Cable",
+             "section": "SS 6x19 --",
+             "note": "Boundary cable, carries membrane edge tension"},
+        ],
         "beam_expandable": True,
         "beam_label_single": "Main Beam",
         "cables_last": [
@@ -308,8 +345,3 @@ def get_member_schema(structure_key, variant_key):
 def get_all_categories():
     """Return sorted list of unique categories."""
     return sorted(set(v.get("category", "") for v in STRUCTURE_TYPES.values()))
-
-
-
-
-
