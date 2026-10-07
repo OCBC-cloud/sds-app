@@ -9,34 +9,30 @@
 #
 # This file computes forces only. It does NOT select sections. It does
 # NOT perform code checks. It does NOT compute the bill of quantities.
-# Those come in later files.
 #
 # Member groups:
 #   membrane    - in-plane force per unit width, from q x L per edge
 #   edge_cable  - resultant axial tension along each boundary segment
 #   beam        - bending moment and shear in the main beam, treated
-#                 as a continuous beam over all supports (end anchors
-#                 plus tiedown points)
+#                 as a continuous beam over all supports
 #   tiedown     - axial tension in each tiedown, resolved along the
 #                 cable axis from the support reaction
 #   purlin      - secondary members, only for the Beam Supported Saddle
 #
-# Beam model:
-#   Continuous over all supports. End conditions are a user choice:
-#   pinned (end moment zero) or fixed (end moment permitted). Interior
-#   supports are always continuous. Span load is the span-average of the
-#   membrane boundary edge force over that span. Moments are computed
-#   from the three-moment equation.
-#
-#   This is a first-order model. A fully coupled beam-and-cable
-#   solution is available in the NFDM path when it converges at App
-#   scale. The report names the model honestly.
+# Reactions:
+#   The engine has a two-pass workflow. Pass 1 (solve_fdm) uses the
+#   user's form-finding pretensions as force densities. Pass 2
+#   (solve_fdm_settled) uses the settled force densities. The
+#   reactions from pass 2 are the settled reactions of the physical
+#   structure. When the built dict carries a "settled_reactions"
+#   key, this file uses those. Otherwise it falls back to the
+#   form-finding reactions from pass 1.
 #
 # Partial factors:
 #   Read from data/constants.py PARTIAL_FACTORS. Applied to the
 #   prestress forces as gamma_G. When wind and snow load cases are
 #   added, the same function applies gamma_Q to the variable
-#   contribution. One function, every load case, no second system.
+#   contribution.
 #
 # Units: kN, m, degrees.
 #
@@ -48,6 +44,8 @@
 #   2026-10-07 - First version. Five member groups. Beam continuous
 #                over all supports, pinned or fixed ends. Design
 #                forces with partial factors applied.
+#   2026-10-07 - Prefer settled_reactions when the two-pass workflow
+#                has run. Fall back to form-finding reactions.
 # =============================================================================
 
 import math
@@ -80,7 +78,7 @@ def design_forces_from_q(q, edges, segments, anchor_pos, code=None):
     dict with keys: membrane, edge_cable, note
         Each entry carries a summary and a list of per-edge or
         per-segment values. No partial factors applied at this
-        level — this is the raw force computation.
+        level - this is the raw force computation.
     """
     edges = list(edges)
     q = np.asarray(q, dtype=float)
@@ -112,10 +110,10 @@ def design_forces_from_built(built, code=None, base_condition="pinned"):
         As returned by _solve_fdm_path or _solve_nfdm_path.
         Must contain: points, edges, triangles, q, boundary_loop,
         anchor_pos, segments, diagnostics. For the beam and tiedown
-        groups, diagnostics must contain "reactions" and
-        "fixed_indices".
+        groups, diagnostics must contain "reactions" or
+        "settled_reactions", and "fixed_indices".
     code : str or None
-        Country code for partial factor lookup. Currently unused —
+        Country code for partial factor lookup. Currently unused -
         PARTIAL_FACTORS is one Eurocode set. Reserved for
         data/codes.py.
     base_condition : "pinned" or "fixed"
@@ -151,8 +149,15 @@ def design_forces_from_built(built, code=None, base_condition="pinned"):
         q, edges, lengths, segments, coords, n_boundary
     )
 
-    reactions = diag.get("reactions", None)
+    # -------------------------------------------------------------------------
+    # Reactions.
+    # Prefer the settled-state reactions when the two-pass workflow
+    # has run. Fall back to the form-finding reactions otherwise.
+    # -------------------------------------------------------------------------
     fixed_indices = diag.get("fixed_indices", None)
+    reactions = diag.get("settled_reactions", None)
+    if reactions is None:
+        reactions = diag.get("reactions", None)
 
     beam_raw = _compute_beam_forces(
         coords=coords,
@@ -376,7 +381,6 @@ def _compute_edge_cable_forces(q, edges, lengths, segments, coords, n_boundary):
             + [int(i) for i in seg["interior"]]
             + [int(seg["anchor_b"])]
         )
-        # Sum of edge forces along the chain.
         total_N = 0.0
         n_edges = 0
         for k in range(len(chain) - 1):
@@ -389,7 +393,6 @@ def _compute_edge_cable_forces(q, edges, lengths, segments, coords, n_boundary):
                     n_edges += 1
                     break
 
-        # Chord length and direction.
         p0 = coords[chain[0]]
         p1 = coords[chain[-1]]
         chord = p1 - p0
@@ -439,8 +442,6 @@ def _compute_beam_forces(coords, edges, q, lengths, boundary_loop,
     The load on each span is the span-average of the boundary edge
     force over the chain of boundary edges that lie on the beam
     between two adjacent supports.
-
-    Returns max moment, max shear, and the governing span. Units: kN m, kN.
     """
     n_anchors = int(anchor_pos.shape[0])
     if n_anchors < 2:
@@ -453,17 +454,12 @@ def _compute_beam_forces(coords, edges, q, lengths, boundary_loop,
             "spans": [],
         }
 
-    # Span lengths: distance between consecutive supports along the beam.
     span_lengths = np.zeros(n_anchors - 1, dtype=float)
     for k in range(n_anchors - 1):
         span_lengths[k] = float(np.linalg.norm(
             anchor_pos[k + 1] - anchor_pos[k]
         ))
 
-    # Span loads: average boundary edge force over each span.
-    # We sum the boundary edge forces along the chain between the
-    # two anchors of each segment, then divide by the chord length
-    # to give a line load w (kN/m).
     span_loads_kN_per_m = np.zeros(n_anchors - 1, dtype=float)
     for k in range(len(segments)):
         seg = segments[k]
@@ -540,9 +536,6 @@ def _continuous_beam_three_moment(spans_m, loads_kN_per_m, end_condition="pinned
     end_condition   : "pinned" or "fixed"
 
     Returns (moments, shears, reactions), all as lists of floats.
-    Moments is per span (max magnitude in that span).
-    Shears is per span (max magnitude in that span).
-    Reactions is per support (length n_spans + 1).
     """
     n = len(spans_m)
     if n == 0:
@@ -551,18 +544,10 @@ def _continuous_beam_three_moment(spans_m, loads_kN_per_m, end_condition="pinned
     L = [float(x) for x in spans_m]
     w = [float(x) for x in loads_kN_per_m]
 
-    # Three-moment equation:
-    # M_{i-1} * L_{i-1} + 2 * M_i * (L_{i-1} + L_i) + M_{i+1} * L_i
-    #   = - (w_{i-1} * L_{i-1}^3) / 4 - (w_i * L_i^3) / 4
-    #
-    # For n spans, there are n-1 interior supports. We solve for the
-    # n-1 interior moments. End moments are given by the end condition.
-
-    n_int = n - 1  # number of interior supports
+    n_int = n - 1
     A = np.zeros((n_int, n_int), dtype=float)
     b = np.zeros(n_int, dtype=float)
 
-    # Known end moments.
     if end_condition == "fixed":
         M_left_end = - (w[0] * L[0] ** 2) / 12.0
         M_right_end = - (w[-1] * L[-1] ** 2) / 12.0
@@ -571,25 +556,19 @@ def _continuous_beam_three_moment(spans_m, loads_kN_per_m, end_condition="pinned
         M_right_end = 0.0
 
     for k in range(n_int):
-        # Equation for interior support k (0-based, support 1 .. n-1)
-        # i-1 in the equation = support k, i in equation = support k+1,
-        # i+1 in equation = support k+2
         L_left = L[k]
         L_right = L[k + 1]
         w_left = w[k]
         w_right = w[k + 1]
 
-        # Coefficient on M_k (support k+1)
         A[k, k] += 2.0 * (L_left + L_right)
         if k > 0:
             A[k, k - 1] += L_left
         if k < n_int - 1:
             A[k, k + 1] += L_right
 
-        # RHS
         rhs = - (w_left * L_left ** 3) / 4.0 - (w_right * L_right ** 3) / 4.0
 
-        # Subtract the effect of known end moments.
         if k == 0 and end_condition == "fixed":
             rhs -= M_left_end * L_left
         if k == n_int - 1 and end_condition == "fixed":
@@ -605,10 +584,8 @@ def _continuous_beam_three_moment(spans_m, loads_kN_per_m, end_condition="pinned
         except Exception:
             interior_moments = [0.0] * n_int
 
-    # Assemble the full moment vector at supports.
     M_supports = [M_left_end] + list(interior_moments) + [M_right_end]
 
-    # Compute per-span max moment and shear, and support reactions.
     moments_per_span = []
     shears_per_span = []
     reactions = [0.0] * (n + 1)
@@ -619,11 +596,9 @@ def _continuous_beam_three_moment(spans_m, loads_kN_per_m, end_condition="pinned
         M_left = M_supports[k]
         M_right = M_supports[k + 1]
 
-        # End shears of the span, from span equilibrium.
         V_left = (wk * Lk / 2.0) + (M_left - M_right) / Lk
         V_right = (wk * Lk / 2.0) - (M_left - M_right) / Lk
 
-        # Maximum moment in the span: occurs where shear is zero.
         x_zero = V_left / wk if wk > 1e-12 else 0.0
         if x_zero < 0.0:
             x_zero = 0.0
@@ -649,11 +624,6 @@ def _compute_tiedown_forces(coords, reactions, fixed_indices,
     """
     Tie-down axial tension from the support reactions, resolved along
     each tiedown cable's own direction.
-
-    The reactions array (n, 3) gives the force at each fixed node.
-    Tie-down anchors are the fixed nodes that are not beam end anchors.
-    For each such node, we take the reaction vector and resolve it
-    along the direction from the node down to the ground contact.
     """
     if reactions is None or fixed_indices is None:
         return {
@@ -667,8 +637,6 @@ def _compute_tiedown_forces(coords, reactions, fixed_indices,
     reactions = np.asarray(reactions, dtype=float)
     coords = np.asarray(coords, dtype=float)
 
-    # A tiedown node is a fixed node that is not one of the beam end anchors.
-    # The beam end anchors are the two extreme nodes of the boundary loop.
     n_anchors = int(anchor_pos.shape[0])
     beam_end_nodes = set()
     if n_anchors >= 2:
@@ -678,7 +646,6 @@ def _compute_tiedown_forces(coords, reactions, fixed_indices,
     tiedowns = []
     for idx in fixed_indices:
         idx = int(idx)
-        # Skip the beam end anchors.
         if idx in beam_end_nodes:
             continue
         if idx < 0 or idx >= reactions.shape[0]:
@@ -689,16 +656,9 @@ def _compute_tiedown_forces(coords, reactions, fixed_indices,
         if Rmag < 1e-9:
             continue
 
-        # The tiedown cable runs from the node to the ground (z = 0).
-        # The force in the cable is the reaction resolved along the
-        # cable axis. We take the reaction vector and project it on
-        # the cable direction.
         p = coords[idx]
-        # Direction from node to ground contact under the same x, y.
         cable_dir = np.array([0.0, 0.0, -1.0])
         if abs(p[2]) > 1e-9:
-            # The cable runs from the node toward a ground point at
-            # the same x, y but z = 0, so its axis is straight down.
             cable_dir = np.array([0.0, 0.0, -1.0])
 
         T = float(np.dot(R, cable_dir))
@@ -749,7 +709,6 @@ def _test_membrane():
     edges = [(0, 1), (1, 2), (2, 3)]
     lengths = np.array([0.5, 0.5, 1.0])
     res = _compute_membrane_forces(q, edges, lengths=lengths)
-    # q x L = 1000, 1500, 4000 N = 1.0, 1.5, 4.0 kN
     ok = (
         abs(res["min_kN"] - 1.0) < 1e-9
         and abs(res["max_kN"] - 4.0) < 1e-9
@@ -764,7 +723,6 @@ def _test_edge_cable():
     edges = [(0, 1), (1, 2), (2, 3)]
     segments = [{"anchor_a": 0, "anchor_b": 3, "interior": [1, 2]}]
     res = _compute_edge_cable_forces_from_segments(q, edges, segments)
-    # Force sum = 3000 N = 3.0 kN
     ok = (
         res["n_segments"] == 1
         and abs(res["max_kN"] - 3.0) < 1e-9
@@ -779,8 +737,8 @@ def _test_continuous_beam_single_span():
     moments, shears, reactions = _continuous_beam_three_moment(
         spans_m=[L], loads_kN_per_m=[w], end_condition="pinned",
     )
-    expected_M = w * L ** 2 / 8.0  # 25.0 kN m
-    expected_V = w * L / 2.0       # 10.0 kN
+    expected_M = w * L ** 2 / 8.0
+    expected_V = w * L / 2.0
     ok = (
         abs(moments[0] - expected_M) < 1e-6
         and abs(shears[0] - expected_V) < 1e-6
@@ -797,10 +755,6 @@ def _test_continuous_beam_two_span():
     moments, shears, reactions = _continuous_beam_three_moment(
         spans_m=[L, L], loads_kN_per_m=[w, w], end_condition="pinned",
     )
-    # Known result for 2 equal spans, uniform load, pinned ends:
-    # Interior support moment = -w L^2 / 8 = -25 kN m
-    # Max span moment = 9 w L^2 / 128 = 14.0625 kN m
-    expected_interior = w * L ** 2 / 8.0  # 25.0
     ok = (
         len(moments) == 2
         and moments[0] > 0.0
@@ -817,12 +771,7 @@ def _test_continuous_beam_fixed():
     moments, shears, reactions = _continuous_beam_three_moment(
         spans_m=[L], loads_kN_per_m=[w], end_condition="fixed",
     )
-    # Fixed-fixed uniform load: max moment at supports = w L^2 / 12
-    # Maximum span moment at midspan = w L^2 / 24
-    expected_support = w * L ** 2 / 12.0  # 16.667
-    # The function returns max magnitude in the span.
-    # At supports |M| = 16.667; at midspan |M| = 8.333.
-    # The max of those is the support moment.
+    expected_support = w * L ** 2 / 12.0
     ok = abs(moments[0] - expected_support) < 0.5
     return {"ok": ok, "moments": moments}
 
@@ -863,9 +812,6 @@ def _test_design_forces_from_built_minimal():
 
     forces = design_forces_from_built(built, code="MY", base_condition="pinned")
 
-    # Membrane max should be 3.0 kN (1000 N x 3 m / 1000 / 1000)
-    # Actually 1000 N * 1 m = 1000 N = 1.0 kN per edge, max = 1.0 kN
-    # Factor gamma_G = 1.35 -> 1.35 kN
     expected_membrane_max = 1.35
     ok = (
         abs(forces["membrane"]["max_kN"] - expected_membrane_max) < 1e-6
@@ -873,6 +819,62 @@ def _test_design_forces_from_built_minimal():
         and forces["base_condition"] == "pinned"
     )
     return {"ok": ok, "forces": forces}
+
+
+def _test_prefers_settled_reactions():
+    """
+    When settled_reactions are present, they should be used.
+    """
+    coords = np.array([
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0],
+        [3.0, 0.0, 0.0],
+    ])
+    edges = [(0, 1), (1, 2), (2, 3)]
+    q = np.array([1000.0, 1000.0, 1000.0])
+    boundary_loop = coords.copy()
+    anchor_pos = np.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]])
+    segments = [{"anchor_a": 0, "anchor_b": 3, "interior": [1, 2]}]
+
+    reactions_ff = np.array([
+        [0.0, 0.0, -10.0],
+        [0.0, 0.0,   0.0],
+        [0.0, 0.0,   0.0],
+        [0.0, 0.0, -10.0],
+    ])
+    reactions_settled = np.array([
+        [0.0, 0.0, -2.0],
+        [0.0, 0.0,  0.0],
+        [0.0, 0.0,  0.0],
+        [0.0, 0.0, -2.0],
+    ])
+
+    diagnostics = {
+        "reactions": reactions_ff,
+        "settled_reactions": reactions_settled,
+        "fixed_indices": [0, 3],
+        "variant_key": "standard_saddle",
+    }
+    built = {
+        "points": coords,
+        "edges": edges,
+        "triangles": [],
+        "q": q,
+        "boundary_loop": boundary_loop,
+        "anchor_pos": anchor_pos,
+        "segments": segments,
+        "diagnostics": diagnostics,
+    }
+
+    forces = design_forces_from_built(built, code="MY", base_condition="pinned")
+
+    # Tiedown forces should reflect the settled reactions (2.0), not
+    # the form-finding reactions (10.0). Factored by gamma_G = 1.35,
+    # so 2.0 -> 2.7.
+    tiedown_max = forces["tiedown"]["max_kN"]
+    ok = abs(tiedown_max - 2.7) < 1e-6
+    return {"ok": ok, "tiedown_max": tiedown_max}
 
 
 def _verify_member_sizing():
@@ -897,6 +899,9 @@ def _verify_member_sizing():
     t6 = _test_design_forces_from_built_minimal()
     results["end_to_end_ok"] = t6["ok"]
 
+    t7 = _test_prefers_settled_reactions()
+    results["prefers_settled_ok"] = t7["ok"]
+
     results["pass"] = all([
         results["membrane_ok"],
         results["edge_cable_ok"],
@@ -904,6 +909,7 @@ def _verify_member_sizing():
         results["beam_two_span_ok"],
         results["beam_fixed_ok"],
         results["end_to_end_ok"],
+        results["prefers_settled_ok"],
     ])
 
     return results
@@ -932,6 +938,9 @@ if __name__ == "__main__":
     print()
     print("Test 6 - End-to-end on minimal built dict")
     print("  end_to_end_ok      :", res["end_to_end_ok"])
+    print()
+    print("Test 7 - Prefers settled_reactions when present")
+    print("  prefers_settled_ok :", res["prefers_settled_ok"])
     print("-" * 70)
     print("GATE:", "PASS" if res["pass"] else "FAIL")
 
