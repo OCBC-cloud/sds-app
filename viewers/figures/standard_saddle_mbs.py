@@ -3,29 +3,33 @@
 # =============================================================================
 # Builds the 3D figure for the Standard Saddle variant.
 #
-# Two solver paths:
-#   FDM (Stage 1)   - the shape only. Fast. Milliseconds. All tiers.
-#   NFDM (Stage 2)  - real membrane + cable coupled equilibrium.
-#                     Owner, Studio, Beta only.
+# Three zones, three audiences.
 #
-# Mode selection:
-#   Owner, Studio, Beta: a radio selector lets the user choose
-#   FDM or NFDM at will. High tiers get BOTH modes. The tier
-#   gate restricts upward, not downward.
+#   Zone 1 - Chart and controls. Visible to every user.
+#            - The 3D chart.
+#            - Display checkboxes (beams, membrane, anchors,
+#              edge cable, tie-downs, supports).
+#            - Solver mode selector (FDM / NFDM), shown to
+#              Owner, Studio, Beta only.
 #
-#   Free and Pro: FDM is the only mode. The selector is shown
-#   disabled with a note explaining that the deeper physics is
-#   available in the higher tiers.
+#   Zone 2 - Customer deliverables. Owner, Studio, Beta only.
+#            - Structural Analysis Report.
+#            - Bill of Quantities.
+#            - Member Schedule.
+#            Placeholder today. Content added in later sessions.
 #
-# Auto-scaled edge cable pretension:
-#   The edge cable pretension at the bow threshold scales with
-#   the anchor spacing, not the total span. The correct default
-#   is T_default = N_membrane * L_anchor, where N_membrane is
-#   the membrane prestress (N/m) and L_anchor is the distance
-#   between two adjacent anchors along the beam. If the user
-#   enters a value > 0 in the workshop, that value is used. If
-#   the user enters 0 (or leaves the recipe default at 0), the
-#   auto-scaled value is computed from the geometry and used.
+#   Zone 3 - Engineering bench. Owner only. Never visible to
+#            any customer, at any price.
+#            - Solver diagnostics: path, access mode, mesh
+#              counts, convergence, residual, iterations.
+#            - Edge cable pretension source and value.
+#            - Pull-back summary.
+#            - q values summary and per-edge table.
+#            - Digitised node data: boundary, top 20, all nodes.
+#
+# The Owner role is the engineer's seat. It is not the top of
+# the commercial ladder. It is the bench where the App is
+# built. Nobody else ever sees Zone 3.
 #
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
@@ -34,16 +38,11 @@
 #   2026-10-04 - Two-path solver. NFDM for high tiers.
 #   2026-10-05 - Pull-back initial guess. Single-build FDM.
 #                Cache. Loading message. Checkbox toggles.
-#   2026-10-06 - FDM path fallback added.
-#   2026-10-06 - Digitised node data added to diagnostics.
-#   2026-10-06 - q array print added to diagnostics.
-#   2026-10-06 - Mode selector added.
-#   2026-10-06 - Pull-back threshold raised to 1 N.
-#   2026-10-06 - Auto-scaled edge cable pretension added.
-#                T_default = N_membrane * L_anchor. Used when
-#                edge_pre <= 0. Scales the bow threshold with
-#                the anchor spacing. Correct for any structure
-#                size, from 5 m to 30 m and beyond.
+#   2026-10-06 - FDM path fallback. Digitised node data.
+#                q array print. Mode selector. Threshold fix.
+#                Auto-scaled edge cable pretension.
+#   2026-10-07 - Three zones. Owner gate on Zone 3.
+#                Zone 2 placeholder for the report and BQ.
 # =============================================================================
 
 import math
@@ -70,18 +69,25 @@ from data.materials import CABLE_PROPERTIES, FABRIC_PROPERTIES
 
 
 # =============================================================================
-# TIER RULE
+# ACCESS MODE
 # =============================================================================
 
-NONLINEAR_TIERS = ("owner", "studio", "beta")
+HIGH_TIERS = ("owner", "studio", "beta")
+OWNER_TIER = "owner"
 
 
 def _access_mode():
     return str(st.session_state.get("access_mode", "owner")).lower()
 
 
-def _has_nonlinear():
-    return _access_mode() in NONLINEAR_TIERS
+def _is_high_tier():
+    """Owner, Studio, Beta. Can select FDM/NFDM and see customer deliverables."""
+    return _access_mode() in HIGH_TIERS
+
+
+def _is_owner():
+    """Owner only. The engineering bench. Never visible to any customer."""
+    return _access_mode() == OWNER_TIER
 
 
 # =============================================================================
@@ -366,23 +372,6 @@ def _auto_edge_pretension_kN(arc_total, anchor_count,
                       taken as max(warp_pre, weft_pre).
         L_anchor    = the distance between two adjacent anchors
                       along the beam = arc_total / (anchor_count - 1).
-
-    The value returned is in kN. It is the pretension at which
-    the edge cable and the membrane have equal force density
-    at the boundary. The boundary will bow at this value and
-    straighten above it.
-
-    For 10 m saddle, 8 anchors, N=1000 N/m:
-        L_anchor = 16 / 7 = 2.3 m
-        T = 1000 * 2.3 = 2300 N = 2.3 kN
-
-    For 30 m saddle, 8 anchors, N=1000 N/m:
-        L_anchor = 48 / 7 = 6.9 m
-        T = 1000 * 6.9 = 6900 N = 6.9 kN
-
-    For 5 m saddle, 8 anchors, N=1000 N/m:
-        L_anchor = 8 / 7 = 1.1 m
-        T = 1000 * 1.1 = 1100 N = 1.1 kN
     """
     if anchor_count < 2:
         return 0.0
@@ -427,9 +416,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     if L_avg < 1e-9:
         L_avg = 1.0
 
-    # Auto-scaled edge cable pretension.
-    # If the user entered a value > 0 in the workshop, use it.
-    # Otherwise compute from the geometry: N_membrane * L_anchor.
     edge_pre_used = float(edge_pre)
     edge_pre_source = "user"
     if edge_pre_used <= 0.0:
@@ -891,14 +877,18 @@ def build_standard_saddle():
         )
         return apply_common_layout(fig, 10.0)
 
-    has_nfdm = _has_nonlinear()
-    if has_nfdm:
+    # -------------------------------------------------------------------------
+    # ZONE 1 - CHART AND CONTROLS
+    # -------------------------------------------------------------------------
+
+    # Solver mode selector: Owner, Studio, Beta only.
+    if _is_high_tier():
         st.markdown("**Solver mode:**")
         mode_choice = st.radio(
             "Solver mode",
             options=["NFDM (Stage 2, coupled nonlinear)",
                      "FDM (Stage 1, form-found shape)"],
-            index=0,
+            index=1,
             key="ss_solver_mode",
             label_visibility="collapsed",
         )
@@ -913,10 +903,31 @@ def build_standard_saddle():
 
     use_nfdm = (
         use_nfdm_selected
-        and has_nfdm
+        and _is_high_tier()
         and attach_type == "cable_supported"
     )
 
+    # Display checkboxes in a single expander.
+    with st.expander("Display", expanded=False):
+        cb1, cb2, cb3 = st.columns(3)
+        with cb1:
+            show_beams = st.checkbox("Beams", value=True, key="ss_show_beams")
+        with cb2:
+            show_membrane = st.checkbox("Membrane", value=True, key="ss_show_membrane")
+        with cb3:
+            show_anchors = st.checkbox("Anchors", value=True, key="ss_show_anchors")
+        cb4, cb5, cb6 = st.columns(3)
+        with cb4:
+            if attach_type == "cable_supported":
+                show_edge = st.checkbox("Edge cable", value=True, key="ss_show_edge")
+            else:
+                show_edge = st.checkbox("Kader", value=True, key="ss_show_kader")
+        with cb5:
+            show_tiedown = st.checkbox("Tie-downs", value=True, key="ss_show_tiedown")
+        with cb6:
+            show_ground = st.checkbox("Supports", value=True, key="ss_show_ground")
+
+    # Run the solver.
     msg = st.empty()
     msg.info("Preparing design...Do not refresh or leave the page")
     try:
@@ -949,25 +960,6 @@ def build_standard_saddle():
     x, y1, y2, z_beam, s, total = _build_beam_curves(
         span, apex, rise, curve_type
     )
-
-    st.markdown("**Show / hide:**")
-    cb1, cb2, cb3, cb4, cb5, cb6 = st.columns(6)
-    with cb1:
-        show_beams = st.checkbox("Beams", value=True, key="ss_show_beams")
-    with cb2:
-        show_membrane = st.checkbox("Membrane", value=True, key="ss_show_membrane")
-    with cb3:
-        show_anchors = st.checkbox("Anchors", value=True, key="ss_show_anchors")
-    if attach_type == "cable_supported":
-        with cb4:
-            show_edge = st.checkbox("Edge cable", value=True, key="ss_show_edge")
-    else:
-        with cb4:
-            show_edge = st.checkbox("Kader", value=True, key="ss_show_kader")
-    with cb5:
-        show_tiedown = st.checkbox("Tie-downs", value=True, key="ss_show_tiedown")
-    with cb6:
-        show_ground = st.checkbox("Supports", value=True, key="ss_show_ground")
 
     fig = go.Figure()
 
@@ -1103,88 +1095,145 @@ def build_standard_saddle():
 
     fig = apply_common_layout(fig, rise)
 
-    with st.expander("Solver diagnostics", expanded=False):
-        st.markdown("**Solver path:** " + str(diag["solver"]))
-        st.markdown("**Access mode:** " + str(_access_mode()))
+    # -------------------------------------------------------------------------
+    # ZONE 2 - CUSTOMER DELIVERABLES (Owner, Studio, Beta only)
+    # -------------------------------------------------------------------------
+    #
+    # Reserved for:
+    #   - Structural Analysis Report
+    #   - Bill of Quantities
+    #   - Member Schedule
+    #
+    # Content added in later sessions. Empty today.
+    if _is_high_tier():
+        pass
 
-        c0, c0b, c0c = st.columns(3)
-        c0.metric("Anchors/beam", diag["anchor_count"])
-        c0b.metric("Mesh spacing", "%.2f" % diag["mesh_spacing"])
-        c0c.metric("Loop anchors", diag["n_anchors"])
+    # -------------------------------------------------------------------------
+    # ZONE 3 - ENGINEERING BENCH (Owner only)
+    # -------------------------------------------------------------------------
+    #
+    # Never visible to any customer, at any price.
+    # This is the microscope. The q values, the internal forces,
+    # the digitised node data, the convergence reason.
+    if _is_owner():
+        with st.expander("Solver diagnostics", expanded=False):
+            st.markdown("**Solver path:** " + str(diag["solver"]))
+            st.markdown("**Access mode:** " + str(_access_mode()))
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Nodes", diag["n_nodes"])
-        c2.metric("Edges", diag["n_edges"])
-        c3.metric("Triangles", diag["n_triangles"])
-        c4.metric("Fixed", diag["n_fixed"])
+            c0, c0b, c0c = st.columns(3)
+            c0.metric("Anchors/beam", diag["anchor_count"])
+            c0b.metric("Mesh spacing", "%.2f" % diag["mesh_spacing"])
+            c0c.metric("Loop anchors", diag["n_anchors"])
 
-        # Auto-scaled edge pretension info
-        st.markdown(
-            "**Edge cable pretension:** "
-            + ("%.3f kN" % diag.get("edge_pretension_kN", 0.0))
-            + " (" + str(diag.get("edge_pretension_source", "?")) + ")"
-        )
-        st.markdown(
-            "**Anchor spacing L_anchor:** "
-            + ("%.3f m" % diag.get("L_anchor_m", 0.0))
-        )
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Nodes", diag["n_nodes"])
+            c2.metric("Edges", diag["n_edges"])
+            c3.metric("Triangles", diag["n_triangles"])
+            c4.metric("Fixed", diag["n_fixed"])
 
-        if diag["solver"].startswith("NFDM"):
-            st.markdown("**Convergence:** " +
-                        ("PASS" if diag.get("converged") else "no") +
-                        " (" + str(diag.get("reason", "")) + ")")
-            d1, d2, d3 = st.columns(3)
-            d1.metric("Iterations", diag.get("n_iterations", 0))
-            d2.metric("Residual", "%.4e" % diag.get("max_residual", 0.0))
-            d3.metric("Cables", diag.get("n_cables", 0))
             st.markdown(
-                "**Membrane prestress:** warp " +
-                ("%.1f N/m" % diag.get("warp_prestress_N_per_m", 0.0)) +
-                "  |  weft " +
-                ("%.1f N/m" % diag.get("weft_prestress_N_per_m", 0.0))
+                "**Edge cable pretension:** "
+                + ("%.3f kN" % diag.get("edge_pretension_kN", 0.0))
+                + " (" + str(diag.get("edge_pretension_source", "?")) + ")"
             )
-        else:
-            d1, d2, d3 = st.columns(3)
-            d1.metric("Residual", "%.4e" % diag["residual_norm"])
-            d2.metric("Min tri area", "%.6e" % 0.0)
-            d3.metric("Mean tri area", "%.6e" % 0.0)
-
-        if diag["solver"].startswith("FDM"):
-            st.markdown("---")
-            st.markdown("**q values**")
             st.markdown(
-                "- q path: " + str(diag.get("q_path", "n/a")) +
-                "   |   warp_q: " + ("%.4f" % diag.get("warp_q", 0.0)) +
-                "   |   weft_q: " + ("%.4f" % diag.get("weft_q", 0.0)) +
-                "   |   edge_q_scalar: " + ("%.4f" % diag.get("edge_q_scalar", 0.0))
+                "**Anchor spacing L_anchor:** "
+                + ("%.3f m" % diag.get("L_anchor_m", 0.0))
             )
+
+            if diag["solver"].startswith("NFDM"):
+                st.markdown("**Convergence:** " +
+                            ("PASS" if diag.get("converged") else "no") +
+                            " (" + str(diag.get("reason", "")) + ")")
+                d1, d2, d3 = st.columns(3)
+                d1.metric("Iterations", diag.get("n_iterations", 0))
+                d2.metric("Residual", "%.4e" % diag.get("max_residual", 0.0))
+                d3.metric("Cables", diag.get("n_cables", 0))
+                st.markdown(
+                    "**Membrane prestress:** warp " +
+                    ("%.1f N/m" % diag.get("warp_prestress_N_per_m", 0.0)) +
+                    "  |  weft " +
+                    ("%.1f N/m" % diag.get("weft_prestress_N_per_m", 0.0))
+                )
+            else:
+                d1, d2, d3 = st.columns(3)
+                d1.metric("Residual", "%.4e" % diag["residual_norm"])
+                d2.metric("Min tri area", "%.6e" % 0.0)
+                d3.metric("Mean tri area", "%.6e" % 0.0)
+
+            if diag["solver"].startswith("FDM"):
+                st.markdown("---")
+                st.markdown("**q values**")
+                st.markdown(
+                    "- q path: " + str(diag.get("q_path", "n/a")) +
+                    "   |   warp_q: " + ("%.4f" % diag.get("warp_q", 0.0)) +
+                    "   |   weft_q: " + ("%.4f" % diag.get("weft_q", 0.0)) +
+                    "   |   edge_q_scalar: " + ("%.4f" % diag.get("edge_q_scalar", 0.0))
+                )
+                q_vals = built.get("q", None)
+                edges_local = built.get("edges", None)
+                if q_vals is not None and edges_local is not None:
+                    n_boundary_local = int(boundary_loop.shape[0])
+                    summary = _summarise_q(
+                        edges_local, q_vals, n_boundary_local
+                    )
+                    st.markdown(
+                        "- boundary: n=" + str(summary.get("boundary_n", 0)) +
+                        "   min=" + ("%.4f" % summary.get("boundary_min", 0.0)) +
+                        "   max=" + ("%.4f" % summary.get("boundary_max", 0.0)) +
+                        "   mean=" + ("%.4f" % summary.get("boundary_mean", 0.0))
+                    )
+                    st.markdown(
+                        "- interior: n=" + str(summary.get("interior_n", 0)) +
+                        "   min=" + ("%.4f" % summary.get("interior_min", 0.0)) +
+                        "   max=" + ("%.4f" % summary.get("interior_max", 0.0)) +
+                        "   mean=" + ("%.4f" % summary.get("interior_mean", 0.0))
+                    )
+                    ratio = summary.get(
+                        "ratio_mean_boundary_over_interior", None
+                    )
+                    if ratio is not None:
+                        st.markdown(
+                            "- **ratio boundary_mean / interior_mean = "
+                            + ("%.4f" % ratio) + "**"
+                        )
+
+            ps = diag.get("pullback_summary", None)
+            if ps is not None:
+                st.markdown("**Pull-back (membrane edge force):**")
+                if "error" in ps:
+                    st.markdown("- error: " + ps["error"])
+                else:
+                    st.markdown(
+                        "- Min: " + ("%.2f N" % ps["min_N"]) +
+                        "  |  Max: " + ("%.2f N" % ps["max_N"]) +
+                        "  |  Mean: " + ("%.2f N" % ps["mean_N"])
+                    )
+                    st.markdown("- Edges: " + str(ps["n_edges"]))
+                    if "n_fallback_edges" in ps:
+                        st.markdown("- Fallback edges: " + str(ps["n_fallback_edges"]))
+                    if "note" in ps:
+                        st.markdown("- note: " + ps["note"])
+
+            if diag["attachment_type"] == "cable_supported":
+                st.markdown("**Edge cable:**")
+                st.markdown("- Length: " + ("%.3f m" % diag["edge_cable_length_m"]))
+                if "edge_cable_chosen" in diag and diag["edge_cable_chosen"] is not None:
+                    ce = diag["edge_cable_chosen"]
+                    st.markdown(
+                        "- System-selected diameter: " +
+                        ("%.1f mm" % ce["d"]) +
+                        "  |  Area: " + ("%.1f mm2" % ce["A"]) +
+                        "  |  Breaking: " + ("%.2f kN" % ce["breaking_kN"])
+                    )
+
+        with st.expander("Advanced — digitised data", expanded=False):
+            st.markdown("**Digitised node data**")
+
             q_vals = built.get("q", None)
             edges_local = built.get("edges", None)
             if q_vals is not None and edges_local is not None:
                 n_boundary_local = int(boundary_loop.shape[0])
-                summary = _summarise_q(
-                    edges_local, q_vals, n_boundary_local
-                )
-                st.markdown(
-                    "- boundary: n=" + str(summary.get("boundary_n", 0)) +
-                    "   min=" + ("%.4f" % summary.get("boundary_min", 0.0)) +
-                    "   max=" + ("%.4f" % summary.get("boundary_max", 0.0)) +
-                    "   mean=" + ("%.4f" % summary.get("boundary_mean", 0.0))
-                )
-                st.markdown(
-                    "- interior: n=" + str(summary.get("interior_n", 0)) +
-                    "   min=" + ("%.4f" % summary.get("interior_min", 0.0)) +
-                    "   max=" + ("%.4f" % summary.get("interior_max", 0.0)) +
-                    "   mean=" + ("%.4f" % summary.get("interior_mean", 0.0))
-                )
-                ratio = summary.get(
-                    "ratio_mean_boundary_over_interior", None
-                )
-                if ratio is not None:
-                    st.markdown(
-                        "- **ratio boundary_mean / interior_mean = "
-                        + ("%.4f" % ratio) + "**"
-                    )
                 st.markdown("**First 40 edges** (index, endpoints, is_boundary, q_value):")
                 st.code(
                     _format_q_table(
@@ -1193,79 +1242,47 @@ def build_standard_saddle():
                     language="text",
                 )
 
-        ps = diag.get("pullback_summary", None)
-        if ps is not None:
-            st.markdown("**Pull-back (membrane edge force):**")
-            if "error" in ps:
-                st.markdown("- error: " + ps["error"])
-            else:
-                st.markdown(
-                    "- Min: " + ("%.2f N" % ps["min_N"]) +
-                    "  |  Max: " + ("%.2f N" % ps["max_N"]) +
-                    "  |  Mean: " + ("%.2f N" % ps["mean_N"])
-                )
-                st.markdown("- Edges: " + str(ps["n_edges"]))
-                if "n_fallback_edges" in ps:
-                    st.markdown("- Fallback edges: " + str(ps["n_fallback_edges"]))
-                if "note" in ps:
-                    st.markdown("- note: " + ps["note"])
+            n_boundary_local = int(boundary_loop.shape[0])
+            boundary_idx = list(range(min(n_boundary_local, coords.shape[0])))
 
-        if diag["attachment_type"] == "cable_supported":
-            st.markdown("**Edge cable:**")
-            st.markdown("- Length: " + ("%.3f m" % diag["edge_cable_length_m"]))
-            if "edge_cable_chosen" in diag and diag["edge_cable_chosen"] is not None:
-                ce = diag["edge_cable_chosen"]
-                st.markdown(
-                    "- System-selected diameter: " +
-                    ("%.1f mm" % ce["d"]) +
-                    "  |  Area: " + ("%.1f mm2" % ce["A"]) +
-                    "  |  Breaking: " + ("%.2f kN" % ce["breaking_kN"])
-                )
+            st.markdown(
+                "**Boundary nodes** — "
+                + str(len(boundary_idx))
+                + " rows. Columns: idx, x_init, y_init, z_init, "
+                + "x_solved, y_solved, z_solved, disp"
+            )
+            st.code(
+                _format_node_table(
+                    points_initial, coords, indices=boundary_idx
+                ),
+                language="text",
+            )
 
-        st.markdown("---")
-        st.markdown("**Digitised node data**")
+            top_idx = _top_displaced_indices(
+                points_initial, coords, n_top=20
+            )
+            st.markdown(
+                "**Top 20 displaced nodes** — sorted by displacement, "
+                + "largest first"
+            )
+            st.code(
+                _format_node_table(
+                    points_initial, coords, indices=top_idx
+                ),
+                language="text",
+            )
 
-        n_boundary_local = int(boundary_loop.shape[0])
-        boundary_idx = list(range(min(n_boundary_local, coords.shape[0])))
-
-        st.markdown(
-            "**Boundary nodes** — "
-            + str(len(boundary_idx))
-            + " rows. Columns: idx, x_init, y_init, z_init, "
-            + "x_solved, y_solved, z_solved, disp"
-        )
-        st.code(
-            _format_node_table(
-                points_initial, coords, indices=boundary_idx
-            ),
-            language="text",
-        )
-
-        top_idx = _top_displaced_indices(
-            points_initial, coords, n_top=20
-        )
-        st.markdown(
-            "**Top 20 displaced nodes** — sorted by displacement, "
-            + "largest first"
-        )
-        st.code(
-            _format_node_table(
-                points_initial, coords, indices=top_idx
-            ),
-            language="text",
-        )
-
-        st.markdown(
-            "**All nodes** — "
-            + str(coords.shape[0])
-            + " rows. Same columns."
-        )
-        st.code(
-            _format_node_table(
-                points_initial, coords, indices=None
-            ),
-            language="text",
-        )
+            st.markdown(
+                "**All nodes** — "
+                + str(coords.shape[0])
+                + " rows. Same columns."
+            )
+            st.code(
+                _format_node_table(
+                    points_initial, coords, indices=None
+                ),
+                language="text",
+            )
 
     return fig
 
