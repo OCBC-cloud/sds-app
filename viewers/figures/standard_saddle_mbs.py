@@ -30,6 +30,14 @@
 # the commercial ladder. It is the bench where the App is
 # built. Nobody else ever sees Zone 3.
 #
+# Two-pass workflow (2026-10-07):
+#   Pass 1 - form finding. The user's chosen pretensions drive
+#            the shape. These are a design lever, not the
+#            physical prestress of the settled structure.
+#   Pass 2 - settled state. The shape is accepted. The settled
+#            force densities are used to compute the real
+#            reactions. The report reads from this pass.
+#
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
 #   2026-09-30 - Step 5. Rewritten to use the triangulated engine.
@@ -49,6 +57,10 @@
 #   2026-10-07 - Report wired to engine/member_sizing.py.
 #                Sections 3, 4, 6 now carry real design forces.
 #                Base condition read from ws_ss_base_condition.
+#   2026-10-07 - Settled-state second pass. solve_fdm_settled
+#                is called after the form-finding solve. The
+#                settled reactions feed the report. The form-
+#                finding input no longer inflates the reactions.
 # =============================================================================
 
 import math
@@ -70,7 +82,12 @@ from engine.nonlinear_equilibrium import (
     make_membrane_material,
     pullback_cable_initial_tensions,
 )
-from engine.form_finding import solve_fdm, assign_anisotropic_q, auto_warp_dir
+from engine.form_finding import (
+    solve_fdm,
+    solve_fdm_settled,
+    assign_anisotropic_q,
+    auto_warp_dir,
+)
 from engine.member_sizing import design_forces_from_built
 from data.materials import CABLE_PROPERTIES, FABRIC_PROPERTIES
 from data.structures import get_member_schema, expand_beam_rows
@@ -111,6 +128,16 @@ def _read_fabric_constants(fabric_type, fabric_grade):
     except Exception:
         E1, E2, t = 1400.0, 1400.0, 1.02
     return E1, E2, t
+
+
+def _read_fabric_default_prestress_kN_per_m(fabric_type, fabric_grade):
+    """Return the default prestress for a fabric, in kN/m."""
+    try:
+        rec = FABRIC_PROPERTIES[fabric_type][fabric_grade]
+        v = float(rec.get("prestress_default_kN_per_m", 2.0))
+    except Exception:
+        v = 2.0
+    return max(0.1, v)
 
 
 def _pretension_to_N_per_m(value, recipe_units):
@@ -558,6 +585,53 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     )
     coords = fdm_result["coordinates"]
 
+    # -------------------------------------------------------------------------
+    # Settled-state second pass.
+    #
+    # The form-finding q above was used to manipulate the shape. It is a
+    # design lever: it controls the bow depth and the membrane area. It
+    # is not the physical prestress of the settled structure.
+    #
+    # The physical force densities of the settled form are:
+    #   - Interior: the fabric default prestress (from the fabric record)
+    #   - Boundary: the edge_q_scalar the engine already computed as
+    #     necessary to hold the shape (its own fallback answer)
+    #
+    # The settled coordinates are fixed. solve_fdm_settled returns the
+    # reactions of this settled state. Those are the real reactions.
+    # -------------------------------------------------------------------------
+    fabric_default_kN_per_m = _read_fabric_default_prestress_kN_per_m(
+        fabric_type, fabric_grade
+    )
+    settled_warp_q = fabric_default_kN_per_m * 1000.0 / L_avg
+    settled_weft_q = fabric_default_kN_per_m * 1000.0 / L_avg
+
+    pts_2d_settled = coords[:, :2]
+    warp_dir_settled = auto_warp_dir(pts_2d_settled)
+
+    q_settled = assign_anisotropic_q(
+        edges,
+        pts_2d_settled,
+        warp_dir_settled,
+        settled_warp_q,
+        settled_weft_q,
+        n_boundary=n_boundary_pts,
+        boundary_edge_q=edge_q_scalar,
+    )
+
+    try:
+        settled_result = solve_fdm_settled(
+            coords,
+            edges,
+            fixed_indices,
+            q_settled,
+        )
+        settled_reactions = settled_result["reactions"]
+        settled_ok = True
+    except Exception:
+        settled_reactions = fdm_result.get("reactions", None)
+        settled_ok = False
+
     edge_cable_length_m = 0.0
     if str(attachment_type).lower() == "cable_supported":
         n_a = len(anchors)
@@ -595,6 +669,9 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         "structural_connections": [],
         "fixed_indices": [int(i) for i in fixed_indices],
         "reactions": fdm_result.get("reactions", None),
+        "settled_reactions": settled_reactions,
+        "settled_q": q_settled,
+        "settled_ok": bool(settled_ok),
         "variant_key": "standard_saddle",
     }
 
@@ -796,6 +873,9 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
         "L_anchor_m": float(total) / max(1.0, float(anchor_count - 1)),
         "fixed_indices": [int(i) for i in fixed_indices],
         "reactions": res.get("reactions", None),
+        "settled_reactions": None,
+        "settled_q": None,
+        "settled_ok": False,
         "variant_key": "standard_saddle",
     }
 
@@ -862,12 +942,11 @@ def _cached_nfdm(span, apex, rise, curve_type,
 #
 # Consumes the built dict and the diagnostics dict, returns a report
 # payload. The payload contains derived quantities only. The raw q
-# array is read internally for Section 4's membrane edge forces and
-# is never placed in the payload.
+# array is read internally and is never placed in the payload.
 #
-# Design forces are read from engine/member_sizing.py. Sections 3, 4,
-# and 6 now carry real numbers. Utilisation and result columns remain
-# "--" until the section selection layer is built.
+# Design forces are read from engine/member_sizing.py. That module
+# prefers settled_reactions (Pass 2) over form-finding reactions
+# (Pass 1). Sections 3, 4, 6 carry the settled numbers.
 #
 # Drainage thresholds (Chief's working practice, subject to code
 # override when data/codes.py is built):
@@ -940,9 +1019,18 @@ def _build_structural_report(
             "cases are not included in this draft."
         ),
         "code_checks": (
-            "Design forces are computed with partial factors applied "
-            "(gamma_G from data/constants.py). Section selection and "
-            "code checks are not performed in this draft."
+            "Design forces are computed with partial factors applied. "
+            "Section selection and code checks are not performed in "
+            "this draft."
+        ),
+        "two_pass_note": (
+            "The shape was found using the user's chosen pretensions "
+            "as a design lever. The reactions reported in Section 3 "
+            "come from a second, settled-state solve: the accepted "
+            "shape, with the fabric default prestress in the interior "
+            "and the engine-computed boundary force density. The "
+            "form-finding pretensions do not carry through to the "
+            "reported reactions."
         ),
     }
 
@@ -974,9 +1062,11 @@ def _build_structural_report(
     }
 
     # -------------------------------------------------------------------------
-    # Section 3 - Reactions (now from the solver)
+    # Section 3 - Reactions (settled state)
     # -------------------------------------------------------------------------
-    reactions = diag.get("reactions", None)
+    reactions = diag.get("settled_reactions", None)
+    if reactions is None:
+        reactions = diag.get("reactions", None)
     fixed_indices = diag.get("fixed_indices", None)
     reaction_rows = []
     if reactions is not None and fixed_indices is not None:
@@ -994,17 +1084,27 @@ def _build_structural_report(
                 "mag_kN": float(np.linalg.norm(r)),
             })
 
+    settled_ok = bool(diag.get("settled_ok", False))
+    model_note = (
+        "Support reactions from the settled-state solve. The shape is "
+        "the accepted form. The force densities are the fabric default "
+        "prestress in the interior and the engine-computed boundary "
+        "force density."
+    )
+    if not settled_ok:
+        model_note = (
+            "Support reactions from the form-finding solve (settled-state "
+            "solve did not complete). These reactions reflect the user's "
+            "form-finding pretensions."
+        )
+
     report["reactions"] = {
         "status": "ok" if reaction_rows else "pending",
         "rows": reaction_rows,
-        "model": (
-            "Support reactions from the FDM solver residual at the "
-            "fixed nodes. Uplift positive Z, downforce negative Z."
-        ),
+        "model": model_note,
         "note": (
             "" if reaction_rows else
-            "Support reactions are not yet available. This section will "
-            "fill in when the solver returns reaction data."
+            "Support reactions are not yet available."
         ),
     }
 
@@ -1043,12 +1143,11 @@ def _build_structural_report(
     }
 
     # -------------------------------------------------------------------------
-    # Section 6 - Member schedule (from data/structures.py schema)
+    # Section 6 - Member schedule
     # -------------------------------------------------------------------------
     schema = get_member_schema("saddle_span", "standard_saddle")
     member_rows = []
 
-    # Design force per member group, for display.
     membrane_max_kN = float(membrane.get("max_kN", 0.0))
     edge_cable_max_kN = float(edge_cable.get("max_kN", 0.0))
     beam_max_kN_m = float(beam.get("max_moment_kN_m", 0.0))
@@ -1118,9 +1217,10 @@ def _build_structural_report(
                 "note": row.get("note", ""),
             })
         schema_note = (
-            "Design force column shows factored peak forces. Section "
-            "selection and code checks require data/sections.py and a "
-            "chosen design code. Neither is wired yet."
+            "Design force column shows factored peak forces from the "
+            "settled-state solve. Section selection and code checks "
+            "require data/sections.py and a chosen design code. "
+            "Neither is wired yet."
         )
 
     report["member_sizing"] = {
@@ -1238,7 +1338,6 @@ def build_standard_saddle():
     # ZONE 1 - CHART AND CONTROLS
     # -------------------------------------------------------------------------
 
-    # Solver mode selector: Owner, Studio, Beta only.
     if _is_high_tier():
         st.markdown("**Solver mode:**")
         mode_choice = st.radio(
@@ -1264,7 +1363,6 @@ def build_standard_saddle():
         and attach_type == "cable_supported"
     )
 
-    # Display checkboxes in a single expander.
     with st.expander("Display", expanded=False):
         cb1, cb2, cb3 = st.columns(3)
         with cb1:
@@ -1284,7 +1382,6 @@ def build_standard_saddle():
         with cb6:
             show_ground = st.checkbox("Supports", value=True, key="ss_show_ground")
 
-    # Run the solver.
     msg = st.empty()
     msg.info("Preparing design...Do not refresh or leave the page")
     try:
@@ -1453,16 +1550,8 @@ def build_standard_saddle():
     fig = apply_common_layout(fig, rise)
 
     # -------------------------------------------------------------------------
-    # ZONE 2 - CUSTOMER DELIVERABLES (Owner, Studio, Beta only)
+    # ZONE 2 - CUSTOMER DELIVERABLES
     # -------------------------------------------------------------------------
-    #
-    # The Structural Analysis Report. Derived quantities only.
-    # The raw q array is read by the report generator and is not
-    # placed in the payload.
-    #
-    # Design forces come from engine/member_sizing.py. Sections 3, 4,
-    # and 6 now carry real numbers.
-    #
     if _is_high_tier():
         snow_in_brief = bool(
             st.session_state.get("ws_ss_snow_in_brief", False)
@@ -1501,7 +1590,7 @@ def build_standard_saddle():
 
             with st.expander("Structural Analysis Report", expanded=False):
 
-                # Section 1 - Design basis
+                # Section 1
                 st.markdown("### 1. Design basis")
                 db = report["design_basis"]
                 st.markdown("**Structure:** " + db["structure"])
@@ -1535,8 +1624,9 @@ def build_standard_saddle():
                 )
                 st.caption("**Load cases:** " + db["load_cases"])
                 st.caption("**Code checks:** " + db["code_checks"])
+                st.caption("**Two-pass note:** " + db["two_pass_note"])
 
-                # Section 2 - Form-found geometry
+                # Section 2
                 st.markdown("### 2. Form-found geometry")
                 fg = report["form_found_geometry"]
                 st.markdown(
@@ -1553,7 +1643,7 @@ def build_standard_saddle():
                     )
                 st.code(anchor_table, language="text")
 
-                # Section 3 - Reactions
+                # Section 3
                 st.markdown("### 3. Reactions")
                 r = report["reactions"]
                 if r["status"] == "ok":
@@ -1571,7 +1661,7 @@ def build_standard_saddle():
                     st.caption("Status: " + r["status"])
                     st.caption(r["note"])
 
-                # Section 4 - Member forces
+                # Section 4
                 st.markdown("### 4. Member forces")
                 mf = report["member_forces"]
                 mem = mf["membrane"]
@@ -1623,12 +1713,12 @@ def build_standard_saddle():
                 )
                 st.caption(mf["note"])
 
-                # Section 5 - Membrane stresses
+                # Section 5
                 st.markdown("### 5. Membrane stresses")
                 st.caption("Status: " + report["membrane_stresses"]["status"])
                 st.caption(report["membrane_stresses"]["note"])
 
-                # Section 6 - Member schedule
+                # Section 6
                 st.markdown("### 6. Member schedule")
                 ms = report["member_sizing"]
                 sched_table = "  member                     section       force      util   result\n"
@@ -1642,12 +1732,12 @@ def build_standard_saddle():
                 st.code(sched_table, language="text")
                 st.caption(ms["note"])
 
-                # Section 7 - Cable sag check
+                # Section 7
                 st.markdown("### 7. Cable sag check")
                 st.caption("Status: " + report["cable_sag"]["status"])
                 st.caption(report["cable_sag"]["note"])
 
-                # Section 8 - Membrane gradient check
+                # Section 8
                 st.markdown("### 8. Membrane gradient check")
                 mg = report["membrane_gradient"]
                 st.markdown(
@@ -1665,7 +1755,7 @@ def build_standard_saddle():
                 )
                 st.caption(mg["note"])
 
-                # Section 9 - Bill of quantities
+                # Section 9
                 st.markdown("### 9. Bill of quantities")
                 bq = report["bq"]
                 st.caption("Status: " + bq["status"])
@@ -1677,10 +1767,6 @@ def build_standard_saddle():
     # -------------------------------------------------------------------------
     # ZONE 3 - ENGINEERING BENCH (Owner only)
     # -------------------------------------------------------------------------
-    #
-    # Never visible to any customer, at any price.
-    # This is the microscope. The q values, the internal forces,
-    # the digitised node data, the convergence reason.
     if _is_owner():
         with st.expander("Solver diagnostics", expanded=False):
             st.markdown("**Solver path:** " + str(diag["solver"]))
@@ -1706,6 +1792,10 @@ def build_standard_saddle():
                 "**Anchor spacing L_anchor:** "
                 + ("%.3f m" % diag.get("L_anchor_m", 0.0))
             )
+            st.markdown(
+                "**Settled-state pass:** "
+                + ("completed" if diag.get("settled_ok", False) else "fallback to form-finding")
+            )
 
             if diag["solver"].startswith("NFDM"):
                 st.markdown("**Convergence:** " +
@@ -1729,7 +1819,7 @@ def build_standard_saddle():
 
             if diag["solver"].startswith("FDM"):
                 st.markdown("---")
-                st.markdown("**q values**")
+                st.markdown("**q values (form-finding)**")
                 st.markdown(
                     "- q path: " + str(diag.get("q_path", "n/a")) +
                     "   |   warp_q: " + ("%.4f" % diag.get("warp_q", 0.0)) +
