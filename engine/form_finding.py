@@ -175,12 +175,17 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
     # Support reactions.
     # The residual at a fixed node is the net force the structure applies
     # to the support. The reaction is the force the support applies back,
-    # so it is the negative of that residual. Sign convention: uplift is
-    # positive Z, downforce is negative Z.
+    # so it is the negative of that residual.
+    #
+    # Units: the K matrix uses force density q in N/m and coordinates in
+    # metres, so K @ X is in newtons. Divide by 1000 to return kilo-newtons,
+    # matching the "_kN" field names every consumer uses.
+    #
+    # Sign convention: uplift is positive Z, downforce is negative Z.
     # -------------------------------------------------------------------------
     reactions = np.zeros((n, 3), dtype=float)
     for i in fixed_indices:
-        reactions[i, :] = -residual[i, :]
+        reactions[i, :] = -residual[i, :] / 1000.0
 
     return {
         "coordinates": X,
