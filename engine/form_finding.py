@@ -171,11 +171,23 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
     free_all = ~fixed_mask
     residual_norm = float(np.linalg.norm(residual[free_all]))
 
+    # -------------------------------------------------------------------------
+    # Support reactions.
+    # The residual at a fixed node is the net force the structure applies
+    # to the support. The reaction is the force the support applies back,
+    # so it is the negative of that residual. Sign convention: uplift is
+    # positive Z, downforce is negative Z.
+    # -------------------------------------------------------------------------
+    reactions = np.zeros((n, 3), dtype=float)
+    for i in fixed_indices:
+        reactions[i, :] = -residual[i, :]
+
     return {
         "coordinates": X,
         "residual_norm": residual_norm,
         "n_free": int(free_all.sum()),
         "n_fixed": int(fixed_mask.sum()),
+        "reactions": reactions,
     }
 
 
