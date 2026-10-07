@@ -11,12 +11,25 @@
 #   equal the external load on that node. This gives a linear
 #   system in the free-node coordinates: K * x = p.
 #
+# Two-pass workflow:
+#   Pass 1 - solve_fdm. The user's chosen pretensions are used as
+#            force densities. The shape falls out. These pretensions
+#            are a design lever: they manipulate the bow depth and
+#            the membrane area. They are NOT the physical prestress
+#            of the settled structure.
+#   Pass 2 - solve_fdm_settled. The shape is now accepted. The
+#            form-finding pretensions are discarded. The settled
+#            force densities of the structure are used to compute
+#            the real reactions.
+#
 # Updated 2026-10-05:
 #   - assign_anisotropic_q accepts a per-edge boundary_edge_q.
-#     A dict keyed by (i, j) edge pairs (or a scalar). This
-#     allows the pull-back function to feed per-edge force
-#     densities on the boundary. The pull-back is computed
-#     from the membrane stress at the form-found shape.
+#
+# Updated 2026-10-07:
+#   - Support reactions exposed from solve_fdm.
+#   - solve_fdm_settled added. Second-pass solve on an accepted
+#     form, using settled force densities rather than the user's
+#     form-finding pretensions.
 #
 # Reference:
 #   Schek, H.-J. (1974). The force density method for form-finding
@@ -79,7 +92,7 @@ def mesh_size_for_span(span_m):
 
 
 # =============================================================================
-# FDM SOLVER
+# FDM SOLVER - PASS 1 (FORM FINDING)
 # =============================================================================
 
 def solve_fdm(points, edges, fixed_indices, force_densities,
@@ -173,15 +186,20 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
 
     # -------------------------------------------------------------------------
     # Support reactions.
-    # The residual at a fixed node is the net force the structure applies
-    # to the support. The reaction is the force the support applies back,
-    # so it is the negative of that residual.
+    # At a fixed node, the residual is the net force the structure
+    # applies to the support. The reaction is the force the support
+    # applies back, so it is the negative of that residual.
     #
-    # Units: the K matrix uses force density q in N/m and coordinates in
-    # metres, so K @ X is in newtons. Divide by 1000 to return kilo-newtons,
-    # matching the "_kN" field names every consumer uses.
+    # Units: K uses q in N/m and coordinates in metres, so K @ X is
+    # in newtons. Divide by 1000 to return kilo-newtons.
     #
-    # Sign convention: uplift is positive Z, downforce is negative Z.
+    # These are the reactions of the form-finding state. They are the
+    # forces required to hold the shape as pulled into existence by
+    # the user's chosen pretensions. They are NOT the settled
+    # reactions of the physical structure. Use solve_fdm_settled for
+    # those.
+    #
+    # Sign convention: uplift positive Z, downforce negative Z.
     # -------------------------------------------------------------------------
     reactions = np.zeros((n, 3), dtype=float)
     for i in fixed_indices:
@@ -193,6 +211,92 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         "n_free": int(free_all.sum()),
         "n_fixed": int(fixed_mask.sum()),
         "reactions": reactions,
+    }
+
+
+# =============================================================================
+# FDM SOLVER - PASS 2 (SETTLED STATE)
+# =============================================================================
+
+def solve_fdm_settled(settled_points, edges, fixed_indices,
+                      settled_q):
+    """
+    Solve the settled state of an already form-found shape.
+
+    The two-pass workflow:
+
+        Pass 1 - solve_fdm. The user's chosen pretensions are used
+                 as force densities. The shape falls out.
+        Pass 2 - solve_fdm_settled. The shape is accepted. The
+                 settled force densities are used to compute the
+                 real reactions of the settled structure.
+
+    The shape does not move. The function computes the force
+    balance at every node; at fixed nodes that balance is the
+    reaction.
+
+    Parameters
+    ----------
+    settled_points : (n, 3) array of settled coordinates
+    edges : list of (i, j)
+    fixed_indices : list of fixed node indices
+    settled_q : (m,) array of settled force densities, N/m
+
+    Returns
+    -------
+    dict with keys: coordinates, reactions, residual_norm,
+                    n_free, n_fixed
+    """
+    points = np.asarray(settled_points, dtype=float)
+    edges = list(edges)
+    fixed_indices = list(fixed_indices)
+
+    n = points.shape[0]
+    m = len(edges)
+
+    if n == 0:
+        raise ValueError("No nodes supplied.")
+    if m == 0:
+        raise ValueError("No edges supplied.")
+
+    q = np.asarray(settled_q, dtype=float)
+    if q.shape[0] != m:
+        raise ValueError(
+            "settled_q length %d does not match edges %d"
+            % (q.shape[0], m)
+        )
+
+    fixed_mask = np.zeros(n, dtype=bool)
+    for i in fixed_indices:
+        if i < 0 or i >= n:
+            raise ValueError("fixed index %d out of range" % i)
+        fixed_mask[i] = True
+
+    K = np.zeros((n, n), dtype=float)
+    for k, (i, j) in enumerate(edges):
+        qk = float(q[k])
+        K[i, i] += qk
+        K[j, j] += qk
+        K[i, j] -= qk
+        K[j, i] -= qk
+
+    loads = np.zeros((n, 3), dtype=float)
+    residual = K @ points - loads
+
+    reactions = np.zeros((n, 3), dtype=float)
+    for i in fixed_indices:
+        reactions[i, :] = -residual[i, :] / 1000.0
+
+    free_all = ~fixed_mask
+    residual_norm = float(np.linalg.norm(residual[free_all])) \
+        if free_all.any() else 0.0
+
+    return {
+        "coordinates": points.copy(),
+        "reactions": reactions,
+        "residual_norm": residual_norm,
+        "n_free": 0,
+        "n_fixed": int(fixed_mask.sum()),
     }
 
 
@@ -221,26 +325,6 @@ def assign_anisotropic_q(
     Interior edges use the anisotropic fabric blend.
     Boundary edges use either a uniform value, or a
     per-edge dict of values.
-
-    Parameters
-    ----------
-    edges : list of (i, j)
-    points_2d : (n, 2) array
-    warp_dir : (2,) unit vector
-    warp_q, weft_q : float
-    n_boundary : int or None
-    boundary_edge_q : float or dict
-        If scalar, all boundary edges use this value.
-        If dict, keyed by (i, j) in sorted order.
-        Missing keys fall back to warp_q.
-        Can be a numpy array of length len(edges).
-    boundary_edge_type : list of str or None
-        One per edge, giving "beam", "cable", "wall".
-        Used only if boundary_edge_q is scalar.
-
-    Returns
-    -------
-    q : (m,) array
     """
     edges = list(edges)
     points_2d = np.asarray(points_2d, dtype=float)
@@ -269,14 +353,12 @@ def assign_anisotropic_q(
                 key = _edge_key(int(a), int(b))
                 val = boundary_edge_q.get(key, None)
                 if val is None:
-                    # Try reversed key (defensive)
                     val = boundary_edge_q.get((key[1], key[0]), None)
                 if val is not None:
                     q[k] = float(val)
                     continue
                 q[k] = float(warp_q)
                 continue
-            # Interior edge: anisotropic blend.
             pa = points_2d[a]
             pb = points_2d[b]
             d = pb - pa
@@ -330,7 +412,7 @@ def assign_anisotropic_q(
             q[k] = float(warp_q) * cos2 + float(weft_q) * sin2
         return q
 
-    # --- Case 3: scalar boundary_edge_q. Original behaviour.
+    # --- Case 3: scalar boundary_edge_q.
     if boundary_edge_q is None:
         boundary_edge_q_scalar = float(warp_q)
     else:
@@ -584,6 +666,31 @@ def _test_mesh_size_for_shape():
     }
 
 
+def _test_settled_matches_pass1_when_q_unchanged():
+    """
+    If the settled q equals the form-finding q, the settled solve
+    should give the same reactions as the form-finding solve.
+    """
+    points = [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+    ]
+    edges = [(0, 1), (1, 2)]
+    fixed = [0, 2]
+    q = np.array([1000.0, 1000.0])
+
+    res1 = solve_fdm(points, edges, fixed, q)
+    res2 = solve_fdm_settled(
+        res1["coordinates"], edges, fixed, q,
+    )
+
+    diff = float(np.max(np.abs(res1["reactions"] - res2["reactions"])))
+    ok = diff < 1e-9
+
+    return {"ok": ok, "diff": diff}
+
+
 def _verify_form_finding():
     results = {}
 
@@ -614,6 +721,10 @@ def _verify_form_finding():
     results["mesh_tri_near_22"] = t4["tri_near_22"]
     results["mesh_rule_ok"] = t4["mesh_rule_ok"]
 
+    t5 = _test_settled_matches_pass1_when_q_unchanged()
+    results["settled_match_ok"] = t5["ok"]
+    results["settled_match_diff"] = t5["diff"]
+
     results["pass"] = all([
         results["flat_converged"],
         results["flat_ok"],
@@ -621,6 +732,7 @@ def _verify_form_finding():
         results["saddle_ok"],
         results["z_only_ok"],
         results["mesh_rule_ok"],
+        results["settled_match_ok"],
     ])
 
     return results
@@ -658,5 +770,9 @@ if __name__ == "__main__":
     print("  rect span None   :", res["mesh_rect_none"])
     print("  tri  near 22 m   :", res["mesh_tri_near_22"])
     print("  mesh_rule_ok     :", res["mesh_rule_ok"])
+    print()
+    print("Test 5 - Settled solve matches pass 1 when q unchanged")
+    print("  settled_match_ok :", res["settled_match_ok"])
+    print("  max reaction diff: %.6e" % res["settled_match_diff"])
     print("-" * 70)
     print("GATE:", "PASS" if res["pass"] else "FAIL")
