@@ -16,7 +16,6 @@
 #            - Structural Analysis Report.
 #            - Bill of Quantities.
 #            - Member Schedule.
-#            Content added in later sessions.
 #
 #   Zone 3 - Engineering bench. Owner only. Never visible to
 #            any customer, at any price.
@@ -47,6 +46,9 @@
 #                Derived quantities only, no raw q in Zone 2.
 #                Report gated on FDM path. NFDM shows reminder.
 #                Drainage check: 15 deg rain / 28 deg snow.
+#   2026-10-07 - Report wired to engine/member_sizing.py.
+#                Sections 3, 4, 6 now carry real design forces.
+#                Base condition read from ws_ss_base_condition.
 # =============================================================================
 
 import math
@@ -69,6 +71,7 @@ from engine.nonlinear_equilibrium import (
     pullback_cable_initial_tensions,
 )
 from engine.form_finding import solve_fdm, assign_anisotropic_q, auto_warp_dir
+from engine.member_sizing import design_forces_from_built
 from data.materials import CABLE_PROPERTIES, FABRIC_PROPERTIES
 from data.structures import get_member_schema, expand_beam_rows
 
@@ -590,6 +593,9 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         "L_anchor_m": float(total) / max(1.0, float(anchor_count - 1)),
         "top_displacements": [],
         "structural_connections": [],
+        "fixed_indices": [int(i) for i in fixed_indices],
+        "reactions": fdm_result.get("reactions", None),
+        "variant_key": "standard_saddle",
     }
 
     return {
@@ -788,6 +794,9 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
         "cable_tensions": res.get("cable_tension", []),
         "q_path": "n/a (nfdm)",
         "L_anchor_m": float(total) / max(1.0, float(anchor_count - 1)),
+        "fixed_indices": [int(i) for i in fixed_indices],
+        "reactions": res.get("reactions", None),
+        "variant_key": "standard_saddle",
     }
 
     return {
@@ -856,17 +865,9 @@ def _cached_nfdm(span, apex, rise, curve_type,
 # array is read internally for Section 4's membrane edge forces and
 # is never placed in the payload.
 #
-# Sections computable today (FDM path):
-#   2  Form-found geometry       - from coords, boundary_loop, anchor_pos
-#   4  Membrane edge forces      - from q x L on every edge
-#   6  Member schedule           - from data/structures.py MEMBER_SCHEMA
-#   8  Drainage check            - from coords, triangles, slope threshold
-#
-# Sections named and pending:
-#   3  Reactions                 - FDM solver does not expose them yet
-#   5  Membrane stresses         - requires NFDM (converged at scale)
-#   7  Cable sag                 - requires catenary solve
-#   9  Bill of quantities        - requires member sizing layer
+# Design forces are read from engine/member_sizing.py. Sections 3, 4,
+# and 6 now carry real numbers. Utilisation and result columns remain
+# "--" until the section selection layer is built.
 #
 # Drainage thresholds (Chief's working practice, subject to code
 # override when data/codes.py is built):
@@ -894,12 +895,18 @@ def _build_structural_report(
     fabric_grade,
     attachment_type,
     snow_in_brief,
+    base_condition,
+    code,
 ):
     """
     Build the structural report payload from the FDM (Stage 1) result.
     All quantities are derived. No raw q values appear in the payload.
     """
     report = {}
+
+    design_forces = design_forces_from_built(
+        built, code=code, base_condition=base_condition,
+    )
 
     # -------------------------------------------------------------------------
     # Section 1 - Design basis
@@ -926,13 +933,16 @@ def _build_structural_report(
             "edge_cable_pretension_kN": float(diag.get("edge_pretension_kN", 0.0)),
             "edge_cable_pretension_source": str(diag.get("edge_pretension_source", "?")),
         },
+        "base_condition": str(base_condition),
+        "code": str(code) if code else "MY (default)",
         "load_cases": (
             "Prestress only. Wind, snow, imposed, and seismic load "
             "cases are not included in this draft."
         ),
-        "code": (
-            "No design code has been selected. Section checks are "
-            "not performed in this draft."
+        "code_checks": (
+            "Design forces are computed with partial factors applied "
+            "(gamma_G from data/constants.py). Section selection and "
+            "code checks are not performed in this draft."
         ),
     }
 
@@ -964,72 +974,59 @@ def _build_structural_report(
     }
 
     # -------------------------------------------------------------------------
-    # Section 3 - Reactions (pending)
+    # Section 3 - Reactions (now from the solver)
     # -------------------------------------------------------------------------
+    reactions = diag.get("reactions", None)
+    fixed_indices = diag.get("fixed_indices", None)
+    reaction_rows = []
+    if reactions is not None and fixed_indices is not None:
+        reactions = np.asarray(reactions, dtype=float)
+        for idx in fixed_indices:
+            idx = int(idx)
+            if idx < 0 or idx >= reactions.shape[0]:
+                continue
+            r = reactions[idx]
+            reaction_rows.append({
+                "node_index": idx,
+                "x_kN": float(r[0]),
+                "y_kN": float(r[1]),
+                "z_kN": float(r[2]),
+                "mag_kN": float(np.linalg.norm(r)),
+            })
+
     report["reactions"] = {
-        "status": "pending",
-        "note": (
-            "Support reactions are not yet computed. They require the "
-            "force balance at the fixed boundary nodes, which the FDM "
-            "solver assembles internally but does not currently return. "
-            "This will be added in a later session."
+        "status": "ok" if reaction_rows else "pending",
+        "rows": reaction_rows,
+        "model": (
+            "Support reactions from the FDM solver residual at the "
+            "fixed nodes. Uplift positive Z, downforce negative Z."
         ),
-        "rows": [],
+        "note": (
+            "" if reaction_rows else
+            "Support reactions are not yet available. This section will "
+            "fill in when the solver returns reaction data."
+        ),
     }
 
     # -------------------------------------------------------------------------
-    # Section 4 - Membrane edge forces (from q x L)
+    # Section 4 - Member forces (from engine/member_sizing.py)
     # -------------------------------------------------------------------------
-    # Derived quantity only. The q array is read here and discarded.
-    # It does not appear in the payload.
-    edges = built["edges"]
-    q_vals = built["q"]
-    n_boundary_pts = int(boundary_loop.shape[0])
-
-    interior_forces_N = []
-    boundary_forces_N = []
-    for k in range(len(edges)):
-        a, b = int(edges[k][0]), int(edges[k][1])
-        pa = coords[a]
-        pb = coords[b]
-        L = float(np.linalg.norm(pb - pa))
-        if L < 1e-12:
-            continue
-        N_edge = float(q_vals[k]) * L
-        is_boundary = (
-            n_boundary_pts > 0
-            and a < n_boundary_pts
-            and b < n_boundary_pts
-            and (abs(a - b) == 1 or abs(a - b) == n_boundary_pts - 1)
-        )
-        if is_boundary:
-            boundary_forces_N.append(N_edge)
-        else:
-            interior_forces_N.append(N_edge)
-
-    def _summary(vals):
-        if not vals:
-            return {"n": 0, "min_N": 0.0, "max_N": 0.0, "mean_N": 0.0}
-        return {
-            "n": len(vals),
-            "min_N": float(np.min(vals)),
-            "max_N": float(np.max(vals)),
-            "mean_N": float(np.mean(vals)),
-        }
+    membrane = design_forces["membrane"]
+    edge_cable = design_forces["edge_cable"]
+    beam = design_forces["beam"]
+    tiedown = design_forces["tiedown"]
 
     report["member_forces"] = {
-        "membrane_interior": _summary(interior_forces_N),
-        "membrane_boundary": _summary(boundary_forces_N),
-        "beam": {"status": "pending",
-                 "note": "Beam forces require the member sizing layer."},
-        "tiedown": {"status": "pending",
-                    "note": "Tie-down forces require the member sizing layer."},
-        "edge_cable": {"status": "pending",
-                       "note": "Edge cable forces require the member sizing layer."},
+        "membrane": membrane,
+        "edge_cable": edge_cable,
+        "beam": beam,
+        "tiedown": tiedown,
+        "partial_factors": design_forces["partial_factors"],
         "note": (
-            "Membrane edge forces are derived as N = q x L on every edge "
-            "of the form-found mesh. Beam, tie-down, and edge cable forces "
-            "require engine/member_sizing.py, which is not yet built."
+            "Design forces with partial factors applied. Membrane is "
+            "q x L per edge. Edge cable is the resultant along each "
+            "segment. Beam is a continuous beam over all supports. "
+            "Tie-down is the reaction resolved along the cable axis."
         ),
     }
 
@@ -1046,10 +1043,17 @@ def _build_structural_report(
     }
 
     # -------------------------------------------------------------------------
-    # Section 6 - Member schedule (from data/structures.py)
+    # Section 6 - Member schedule (from data/structures.py schema)
     # -------------------------------------------------------------------------
     schema = get_member_schema("saddle_span", "standard_saddle")
     member_rows = []
+
+    # Design force per member group, for display.
+    membrane_max_kN = float(membrane.get("max_kN", 0.0))
+    edge_cable_max_kN = float(edge_cable.get("max_kN", 0.0))
+    beam_max_kN_m = float(beam.get("max_moment_kN_m", 0.0))
+    tiedown_max_kN = float(tiedown.get("max_kN", 0.0))
+
     if schema is None:
         member_rows = []
         schema_note = (
@@ -1060,16 +1064,16 @@ def _build_structural_report(
             member_rows.append({
                 "label": "Membrane",
                 "section": "--",
-                "design_force": "--",
+                "design_force": "%.1f kN" % membrane_max_kN,
                 "utilisation": "--",
                 "result": "--",
-                "note": "See Section 4 for membrane edge forces.",
+                "note": "Peak in-plane force per edge, factored.",
             })
         for row in schema.get("cables_before_beams", []):
             member_rows.append({
                 "label": row["label"],
                 "section": row["section"],
-                "design_force": "--",
+                "design_force": "%.1f kN" % edge_cable_max_kN,
                 "utilisation": "--",
                 "result": "--",
                 "note": row.get("note", ""),
@@ -1080,10 +1084,10 @@ def _build_structural_report(
                 member_rows.append({
                     "label": schema.get("beam_label_single", "Main Beam"),
                     "section": beam_rows[0]["section"],
-                    "design_force": "--",
+                    "design_force": "%.1f kNm" % beam_max_kN_m,
                     "utilisation": "--",
                     "result": "--",
-                    "note": "",
+                    "note": "Max moment, continuous beam.",
                 })
             else:
                 for br in beam_rows:
@@ -1108,15 +1112,15 @@ def _build_structural_report(
             member_rows.append({
                 "label": row["label"],
                 "section": row["section"],
-                "design_force": "--",
+                "design_force": "%.1f kN" % tiedown_max_kN,
                 "utilisation": "--",
                 "result": "--",
                 "note": row.get("note", ""),
             })
         schema_note = (
-            "Section selection and code checks require data/sections.py "
-            "and a chosen design code. Neither is wired yet. This table "
-            "shows the member groups and their placeholder sections."
+            "Design force column shows factored peak forces. Section "
+            "selection and code checks require data/sections.py and a "
+            "chosen design code. Neither is wired yet."
         )
 
     report["member_sizing"] = {
@@ -1137,7 +1141,7 @@ def _build_structural_report(
     }
 
     # -------------------------------------------------------------------------
-    # Section 8 - Drainage check (computable today)
+    # Section 8 - Drainage check
     # -------------------------------------------------------------------------
     triangles = built["triangles"]
     slopes_deg = []
@@ -1146,11 +1150,11 @@ def _build_structural_report(
         pa = coords[ia]
         pb = coords[ib]
         pc = coords[ic]
-        n = np.cross(pb - pa, pc - pa)
-        mag = float(np.linalg.norm(n))
+        n_vec = np.cross(pb - pa, pc - pa)
+        mag = float(np.linalg.norm(n_vec))
         if mag < 1e-12:
             continue
-        nz = abs(float(n[2])) / mag
+        nz = abs(float(n_vec[2])) / mag
         nz_clamped = max(0.0, min(1.0, nz))
         slope_rad = float(np.arcsin(nz_clamped))
         slope_deg = float(np.degrees(slope_rad))
@@ -1187,8 +1191,8 @@ def _build_structural_report(
         "edge_cable_length_m": float(diag.get("edge_cable_length_m", 0.0)),
         "note": (
             "The bill of quantities requires member lengths and weights, "
-            "which require the member sizing layer. The single quantity "
-            "available today is the edge cable length."
+            "which require the section selection layer. The single "
+            "quantity available today is the edge cable length."
         ),
     }
 
@@ -1456,14 +1460,16 @@ def build_standard_saddle():
     # The raw q array is read by the report generator and is not
     # placed in the payload.
     #
-    # Bill of Quantities and Member Schedule are sections of the
-    # report. They will move into their own expanders once the
-    # member sizing layer (engine/member_sizing.py) is built.
+    # Design forces come from engine/member_sizing.py. Sections 3, 4,
+    # and 6 now carry real numbers.
     #
     if _is_high_tier():
         snow_in_brief = bool(
             st.session_state.get("ws_ss_snow_in_brief", False)
         )
+        base_condition = str(
+            st.session_state.get("ws_ss_base_condition", "pinned")
+        ).lower()
 
         if diag["solver"].startswith("NFDM"):
             with st.expander("Structural Analysis Report", expanded=False):
@@ -1489,6 +1495,8 @@ def build_standard_saddle():
                 fabric_grade=fabric_grade,
                 attachment_type=attach_type,
                 snow_in_brief=snow_in_brief,
+                base_condition=base_condition,
+                code="MY",
             )
 
             with st.expander("Structural Analysis Report", expanded=False):
@@ -1521,8 +1529,12 @@ def build_standard_saddle():
                     + "  |  edge cable %.3f kN" % p["edge_cable_pretension_kN"]
                     + " (" + p["edge_cable_pretension_source"] + ")"
                 )
+                st.markdown(
+                    "- Base condition: **" + db["base_condition"] + "**"
+                    + "  |  Code: " + db["code"]
+                )
                 st.caption("**Load cases:** " + db["load_cases"])
-                st.caption("**Code:** " + db["code"])
+                st.caption("**Code checks:** " + db["code_checks"])
 
                 # Section 2 - Form-found geometry
                 st.markdown("### 2. Form-found geometry")
@@ -1544,28 +1556,70 @@ def build_standard_saddle():
                 # Section 3 - Reactions
                 st.markdown("### 3. Reactions")
                 r = report["reactions"]
-                st.caption("Status: " + r["status"])
-                st.caption(r["note"])
+                if r["status"] == "ok":
+                    st.caption(r["model"])
+                    react_table = "  node      Fx (kN)    Fy (kN)    Fz (kN)    |F| (kN)\n"
+                    react_table += "-" * 62 + "\n"
+                    for row in r["rows"]:
+                        react_table += (
+                            "%6d  %10.3f  %10.3f  %10.3f  %10.3f\n"
+                            % (row["node_index"], row["x_kN"],
+                               row["y_kN"], row["z_kN"], row["mag_kN"])
+                        )
+                    st.code(react_table, language="text")
+                else:
+                    st.caption("Status: " + r["status"])
+                    st.caption(r["note"])
 
                 # Section 4 - Member forces
                 st.markdown("### 4. Member forces")
                 mf = report["member_forces"]
-                mi = mf["membrane_interior"]
-                mb = mf["membrane_boundary"]
+                mem = mf["membrane"]
+                ec = mf["edge_cable"]
+                bm = mf["beam"]
+                td = mf["tiedown"]
+
+                st.markdown("**Membrane** — " + mem["model"])
                 st.markdown(
-                    "- Membrane interior: n=" + str(mi["n"])
-                    + "  |  min %.1f N" % mi["min_N"]
-                    + "  |  mean %.1f N" % mi["mean_N"]
-                    + "  |  max %.1f N" % mi["max_N"]
+                    "- n=" + str(mem["n"])
+                    + "  |  min %.1f kN" % mem["min_kN"]
+                    + "  |  mean %.1f kN" % mem["mean_kN"]
+                    + "  |  **max %.1f kN**" % mem["max_kN"]
                 )
+                st.markdown("**Edge cable** — " + ec["model"])
                 st.markdown(
-                    "- Membrane boundary: n=" + str(mb["n"])
-                    + "  |  min %.1f N" % mb["min_N"]
-                    + "  |  mean %.1f N" % mb["mean_N"]
-                    + "  |  max %.1f N" % mb["max_N"]
+                    "- segments=" + str(ec["n_segments"])
+                    + "  |  min %.1f kN" % ec["min_kN"]
+                    + "  |  mean %.1f kN" % ec["mean_kN"]
+                    + "  |  **max %.1f kN**" % ec["max_kN"]
                 )
+                st.markdown("**Beam** — " + bm.get("model", ""))
+                if bm.get("status") == "ok":
+                    st.markdown(
+                        "- spans=" + str(bm.get("n_spans", 0))
+                        + "  |  **max moment %.1f kNm**" % bm["max_moment_kN_m"]
+                        + "  |  **max shear %.1f kN**" % bm["max_shear_kN"]
+                    )
+                else:
+                    st.caption("Beam: " + str(bm.get("status", "")))
+                st.markdown("**Tie-down** — " + td.get("model", ""))
+                if td.get("status") == "ok":
+                    st.markdown(
+                        "- n=" + str(td.get("n", 0))
+                        + "  |  min %.1f kN" % td["min_kN"]
+                        + "  |  mean %.1f kN" % td["mean_kN"]
+                        + "  |  **max %.1f kN**" % td["max_kN"]
+                    )
+                else:
+                    st.caption("Tie-down: " + str(td.get("status", "")))
+                pf = mf["partial_factors"]
                 st.caption(
-                    "Beam, tie-down, and edge cable forces: " + mf["beam"]["status"]
+                    "Partial factors: gamma_G = %.2f, gamma_Q_wind = %.2f, "
+                    "gamma_Q_snow = %.2f, gamma_M0 = %.2f, gamma_M1 = %.2f, "
+                    "gamma_M2 = %.2f  (%s)"
+                    % (pf["gamma_G"], pf["gamma_Q_wind"], pf["gamma_Q_snow"],
+                       pf["gamma_M0"], pf["gamma_M1"], pf["gamma_M2"],
+                       pf.get("code", ""))
                 )
                 st.caption(mf["note"])
 
@@ -1577,11 +1631,11 @@ def build_standard_saddle():
                 # Section 6 - Member schedule
                 st.markdown("### 6. Member schedule")
                 ms = report["member_sizing"]
-                sched_table = "  member                     section       force   util   result\n"
-                sched_table += "-" * 78 + "\n"
+                sched_table = "  member                     section       force      util   result\n"
+                sched_table += "-" * 82 + "\n"
                 for row in ms["rows"]:
                     sched_table += (
-                        "  %-26s %-13s %-7s %-6s %-7s\n"
+                        "  %-26s %-13s %-10s %-6s %-7s\n"
                         % (row["label"], row["section"],
                            row["design_force"], row["utilisation"], row["result"])
                     )
