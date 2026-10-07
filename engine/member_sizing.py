@@ -163,7 +163,7 @@ def design_forces_from_built(built, code=None, base_condition="pinned"):
     # pretension to the settled pretension.
     # -------------------------------------------------------------------------
     q_form_finding = np.asarray(built["q"], dtype=float)
-    q_settled = built.get("settled_q", None)
+    q_settled = diag.get("settled_q", None)
     if q_settled is not None:
         q = np.asarray(q_settled, dtype=float)
     else:
