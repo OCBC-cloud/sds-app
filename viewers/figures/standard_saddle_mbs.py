@@ -16,7 +16,7 @@
 #            - Structural Analysis Report.
 #            - Bill of Quantities.
 #            - Member Schedule.
-#            Placeholder today. Content added in later sessions.
+#            Content added in later sessions.
 #
 #   Zone 3 - Engineering bench. Owner only. Never visible to
 #            any customer, at any price.
@@ -43,6 +43,10 @@
 #                Auto-scaled edge cable pretension.
 #   2026-10-07 - Three zones. Owner gate on Zone 3.
 #                Zone 2 placeholder for the report and BQ.
+#   2026-10-07 - Zone 2 Structural Analysis Report. Nine sections.
+#                Derived quantities only, no raw q in Zone 2.
+#                Report gated on FDM path. NFDM shows reminder.
+#                Drainage check: 15 deg rain / 28 deg snow.
 # =============================================================================
 
 import math
@@ -66,6 +70,7 @@ from engine.nonlinear_equilibrium import (
 )
 from engine.form_finding import solve_fdm, assign_anisotropic_q, auto_warp_dir
 from data.materials import CABLE_PROPERTIES, FABRIC_PROPERTIES
+from data.structures import get_member_schema, expand_beam_rows
 
 
 # =============================================================================
@@ -843,6 +848,354 @@ def _cached_nfdm(span, apex, rise, curve_type,
 
 
 # =============================================================================
+# STRUCTURAL REPORT GENERATOR
+# =============================================================================
+#
+# Consumes the built dict and the diagnostics dict, returns a report
+# payload. The payload contains derived quantities only. The raw q
+# array is read internally for Section 4's membrane edge forces and
+# is never placed in the payload.
+#
+# Sections computable today (FDM path):
+#   2  Form-found geometry       - from coords, boundary_loop, anchor_pos
+#   4  Membrane edge forces      - from q x L on every edge
+#   6  Member schedule           - from data/structures.py MEMBER_SCHEMA
+#   8  Drainage check            - from coords, triangles, slope threshold
+#
+# Sections named and pending:
+#   3  Reactions                 - FDM solver does not expose them yet
+#   5  Membrane stresses         - requires NFDM (converged at scale)
+#   7  Cable sag                 - requires catenary solve
+#   9  Bill of quantities        - requires member sizing layer
+#
+# Drainage thresholds (Chief's working practice, subject to code
+# override when data/codes.py is built):
+#   Rain runoff:  minimum 15 degrees
+#   Snow load:    minimum 28 degrees
+# =============================================================================
+
+_DRAINAGE_MIN_RAIN_DEG = 15.0
+_DRAINAGE_MIN_SNOW_DEG = 28.0
+
+
+def _build_structural_report(
+    built,
+    diag,
+    span,
+    apex,
+    rise,
+    curve_type,
+    anchor_count,
+    mesh_spacing,
+    warp_pre,
+    weft_pre,
+    edge_pre,
+    fabric_type,
+    fabric_grade,
+    attachment_type,
+    snow_in_brief,
+):
+    """
+    Build the structural report payload from the FDM (Stage 1) result.
+    All quantities are derived. No raw q values appear in the payload.
+    """
+    report = {}
+
+    # -------------------------------------------------------------------------
+    # Section 1 - Design basis
+    # -------------------------------------------------------------------------
+    report["design_basis"] = {
+        "structure": "Cable Supported Saddle",
+        "geometry": {
+            "span_m": float(span),
+            "apex_m": float(apex),
+            "rise_m": float(rise),
+            "curve_type": str(curve_type),
+            "anchor_count_per_beam": int(anchor_count),
+            "mesh_spacing_m": float(mesh_spacing),
+        },
+        "materials": {
+            "fabric_type": str(fabric_type),
+            "fabric_grade": str(fabric_grade),
+            "edge_cable_type": str(diag.get("edge_cable_type", "6x19")),
+            "edge_cable_material": str(diag.get("edge_cable_material", "stainless")),
+        },
+        "prestress": {
+            "warp_kN_per_m": float(warp_pre),
+            "weft_kN_per_m": float(weft_pre),
+            "edge_cable_pretension_kN": float(diag.get("edge_pretension_kN", 0.0)),
+            "edge_cable_pretension_source": str(diag.get("edge_pretension_source", "?")),
+        },
+        "load_cases": (
+            "Prestress only. Wind, snow, imposed, and seismic load "
+            "cases are not included in this draft."
+        ),
+        "code": (
+            "No design code has been selected. Section checks are "
+            "not performed in this draft."
+        ),
+    }
+
+    # -------------------------------------------------------------------------
+    # Section 2 - Form-found geometry
+    # -------------------------------------------------------------------------
+    coords = built["points"]
+    boundary_loop = built["boundary_loop"]
+    anchor_pos = built["anchor_pos"]
+
+    anchor_rows = []
+    for k in range(anchor_pos.shape[0]):
+        px, py, pz = anchor_pos[k]
+        anchor_rows.append({
+            "index": int(k),
+            "x_m": float(px),
+            "y_m": float(py),
+            "z_m": float(pz),
+        })
+
+    report["form_found_geometry"] = {
+        "n_nodes": int(coords.shape[0]),
+        "n_anchor_loops": int(anchor_pos.shape[0]),
+        "anchor_rows": anchor_rows,
+        "note": (
+            "Boundary coordinates are the form-found anchor positions. "
+            "The membrane pulls the beams inward; the anchors do not move."
+        ),
+    }
+
+    # -------------------------------------------------------------------------
+    # Section 3 - Reactions (pending)
+    # -------------------------------------------------------------------------
+    report["reactions"] = {
+        "status": "pending",
+        "note": (
+            "Support reactions are not yet computed. They require the "
+            "force balance at the fixed boundary nodes, which the FDM "
+            "solver assembles internally but does not currently return. "
+            "This will be added in a later session."
+        ),
+        "rows": [],
+    }
+
+    # -------------------------------------------------------------------------
+    # Section 4 - Membrane edge forces (from q x L)
+    # -------------------------------------------------------------------------
+    # Derived quantity only. The q array is read here and discarded.
+    # It does not appear in the payload.
+    edges = built["edges"]
+    q_vals = built["q"]
+    n_boundary_pts = int(boundary_loop.shape[0])
+
+    interior_forces_N = []
+    boundary_forces_N = []
+    for k in range(len(edges)):
+        a, b = int(edges[k][0]), int(edges[k][1])
+        pa = coords[a]
+        pb = coords[b]
+        L = float(np.linalg.norm(pb - pa))
+        if L < 1e-12:
+            continue
+        N_edge = float(q_vals[k]) * L
+        is_boundary = (
+            n_boundary_pts > 0
+            and a < n_boundary_pts
+            and b < n_boundary_pts
+            and (abs(a - b) == 1 or abs(a - b) == n_boundary_pts - 1)
+        )
+        if is_boundary:
+            boundary_forces_N.append(N_edge)
+        else:
+            interior_forces_N.append(N_edge)
+
+    def _summary(vals):
+        if not vals:
+            return {"n": 0, "min_N": 0.0, "max_N": 0.0, "mean_N": 0.0}
+        return {
+            "n": len(vals),
+            "min_N": float(np.min(vals)),
+            "max_N": float(np.max(vals)),
+            "mean_N": float(np.mean(vals)),
+        }
+
+    report["member_forces"] = {
+        "membrane_interior": _summary(interior_forces_N),
+        "membrane_boundary": _summary(boundary_forces_N),
+        "beam": {"status": "pending",
+                 "note": "Beam forces require the member sizing layer."},
+        "tiedown": {"status": "pending",
+                    "note": "Tie-down forces require the member sizing layer."},
+        "edge_cable": {"status": "pending",
+                       "note": "Edge cable forces require the member sizing layer."},
+        "note": (
+            "Membrane edge forces are derived as N = q x L on every edge "
+            "of the form-found mesh. Beam, tie-down, and edge cable forces "
+            "require engine/member_sizing.py, which is not yet built."
+        ),
+    }
+
+    # -------------------------------------------------------------------------
+    # Section 5 - Membrane stresses (pending)
+    # -------------------------------------------------------------------------
+    report["membrane_stresses"] = {
+        "status": "pending",
+        "note": (
+            "Membrane stresses require the nonlinear (NFDM) solver. "
+            "The FDM path does not compute stresses. This will be "
+            "available when the NFDM path converges at App scale."
+        ),
+    }
+
+    # -------------------------------------------------------------------------
+    # Section 6 - Member schedule (from data/structures.py)
+    # -------------------------------------------------------------------------
+    schema = get_member_schema("saddle_span", "standard_saddle")
+    member_rows = []
+    if schema is None:
+        member_rows = []
+        schema_note = (
+            "No member schema has been defined for this variant yet."
+        )
+    else:
+        if schema.get("membrane_first"):
+            member_rows.append({
+                "label": "Membrane",
+                "section": "--",
+                "design_force": "--",
+                "utilisation": "--",
+                "result": "--",
+                "note": "See Section 4 for membrane edge forces.",
+            })
+        for row in schema.get("cables_before_beams", []):
+            member_rows.append({
+                "label": row["label"],
+                "section": row["section"],
+                "design_force": "--",
+                "utilisation": "--",
+                "result": "--",
+                "note": row.get("note", ""),
+            })
+        if schema.get("beam_expandable"):
+            beam_rows = expand_beam_rows("simple")
+            if len(beam_rows) == 1:
+                member_rows.append({
+                    "label": schema.get("beam_label_single", "Main Beam"),
+                    "section": beam_rows[0]["section"],
+                    "design_force": "--",
+                    "utilisation": "--",
+                    "result": "--",
+                    "note": "",
+                })
+            else:
+                for br in beam_rows:
+                    member_rows.append({
+                        "label": br["label"],
+                        "section": br["section"],
+                        "design_force": "--",
+                        "utilisation": "--",
+                        "result": "--",
+                        "note": br.get("note", ""),
+                    })
+        for row in schema.get("extra_rows_before_cables", []):
+            member_rows.append({
+                "label": row["label"],
+                "section": row["section"],
+                "design_force": "--",
+                "utilisation": "--",
+                "result": "--",
+                "note": row.get("note", ""),
+            })
+        for row in schema.get("cables_last", []):
+            member_rows.append({
+                "label": row["label"],
+                "section": row["section"],
+                "design_force": "--",
+                "utilisation": "--",
+                "result": "--",
+                "note": row.get("note", ""),
+            })
+        schema_note = (
+            "Section selection and code checks require data/sections.py "
+            "and a chosen design code. Neither is wired yet. This table "
+            "shows the member groups and their placeholder sections."
+        )
+
+    report["member_sizing"] = {
+        "rows": member_rows,
+        "note": schema_note,
+    }
+
+    # -------------------------------------------------------------------------
+    # Section 7 - Cable sag check (pending)
+    # -------------------------------------------------------------------------
+    report["cable_sag"] = {
+        "status": "pending",
+        "note": (
+            "Cable sag requires a catenary or parabolic solve of the "
+            "cable under its own weight. The FDM path treats cables as "
+            "force-density edges, not as sagging catenaries."
+        ),
+    }
+
+    # -------------------------------------------------------------------------
+    # Section 8 - Drainage check (computable today)
+    # -------------------------------------------------------------------------
+    triangles = built["triangles"]
+    slopes_deg = []
+    for tri in triangles:
+        ia, ib, ic = int(tri[0]), int(tri[1]), int(tri[2])
+        pa = coords[ia]
+        pb = coords[ib]
+        pc = coords[ic]
+        n = np.cross(pb - pa, pc - pa)
+        mag = float(np.linalg.norm(n))
+        if mag < 1e-12:
+            continue
+        nz = abs(float(n[2])) / mag
+        nz_clamped = max(0.0, min(1.0, nz))
+        slope_rad = float(np.arcsin(nz_clamped))
+        slope_deg = float(np.degrees(slope_rad))
+        slopes_deg.append(slope_deg)
+
+    threshold_deg = _DRAINAGE_MIN_SNOW_DEG if snow_in_brief else _DRAINAGE_MIN_RAIN_DEG
+    n_below = sum(1 for s in slopes_deg if s < threshold_deg)
+
+    report["membrane_gradient"] = {
+        "threshold_deg": float(threshold_deg),
+        "threshold_source": (
+            "snow load brief (working practice: 28 deg minimum)"
+            if snow_in_brief else
+            "rain runoff (working practice: 15 deg minimum)"
+        ),
+        "n_triangles": len(slopes_deg),
+        "n_below_threshold": int(n_below),
+        "min_slope_deg": float(np.min(slopes_deg)) if slopes_deg else 0.0,
+        "max_slope_deg": float(np.max(slopes_deg)) if slopes_deg else 0.0,
+        "mean_slope_deg": float(np.mean(slopes_deg)) if slopes_deg else 0.0,
+        "note": (
+            "Slope is the angle of each triangle plane from horizontal. "
+            "The threshold is the Chief's working practice for rain (15 deg) "
+            "and snow (28 deg), subject to code override when data/codes.py "
+            "is built."
+        ),
+    }
+
+    # -------------------------------------------------------------------------
+    # Section 9 - Bill of quantities (pending)
+    # -------------------------------------------------------------------------
+    report["bq"] = {
+        "status": "pending",
+        "edge_cable_length_m": float(diag.get("edge_cable_length_m", 0.0)),
+        "note": (
+            "The bill of quantities requires member lengths and weights, "
+            "which require the member sizing layer. The single quantity "
+            "available today is the edge cable length."
+        ),
+    }
+
+    return report
+
+
+# =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
 
@@ -1099,14 +1452,173 @@ def build_standard_saddle():
     # ZONE 2 - CUSTOMER DELIVERABLES (Owner, Studio, Beta only)
     # -------------------------------------------------------------------------
     #
-    # Reserved for:
-    #   - Structural Analysis Report
-    #   - Bill of Quantities
-    #   - Member Schedule
+    # The Structural Analysis Report. Derived quantities only.
+    # The raw q array is read by the report generator and is not
+    # placed in the payload.
     #
-    # Content added in later sessions. Empty today.
+    # Bill of Quantities and Member Schedule are sections of the
+    # report. They will move into their own expanders once the
+    # member sizing layer (engine/member_sizing.py) is built.
+    #
     if _is_high_tier():
-        pass
+        snow_in_brief = bool(
+            st.session_state.get("ws_ss_snow_in_brief", False)
+        )
+
+        if diag["solver"].startswith("NFDM"):
+            with st.expander("Structural Analysis Report", expanded=False):
+                st.info(
+                    "The structural report is generated from the FDM "
+                    "(Stage 1) path. Switch solver mode to FDM to view "
+                    "the report."
+                )
+        else:
+            report = _build_structural_report(
+                built=built,
+                diag=diag,
+                span=span,
+                apex=apex,
+                rise=rise,
+                curve_type=curve_type,
+                anchor_count=anchor_count,
+                mesh_spacing=mesh_spacing,
+                warp_pre=warp_pre,
+                weft_pre=weft_pre,
+                edge_pre=edge_pre,
+                fabric_type=fabric_type,
+                fabric_grade=fabric_grade,
+                attachment_type=attach_type,
+                snow_in_brief=snow_in_brief,
+            )
+
+            with st.expander("Structural Analysis Report", expanded=False):
+
+                # Section 1 - Design basis
+                st.markdown("### 1. Design basis")
+                db = report["design_basis"]
+                st.markdown("**Structure:** " + db["structure"])
+                g = db["geometry"]
+                st.markdown(
+                    "- Span: %.2f m" % g["span_m"]
+                    + "  |  Apex: %.2f m" % g["apex_m"]
+                    + "  |  Rise: %.2f m" % g["rise_m"]
+                )
+                st.markdown(
+                    "- Curve: " + g["curve_type"]
+                    + "  |  Anchors per beam: " + str(g["anchor_count_per_beam"])
+                    + "  |  Mesh spacing: %.2f m" % g["mesh_spacing_m"]
+                )
+                m = db["materials"]
+                st.markdown(
+                    "- Fabric: " + m["fabric_type"] + " / " + m["fabric_grade"]
+                    + "  |  Edge cable: " + m["edge_cable_type"]
+                    + " / " + m["edge_cable_material"]
+                )
+                p = db["prestress"]
+                st.markdown(
+                    "- Prestress: warp %.2f kN/m" % p["warp_kN_per_m"]
+                    + "  |  weft %.2f kN/m" % p["weft_kN_per_m"]
+                    + "  |  edge cable %.3f kN" % p["edge_cable_pretension_kN"]
+                    + " (" + p["edge_cable_pretension_source"] + ")"
+                )
+                st.caption("**Load cases:** " + db["load_cases"])
+                st.caption("**Code:** " + db["code"])
+
+                # Section 2 - Form-found geometry
+                st.markdown("### 2. Form-found geometry")
+                fg = report["form_found_geometry"]
+                st.markdown(
+                    "- Nodes: " + str(fg["n_nodes"])
+                    + "  |  Anchor loops: " + str(fg["n_anchor_loops"])
+                )
+                st.caption(fg["note"])
+                anchor_table = "  idx      x (m)      y (m)      z (m)\n"
+                anchor_table += "-" * 44 + "\n"
+                for row in fg["anchor_rows"]:
+                    anchor_table += (
+                        "%5d  %9.4f  %9.4f  %9.4f\n"
+                        % (row["index"], row["x_m"], row["y_m"], row["z_m"])
+                    )
+                st.code(anchor_table, language="text")
+
+                # Section 3 - Reactions
+                st.markdown("### 3. Reactions")
+                r = report["reactions"]
+                st.caption("Status: " + r["status"])
+                st.caption(r["note"])
+
+                # Section 4 - Member forces
+                st.markdown("### 4. Member forces")
+                mf = report["member_forces"]
+                mi = mf["membrane_interior"]
+                mb = mf["membrane_boundary"]
+                st.markdown(
+                    "- Membrane interior: n=" + str(mi["n"])
+                    + "  |  min %.1f N" % mi["min_N"]
+                    + "  |  mean %.1f N" % mi["mean_N"]
+                    + "  |  max %.1f N" % mi["max_N"]
+                )
+                st.markdown(
+                    "- Membrane boundary: n=" + str(mb["n"])
+                    + "  |  min %.1f N" % mb["min_N"]
+                    + "  |  mean %.1f N" % mb["mean_N"]
+                    + "  |  max %.1f N" % mb["max_N"]
+                )
+                st.caption(
+                    "Beam, tie-down, and edge cable forces: " + mf["beam"]["status"]
+                )
+                st.caption(mf["note"])
+
+                # Section 5 - Membrane stresses
+                st.markdown("### 5. Membrane stresses")
+                st.caption("Status: " + report["membrane_stresses"]["status"])
+                st.caption(report["membrane_stresses"]["note"])
+
+                # Section 6 - Member schedule
+                st.markdown("### 6. Member schedule")
+                ms = report["member_sizing"]
+                sched_table = "  member                     section       force   util   result\n"
+                sched_table += "-" * 78 + "\n"
+                for row in ms["rows"]:
+                    sched_table += (
+                        "  %-26s %-13s %-7s %-6s %-7s\n"
+                        % (row["label"], row["section"],
+                           row["design_force"], row["utilisation"], row["result"])
+                    )
+                st.code(sched_table, language="text")
+                st.caption(ms["note"])
+
+                # Section 7 - Cable sag check
+                st.markdown("### 7. Cable sag check")
+                st.caption("Status: " + report["cable_sag"]["status"])
+                st.caption(report["cable_sag"]["note"])
+
+                # Section 8 - Membrane gradient check
+                st.markdown("### 8. Membrane gradient check")
+                mg = report["membrane_gradient"]
+                st.markdown(
+                    "- Threshold: %.1f deg (%s)"
+                    % (mg["threshold_deg"], mg["threshold_source"])
+                )
+                st.markdown(
+                    "- Triangles: " + str(mg["n_triangles"])
+                    + "  |  below threshold: " + str(mg["n_below_threshold"])
+                )
+                st.markdown(
+                    "- Slope min %.2f deg" % mg["min_slope_deg"]
+                    + "  |  mean %.2f deg" % mg["mean_slope_deg"]
+                    + "  |  max %.2f deg" % mg["max_slope_deg"]
+                )
+                st.caption(mg["note"])
+
+                # Section 9 - Bill of quantities
+                st.markdown("### 9. Bill of quantities")
+                bq = report["bq"]
+                st.caption("Status: " + bq["status"])
+                st.markdown(
+                    "- Edge cable length: %.3f m" % bq["edge_cable_length_m"]
+                )
+                st.caption(bq["note"])
 
     # -------------------------------------------------------------------------
     # ZONE 3 - ENGINEERING BENCH (Owner only)
