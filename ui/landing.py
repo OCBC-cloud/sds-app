@@ -24,6 +24,11 @@
 #   - Removed the experimental tester buttons from the landing page.
 #     They now live on the Lab page (ui/lab.py), reachable only by
 #     setting st.session_state.page = "lab".
+# Updated 2026-10-09:
+#   - One small "Lab" button at the bottom of the page, below the
+#     footer. It is the single door into the Lab. The Lab page holds
+#     the internal test pages. It is not emphasised and it sits below
+#     the customer-facing content.
 # =============================================================================
 
 import streamlit as st
@@ -107,6 +112,23 @@ LANDING_CSS = """
         text-align: center;
         margin-top: 1rem;
     }
+
+    /* Quiet, small, at the very bottom. Not part of the main block. */
+    .landing-lab-divider {
+        height: 1px;
+        background-color: #1e2a3a;
+        margin: 2rem auto 1rem auto;
+        border: none;
+        max-width: 220px;
+    }
+    .landing-lab-label {
+        font-size: 0.72rem;
+        color: #566073;
+        letter-spacing: 1.5px;
+        text-align: center;
+        margin-bottom: 0.4rem;
+        text-transform: uppercase;
+    }
     </style>
 """
 
@@ -122,7 +144,7 @@ def render_landing():
     """
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    # ---- One single HTML block for everything except the button
+    # ---- One single HTML block for everything except the buttons
     landing_html = (
         '<div class="landing-block">'
         '<div class="landing-logo">SDSe</div>'
@@ -149,3 +171,19 @@ def render_landing():
         '<div class="landing-footer">All Major Building Code</div>',
         unsafe_allow_html=True,
     )
+
+    # ---- Lab divider and label
+    st.markdown(
+        '<hr class="landing-lab-divider">'
+        '<div class="landing-lab-label">Internal</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- Lab button (small door into the internal test pages)
+    if st.button(
+        "Lab",
+        key="landing_lab",
+        use_container_width=True,
+    ):
+        st.session_state.page = "lab"
+        st.rerun()
