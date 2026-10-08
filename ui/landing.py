@@ -20,6 +20,10 @@
 #   - Added MBS tester button (experimental).
 # Updated 2026-09-28:
 #   - Added renderer test button (Step 2A, temporary).
+# Updated 2026-10-08:
+#   - Removed the experimental tester buttons from the landing page.
+#     They now live on the Lab page (ui/lab.py), reachable only by
+#     setting st.session_state.page = "lab".
 # =============================================================================
 
 import streamlit as st
@@ -103,16 +107,6 @@ LANDING_CSS = """
         text-align: center;
         margin-top: 1rem;
     }
-
-    .landing-test-label {
-        font-size: 0.7rem;
-        color: #7a8fa8;
-        letter-spacing: 1px;
-        text-align: center;
-        margin-top: 1.4rem;
-        margin-bottom: 0.3rem;
-        text-transform: uppercase;
-    }
     </style>
 """
 
@@ -128,7 +122,7 @@ def render_landing():
     """
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    # ---- One single HTML block for everything except the buttons
+    # ---- One single HTML block for everything except the button
     landing_html = (
         '<div class="landing-block">'
         '<div class="landing-logo">SDSe</div>'
@@ -150,37 +144,8 @@ def render_landing():
         st.session_state.page = "studio"
         st.rerun()
 
-    # ---- Temporary experimental button: MBS tester
-    st.markdown(
-        '<div class="landing-test-label">Experimental</div>',
-        unsafe_allow_html=True,
-    )
-    if st.button(
-        "Open MBS Tester",
-        key="landing_tester_mbs",
-        use_container_width=True,
-        type="secondary",
-    ):
-        st.session_state.page = "tester_mbs"
-        st.rerun()
-
-    # ---- Temporary experimental button: renderer test (Step 2A)
-    if st.button(
-        "Open Renderer Test",
-        key="landing_renderer_test",
-        use_container_width=True,
-        type="secondary",
-    ):
-        st.session_state.page = "renderer_test"
-        st.rerun()
-
     # ---- Footer
     st.markdown(
         '<div class="landing-footer">All Major Building Code</div>',
         unsafe_allow_html=True,
     )
-
-
-
-
-
