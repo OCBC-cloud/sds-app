@@ -10,6 +10,9 @@
 #   - Added tester_mbs route (experimental, MBS engine test).
 # Updated 2026-09-28:
 #   - Added renderer_test route (Step 2A, temporary).
+# Updated 2026-10-08:
+#   - Added lab route. Internal test pages moved to the Lab.
+#     The Lab is not linked from the landing page.
 # =============================================================================
 
 import streamlit as st
@@ -65,6 +68,11 @@ def _render_guided():
         st.rerun()
 
 
+def _render_lab():
+    from ui.lab import render_lab
+    render_lab()
+
+
 def _render_tester_mbs():
     from ui.workshops.tester_mbs import render_tester_mbs
     render_tester_mbs()
@@ -83,6 +91,7 @@ PAGE_RENDERERS = {
     "results": _render_results,
     "leaf_room": _render_leaf_room,
     "guided": _render_guided,
+    "lab": _render_lab,
     "tester_mbs": _render_tester_mbs,
     "renderer_test": _render_renderer_test,
 }
@@ -95,8 +104,3 @@ def render_current_page():
         st.session_state.page = DEFAULT_PAGE
         renderer = PAGE_RENDERERS[DEFAULT_PAGE]
     renderer()
-
-
-
-
-
