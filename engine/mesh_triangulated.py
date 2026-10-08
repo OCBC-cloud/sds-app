@@ -27,7 +27,7 @@
 #   Anchor                  -> always held.
 #   Segment interior, beam  -> held.
 #   Segment interior, wall  -> held.
-#   Segment interior, cable -> held.
+#   Segment interior, cable -> released.
 #   Interior mesh nodes     -> always released.
 #
 # The cable interior nodes are held because a taut cable in
@@ -336,7 +336,7 @@ def _compute_fixed_indices(boundary_loop, anchor_indices, segment_types):
             fixed.append(i)
             continue
         seg_type = segment_types[seg_idx]
-        if seg_type in ("beam", "wall", "cable"):
+        if seg_type in ("beam", "wall"):
             fixed.append(i)
 
     return sorted(set(fixed))
