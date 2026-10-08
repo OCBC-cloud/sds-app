@@ -1,4 +1,31 @@
 # =============================================================================
+# LEGACY FILE - DO NOT USE IN PRODUCTION
+# =============================================================================
+# This file is the pre-modular version 10.0 of the SDSe App.
+# It is preserved for reference only.
+#
+# The current App is modular. See:
+#   app.py           - entry point
+#   core/            - theme, state, navigation
+#   ui/              - pages
+#   viewers/         - 3D viewers
+#   engine/          - physics engine
+#   data/            - catalogues
+#
+# This legacy file contains working drafts of:
+#   - Wind load calculation (EN 1991-1-4)
+#   - Dead load estimation
+#   - ULS combination (EN 1990 Eq. 6.10)
+#   - Section selection and code checks (bending, buckling,
+#     tension, shear, deflection)
+#   - Bill of quantities generation
+#
+# These are useful references for the code-check layer that the
+# modular App does not yet have. Do not import from this file.
+# Do not run this file as the App entry point.
+# =============================================================================
+
+# =============================================================================
 # SDSe - Intelligent Fluid Design Workplace
 # Version 10.0 - Eurocode-Aligned (EN 1990 + EN 1991 + EN 1993 / MS EN)
 # -----------------------------------------------------------------------------
