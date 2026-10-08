@@ -38,6 +38,15 @@
 #            force densities are used to compute the real
 #            reactions. The report reads from this pass.
 #
+# Boundary path (2026-10-08):
+#   For cable_supported attachment, the boundary between two
+#   adjacent anchors is the straight chord between them, not
+#   the beam curve. The cable is a tension line; it does not
+#   follow the beam's arc. The anchors remain on the beam
+#   curve. The interior boundary nodes lie on the chord.
+#   For kader (beam-supported) attachment, the boundary
+#   follows the beam curve, unchanged.
+#
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
 #   2026-09-30 - Step 5. Rewritten to use the triangulated engine.
@@ -46,21 +55,12 @@
 #   2026-10-05 - Pull-back initial guess. Single-build FDM.
 #                Cache. Loading message. Checkbox toggles.
 #   2026-10-06 - FDM path fallback. Digitised node data.
-#                q array print. Mode selector. Threshold fix.
-#                Auto-scaled edge cable pretension.
 #   2026-10-07 - Three zones. Owner gate on Zone 3.
-#                Zone 2 placeholder for the report and BQ.
 #   2026-10-07 - Zone 2 Structural Analysis Report. Nine sections.
-#                Derived quantities only, no raw q in Zone 2.
-#                Report gated on FDM path. NFDM shows reminder.
-#                Drainage check: 15 deg rain / 28 deg snow.
 #   2026-10-07 - Report wired to engine/member_sizing.py.
-#                Sections 3, 4, 6 now carry real design forces.
-#                Base condition read from ws_ss_base_condition.
-#   2026-10-07 - Settled-state second pass. solve_fdm_settled
-#                is called after the form-finding solve. The
-#                settled reactions feed the report. The form-
-#                finding input no longer inflates the reactions.
+#   2026-10-07 - Settled-state second pass. solve_fdm_settled.
+#   2026-10-08 - Boundary path for cable_supported: straight
+#                chords between anchors, not the beam curve.
 # =============================================================================
 
 import math
@@ -283,6 +283,18 @@ def _summarise_q(edges, q_values, n_boundary):
 
 def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
                           mesh_spacing, attachment_type):
+    """
+    Build the boundary loop.
+
+    For kader (beam-supported): the boundary follows the beam
+    curve. Interior nodes are placed on the beam arc.
+
+    For cable_supported: the boundary between two adjacent
+    anchors is the straight chord between them. Interior nodes
+    are placed on the chord. The anchors themselves stay on
+    the beam curve. The cable is a tension line; it does not
+    follow the beam's arc.
+    """
     n_pts = len(x)
     s, total = arclength_parametrisation(x, z_beam)
     if total <= 0:
@@ -304,6 +316,8 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
         if sub > 20:
             sub = 20
 
+    is_cable = str(attachment_type).lower() == "cable_supported"
+
     def _beam_points(y_curve, reverse=False):
         pts = []
         anchors_local = []
@@ -317,12 +331,30 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
             if k < anchor_count - 1 and sub > 0:
                 a0 = arc_targets[k]
                 a1 = arc_targets[k + 1]
+
+                # Anchor point A (start of the span).
+                ax = float(np.interp(a0, s, x))
+                ay = float(np.interp(a0, s, y_curve))
+                az = float(np.interp(a0, s, z_beam))
+
+                # Anchor point B (end of the span).
+                bxp = float(np.interp(a1, s, x))
+                byp = float(np.interp(a1, s, y_curve))
+                bzp = float(np.interp(a1, s, z_beam))
+
                 for j in range(1, sub + 1):
                     frac = float(j) / float(sub + 1)
-                    tm = a0 + (a1 - a0) * frac
-                    mx = float(np.interp(tm, s, x))
-                    mz = float(np.interp(tm, s, z_beam))
-                    my = float(np.interp(tm, s, y_curve))
+                    if is_cable:
+                        # Straight chord between the two anchors.
+                        mx = ax + (bxp - ax) * frac
+                        my = ay + (byp - ay) * frac
+                        mz = az + (bzp - az) * frac
+                    else:
+                        # Follow the beam curve.
+                        tm = a0 + (a1 - a0) * frac
+                        mx = float(np.interp(tm, s, x))
+                        mz = float(np.interp(tm, s, z_beam))
+                        my = float(np.interp(tm, s, y_curve))
                     pts.append((mx, my, mz))
         if reverse:
             n = len(pts)
@@ -368,7 +400,7 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
             "interior": interior,
         })
 
-    if str(attachment_type).lower() == "cable_supported":
+    if is_cable:
         seg_types = ["cable"] * n_a
     else:
         seg_types = ["beam"] * n_a
@@ -939,20 +971,6 @@ def _cached_nfdm(span, apex, rise, curve_type,
 # =============================================================================
 # STRUCTURAL REPORT GENERATOR
 # =============================================================================
-#
-# Consumes the built dict and the diagnostics dict, returns a report
-# payload. The payload contains derived quantities only. The raw q
-# array is read internally and is never placed in the payload.
-#
-# Design forces are read from engine/member_sizing.py. That module
-# prefers settled_reactions (Pass 2) over form-finding reactions
-# (Pass 1). Sections 3, 4, 6 carry the settled numbers.
-#
-# Drainage thresholds (Chief's working practice, subject to code
-# override when data/codes.py is built):
-#   Rain runoff:  minimum 15 degrees
-#   Snow load:    minimum 28 degrees
-# =============================================================================
 
 _DRAINAGE_MIN_RAIN_DEG = 15.0
 _DRAINAGE_MIN_SNOW_DEG = 28.0
@@ -1031,6 +1049,12 @@ def _build_structural_report(
             "and the engine-computed boundary force density. The "
             "form-finding pretensions do not carry through to the "
             "reported reactions."
+        ),
+        "boundary_note": (
+            "The boundary between two adjacent anchors is the straight "
+            "chord between them. The cable is a tension line and does "
+            "not follow the beam's arc. The anchors themselves are on "
+            "the beam curve. The membrane is bounded by the cable chords."
         ),
     }
 
@@ -1625,6 +1649,7 @@ def build_standard_saddle():
                 st.caption("**Load cases:** " + db["load_cases"])
                 st.caption("**Code checks:** " + db["code_checks"])
                 st.caption("**Two-pass note:** " + db["two_pass_note"])
+                st.caption("**Boundary note:** " + db["boundary_note"])
 
                 # Section 2
                 st.markdown("### 2. Form-found geometry")
