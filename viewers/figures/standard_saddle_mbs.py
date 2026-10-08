@@ -47,13 +47,20 @@
 #   For kader (beam-supported) attachment, the boundary
 #   follows the beam curve, unchanged.
 #
+# Interior q scaling (2026-10-08):
+#   The interior membrane q is computed from the target mesh
+#   size (mesh_spacing), not from the boundary average edge
+#   length. The boundary q keeps using the boundary average
+#   edge length. This keeps the interior force density
+#   consistent with the mesh the engine actually builds,
+#   independent of the boundary path length.
+#
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
 #   2026-09-30 - Step 5. Rewritten to use the triangulated engine.
 #   2026-10-04 - Step 2E. Anchors and subdivision.
 #   2026-10-04 - Two-path solver. NFDM for high tiers.
 #   2026-10-05 - Pull-back initial guess. Single-build FDM.
-#                Cache. Loading message. Checkbox toggles.
 #   2026-10-06 - FDM path fallback. Digitised node data.
 #   2026-10-07 - Three zones. Owner gate on Zone 3.
 #   2026-10-07 - Zone 2 Structural Analysis Report. Nine sections.
@@ -61,6 +68,8 @@
 #   2026-10-07 - Settled-state second pass. solve_fdm_settled.
 #   2026-10-08 - Boundary path for cable_supported: straight
 #                chords between anchors, not the beam curve.
+#   2026-10-08 - Interior q computed from mesh_spacing, not
+#                from boundary L_avg.
 # =============================================================================
 
 import math
@@ -506,8 +515,19 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         warp_rel = ratio_limit * weft_rel
     if weft_rel / warp_rel > ratio_limit:
         weft_rel = ratio_limit * warp_rel
-    warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_avg
-    weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_avg
+
+    # Interior q scales with the target mesh edge length, not
+    # with the boundary average edge length. The boundary q
+    # scales with the boundary average edge length. This keeps
+    # the interior force density consistent with the mesh the
+    # engine actually builds, independently of the boundary
+    # path length.
+    if mesh_spacing and mesh_spacing > 0:
+        L_for_interior_q = float(mesh_spacing)
+    else:
+        L_for_interior_q = L_avg
+    warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_for_interior_q
+    weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_for_interior_q
     edge_q_scalar = edge_pre_used * 1000.0 / L_avg
 
     mesh_result = build_mesh_triangulated(
@@ -635,8 +655,8 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     fabric_default_kN_per_m = _read_fabric_default_prestress_kN_per_m(
         fabric_type, fabric_grade
     )
-    settled_warp_q = fabric_default_kN_per_m * 1000.0 / L_avg
-    settled_weft_q = fabric_default_kN_per_m * 1000.0 / L_avg
+    settled_warp_q = fabric_default_kN_per_m * 1000.0 / L_for_interior_q
+    settled_weft_q = fabric_default_kN_per_m * 1000.0 / L_for_interior_q
 
     pts_2d_settled = coords[:, :2]
     warp_dir_settled = auto_warp_dir(pts_2d_settled)
@@ -684,6 +704,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         "n_segments": len(seg_types),
         "target_edge_length": float(target_len) if target_len else 0.0,
         "L_avg": float(L_avg),
+        "L_for_interior_q": float(L_for_interior_q),
         "attachment_type": str(attachment_type),
         "anchor_count": int(anchor_count),
         "mesh_spacing": float(mesh_spacing),
@@ -1816,6 +1837,14 @@ def build_standard_saddle():
             st.markdown(
                 "**Anchor spacing L_anchor:** "
                 + ("%.3f m" % diag.get("L_anchor_m", 0.0))
+            )
+            st.markdown(
+                "**L_avg boundary:** "
+                + ("%.4f m" % diag.get("L_avg", 0.0))
+            )
+            st.markdown(
+                "**L_for_interior_q:** "
+                + ("%.4f m" % diag.get("L_for_interior_q", 0.0))
             )
             st.markdown(
                 "**Settled-state pass:** "
