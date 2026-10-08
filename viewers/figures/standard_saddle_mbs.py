@@ -38,33 +38,29 @@
 #            force densities are used to compute the real
 #            reactions. The report reads from this pass.
 #
-# Boundary path (2026-10-08):
-#   For cable_supported attachment, the boundary between two
-#   adjacent anchors is the straight chord between them, not
-#   the beam curve. The cable is a tension line; it does not
-#   follow the beam's arc. The anchors remain on the beam
-#   curve. The interior boundary nodes lie on the chord.
-#   For kader (beam-supported) attachment, the boundary
-#   follows the beam curve, unchanged.
-#
-# Interior q scaling (2026-10-08):
-#   The interior membrane q is computed from the target mesh
-#   size (mesh_spacing), not from the boundary average edge
-#   length.
-#
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
 #   2026-09-30 - Step 5. Rewritten to use the triangulated engine.
 #   2026-10-04 - Step 2E. Anchors and subdivision.
 #   2026-10-04 - Two-path solver. NFDM for high tiers.
 #   2026-10-05 - Pull-back initial guess. Single-build FDM.
+#                Cache. Loading message. Checkbox toggles.
 #   2026-10-06 - FDM path fallback. Digitised node data.
+#                q array print. Mode selector. Threshold fix.
+#                Auto-scaled edge cable pretension.
 #   2026-10-07 - Three zones. Owner gate on Zone 3.
+#                Zone 2 placeholder for the report and BQ.
 #   2026-10-07 - Zone 2 Structural Analysis Report. Nine sections.
+#                Derived quantities only, no raw q in Zone 2.
+#                Report gated on FDM path. NFDM shows reminder.
+#                Drainage check: 15 deg rain / 28 deg snow.
 #   2026-10-07 - Report wired to engine/member_sizing.py.
-#   2026-10-07 - Settled-state second pass. solve_fdm_settled.
-#   2026-10-08 - Boundary path for cable_supported.
-#   2026-10-08 - Interior q from mesh_spacing.
+#                Sections 3, 4, 6 now carry real design forces.
+#                Base condition read from ws_ss_base_condition.
+#   2026-10-07 - Settled-state second pass. solve_fdm_settled
+#                is called after the form-finding solve. The
+#                settled reactions feed the report. The form-
+#                finding input no longer inflates the reactions.
 # =============================================================================
 
 import math
@@ -287,17 +283,6 @@ def _summarise_q(edges, q_values, n_boundary):
 
 def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
                           mesh_spacing, attachment_type):
-    """
-    Build the boundary loop.
-
-    For kader (beam-supported): the boundary follows the beam
-    curve. Interior nodes are placed on the beam arc.
-
-    For cable_supported: the boundary between two adjacent
-    anchors is the straight chord between them. Interior nodes
-    are placed on the chord. The anchors themselves stay on
-    the beam curve.
-    """
     n_pts = len(x)
     s, total = arclength_parametrisation(x, z_beam)
     if total <= 0:
@@ -319,8 +304,6 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
         if sub > 20:
             sub = 20
 
-    is_cable = str(attachment_type).lower() == "cable_supported"
-
     def _beam_points(y_curve, reverse=False):
         pts = []
         anchors_local = []
@@ -334,26 +317,12 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
             if k < anchor_count - 1 and sub > 0:
                 a0 = arc_targets[k]
                 a1 = arc_targets[k + 1]
-
-                ax = float(np.interp(a0, s, x))
-                ay = float(np.interp(a0, s, y_curve))
-                az = float(np.interp(a0, s, z_beam))
-
-                bxp = float(np.interp(a1, s, x))
-                byp = float(np.interp(a1, s, y_curve))
-                bzp = float(np.interp(a1, s, z_beam))
-
                 for j in range(1, sub + 1):
                     frac = float(j) / float(sub + 1)
-                    if is_cable:
-                        mx = ax + (bxp - ax) * frac
-                        my = ay + (byp - ay) * frac
-                        mz = az + (bzp - az) * frac
-                    else:
-                        tm = a0 + (a1 - a0) * frac
-                        mx = float(np.interp(tm, s, x))
-                        mz = float(np.interp(tm, s, z_beam))
-                        my = float(np.interp(tm, s, y_curve))
+                    tm = a0 + (a1 - a0) * frac
+                    mx = float(np.interp(tm, s, x))
+                    mz = float(np.interp(tm, s, z_beam))
+                    my = float(np.interp(tm, s, y_curve))
                     pts.append((mx, my, mz))
         if reverse:
             n = len(pts)
@@ -399,7 +368,7 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
             "interior": interior,
         })
 
-    if is_cable:
+    if str(attachment_type).lower() == "cable_supported":
         seg_types = ["cable"] * n_a
     else:
         seg_types = ["beam"] * n_a
@@ -429,7 +398,15 @@ def _auto_edge_pretension_kN(arc_total, anchor_count,
     Return the auto-scaled edge cable pretension in kN.
 
     The bow threshold scales with the anchor spacing, not the
-    total span.
+    total span. The threshold is:
+
+        T = N_membrane * L_anchor
+
+    where:
+        N_membrane  = the membrane prestress resultant (N/m),
+                      taken as max(warp_pre, weft_pre).
+        L_anchor    = the distance between two adjacent anchors
+                      along the beam = arc_total / (anchor_count - 1).
     """
     if anchor_count < 2:
         return 0.0
@@ -497,14 +474,8 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         warp_rel = ratio_limit * weft_rel
     if weft_rel / warp_rel > ratio_limit:
         weft_rel = ratio_limit * warp_rel
-
-    if mesh_spacing and mesh_spacing > 0:
-        L_for_interior_q = float(mesh_spacing)
-    else:
-        L_for_interior_q = L_avg
-
-    warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_for_interior_q
-    weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_for_interior_q
+    warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_avg
+    weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_avg
     edge_q_scalar = edge_pre_used * 1000.0 / L_avg
 
     mesh_result = build_mesh_triangulated(
@@ -616,12 +587,24 @@ def _solve_fdm_path(span, apex, rise, curve_type,
 
     # -------------------------------------------------------------------------
     # Settled-state second pass.
+    #
+    # The form-finding q above was used to manipulate the shape. It is a
+    # design lever: it controls the bow depth and the membrane area. It
+    # is not the physical prestress of the settled structure.
+    #
+    # The physical force densities of the settled form are:
+    #   - Interior: the fabric default prestress (from the fabric record)
+    #   - Boundary: the edge_q_scalar the engine already computed as
+    #     necessary to hold the shape (its own fallback answer)
+    #
+    # The settled coordinates are fixed. solve_fdm_settled returns the
+    # reactions of this settled state. Those are the real reactions.
     # -------------------------------------------------------------------------
     fabric_default_kN_per_m = _read_fabric_default_prestress_kN_per_m(
         fabric_type, fabric_grade
     )
-    settled_warp_q = fabric_default_kN_per_m * 1000.0 / L_for_interior_q
-    settled_weft_q = fabric_default_kN_per_m * 1000.0 / L_for_interior_q
+    settled_warp_q = fabric_default_kN_per_m * 1000.0 / L_avg
+    settled_weft_q = fabric_default_kN_per_m * 1000.0 / L_avg
 
     pts_2d_settled = coords[:, :2]
     warp_dir_settled = auto_warp_dir(pts_2d_settled)
@@ -669,7 +652,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         "n_segments": len(seg_types),
         "target_edge_length": float(target_len) if target_len else 0.0,
         "L_avg": float(L_avg),
-        "L_for_interior_q": float(L_for_interior_q),
         "attachment_type": str(attachment_type),
         "anchor_count": int(anchor_count),
         "mesh_spacing": float(mesh_spacing),
@@ -957,6 +939,20 @@ def _cached_nfdm(span, apex, rise, curve_type,
 # =============================================================================
 # STRUCTURAL REPORT GENERATOR
 # =============================================================================
+#
+# Consumes the built dict and the diagnostics dict, returns a report
+# payload. The payload contains derived quantities only. The raw q
+# array is read internally and is never placed in the payload.
+#
+# Design forces are read from engine/member_sizing.py. That module
+# prefers settled_reactions (Pass 2) over form-finding reactions
+# (Pass 1). Sections 3, 4, 6 carry the settled numbers.
+#
+# Drainage thresholds (Chief's working practice, subject to code
+# override when data/codes.py is built):
+#   Rain runoff:  minimum 15 degrees
+#   Snow load:    minimum 28 degrees
+# =============================================================================
 
 _DRAINAGE_MIN_RAIN_DEG = 15.0
 _DRAINAGE_MIN_SNOW_DEG = 28.0
@@ -1030,15 +1026,11 @@ def _build_structural_report(
         "two_pass_note": (
             "The shape was found using the user's chosen pretensions "
             "as a design lever. The reactions reported in Section 3 "
-            "come from a second, settled-state solve. The "
+            "come from a second, settled-state solve: the accepted "
+            "shape, with the fabric default prestress in the interior "
+            "and the engine-computed boundary force density. The "
             "form-finding pretensions do not carry through to the "
             "reported reactions."
-        ),
-        "boundary_note": (
-            "The boundary between two adjacent anchors is the straight "
-            "chord between them. The cable is a tension line and does "
-            "not follow the beam's arc. The anchors themselves are on "
-            "the beam curve. The membrane is bounded by the cable chords."
         ),
     }
 
@@ -1342,6 +1334,10 @@ def build_standard_saddle():
         )
         return apply_common_layout(fig, 10.0)
 
+    # -------------------------------------------------------------------------
+    # ZONE 1 - CHART AND CONTROLS
+    # -------------------------------------------------------------------------
+
     if _is_high_tier():
         st.markdown("**Solver mode:**")
         mode_choice = st.radio(
@@ -1553,6 +1549,9 @@ def build_standard_saddle():
 
     fig = apply_common_layout(fig, rise)
 
+    # -------------------------------------------------------------------------
+    # ZONE 2 - CUSTOMER DELIVERABLES
+    # -------------------------------------------------------------------------
     if _is_high_tier():
         snow_in_brief = bool(
             st.session_state.get("ws_ss_snow_in_brief", False)
@@ -1591,6 +1590,7 @@ def build_standard_saddle():
 
             with st.expander("Structural Analysis Report", expanded=False):
 
+                # Section 1
                 st.markdown("### 1. Design basis")
                 db = report["design_basis"]
                 st.markdown("**Structure:** " + db["structure"])
@@ -1625,8 +1625,8 @@ def build_standard_saddle():
                 st.caption("**Load cases:** " + db["load_cases"])
                 st.caption("**Code checks:** " + db["code_checks"])
                 st.caption("**Two-pass note:** " + db["two_pass_note"])
-                st.caption("**Boundary note:** " + db["boundary_note"])
 
+                # Section 2
                 st.markdown("### 2. Form-found geometry")
                 fg = report["form_found_geometry"]
                 st.markdown(
@@ -1643,6 +1643,7 @@ def build_standard_saddle():
                     )
                 st.code(anchor_table, language="text")
 
+                # Section 3
                 st.markdown("### 3. Reactions")
                 r = report["reactions"]
                 if r["status"] == "ok":
@@ -1660,6 +1661,7 @@ def build_standard_saddle():
                     st.caption("Status: " + r["status"])
                     st.caption(r["note"])
 
+                # Section 4
                 st.markdown("### 4. Member forces")
                 mf = report["member_forces"]
                 mem = mf["membrane"]
@@ -1711,10 +1713,12 @@ def build_standard_saddle():
                 )
                 st.caption(mf["note"])
 
+                # Section 5
                 st.markdown("### 5. Membrane stresses")
                 st.caption("Status: " + report["membrane_stresses"]["status"])
                 st.caption(report["membrane_stresses"]["note"])
 
+                # Section 6
                 st.markdown("### 6. Member schedule")
                 ms = report["member_sizing"]
                 sched_table = "  member                     section       force      util   result\n"
@@ -1728,10 +1732,12 @@ def build_standard_saddle():
                 st.code(sched_table, language="text")
                 st.caption(ms["note"])
 
+                # Section 7
                 st.markdown("### 7. Cable sag check")
                 st.caption("Status: " + report["cable_sag"]["status"])
                 st.caption(report["cable_sag"]["note"])
 
+                # Section 8
                 st.markdown("### 8. Membrane gradient check")
                 mg = report["membrane_gradient"]
                 st.markdown(
@@ -1749,6 +1755,7 @@ def build_standard_saddle():
                 )
                 st.caption(mg["note"])
 
+                # Section 9
                 st.markdown("### 9. Bill of quantities")
                 bq = report["bq"]
                 st.caption("Status: " + bq["status"])
@@ -1757,6 +1764,9 @@ def build_standard_saddle():
                 )
                 st.caption(bq["note"])
 
+    # -------------------------------------------------------------------------
+    # ZONE 3 - ENGINEERING BENCH (Owner only)
+    # -------------------------------------------------------------------------
     if _is_owner():
         with st.expander("Solver diagnostics", expanded=False):
             st.markdown("**Solver path:** " + str(diag["solver"]))
@@ -1781,14 +1791,6 @@ def build_standard_saddle():
             st.markdown(
                 "**Anchor spacing L_anchor:** "
                 + ("%.3f m" % diag.get("L_anchor_m", 0.0))
-            )
-            st.markdown(
-                "**L_avg boundary:** "
-                + ("%.4f m" % diag.get("L_avg", 0.0))
-            )
-            st.markdown(
-                "**L_for_interior_q:** "
-                + ("%.4f m" % diag.get("L_for_interior_q", 0.0))
             )
             st.markdown(
                 "**Settled-state pass:** "
