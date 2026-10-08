@@ -13,6 +13,9 @@
 # Updated 2026-10-08:
 #   - Added lab route. Internal test pages moved to the Lab.
 #     The Lab is not linked from the landing page.
+# Updated 2026-10-09:
+#   - Added tester_star_diagnostic route. Background test for the
+#     shared cable-membrane boundary node movement.
 # =============================================================================
 
 import streamlit as st
@@ -83,6 +86,11 @@ def _render_renderer_test():
     render_renderer_test()
 
 
+def _render_tester_star_diagnostic():
+    from ui.workshops.tester_star_diagnostic import render_tester_star_diagnostic
+    render_tester_star_diagnostic()
+
+
 PAGE_RENDERERS = {
     "landing": _render_landing,
     "studio": _render_studio,
@@ -94,6 +102,7 @@ PAGE_RENDERERS = {
     "lab": _render_lab,
     "tester_mbs": _render_tester_mbs,
     "renderer_test": _render_renderer_test,
+    "tester_star_diagnostic": _render_tester_star_diagnostic,
 }
 
 
