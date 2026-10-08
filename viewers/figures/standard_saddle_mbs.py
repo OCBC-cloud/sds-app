@@ -803,7 +803,8 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
     T_pre_user_N = edge_pre_used * 1000.0
 
     pullback_tensions = {}
-    pullback_summary = None    if str(attachment_type).lower() == "cable_supported":
+    pullback_summary = None
+    if str(attachment_type).lower() == "cable_supported":
         try:
             pullback_tensions = pullback_cable_initial_tensions(
                 points=points_initial,
