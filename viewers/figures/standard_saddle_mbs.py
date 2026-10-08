@@ -50,10 +50,13 @@
 # Interior q scaling (2026-10-08):
 #   The interior membrane q is computed from the target mesh
 #   size (mesh_spacing), not from the boundary average edge
-#   length. The boundary q keeps using the boundary average
-#   edge length. This keeps the interior force density
-#   consistent with the mesh the engine actually builds,
-#   independent of the boundary path length.
+#   length.
+#
+# Settled-state boundary q (2026-10-08):
+#   The settled pass uses the engine-computed settled edge
+#   pretension, not the user's form-finding edge pretension.
+#   The form-finding input is a design lever; it does not
+#   carry into the settled reactions.
 #
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
@@ -66,10 +69,10 @@
 #   2026-10-07 - Zone 2 Structural Analysis Report. Nine sections.
 #   2026-10-07 - Report wired to engine/member_sizing.py.
 #   2026-10-07 - Settled-state second pass. solve_fdm_settled.
-#   2026-10-08 - Boundary path for cable_supported: straight
-#                chords between anchors, not the beam curve.
-#   2026-10-08 - Interior q computed from mesh_spacing, not
-#                from boundary L_avg.
+#   2026-10-08 - Boundary path for cable_supported.
+#   2026-10-08 - Interior q from mesh_spacing.
+#   2026-10-08 - Settled pass uses engine-computed settled
+#                edge pretension, not the form-finding input.
 # =============================================================================
 
 import math
@@ -301,8 +304,7 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
     For cable_supported: the boundary between two adjacent
     anchors is the straight chord between them. Interior nodes
     are placed on the chord. The anchors themselves stay on
-    the beam curve. The cable is a tension line; it does not
-    follow the beam's arc.
+    the beam curve.
     """
     n_pts = len(x)
     s, total = arclength_parametrisation(x, z_beam)
@@ -341,12 +343,10 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
                 a0 = arc_targets[k]
                 a1 = arc_targets[k + 1]
 
-                # Anchor point A (start of the span).
                 ax = float(np.interp(a0, s, x))
                 ay = float(np.interp(a0, s, y_curve))
                 az = float(np.interp(a0, s, z_beam))
 
-                # Anchor point B (end of the span).
                 bxp = float(np.interp(a1, s, x))
                 byp = float(np.interp(a1, s, y_curve))
                 bzp = float(np.interp(a1, s, z_beam))
@@ -354,12 +354,10 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
                 for j in range(1, sub + 1):
                     frac = float(j) / float(sub + 1)
                     if is_cable:
-                        # Straight chord between the two anchors.
                         mx = ax + (bxp - ax) * frac
                         my = ay + (byp - ay) * frac
                         mz = az + (bzp - az) * frac
                     else:
-                        # Follow the beam curve.
                         tm = a0 + (a1 - a0) * frac
                         mx = float(np.interp(tm, s, x))
                         mz = float(np.interp(tm, s, z_beam))
@@ -438,16 +436,11 @@ def _auto_edge_pretension_kN(arc_total, anchor_count,
     """
     Return the auto-scaled edge cable pretension in kN.
 
-    The bow threshold scales with the anchor spacing, not the
-    total span. The threshold is:
-
-        T = N_membrane * L_anchor
-
-    where:
-        N_membrane  = the membrane prestress resultant (N/m),
-                      taken as max(warp_pre, weft_pre).
-        L_anchor    = the distance between two adjacent anchors
-                      along the beam = arc_total / (anchor_count - 1).
+    This is the engine's own answer to the question "what edge
+    tension does this shape require?". It is used in the
+    form-finding pass when the user leaves the field at zero,
+    and it is used in the settled pass regardless of the user's
+    form-finding input.
     """
     if anchor_count < 2:
         return 0.0
@@ -516,16 +509,11 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     if weft_rel / warp_rel > ratio_limit:
         weft_rel = ratio_limit * warp_rel
 
-    # Interior q scales with the target mesh edge length, not
-    # with the boundary average edge length. The boundary q
-    # scales with the boundary average edge length. This keeps
-    # the interior force density consistent with the mesh the
-    # engine actually builds, independently of the boundary
-    # path length.
     if mesh_spacing and mesh_spacing > 0:
         L_for_interior_q = float(mesh_spacing)
     else:
         L_for_interior_q = L_avg
+
     warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_for_interior_q
     weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_for_interior_q
     edge_q_scalar = edge_pre_used * 1000.0 / L_avg
@@ -640,23 +628,32 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     # -------------------------------------------------------------------------
     # Settled-state second pass.
     #
-    # The form-finding q above was used to manipulate the shape. It is a
-    # design lever: it controls the bow depth and the membrane area. It
-    # is not the physical prestress of the settled structure.
+    # The form-finding q above was used to manipulate the shape.
+    # It is a design lever: it controls the bow depth and the
+    # membrane area. It is not the physical prestress of the
+    # settled structure.
     #
-    # The physical force densities of the settled form are:
-    #   - Interior: the fabric default prestress (from the fabric record)
-    #   - Boundary: the edge_q_scalar the engine already computed as
-    #     necessary to hold the shape (its own fallback answer)
+    # The settled pass uses:
+    #   - Interior q: the fabric default prestress, on mesh_spacing.
+    #   - Boundary q: the engine-computed settled edge pretension,
+    #     NOT the user's form-finding edge input.
     #
-    # The settled coordinates are fixed. solve_fdm_settled returns the
-    # reactions of this settled state. Those are the real reactions.
+    # The form-finding edge pretension was a lever. The settled
+    # edge pretension is the tension the shape requires. That
+    # number is what enters the settled reactions.
     # -------------------------------------------------------------------------
     fabric_default_kN_per_m = _read_fabric_default_prestress_kN_per_m(
         fabric_type, fabric_grade
     )
     settled_warp_q = fabric_default_kN_per_m * 1000.0 / L_for_interior_q
     settled_weft_q = fabric_default_kN_per_m * 1000.0 / L_for_interior_q
+
+    settled_edge_pre_kN = _auto_edge_pretension_kN(
+        total, anchor_count, warp_pre, weft_pre
+    )
+    if settled_edge_pre_kN <= 0.0:
+        settled_edge_pre_kN = 0.05
+    settled_edge_q = settled_edge_pre_kN * 1000.0 / L_avg
 
     pts_2d_settled = coords[:, :2]
     warp_dir_settled = auto_warp_dir(pts_2d_settled)
@@ -668,7 +665,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         settled_warp_q,
         settled_weft_q,
         n_boundary=n_boundary_pts,
-        boundary_edge_q=edge_q_scalar,
+        boundary_edge_q=settled_edge_q,
     )
 
     try:
@@ -717,6 +714,8 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         "edge_q_scalar": float(edge_q_scalar),
         "edge_pretension_kN": float(edge_pre_used),
         "edge_pretension_source": str(edge_pre_source),
+        "settled_edge_pretension_kN": float(settled_edge_pre_kN),
+        "settled_edge_q": float(settled_edge_q),
         "L_anchor_m": float(total) / max(1.0, float(anchor_count - 1)),
         "top_displacements": [],
         "structural_connections": [],
@@ -1016,19 +1015,12 @@ def _build_structural_report(
     base_condition,
     code,
 ):
-    """
-    Build the structural report payload from the FDM (Stage 1) result.
-    All quantities are derived. No raw q values appear in the payload.
-    """
     report = {}
 
     design_forces = design_forces_from_built(
         built, code=code, base_condition=base_condition,
     )
 
-    # -------------------------------------------------------------------------
-    # Section 1 - Design basis
-    # -------------------------------------------------------------------------
     report["design_basis"] = {
         "structure": "Cable Supported Saddle",
         "geometry": {
@@ -1065,11 +1057,10 @@ def _build_structural_report(
         "two_pass_note": (
             "The shape was found using the user's chosen pretensions "
             "as a design lever. The reactions reported in Section 3 "
-            "come from a second, settled-state solve: the accepted "
-            "shape, with the fabric default prestress in the interior "
-            "and the engine-computed boundary force density. The "
-            "form-finding pretensions do not carry through to the "
-            "reported reactions."
+            "come from a second, settled-state solve. The settled "
+            "state uses the engine-computed settled edge pretension, "
+            "not the user's form-finding edge input. The form-finding "
+            "pretensions do not carry through to the reported reactions."
         ),
         "boundary_note": (
             "The boundary between two adjacent anchors is the straight "
@@ -1079,9 +1070,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 2 - Form-found geometry
-    # -------------------------------------------------------------------------
     coords = built["points"]
     boundary_loop = built["boundary_loop"]
     anchor_pos = built["anchor_pos"]
@@ -1106,9 +1094,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 3 - Reactions (settled state)
-    # -------------------------------------------------------------------------
     reactions = diag.get("settled_reactions", None)
     if reactions is None:
         reactions = diag.get("reactions", None)
@@ -1133,8 +1118,8 @@ def _build_structural_report(
     model_note = (
         "Support reactions from the settled-state solve. The shape is "
         "the accepted form. The force densities are the fabric default "
-        "prestress in the interior and the engine-computed boundary "
-        "force density."
+        "prestress in the interior and the engine-computed settled "
+        "edge pretension on the boundary."
     )
     if not settled_ok:
         model_note = (
@@ -1153,9 +1138,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 4 - Member forces (from engine/member_sizing.py)
-    # -------------------------------------------------------------------------
     membrane = design_forces["membrane"]
     edge_cable = design_forces["edge_cable"]
     beam = design_forces["beam"]
@@ -1175,9 +1157,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 5 - Membrane stresses (pending)
-    # -------------------------------------------------------------------------
     report["membrane_stresses"] = {
         "status": "pending",
         "note": (
@@ -1187,9 +1166,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 6 - Member schedule
-    # -------------------------------------------------------------------------
     schema = get_member_schema("saddle_span", "standard_saddle")
     member_rows = []
 
@@ -1273,9 +1249,6 @@ def _build_structural_report(
         "note": schema_note,
     }
 
-    # -------------------------------------------------------------------------
-    # Section 7 - Cable sag check (pending)
-    # -------------------------------------------------------------------------
     report["cable_sag"] = {
         "status": "pending",
         "note": (
@@ -1285,9 +1258,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 8 - Drainage check
-    # -------------------------------------------------------------------------
     triangles = built["triangles"]
     slopes_deg = []
     for tri in triangles:
@@ -1328,9 +1298,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 9 - Bill of quantities (pending)
-    # -------------------------------------------------------------------------
     report["bq"] = {
         "status": "pending",
         "edge_cable_length_m": float(diag.get("edge_cable_length_m", 0.0)),
@@ -1378,10 +1345,6 @@ def build_standard_saddle():
             font=dict(color="#f39c12", size=16),
         )
         return apply_common_layout(fig, 10.0)
-
-    # -------------------------------------------------------------------------
-    # ZONE 1 - CHART AND CONTROLS
-    # -------------------------------------------------------------------------
 
     if _is_high_tier():
         st.markdown("**Solver mode:**")
@@ -1594,9 +1557,6 @@ def build_standard_saddle():
 
     fig = apply_common_layout(fig, rise)
 
-    # -------------------------------------------------------------------------
-    # ZONE 2 - CUSTOMER DELIVERABLES
-    # -------------------------------------------------------------------------
     if _is_high_tier():
         snow_in_brief = bool(
             st.session_state.get("ws_ss_snow_in_brief", False)
@@ -1635,7 +1595,6 @@ def build_standard_saddle():
 
             with st.expander("Structural Analysis Report", expanded=False):
 
-                # Section 1
                 st.markdown("### 1. Design basis")
                 db = report["design_basis"]
                 st.markdown("**Structure:** " + db["structure"])
@@ -1672,7 +1631,6 @@ def build_standard_saddle():
                 st.caption("**Two-pass note:** " + db["two_pass_note"])
                 st.caption("**Boundary note:** " + db["boundary_note"])
 
-                # Section 2
                 st.markdown("### 2. Form-found geometry")
                 fg = report["form_found_geometry"]
                 st.markdown(
@@ -1689,7 +1647,6 @@ def build_standard_saddle():
                     )
                 st.code(anchor_table, language="text")
 
-                # Section 3
                 st.markdown("### 3. Reactions")
                 r = report["reactions"]
                 if r["status"] == "ok":
@@ -1707,7 +1664,6 @@ def build_standard_saddle():
                     st.caption("Status: " + r["status"])
                     st.caption(r["note"])
 
-                # Section 4
                 st.markdown("### 4. Member forces")
                 mf = report["member_forces"]
                 mem = mf["membrane"]
@@ -1759,12 +1715,10 @@ def build_standard_saddle():
                 )
                 st.caption(mf["note"])
 
-                # Section 5
                 st.markdown("### 5. Membrane stresses")
                 st.caption("Status: " + report["membrane_stresses"]["status"])
                 st.caption(report["membrane_stresses"]["note"])
 
-                # Section 6
                 st.markdown("### 6. Member schedule")
                 ms = report["member_sizing"]
                 sched_table = "  member                     section       force      util   result\n"
@@ -1778,12 +1732,10 @@ def build_standard_saddle():
                 st.code(sched_table, language="text")
                 st.caption(ms["note"])
 
-                # Section 7
                 st.markdown("### 7. Cable sag check")
                 st.caption("Status: " + report["cable_sag"]["status"])
                 st.caption(report["cable_sag"]["note"])
 
-                # Section 8
                 st.markdown("### 8. Membrane gradient check")
                 mg = report["membrane_gradient"]
                 st.markdown(
@@ -1801,7 +1753,6 @@ def build_standard_saddle():
                 )
                 st.caption(mg["note"])
 
-                # Section 9
                 st.markdown("### 9. Bill of quantities")
                 bq = report["bq"]
                 st.caption("Status: " + bq["status"])
@@ -1810,9 +1761,6 @@ def build_standard_saddle():
                 )
                 st.caption(bq["note"])
 
-    # -------------------------------------------------------------------------
-    # ZONE 3 - ENGINEERING BENCH (Owner only)
-    # -------------------------------------------------------------------------
     if _is_owner():
         with st.expander("Solver diagnostics", expanded=False):
             st.markdown("**Solver path:** " + str(diag["solver"]))
@@ -1830,9 +1778,13 @@ def build_standard_saddle():
             c4.metric("Fixed", diag["n_fixed"])
 
             st.markdown(
-                "**Edge cable pretension:** "
+                "**Form-finding edge pretension:** "
                 + ("%.3f kN" % diag.get("edge_pretension_kN", 0.0))
                 + " (" + str(diag.get("edge_pretension_source", "?")) + ")"
+            )
+            st.markdown(
+                "**Settled edge pretension:** "
+                + ("%.3f kN" % diag.get("settled_edge_pretension_kN", 0.0))
             )
             st.markdown(
                 "**Anchor spacing L_anchor:** "
@@ -1878,7 +1830,11 @@ def build_standard_saddle():
                     "- q path: " + str(diag.get("q_path", "n/a")) +
                     "   |   warp_q: " + ("%.4f" % diag.get("warp_q", 0.0)) +
                     "   |   weft_q: " + ("%.4f" % diag.get("weft_q", 0.0)) +
-                    "   |   edge_q_scalar: " + ("%.4f" % diag.get("edge_q_scalar", 0.0))
+                    "   |   edge_q_scalar (form-finding): " + ("%.4f" % diag.get("edge_q_scalar", 0.0))
+                )
+                st.markdown(
+                    "- **settled_edge_q (used in pass 2):** "
+                    + ("%.4f" % diag.get("settled_edge_q", 0.0))
                 )
                 q_vals = built.get("q", None)
                 edges_local = built.get("edges", None)
