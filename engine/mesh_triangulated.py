@@ -27,8 +27,17 @@
 #   Anchor                  -> always held.
 #   Segment interior, beam  -> held.
 #   Segment interior, wall  -> held.
-#   Segment interior, cable -> released.
+#   Segment interior, cable -> held.
 #   Interior mesh nodes     -> always released.
+#
+# The cable interior nodes are held because a taut cable in
+# a form-finding context has negligible sag. Its nodes are
+# pinned between the anchors. Without this, the FDM solve
+# pulls the boundary interior nodes inward and the shape
+# collapses into a star. The cable does not "hold" its own
+# nodes in the beam sense - it is held by its own tension.
+# This matches the standard practice of FDM form-finding
+# tools, which treat a taut cable as a polygon of anchors.
 #
 # Force densities:
 #   Boundary edge on beam or wall segment: warp_q.
@@ -39,9 +48,13 @@
 #   - edge_q may be a scalar (uniform) or a dict keyed by
 #     (i, j) mesh node pairs (per-edge). When a dict is
 #     provided, it is passed to assign_anisotropic_q as
-#     boundary_edge_q. This allows the pull-back function
-#     to feed per-edge cable tensions from the membrane
-#     equilibrium at the FDM form-found shape.
+#     boundary_edge_q.
+#
+# Updated 2026-10-08:
+#   - Cable segment interior nodes are now held. A taut
+#     cable has negligible sag; its nodes are pinned between
+#     anchors. This prevents the FDM from pulling the
+#     boundary into a star.
 #
 # Dependencies:
 #   scipy.spatial.Delaunay and scipy.sparse.
@@ -51,6 +64,7 @@
 #   2026-09-30 - First build.
 #   2026-10-01 - Interior points and Laplace lift.
 #   2026-10-05 - Per-edge edge_q support.
+#   2026-10-08 - Cable segment interior nodes held.
 # =============================================================================
 
 import numpy as np
@@ -322,7 +336,7 @@ def _compute_fixed_indices(boundary_loop, anchor_indices, segment_types):
             fixed.append(i)
             continue
         seg_type = segment_types[seg_idx]
-        if seg_type in ("beam", "wall"):
+        if seg_type in ("beam", "wall", "cable"):
             fixed.append(i)
 
     return sorted(set(fixed))
@@ -533,8 +547,6 @@ def build_mesh_triangulated(
 
     warp_dir = auto_warp_dir(pts_2d)
 
-    # Pass edge_q through as either a scalar or a dict.
-    # assign_anisotropic_q handles both.
     q_aniso = assign_anisotropic_q(
         edges,
         all_pts_2d,
