@@ -6,37 +6,29 @@
 # Three zones, three audiences.
 #
 #   Zone 1 - Chart and controls. Visible to every user.
+#            - Project save / load (JSON to Files app).
 #            - The 3D chart.
-#            - Display checkboxes (beams, membrane, anchors,
-#              edge cable, tie-downs, supports).
-#            - Solver mode selector (FDM / NFDM), shown to
-#              Owner, Studio, Beta only.
+#            - Display checkboxes.
+#            - Solver mode selector (Owner, Studio, Beta).
 #
 #   Zone 2 - Customer deliverables. Owner, Studio, Beta only.
-#            - Structural Analysis Report.
-#            - Bill of Quantities.
-#            - Member Schedule.
+#            - Structural Analysis Report (nine sections).
 #
-#   Zone 3 - Engineering bench. Owner only. Never visible to
-#            any customer, at any price.
-#            - Solver diagnostics: path, access mode, mesh
-#              counts, convergence, residual, iterations.
-#            - Edge cable pretension source and value.
-#            - Pull-back summary.
-#            - q values summary and per-edge table.
-#            - Digitised node data: boundary, top 20, all nodes.
-#
-# The Owner role is the engineer's seat. It is not the top of
-# the commercial ladder. It is the bench where the App is
-# built. Nobody else ever sees Zone 3.
+#   Zone 3 - Engineering bench. Owner only.
+#            - Solver diagnostics, q values, pull-back,
+#              digitised node data.
 #
 # Two-pass workflow (2026-10-07):
-#   Pass 1 - form finding. The user's chosen pretensions drive
-#            the shape. These are a design lever, not the
-#            physical prestress of the settled structure.
-#   Pass 2 - settled state. The shape is accepted. The settled
-#            force densities are used to compute the real
-#            reactions. The report reads from this pass.
+#   Pass 1 - form finding. The user's pretensions drive the shape.
+#            These are a design lever, not the physical prestress.
+#   Pass 2 - settled state. The accepted shape is re-solved with
+#            the fabric default prestress and the engine-computed
+#            boundary force density. Those are the real reactions.
+#
+# Save / load (2026-10-08):
+#   A save file is a JSON that carries the workshop inputs and the
+#   built dict. Loading restores the inputs and the built dict so
+#   the App is exactly where it was. No re-solving.
 #
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
@@ -44,26 +36,19 @@
 #   2026-10-04 - Step 2E. Anchors and subdivision.
 #   2026-10-04 - Two-path solver. NFDM for high tiers.
 #   2026-10-05 - Pull-back initial guess. Single-build FDM.
-#                Cache. Loading message. Checkbox toggles.
 #   2026-10-06 - FDM path fallback. Digitised node data.
-#                q array print. Mode selector. Threshold fix.
-#                Auto-scaled edge cable pretension.
 #   2026-10-07 - Three zones. Owner gate on Zone 3.
-#                Zone 2 placeholder for the report and BQ.
 #   2026-10-07 - Zone 2 Structural Analysis Report. Nine sections.
-#                Derived quantities only, no raw q in Zone 2.
-#                Report gated on FDM path. NFDM shows reminder.
-#                Drainage check: 15 deg rain / 28 deg snow.
 #   2026-10-07 - Report wired to engine/member_sizing.py.
-#                Sections 3, 4, 6 now carry real design forces.
-#                Base condition read from ws_ss_base_condition.
-#   2026-10-07 - Settled-state second pass. solve_fdm_settled
-#                is called after the form-finding solve. The
-#                settled reactions feed the report. The form-
-#                finding input no longer inflates the reactions.
+#   2026-10-07 - Settled-state second pass. solve_fdm_settled.
+#   2026-10-07 - settled_q read from diag, settled reactions
+#                feed the report. Two-pass fix complete.
+#   2026-10-08 - Project save / load. JSON to Files app.
 # =============================================================================
 
+import json
 import math
+from datetime import datetime
 
 import numpy as np
 import plotly.graph_objects as go
@@ -100,18 +85,20 @@ from data.structures import get_member_schema, expand_beam_rows
 HIGH_TIERS = ("owner", "studio", "beta")
 OWNER_TIER = "owner"
 
+SAVE_VERSION = "sds-1.0"
+
 
 def _access_mode():
     return str(st.session_state.get("access_mode", "owner")).lower()
 
 
 def _is_high_tier():
-    """Owner, Studio, Beta. Can select FDM/NFDM and see customer deliverables."""
+    """Owner, Studio, Beta."""
     return _access_mode() in HIGH_TIERS
 
 
 def _is_owner():
-    """Owner only. The engineering bench. Never visible to any customer."""
+    """Owner only. The engineering bench."""
     return _access_mode() == OWNER_TIER
 
 
@@ -185,6 +172,91 @@ def _pick_cable_diameter(cable_type, material, pretension_kN,
         if e["breaking_kN"] >= required_kN:
             return e
     return entries[-1] if entries else None
+
+
+# =============================================================================
+# SERIALISATION FOR SAVE / LOAD
+# =============================================================================
+
+def _to_json_safe(obj):
+    """Convert numpy arrays and dicts to JSON-safe types, recursively."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, dict):
+        return {str(k): _to_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_json_safe(v) for v in obj]
+    if isinstance(obj, (int, float, str, bool)) or obj is None:
+        return obj
+    return str(obj)
+
+
+def _serialise_built(built):
+    """Serialise the built dict to JSON-safe types."""
+    return {
+        "points": _to_json_safe(built.get("points")),
+        "points_initial": _to_json_safe(built.get("points_initial")),
+        "edges": _to_json_safe(built.get("edges")),
+        "triangles": _to_json_safe(built.get("triangles")),
+        "boundary_loop": _to_json_safe(built.get("boundary_loop")),
+        "anchors": _to_json_safe(built.get("anchors")),
+        "anchor_pos": _to_json_safe(built.get("anchor_pos")),
+        "segments": _to_json_safe(built.get("segments")),
+        "seg_types": _to_json_safe(built.get("seg_types")),
+        "q": _to_json_safe(built.get("q")),
+        "diagnostics": _to_json_safe(built.get("diagnostics")),
+    }
+
+
+def _deserialise_built(data):
+    """Convert a JSON-loaded built dict back into numpy arrays."""
+    out = {}
+    out["points"] = np.asarray(data.get("points", []), dtype=float)
+    out["points_initial"] = np.asarray(data.get("points_initial", []), dtype=float)
+    out["edges"] = [tuple(e) for e in data.get("edges", [])]
+    out["triangles"] = [tuple(t) for t in data.get("triangles", [])]
+    out["boundary_loop"] = np.asarray(data.get("boundary_loop", []), dtype=float)
+    out["anchors"] = list(data.get("anchors", []))
+    out["anchor_pos"] = np.asarray(data.get("anchor_pos", []), dtype=float)
+    out["segments"] = list(data.get("segments", []))
+    out["seg_types"] = list(data.get("seg_types", []))
+    q = data.get("q")
+    out["q"] = np.asarray(q, dtype=float) if q is not None else None
+
+    diag = dict(data.get("diagnostics", {}) or {})
+
+    # Re-array the arrays the report and member_sizing expect.
+    if "fixed_indices" in diag and diag["fixed_indices"] is not None:
+        diag["fixed_indices"] = [int(i) for i in diag["fixed_indices"]]
+    if "reactions" in diag and diag["reactions"] is not None:
+        diag["reactions"] = np.asarray(diag["reactions"], dtype=float)
+    if "settled_reactions" in diag and diag["settled_reactions"] is not None:
+        diag["settled_reactions"] = np.asarray(diag["settled_reactions"], dtype=float)
+    if "settled_q" in diag and diag["settled_q"] is not None:
+        diag["settled_q"] = np.asarray(diag["settled_q"], dtype=float)
+
+    out["diagnostics"] = diag
+    return out
+
+
+def _filename_for_save(structure_key, variant_key):
+    """Build the Option 1 filename for the save."""
+    ref = "SDSe"
+    try:
+        pi = st.session_state.get("project_info", {}) or {}
+        candidate = str(pi.get("reference", "") or pi.get("ref", "")).strip()
+        if candidate:
+            ref = candidate.replace(" ", "_")
+    except Exception:
+        ref = "SDSe"
+
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    name = "SDSe_%s_%s_%s_%s.json" % (
+        structure_key, variant_key, ref, stamp,
+    )
+    return name
 
 
 # =============================================================================
@@ -394,20 +466,7 @@ def _build_beam_curves(span, apex, rise, curve_type, n_pts=200):
 
 def _auto_edge_pretension_kN(arc_total, anchor_count,
                               warp_pre, weft_pre):
-    """
-    Return the auto-scaled edge cable pretension in kN.
-
-    The bow threshold scales with the anchor spacing, not the
-    total span. The threshold is:
-
-        T = N_membrane * L_anchor
-
-    where:
-        N_membrane  = the membrane prestress resultant (N/m),
-                      taken as max(warp_pre, weft_pre).
-        L_anchor    = the distance between two adjacent anchors
-                      along the beam = arc_total / (anchor_count - 1).
-    """
+    """Return the auto-scaled edge cable pretension in kN."""
     if anchor_count < 2:
         return 0.0
     L_anchor = float(arc_total) / float(anchor_count - 1)
@@ -540,9 +599,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                 }
             else:
                 pullback_summary = {
-                    "min_N": 0.0,
-                    "max_N": 0.0,
-                    "mean_N": 0.0,
+                    "min_N": 0.0, "max_N": 0.0, "mean_N": 0.0,
                     "n_edges": 0,
                     "n_fallback_edges": int(n_fallback_edges),
                     "note": "pull-back returned zero or below 1 N on every boundary edge; fell back to edge_q_scalar",
@@ -556,22 +613,14 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     n_boundary_pts = boundary_loop.shape[0]
     if q_dict is not None:
         q_aniso = assign_anisotropic_q(
-            edges,
-            pts_2d,
-            warp_dir,
-            warp_q,
-            weft_q,
+            edges, pts_2d, warp_dir, warp_q, weft_q,
             n_boundary=n_boundary_pts,
             boundary_edge_q=q_dict,
         )
         q_path = "dict"
     else:
         q_aniso = assign_anisotropic_q(
-            edges,
-            pts_2d,
-            warp_dir,
-            warp_q,
-            weft_q,
+            edges, pts_2d, warp_dir, warp_q, weft_q,
             n_boundary=n_boundary_pts,
             boundary_edge_q=edge_q_scalar,
         )
@@ -587,18 +636,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
 
     # -------------------------------------------------------------------------
     # Settled-state second pass.
-    #
-    # The form-finding q above was used to manipulate the shape. It is a
-    # design lever: it controls the bow depth and the membrane area. It
-    # is not the physical prestress of the settled structure.
-    #
-    # The physical force densities of the settled form are:
-    #   - Interior: the fabric default prestress (from the fabric record)
-    #   - Boundary: the edge_q_scalar the engine already computed as
-    #     necessary to hold the shape (its own fallback answer)
-    #
-    # The settled coordinates are fixed. solve_fdm_settled returns the
-    # reactions of this settled state. Those are the real reactions.
     # -------------------------------------------------------------------------
     fabric_default_kN_per_m = _read_fabric_default_prestress_kN_per_m(
         fabric_type, fabric_grade
@@ -610,21 +647,15 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     warp_dir_settled = auto_warp_dir(pts_2d_settled)
 
     q_settled = assign_anisotropic_q(
-        edges,
-        pts_2d_settled,
-        warp_dir_settled,
-        settled_warp_q,
-        settled_weft_q,
+        edges, pts_2d_settled, warp_dir_settled,
+        settled_warp_q, settled_weft_q,
         n_boundary=n_boundary_pts,
         boundary_edge_q=edge_q_scalar,
     )
 
     try:
         settled_result = solve_fdm_settled(
-            coords,
-            edges,
-            fixed_indices,
-            q_settled,
+            coords, edges, fixed_indices, q_settled,
         )
         settled_reactions = settled_result["reactions"]
         settled_ok = True
@@ -772,8 +803,7 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
     T_pre_user_N = edge_pre_used * 1000.0
 
     pullback_tensions = {}
-    pullback_summary = None
-    if str(attachment_type).lower() == "cable_supported":
+    pullback_summary = None    if str(attachment_type).lower() == "cable_supported":
         try:
             pullback_tensions = pullback_cable_initial_tensions(
                 points=points_initial,
@@ -810,8 +840,7 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
                 else:
                     T_cable = float(T_pull)
                 cables.append({
-                    "a": a,
-                    "b": b,
+                    "a": a, "b": b,
                     "T_pretension_N": T_cable,
                     "EA": EA_N,
                 })
@@ -939,57 +968,24 @@ def _cached_nfdm(span, apex, rise, curve_type,
 # =============================================================================
 # STRUCTURAL REPORT GENERATOR
 # =============================================================================
-#
-# Consumes the built dict and the diagnostics dict, returns a report
-# payload. The payload contains derived quantities only. The raw q
-# array is read internally and is never placed in the payload.
-#
-# Design forces are read from engine/member_sizing.py. That module
-# prefers settled_reactions (Pass 2) over form-finding reactions
-# (Pass 1). Sections 3, 4, 6 carry the settled numbers.
-#
-# Drainage thresholds (Chief's working practice, subject to code
-# override when data/codes.py is built):
-#   Rain runoff:  minimum 15 degrees
-#   Snow load:    minimum 28 degrees
-# =============================================================================
 
 _DRAINAGE_MIN_RAIN_DEG = 15.0
 _DRAINAGE_MIN_SNOW_DEG = 28.0
 
 
 def _build_structural_report(
-    built,
-    diag,
-    span,
-    apex,
-    rise,
-    curve_type,
-    anchor_count,
-    mesh_spacing,
-    warp_pre,
-    weft_pre,
-    edge_pre,
-    fabric_type,
-    fabric_grade,
-    attachment_type,
-    snow_in_brief,
-    base_condition,
-    code,
+    built, diag, span, apex, rise, curve_type,
+    anchor_count, mesh_spacing,
+    warp_pre, weft_pre, edge_pre,
+    fabric_type, fabric_grade, attachment_type,
+    snow_in_brief, base_condition, code,
 ):
-    """
-    Build the structural report payload from the FDM (Stage 1) result.
-    All quantities are derived. No raw q values appear in the payload.
-    """
     report = {}
 
     design_forces = design_forces_from_built(
         built, code=code, base_condition=base_condition,
     )
 
-    # -------------------------------------------------------------------------
-    # Section 1 - Design basis
-    # -------------------------------------------------------------------------
     report["design_basis"] = {
         "structure": "Cable Supported Saddle",
         "geometry": {
@@ -1025,18 +1021,14 @@ def _build_structural_report(
         ),
         "two_pass_note": (
             "The shape was found using the user's chosen pretensions "
-            "as a design lever. The reactions reported in Section 3 "
-            "come from a second, settled-state solve: the accepted "
-            "shape, with the fabric default prestress in the interior "
-            "and the engine-computed boundary force density. The "
-            "form-finding pretensions do not carry through to the "
-            "reported reactions."
+            "as a design lever. The reactions in Section 3 come from "
+            "a second, settled-state solve: the accepted shape, with "
+            "the fabric default prestress in the interior and the "
+            "engine-computed boundary force density. The form-finding "
+            "pretensions do not carry through to the reported reactions."
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 2 - Form-found geometry
-    # -------------------------------------------------------------------------
     coords = built["points"]
     boundary_loop = built["boundary_loop"]
     anchor_pos = built["anchor_pos"]
@@ -1061,9 +1053,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 3 - Reactions (settled state)
-    # -------------------------------------------------------------------------
     reactions = diag.get("settled_reactions", None)
     if reactions is None:
         reactions = diag.get("reactions", None)
@@ -1102,15 +1091,9 @@ def _build_structural_report(
         "status": "ok" if reaction_rows else "pending",
         "rows": reaction_rows,
         "model": model_note,
-        "note": (
-            "" if reaction_rows else
-            "Support reactions are not yet available."
-        ),
+        "note": "" if reaction_rows else "Support reactions are not yet available.",
     }
 
-    # -------------------------------------------------------------------------
-    # Section 4 - Member forces (from engine/member_sizing.py)
-    # -------------------------------------------------------------------------
     membrane = design_forces["membrane"]
     edge_cable = design_forces["edge_cable"]
     beam = design_forces["beam"]
@@ -1130,9 +1113,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 5 - Membrane stresses (pending)
-    # -------------------------------------------------------------------------
     report["membrane_stresses"] = {
         "status": "pending",
         "note": (
@@ -1142,39 +1122,28 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 6 - Member schedule
-    # -------------------------------------------------------------------------
     schema = get_member_schema("saddle_span", "standard_saddle")
     member_rows = []
-
     membrane_max_kN = float(membrane.get("max_kN", 0.0))
     edge_cable_max_kN = float(edge_cable.get("max_kN", 0.0))
     beam_max_kN_m = float(beam.get("max_moment_kN_m", 0.0))
     tiedown_max_kN = float(tiedown.get("max_kN", 0.0))
 
     if schema is None:
-        member_rows = []
-        schema_note = (
-            "No member schema has been defined for this variant yet."
-        )
+        schema_note = "No member schema has been defined for this variant yet."
     else:
         if schema.get("membrane_first"):
             member_rows.append({
-                "label": "Membrane",
-                "section": "--",
+                "label": "Membrane", "section": "--",
                 "design_force": "%.1f kN" % membrane_max_kN,
-                "utilisation": "--",
-                "result": "--",
+                "utilisation": "--", "result": "--",
                 "note": "Peak in-plane force per edge, factored.",
             })
         for row in schema.get("cables_before_beams", []):
             member_rows.append({
-                "label": row["label"],
-                "section": row["section"],
+                "label": row["label"], "section": row["section"],
                 "design_force": "%.1f kN" % edge_cable_max_kN,
-                "utilisation": "--",
-                "result": "--",
+                "utilisation": "--", "result": "--",
                 "note": row.get("note", ""),
             })
         if schema.get("beam_expandable"):
@@ -1184,36 +1153,27 @@ def _build_structural_report(
                     "label": schema.get("beam_label_single", "Main Beam"),
                     "section": beam_rows[0]["section"],
                     "design_force": "%.1f kNm" % beam_max_kN_m,
-                    "utilisation": "--",
-                    "result": "--",
+                    "utilisation": "--", "result": "--",
                     "note": "Max moment, continuous beam.",
                 })
             else:
                 for br in beam_rows:
                     member_rows.append({
-                        "label": br["label"],
-                        "section": br["section"],
-                        "design_force": "--",
-                        "utilisation": "--",
-                        "result": "--",
-                        "note": br.get("note", ""),
+                        "label": br["label"], "section": br["section"],
+                        "design_force": "--", "utilisation": "--",
+                        "result": "--", "note": br.get("note", ""),
                     })
         for row in schema.get("extra_rows_before_cables", []):
             member_rows.append({
-                "label": row["label"],
-                "section": row["section"],
-                "design_force": "--",
-                "utilisation": "--",
-                "result": "--",
-                "note": row.get("note", ""),
+                "label": row["label"], "section": row["section"],
+                "design_force": "--", "utilisation": "--",
+                "result": "--", "note": row.get("note", ""),
             })
         for row in schema.get("cables_last", []):
             member_rows.append({
-                "label": row["label"],
-                "section": row["section"],
+                "label": row["label"], "section": row["section"],
                 "design_force": "%.1f kN" % tiedown_max_kN,
-                "utilisation": "--",
-                "result": "--",
+                "utilisation": "--", "result": "--",
                 "note": row.get("note", ""),
             })
         schema_note = (
@@ -1223,14 +1183,8 @@ def _build_structural_report(
             "Neither is wired yet."
         )
 
-    report["member_sizing"] = {
-        "rows": member_rows,
-        "note": schema_note,
-    }
+    report["member_sizing"] = {"rows": member_rows, "note": schema_note}
 
-    # -------------------------------------------------------------------------
-    # Section 7 - Cable sag check (pending)
-    # -------------------------------------------------------------------------
     report["cable_sag"] = {
         "status": "pending",
         "note": (
@@ -1240,16 +1194,11 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 8 - Drainage check
-    # -------------------------------------------------------------------------
     triangles = built["triangles"]
     slopes_deg = []
     for tri in triangles:
         ia, ib, ic = int(tri[0]), int(tri[1]), int(tri[2])
-        pa = coords[ia]
-        pb = coords[ib]
-        pc = coords[ic]
+        pa = coords[ia]; pb = coords[ib]; pc = coords[ic]
         n_vec = np.cross(pb - pa, pc - pa)
         mag = float(np.linalg.norm(n_vec))
         if mag < 1e-12:
@@ -1257,8 +1206,7 @@ def _build_structural_report(
         nz = abs(float(n_vec[2])) / mag
         nz_clamped = max(0.0, min(1.0, nz))
         slope_rad = float(np.arcsin(nz_clamped))
-        slope_deg = float(np.degrees(slope_rad))
-        slopes_deg.append(slope_deg)
+        slopes_deg.append(float(np.degrees(slope_rad)))
 
     threshold_deg = _DRAINAGE_MIN_SNOW_DEG if snow_in_brief else _DRAINAGE_MIN_RAIN_DEG
     n_below = sum(1 for s in slopes_deg if s < threshold_deg)
@@ -1283,9 +1231,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 9 - Bill of quantities (pending)
-    # -------------------------------------------------------------------------
     report["bq"] = {
         "status": "pending",
         "edge_cable_length_m": float(diag.get("edge_cable_length_m", 0.0)),
@@ -1335,7 +1280,108 @@ def build_standard_saddle():
         return apply_common_layout(fig, 10.0)
 
     # -------------------------------------------------------------------------
-    # ZONE 1 - CHART AND CONTROLS
+    # ZONE 1 - PROJECT SAVE / LOAD
+    # -------------------------------------------------------------------------
+    with st.expander("Project", expanded=False):
+        col_save, col_load = st.columns(2)
+
+        with col_save:
+            if st.button("Save project", key="ss_save_btn", use_container_width=True):
+                _loaded = st.session_state.get("ss_loaded_built", None)
+                if _loaded is not None:
+                    built_to_save = _loaded
+                else:
+                    try:
+                        built_to_save = _cached_fdm(
+                            span, apex, rise, curve_type,
+                            anchor_count, mesh_spacing,
+                            warp_pre, weft_pre, edge_pre,
+                            attach_type, fabric_type, fabric_grade,
+                        )
+                    except Exception as e:
+                        st.error("Could not save: " + str(e))
+                        built_to_save = None
+
+                if built_to_save is not None:
+                    payload = {
+                        "version": SAVE_VERSION,
+                        "saved_at": datetime.now().isoformat(timespec="seconds"),
+                        "structure_key": "saddle_span",
+                        "variant_key": "standard_saddle",
+                        "workshop_inputs": {
+                            "ws_ss_span": span,
+                            "ws_ss_apex": apex,
+                            "ws_ss_rise": rise,
+                            "ws_ss_curve_type": curve_type,
+                            "ws_ss_anchor_count": anchor_count,
+                            "ws_ss_mesh_spacing": mesh_spacing,
+                            "ws_ss_warp_pretension": warp_pre,
+                            "ws_ss_weft_pretension": weft_pre,
+                            "ws_ss_edge_cable_pretension": edge_pre,
+                            "ws_ss_base_condition": str(st.session_state.get("ws_ss_base_condition", "pinned")),
+                            "ws_ss_snow_in_brief": bool(st.session_state.get("ws_ss_snow_in_brief", False)),
+                            "ws_ss_fabric_type": fabric_type,
+                            "ws_ss_fabric_grade": fabric_grade,
+                            "ws_ss_edge_cable_type": edge_cable_type,
+                            "ws_ss_edge_cable_material": edge_cable_material,
+                            "ws_ss_attachment_type": attach_type,
+                        },
+                        "built": _serialise_built(built_to_save),
+                    }
+                    try:
+                        _json_text = json.dumps(payload, indent=2)
+                    except Exception as e:
+                        st.error("Serialisation failed: " + str(e))
+                        _json_text = None
+
+                    if _json_text is not None:
+                        fname = _filename_for_save("saddle_span", "standard_saddle")
+                        st.download_button(
+                            "Download save file",
+                            data=_json_text,
+                            file_name=fname,
+                            mime="application/json",
+                            key="ss_save_dl",
+                            use_container_width=True,
+                        )
+                        st.caption("Save to Files app -> On My iPhone -> SDSe Files")
+
+        with col_load:
+            uploaded = st.file_uploader(
+                "Load project",
+                type=["json"],
+                key="ss_load_uploader",
+                label_visibility="collapsed",
+            )
+            if uploaded is not None:
+                try:
+                    data = json.loads(uploaded.read().decode("utf-8"))
+                except Exception as e:
+                    st.error("Could not read file: " + str(e))
+                    data = None
+
+                if data is not None:
+                    version = str(data.get("version", ""))
+                    if version != SAVE_VERSION:
+                        st.warning(
+                            "Save file version '%s' does not match current '%s'. "
+                            "Loading anyway." % (version, SAVE_VERSION)
+                        )
+
+                    wi = data.get("workshop_inputs", {}) or {}
+                    for k, v in wi.items():
+                        st.session_state[k] = v
+
+                    try:
+                        loaded_built = _deserialise_built(data.get("built", {}) or {})
+                        st.session_state["ss_loaded_built"] = loaded_built
+                        st.success("Project loaded. Re-render in progress.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Could not deserialise built dict: " + str(e))
+
+    # -------------------------------------------------------------------------
+    # ZONE 1 - SOLVER MODE
     # -------------------------------------------------------------------------
 
     if _is_high_tier():
@@ -1382,27 +1428,40 @@ def build_standard_saddle():
         with cb6:
             show_ground = st.checkbox("Supports", value=True, key="ss_show_ground")
 
-    msg = st.empty()
-    msg.info("Preparing design...Do not refresh or leave the page")
-    try:
-        if use_nfdm:
-            built = _cached_nfdm(
-                span, apex, rise, curve_type,
-                anchor_count, mesh_spacing,
-                warp_pre, weft_pre, edge_pre,
-                attach_type,
-                edge_cable_type, edge_cable_material,
-                fabric_type, fabric_grade,
-            )
-        else:
-            built = _cached_fdm(
-                span, apex, rise, curve_type,
-                anchor_count, mesh_spacing,
-                warp_pre, weft_pre, edge_pre,
-                attach_type, fabric_type, fabric_grade,
-            )
-    finally:
-        msg.empty()
+    # -------------------------------------------------------------------------
+    # Solve - use loaded built if present, else solve.
+    # -------------------------------------------------------------------------
+    loaded_built = st.session_state.get("ss_loaded_built", None)
+
+    if loaded_built is not None:
+        built = loaded_built
+    else:
+        msg = st.empty()
+        msg.info("Preparing design...Do not refresh or leave the page")
+        try:
+            if use_nfdm:
+                built = _cached_nfdm(
+                    span, apex, rise, curve_type,
+                    anchor_count, mesh_spacing,
+                    warp_pre, weft_pre, edge_pre,
+                    attach_type,
+                    edge_cable_type, edge_cable_material,
+                    fabric_type, fabric_grade,
+                )
+            else:
+                built = _cached_fdm(
+                    span, apex, rise, curve_type,
+                    anchor_count, mesh_spacing,
+                    warp_pre, weft_pre, edge_pre,
+                    attach_type, fabric_type, fabric_grade,
+                )
+        finally:
+            msg.empty()
+
+    # Clear the loaded flag once the chart is built. Reload triggers
+    # a rerun which sets the flag again if needed.
+    if loaded_built is not None:
+        st.session_state["ss_loaded_built"] = None
 
     coords = built["points"]
     points_initial = built["points_initial"]
@@ -1419,47 +1478,34 @@ def build_standard_saddle():
 
     if show_beams:
         fig.add_trace(go.Scatter3d(
-            x=x, y=y1, z=z_beam,
-            mode="lines",
-            line=dict(color="#FF6B6B", width=8),
-            name="Beam L",
+            x=x, y=y1, z=z_beam, mode="lines",
+            line=dict(color="#FF6B6B", width=8), name="Beam L",
         ))
         fig.add_trace(go.Scatter3d(
-            x=x, y=y2, z=z_beam,
-            mode="lines",
-            line=dict(color="#FF6B6B", width=8),
-            name="Beam R",
+            x=x, y=y2, z=z_beam, mode="lines",
+            line=dict(color="#FF6B6B", width=8), name="Beam R",
         ))
 
     if show_membrane:
-        node_x = coords[:, 0].tolist()
-        node_y = coords[:, 1].tolist()
-        node_z = coords[:, 2].tolist()
-        tri_i = [int(t[0]) for t in triangles]
-        tri_j = [int(t[1]) for t in triangles]
-        tri_k = [int(t[2]) for t in triangles]
         fig.add_trace(go.Mesh3d(
-            x=node_x, y=node_y, z=node_z,
-            i=tri_i, j=tri_j, k=tri_k,
-            color="#4a7a9c",
-            opacity=0.55,
-            flatshading=True,
-            name="Membrane",
-            showlegend=False,
-            hoverinfo="skip",
+            x=coords[:, 0].tolist(),
+            y=coords[:, 1].tolist(),
+            z=coords[:, 2].tolist(),
+            i=[int(t[0]) for t in triangles],
+            j=[int(t[1]) for t in triangles],
+            k=[int(t[2]) for t in triangles],
+            color="#4a7a9c", opacity=0.55, flatshading=True,
+            name="Membrane", showlegend=False, hoverinfo="skip",
         ))
 
     if show_anchors:
-        anchor_x = anchor_pos[:, 0].tolist()
-        anchor_y = anchor_pos[:, 1].tolist()
-        anchor_z = anchor_pos[:, 2].tolist()
         fig.add_trace(go.Scatter3d(
-            x=anchor_x, y=anchor_y, z=anchor_z,
+            x=anchor_pos[:, 0].tolist(),
+            y=anchor_pos[:, 1].tolist(),
+            z=anchor_pos[:, 2].tolist(),
             mode="markers",
             marker=dict(color="#f39c12", size=5, symbol="circle"),
-            name="Anchors",
-            showlegend=False,
-            hoverinfo="skip",
+            name="Anchors", showlegend=False, hoverinfo="skip",
         ))
 
     if attach_type == "cable_supported" and show_edge:
@@ -1467,36 +1513,28 @@ def build_standard_saddle():
         first = True
         for seg in segments:
             chain = [seg["anchor_a"]] + list(seg["interior"]) + [seg["anchor_b"]]
-            cx = [float(coords[i][0]) for i in chain]
-            cy = [float(coords[i][1]) for i in chain]
-            cz = [float(coords[i][2]) for i in chain]
             fig.add_trace(go.Scatter3d(
-                x=cx, y=cy, z=cz,
+                x=[float(coords[i][0]) for i in chain],
+                y=[float(coords[i][1]) for i in chain],
+                z=[float(coords[i][2]) for i in chain],
                 mode="lines+markers",
                 line=dict(color="#f1c40f", width=4),
                 marker=dict(color="#f1c40f", size=3),
                 name="Edge cable" if first else " ",
-                showlegend=first,
-                hoverinfo="skip",
+                showlegend=first, hoverinfo="skip",
             ))
             first = False
 
     elif attach_type != "cable_supported" and show_edge:
         fig.add_trace(go.Scatter3d(
-            x=x, y=y1, z=z_beam,
-            mode="lines",
+            x=x, y=y1, z=z_beam, mode="lines",
             line=dict(color="#f39c12", width=2),
-            showlegend=False,
-            name="Kader L",
-            hoverinfo="skip",
+            showlegend=False, name="Kader L", hoverinfo="skip",
         ))
         fig.add_trace(go.Scatter3d(
-            x=x, y=y2, z=z_beam,
-            mode="lines",
+            x=x, y=y2, z=z_beam, mode="lines",
             line=dict(color="#f39c12", width=2),
-            showlegend=False,
-            name="Kader R",
-            hoverinfo="skip",
+            showlegend=False, name="Kader R", hoverinfo="skip",
         ))
 
     if show_tiedown:
@@ -1516,26 +1554,19 @@ def build_standard_saddle():
                 horizontal = drop / math.tan(math.radians(uplift)) if uplift > 0 else drop
                 x_offset = horizontal * 0.5
                 y_offset = horizontal * 0.5 * math.tan(math.radians(spread))
-                if x_tie < 0:
-                    anchor_x_t = x_tie - x_offset
-                elif x_tie > 0:
-                    anchor_x_t = x_tie + x_offset
-                else:
-                    anchor_x_t = x_tie + x_offset
+                anchor_x_t = x_tie - x_offset if x_tie < 0 else x_tie + x_offset
                 anchor_y_t = y_beam + side * y_offset
                 fig.add_trace(go.Scatter3d(
                     x=[x_tie, anchor_x_t], y=[y_beam, anchor_y_t], z=[beam_z, 0],
                     mode="lines",
                     line=dict(color="#f1c40f", width=2, dash="dot"),
-                    showlegend=False, hoverinfo="skip",
-                    name="Tie-down",
+                    showlegend=False, hoverinfo="skip", name="Tie-down",
                 ))
                 fig.add_trace(go.Scatter3d(
                     x=[anchor_x_t], y=[anchor_y_t], z=[0],
                     mode="markers",
                     marker=dict(color="#f1c40f", size=5, symbol="square"),
-                    showlegend=False, hoverinfo="skip",
-                    name="Tie-down anchor",
+                    showlegend=False, hoverinfo="skip", name="Tie-down anchor",
                 ))
 
     if show_ground:
@@ -1543,8 +1574,7 @@ def build_standard_saddle():
             x=[-span / 2.0, span / 2.0], y=[0, 0], z=[0, 0],
             mode="markers",
             marker=dict(color="#2ecc71", size=10, symbol="diamond"),
-            name="Ground supports",
-            showlegend=False,
+            name="Ground supports", showlegend=False,
         ))
 
     fig = apply_common_layout(fig, rise)
@@ -1553,12 +1583,8 @@ def build_standard_saddle():
     # ZONE 2 - CUSTOMER DELIVERABLES
     # -------------------------------------------------------------------------
     if _is_high_tier():
-        snow_in_brief = bool(
-            st.session_state.get("ws_ss_snow_in_brief", False)
-        )
-        base_condition = str(
-            st.session_state.get("ws_ss_base_condition", "pinned")
-        ).lower()
+        snow_in_brief = bool(st.session_state.get("ws_ss_snow_in_brief", False))
+        base_condition = str(st.session_state.get("ws_ss_base_condition", "pinned")).lower()
 
         if diag["solver"].startswith("NFDM"):
             with st.expander("Structural Analysis Report", expanded=False):
@@ -1569,28 +1595,17 @@ def build_standard_saddle():
                 )
         else:
             report = _build_structural_report(
-                built=built,
-                diag=diag,
-                span=span,
-                apex=apex,
-                rise=rise,
-                curve_type=curve_type,
-                anchor_count=anchor_count,
-                mesh_spacing=mesh_spacing,
-                warp_pre=warp_pre,
-                weft_pre=weft_pre,
-                edge_pre=edge_pre,
-                fabric_type=fabric_type,
-                fabric_grade=fabric_grade,
+                built=built, diag=diag,
+                span=span, apex=apex, rise=rise, curve_type=curve_type,
+                anchor_count=anchor_count, mesh_spacing=mesh_spacing,
+                warp_pre=warp_pre, weft_pre=weft_pre, edge_pre=edge_pre,
+                fabric_type=fabric_type, fabric_grade=fabric_grade,
                 attachment_type=attach_type,
                 snow_in_brief=snow_in_brief,
-                base_condition=base_condition,
-                code="MY",
+                base_condition=base_condition, code="MY",
             )
 
             with st.expander("Structural Analysis Report", expanded=False):
-
-                # Section 1
                 st.markdown("### 1. Design basis")
                 db = report["design_basis"]
                 st.markdown("**Structure:** " + db["structure"])
@@ -1626,7 +1641,6 @@ def build_standard_saddle():
                 st.caption("**Code checks:** " + db["code_checks"])
                 st.caption("**Two-pass note:** " + db["two_pass_note"])
 
-                # Section 2
                 st.markdown("### 2. Form-found geometry")
                 fg = report["form_found_geometry"]
                 st.markdown(
@@ -1643,7 +1657,6 @@ def build_standard_saddle():
                     )
                 st.code(anchor_table, language="text")
 
-                # Section 3
                 st.markdown("### 3. Reactions")
                 r = report["reactions"]
                 if r["status"] == "ok":
@@ -1661,14 +1674,10 @@ def build_standard_saddle():
                     st.caption("Status: " + r["status"])
                     st.caption(r["note"])
 
-                # Section 4
                 st.markdown("### 4. Member forces")
                 mf = report["member_forces"]
-                mem = mf["membrane"]
-                ec = mf["edge_cable"]
-                bm = mf["beam"]
-                td = mf["tiedown"]
-
+                mem = mf["membrane"]; ec = mf["edge_cable"]
+                bm = mf["beam"]; td = mf["tiedown"]
                 st.markdown("**Membrane** — " + mem["model"])
                 st.markdown(
                     "- n=" + str(mem["n"])
@@ -1713,12 +1722,10 @@ def build_standard_saddle():
                 )
                 st.caption(mf["note"])
 
-                # Section 5
                 st.markdown("### 5. Membrane stresses")
                 st.caption("Status: " + report["membrane_stresses"]["status"])
                 st.caption(report["membrane_stresses"]["note"])
 
-                # Section 6
                 st.markdown("### 6. Member schedule")
                 ms = report["member_sizing"]
                 sched_table = "  member                     section       force      util   result\n"
@@ -1732,12 +1739,10 @@ def build_standard_saddle():
                 st.code(sched_table, language="text")
                 st.caption(ms["note"])
 
-                # Section 7
                 st.markdown("### 7. Cable sag check")
                 st.caption("Status: " + report["cable_sag"]["status"])
                 st.caption(report["cable_sag"]["note"])
 
-                # Section 8
                 st.markdown("### 8. Membrane gradient check")
                 mg = report["membrane_gradient"]
                 st.markdown(
@@ -1755,7 +1760,6 @@ def build_standard_saddle():
                 )
                 st.caption(mg["note"])
 
-                # Section 9
                 st.markdown("### 9. Bill of quantities")
                 bq = report["bq"]
                 st.caption("Status: " + bq["status"])
@@ -1830,9 +1834,7 @@ def build_standard_saddle():
                 edges_local = built.get("edges", None)
                 if q_vals is not None and edges_local is not None:
                     n_boundary_local = int(boundary_loop.shape[0])
-                    summary = _summarise_q(
-                        edges_local, q_vals, n_boundary_local
-                    )
+                    summary = _summarise_q(edges_local, q_vals, n_boundary_local)
                     st.markdown(
                         "- boundary: n=" + str(summary.get("boundary_n", 0)) +
                         "   min=" + ("%.4f" % summary.get("boundary_min", 0.0)) +
@@ -1845,9 +1847,7 @@ def build_standard_saddle():
                         "   max=" + ("%.4f" % summary.get("interior_max", 0.0)) +
                         "   mean=" + ("%.4f" % summary.get("interior_mean", 0.0))
                     )
-                    ratio = summary.get(
-                        "ratio_mean_boundary_over_interior", None
-                    )
+                    ratio = summary.get("ratio_mean_boundary_over_interior", None)
                     if ratio is not None:
                         st.markdown(
                             "- **ratio boundary_mean / interior_mean = "
@@ -1892,53 +1892,26 @@ def build_standard_saddle():
                 n_boundary_local = int(boundary_loop.shape[0])
                 st.markdown("**First 40 edges** (index, endpoints, is_boundary, q_value):")
                 st.code(
-                    _format_q_table(
-                        edges_local, q_vals, n_boundary_local, n_show=40
-                    ),
+                    _format_q_table(edges_local, q_vals, n_boundary_local, n_show=40),
                     language="text",
                 )
 
             n_boundary_local = int(boundary_loop.shape[0])
             boundary_idx = list(range(min(n_boundary_local, coords.shape[0])))
-
             st.markdown(
                 "**Boundary nodes** — "
                 + str(len(boundary_idx))
                 + " rows. Columns: idx, x_init, y_init, z_init, "
                 + "x_solved, y_solved, z_solved, disp"
             )
-            st.code(
-                _format_node_table(
-                    points_initial, coords, indices=boundary_idx
-                ),
-                language="text",
-            )
+            st.code(_format_node_table(points_initial, coords, indices=boundary_idx), language="text")
 
-            top_idx = _top_displaced_indices(
-                points_initial, coords, n_top=20
-            )
-            st.markdown(
-                "**Top 20 displaced nodes** — sorted by displacement, "
-                + "largest first"
-            )
-            st.code(
-                _format_node_table(
-                    points_initial, coords, indices=top_idx
-                ),
-                language="text",
-            )
+            top_idx = _top_displaced_indices(points_initial, coords, n_top=20)
+            st.markdown("**Top 20 displaced nodes** — sorted by displacement, largest first")
+            st.code(_format_node_table(points_initial, coords, indices=top_idx), language="text")
 
-            st.markdown(
-                "**All nodes** — "
-                + str(coords.shape[0])
-                + " rows. Same columns."
-            )
-            st.code(
-                _format_node_table(
-                    points_initial, coords, indices=None
-                ),
-                language="text",
-            )
+            st.markdown("**All nodes** — " + str(coords.shape[0]) + " rows. Same columns.")
+            st.code(_format_node_table(points_initial, coords, indices=None), language="text")
 
     return fig
 
