@@ -12,6 +12,8 @@
 # History:
 #   2026-10-08 - First version. MBS Tester and Renderer Test moved
 #                here from the landing page.
+#   2026-10-09 - Added Star Diagnostic tile. Background test for the
+#                shared cable-membrane boundary node movement.
 # =============================================================================
 
 import streamlit as st
@@ -140,6 +142,25 @@ def render_lab():
     )
     if st.button("Open Renderer Test", key="lab_renderer_test", use_container_width=True):
         st.session_state.page = "renderer_test"
+        st.rerun()
+
+    # ---- Star Diagnostic
+    st.markdown(
+        '<div class="lab-tile">'
+        '<div class="lab-tile-name">Star Diagnostic</div>'
+        '<div class="lab-tile-desc">'
+        'Background test. Compares the settled coordinates of the '
+        'shared cable-membrane boundary nodes between two edge '
+        'cable pretensions. Reports the angle of the displacement '
+        'to the local cable tangent and to the Z axis. Used to '
+        'determine whether the shared node is free along the '
+        'cable, free in Z, or fully free.'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Star Diagnostic", key="lab_star_diag", use_container_width=True):
+        st.session_state.page = "tester_star_diagnostic"
         st.rerun()
 
     # ---- Placeholder for future test pages
