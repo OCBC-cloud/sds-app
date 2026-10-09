@@ -41,7 +41,7 @@
 #   2026-10-09 - subdivisions_per_segment replaces mesh_spacing.
 # =============================================================================
 
-RECIPE = {
+STANDARD_SADDLE_RECIPE = {
     "structure_key": "saddle_span",
     "variant_key": "standard_saddle",
     "title": "Cable Supported Saddle",
