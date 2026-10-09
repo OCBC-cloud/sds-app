@@ -1,41 +1,42 @@
 # =============================================================================
 # SDSe - Star Diagnostic (Lab)
 # =============================================================================
-# A background test to find out how a boundary node that is shared
-# between the cable and the membrane actually moves when the edge
-# cable pretension is changed.
+# Background test to see how a boundary node shared between the cable
+# and the membrane moves when the edge cable pretension is changed.
 #
 # The question:
 #   Is the shared boundary node free along the cable direction,
 #   free in Z only, or free in all three directions?
 #
 # The method:
-#   - Build a diamond in plan, 5 m long diagonal, 3 m short diagonal.
-#   - Four corners pinned, alternating heights (+1, -1, +1, -1).
-#   - Four sides, all cable segments, with subdivision nodes along
-#     each side. Those subdivision nodes are shared with the
-#     membrane.
-#   - Run the FDM solve twice, holding everything fixed except the
-#     edge cable pretension.
+#   - Diamond in plan, 5 m long diagonal, 3 m short diagonal.
+#   - Four corners pinned at alternating heights (+1, -1, +1, -1).
+#   - Four sides, all cable, 12 subdivisions per side.
+#   - Two FDM solves. Everything fixed except the edge cable
+#     pretension.
 #   - Read the boundary subdivision nodes from both runs.
-#   - Compute the displacement vector at each node.
-#   - Report the angle of that displacement to the local cable
-#     tangent, and to the Z axis.
+#   - Report the displacement vector, the angle to the local cable
+#     tangent, and the angle to the Z axis.
 #
-# The q computation, the mesh call, and the FDM call are copied
-# from _solve_fdm_path in viewers/figures/standard_saddle_mbs.py.
-# That is the working path. This diagnostic changes only the
-# geometry, so that the only thing under test is the shape.
+# The path:
+#   The q computation, the mesh call, and the FDM call are taken
+#   from _solve_fdm_path in viewers/figures/standard_saddle_mbs.py.
+#   The boundary-edge q is passed as a DICT, not a scalar. That is
+#   the path the working saddle viewer uses for form finding.
+#   Pass a scalar and assign_anisotropic_q silently drops the value
+#   in its Case 3 branch. Pass a dict and the value reaches the
+#   boundary edges.
 #
 # This file is diagnostic only. Nothing here is called by the
 # production code.
 #
 # History:
 #   2026-10-09 - First version.
-#   2026-10-09 - Rewritten to borrow the working q and mesh path
-#                from the saddle viewer, instead of re-implementing
-#                it. The first version produced no response to the
-#                edge pretension change. The working path does.
+#   2026-10-09 - Rewritten to borrow the working q path.
+#   2026-10-09 - Rewritten again to pass a DICT of boundary q
+#                values, matching the working saddle viewer. The
+#                scalar path in assign_anisotropic_q silently
+#                applies warp_q to boundary edges.
 # =============================================================================
 
 import numpy as np
@@ -55,16 +56,10 @@ from engine.form_finding import (
 
 def _build_diamond_boundary():
     """
-    Return (boundary_loop, anchor_indices, segment_types, segments).
-
-    A diamond in plan: long diagonal 5 m along X, short diagonal 3 m
+    Diamond in plan: long diagonal 5 m along X, short diagonal 3 m
     along Y. Four corners at alternating heights (+1, -1, +1, -1).
-    Between corners, subdivision nodes are laid along the straight
-    chord. All four sides are cable segments.
-
-    anchors: the four corners.
-    segments: four, one per side. Each segment carries its interior
-    node list, exactly as the saddle viewer's boundary builder does.
+    Subdivision nodes along each straight chord. All four sides are
+    cable segments.
     """
     corners = np.array([
         (-2.5,  0.0, +1.0),
@@ -114,7 +109,7 @@ def _build_diamond_boundary():
 
 
 # =============================================================================
-# ONE SOLVE - copied from _solve_fdm_path
+# ONE SOLVE
 # =============================================================================
 
 def _solve_once(boundary_loop, anchors, segment_types,
@@ -122,10 +117,9 @@ def _solve_once(boundary_loop, anchors, segment_types,
                  warp_pre_kN_per_m, weft_pre_kN_per_m,
                  mesh_spacing_m):
     """
-    Run the FDM solve on the given boundary with the given edge
-    cable pretension. The q computation, the mesh call, and the
-    FDM call are copied from _solve_fdm_path in the working
-    saddle viewer. Only the geometry source differs.
+    FDM solve on the diamond boundary. The q computation, the mesh
+    call, and the FDM call are taken from _solve_fdm_path in the
+    working saddle viewer. The boundary-edge q is passed as a DICT.
     """
     n = boundary_loop.shape[0]
     total_len = 0.0
@@ -137,14 +131,12 @@ def _solve_once(boundary_loop, anchors, segment_types,
     if L_avg < 1e-9:
         L_avg = 1.0
 
-    # ---- edge pretension source
     edge_pre_used = float(edge_pretension_kN)
     edge_pre_source = "user"
     if edge_pre_used <= 0.0:
         edge_pre_used = 0.05
         edge_pre_source = "fallback"
 
-    # ---- q computation, as in _solve_fdm_path
     baseline_kN_per_m = 2.0
     ratio_limit = 4.0
     warp_input = max(0.1, float(warp_pre_kN_per_m))
@@ -178,11 +170,22 @@ def _solve_once(boundary_loop, anchors, segment_types,
     points_initial = mesh_result["points_initial"]
     edges = mesh_result["edges"]
     fixed_indices = mesh_result["fixed_indices"]
+    n_boundary_pts = boundary_loop.shape[0]
 
     pts_2d = points_initial[:, :2]
     warp_dir = auto_warp_dir(pts_2d)
 
-    n_boundary_pts = boundary_loop.shape[0]
+    # ---- Boundary-edge q, as a DICT keyed by node-pair ----
+    # One entry per boundary edge in the boundary loop. The mesh
+    # preserves boundary indices 0..n_boundary-1 in order, so the
+    # boundary edges are the consecutive pairs (i, i+1) and the
+    # closing pair (n_boundary-1, 0).
+    q_dict = {}
+    for i in range(n_boundary_pts):
+        j = (i + 1) % n_boundary_pts
+        key = (i, j) if i < j else (j, i)
+        q_dict[key] = float(edge_q_scalar)
+
     q_aniso = assign_anisotropic_q(
         edges,
         pts_2d,
@@ -190,8 +193,19 @@ def _solve_once(boundary_loop, anchors, segment_types,
         warp_q,
         weft_q,
         n_boundary=n_boundary_pts,
-        boundary_edge_q=edge_q_scalar,
+        boundary_edge_q=q_dict,
     )
+
+    # ---- Counters: how many edges actually got the edge_q value ----
+    n_boundary_edges_in_mesh = 0
+    n_boundary_edges_applied = 0
+    for k, (a, b) in enumerate(edges):
+        if a < n_boundary_pts and b < n_boundary_pts:
+            d = abs(a - b)
+            if d == 1 or d == n_boundary_pts - 1:
+                n_boundary_edges_in_mesh += 1
+                if abs(float(q_aniso[k]) - float(edge_q_scalar)) < 1e-6:
+                    n_boundary_edges_applied += 1
 
     fdm_result = solve_fdm(
         points_initial.copy(),
@@ -212,6 +226,8 @@ def _solve_once(boundary_loop, anchors, segment_types,
         "edge_q_scalar": edge_q_scalar,
         "edge_pre_used_kN": edge_pre_used,
         "edge_pre_source": edge_pre_source,
+        "n_boundary_edges_in_mesh": n_boundary_edges_in_mesh,
+        "n_boundary_edges_applied": n_boundary_edges_applied,
     }
 
 
@@ -220,11 +236,6 @@ def _solve_once(boundary_loop, anchors, segment_types,
 # =============================================================================
 
 def _cable_tangent_at(coords, boundary_index, n_boundary):
-    """
-    Return the unit tangent of the boundary loop at the given
-    boundary index, taken from the settled coordinates. Uses the
-    two neighbours along the loop.
-    """
     prev_idx = (boundary_index - 1) % n_boundary
     next_idx = (boundary_index + 1) % n_boundary
     prev_pt = coords[prev_idx]
@@ -237,10 +248,6 @@ def _cable_tangent_at(coords, boundary_index, n_boundary):
 
 
 def _analyse_run_pair(run_A, run_B):
-    """
-    Compare the boundary nodes between the two runs. Return a list
-    of dicts, one per boundary subdivision node (anchors excluded).
-    """
     coords_A = run_A["coords"]
     coords_B = run_B["coords"]
     n_boundary = run_A["n_boundary"]
@@ -315,8 +322,7 @@ def _verdict(rows):
     max_motion_mm = max(mags) * 1000.0 if mags else 0.0
     if total_motion_mm < 0.1:
         return (
-            "No measurable motion. The two pretensions produced "
-            "identical settled coordinates. Max motion %.4f mm. "
+            "No measurable motion. Max motion %.4f mm. "
             "The edge pretension is not reaching the solve, or the "
             "node is effectively fixed in all three axes."
             % max_motion_mm
@@ -364,8 +370,8 @@ def _verdict(rows):
 def render_tester_star_diagnostic():
     st.markdown(
         "## Star Diagnostic  \n"
-        "A background test to see how the shared boundary node "
-        "moves when only the edge cable pretension is changed."
+        "How does the shared boundary node move when only the edge "
+        "cable pretension is changed?"
     )
 
     st.markdown(
@@ -376,10 +382,8 @@ def render_tester_star_diagnostic():
     )
 
     st.markdown(
-        "**Method.** Two FDM solves. Same geometry, same warp and "
-        "weft. Only the edge cable pretension differs. "
-        "The q computation and the mesh call are taken from the "
-        "working saddle viewer, so this test uses the same path."
+        "**Path.** Boundary-edge q is passed as a DICT, matching the "
+        "working saddle viewer's form-finding path."
     )
 
     c1, c2, c3 = st.columns(3)
@@ -460,6 +464,12 @@ def render_tester_star_diagnostic():
         + "  |  L_avg: %.4f m" % run_A["L_avg"]
         + "  |  fixed: " + str(len(run_A["fixed_indices"]))
     )
+    st.markdown(
+        "- Boundary edges in mesh: "
+        + str(run_A["n_boundary_edges_in_mesh"])
+        + "  |  applied edge_q: "
+        + str(run_A["n_boundary_edges_applied"])
+    )
 
     st.markdown("**Solve B summary**")
     st.markdown(
@@ -475,15 +485,19 @@ def render_tester_star_diagnostic():
         + "  |  L_avg: %.4f m" % run_B["L_avg"]
         + "  |  fixed: " + str(len(run_B["fixed_indices"]))
     )
+    st.markdown(
+        "- Boundary edges in mesh: "
+        + str(run_B["n_boundary_edges_in_mesh"])
+        + "  |  applied edge_q: "
+        + str(run_B["n_boundary_edges_applied"])
+    )
 
     st.markdown("---")
     st.markdown("**Boundary node displacement table**")
     st.caption(
-        "Columns: node index, initial x, y, z, settled coordinates "
-        "in run A (xA, yA, zA), settled coordinates in run B "
-        "(xB, yB, zB), displacement magnitude in mm, angle of the "
-        "displacement to the local cable tangent in degrees, angle "
-        "of the displacement to the Z axis in degrees."
+        "node index, initial x/y/z, settled A (xA,yA,zA), "
+        "settled B (xB,yB,zB), displacement |d| in mm, "
+        "angle to local cable tangent, angle to Z axis."
     )
 
     rows = _analyse_run_pair(run_A, run_B)
@@ -491,8 +505,7 @@ def render_tester_star_diagnostic():
 
     st.markdown("---")
     st.markdown("**Verdict**")
-    verdict = _verdict(rows)
-    st.markdown(verdict)
+    st.markdown(_verdict(rows))
 
 
 # =============================================================================
