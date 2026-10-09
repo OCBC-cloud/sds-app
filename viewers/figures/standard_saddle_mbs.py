@@ -6,37 +6,24 @@
 # Three zones, three audiences.
 #
 #   Zone 1 - Chart and controls. Visible to every user.
-#            - The 3D chart.
-#            - Display checkboxes (beams, membrane, anchors,
-#              edge cable, tie-downs, supports).
-#            - Solver mode selector (FDM / NFDM), shown to
-#              Owner, Studio, Beta only.
-#
 #   Zone 2 - Customer deliverables. Owner, Studio, Beta only.
-#            - Structural Analysis Report.
-#            - Bill of Quantities.
-#            - Member Schedule.
-#
-#   Zone 3 - Engineering bench. Owner only. Never visible to
-#            any customer, at any price.
-#            - Solver diagnostics: path, access mode, mesh
-#              counts, convergence, residual, iterations.
-#            - Edge cable pretension source and value.
-#            - Pull-back summary.
-#            - q values summary and per-edge table.
-#            - Digitised node data: boundary, top 20, all nodes.
-#
-# The Owner role is the engineer's seat. It is not the top of
-# the commercial ladder. It is the bench where the App is
-# built. Nobody else ever sees Zone 3.
+#   Zone 3 - Engineering bench. Owner only.
 #
 # Two-pass workflow (2026-10-07):
 #   Pass 1 - form finding. The user's chosen pretensions drive
-#            the shape. These are a design lever, not the
-#            physical prestress of the settled structure.
+#            the shape.
 #   Pass 2 - settled state. The shape is accepted. The settled
-#            force densities are used to compute the real
-#            reactions. The report reads from this pass.
+#            force densities are used to compute the real reactions.
+#
+# Updated 2026-10-09:
+#   - Boundary q dict is now pre-filled with edge_q_scalar on every
+#     boundary edge before the pull-back values overwrite where
+#     available. This matches the Lab test path that produced a
+#     clean shape across the whole edge-pretension range. Without
+#     this, only the edges returned by the pull-back received the
+#     user's edge pretension, and the remaining boundary edges fell
+#     through to the interior q blend, which is soft. That was the
+#     reason the hump collapsed without extreme warp/weft values.
 #
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
@@ -44,23 +31,14 @@
 #   2026-10-04 - Step 2E. Anchors and subdivision.
 #   2026-10-04 - Two-path solver. NFDM for high tiers.
 #   2026-10-05 - Pull-back initial guess. Single-build FDM.
-#                Cache. Loading message. Checkbox toggles.
 #   2026-10-06 - FDM path fallback. Digitised node data.
 #                q array print. Mode selector. Threshold fix.
 #                Auto-scaled edge cable pretension.
 #   2026-10-07 - Three zones. Owner gate on Zone 3.
-#                Zone 2 placeholder for the report and BQ.
-#   2026-10-07 - Zone 2 Structural Analysis Report. Nine sections.
-#                Derived quantities only, no raw q in Zone 2.
-#                Report gated on FDM path. NFDM shows reminder.
-#                Drainage check: 15 deg rain / 28 deg snow.
-#   2026-10-07 - Report wired to engine/member_sizing.py.
-#                Sections 3, 4, 6 now carry real design forces.
-#                Base condition read from ws_ss_base_condition.
-#   2026-10-07 - Settled-state second pass. solve_fdm_settled
-#                is called after the form-finding solve. The
-#                settled reactions feed the report. The form-
-#                finding input no longer inflates the reactions.
+#                Zone 2 Structural Analysis Report. Nine sections.
+#                Report wired to engine/member_sizing.py.
+#                Settled-state second pass.
+#   2026-10-09 - Boundary q dict pre-filled with edge_q_scalar.
 # =============================================================================
 
 import math
@@ -106,12 +84,10 @@ def _access_mode():
 
 
 def _is_high_tier():
-    """Owner, Studio, Beta. Can select FDM/NFDM and see customer deliverables."""
     return _access_mode() in HIGH_TIERS
 
 
 def _is_owner():
-    """Owner only. The engineering bench. Never visible to any customer."""
     return _access_mode() == OWNER_TIER
 
 
@@ -131,7 +107,6 @@ def _read_fabric_constants(fabric_type, fabric_grade):
 
 
 def _read_fabric_default_prestress_kN_per_m(fabric_type, fabric_grade):
-    """Return the default prestress for a fabric, in kN/m."""
     try:
         rec = FABRIC_PROPERTIES[fabric_type][fabric_grade]
         v = float(rec.get("prestress_default_kN_per_m", 2.0))
@@ -394,20 +369,6 @@ def _build_beam_curves(span, apex, rise, curve_type, n_pts=200):
 
 def _auto_edge_pretension_kN(arc_total, anchor_count,
                               warp_pre, weft_pre):
-    """
-    Return the auto-scaled edge cable pretension in kN.
-
-    The bow threshold scales with the anchor spacing, not the
-    total span. The threshold is:
-
-        T = N_membrane * L_anchor
-
-    where:
-        N_membrane  = the membrane prestress resultant (N/m),
-                      taken as max(warp_pre, weft_pre).
-        L_anchor    = the distance between two adjacent anchors
-                      along the beam = arc_total / (anchor_count - 1).
-    """
     if anchor_count < 2:
         return 0.0
     L_anchor = float(arc_total) / float(anchor_count - 1)
@@ -508,6 +469,20 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     q_dict = None
     n_fallback_edges = 0
     if str(attachment_type).lower() == "cable_supported":
+        # ---- Pre-fill every boundary edge with the user's edge q.
+        # This is the change that matches the Lab test path. Every
+        # boundary edge is guaranteed to receive edge_q_scalar. The
+        # pull-back values then overwrite where they are available.
+        # Without this, only the edges returned by the pull-back
+        # received the edge pretension, and the remaining boundary
+        # edges fell through to the interior q blend, which is soft.
+        q_dict = {}
+        n_boundary_pts = boundary_loop.shape[0]
+        for bi in range(n_boundary_pts):
+            bj = (bi + 1) % n_boundary_pts
+            bkey = (bi, bj) if bi < bj else (bj, bi)
+            q_dict[bkey] = float(edge_q_scalar)
+
         try:
             tensions = pullback_cable_initial_tensions(
                 points=points_initial,
@@ -517,7 +492,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                 segments=segments,
                 material=mat,
             )
-            q_dict = {}
+            n_overwritten = 0
             for key, T in tensions.items():
                 i, j = int(key[0]), int(key[1])
                 L = float(np.linalg.norm(points_initial[j] - points_initial[i]))
@@ -526,8 +501,8 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                 q_kk = (i, j) if i < j else (j, i)
                 if T is not None and T > 1.0:
                     q_dict[q_kk] = float(T) / L
+                    n_overwritten += 1
                 else:
-                    q_dict[q_kk] = float(edge_q_scalar)
                     n_fallback_edges += 1
             tvals = [v for v in tensions.values() if v > 1.0]
             if tvals:
@@ -537,6 +512,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                     "mean_N": float(sum(tvals) / len(tvals)),
                     "n_edges": len(tvals),
                     "n_fallback_edges": int(n_fallback_edges),
+                    "n_overwritten": int(n_overwritten),
                 }
             else:
                 pullback_summary = {
@@ -545,7 +521,8 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                     "mean_N": 0.0,
                     "n_edges": 0,
                     "n_fallback_edges": int(n_fallback_edges),
-                    "note": "pull-back returned zero or below 1 N on every boundary edge; fell back to edge_q_scalar",
+                    "n_overwritten": 0,
+                    "note": "pull-back returned zero or below 1 N on every boundary edge; dict keeps edge_q_scalar",
                 }
         except Exception as e:
             pullback_summary = {"error": str(e)}
@@ -585,21 +562,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     )
     coords = fdm_result["coordinates"]
 
-    # -------------------------------------------------------------------------
-    # Settled-state second pass.
-    #
-    # The form-finding q above was used to manipulate the shape. It is a
-    # design lever: it controls the bow depth and the membrane area. It
-    # is not the physical prestress of the settled structure.
-    #
-    # The physical force densities of the settled form are:
-    #   - Interior: the fabric default prestress (from the fabric record)
-    #   - Boundary: the edge_q_scalar the engine already computed as
-    #     necessary to hold the shape (its own fallback answer)
-    #
-    # The settled coordinates are fixed. solve_fdm_settled returns the
-    # reactions of this settled state. Those are the real reactions.
-    # -------------------------------------------------------------------------
     fabric_default_kN_per_m = _read_fabric_default_prestress_kN_per_m(
         fabric_type, fabric_grade
     )
@@ -939,20 +901,6 @@ def _cached_nfdm(span, apex, rise, curve_type,
 # =============================================================================
 # STRUCTURAL REPORT GENERATOR
 # =============================================================================
-#
-# Consumes the built dict and the diagnostics dict, returns a report
-# payload. The payload contains derived quantities only. The raw q
-# array is read internally and is never placed in the payload.
-#
-# Design forces are read from engine/member_sizing.py. That module
-# prefers settled_reactions (Pass 2) over form-finding reactions
-# (Pass 1). Sections 3, 4, 6 carry the settled numbers.
-#
-# Drainage thresholds (Chief's working practice, subject to code
-# override when data/codes.py is built):
-#   Rain runoff:  minimum 15 degrees
-#   Snow load:    minimum 28 degrees
-# =============================================================================
 
 _DRAINAGE_MIN_RAIN_DEG = 15.0
 _DRAINAGE_MIN_SNOW_DEG = 28.0
@@ -977,19 +925,12 @@ def _build_structural_report(
     base_condition,
     code,
 ):
-    """
-    Build the structural report payload from the FDM (Stage 1) result.
-    All quantities are derived. No raw q values appear in the payload.
-    """
     report = {}
 
     design_forces = design_forces_from_built(
         built, code=code, base_condition=base_condition,
     )
 
-    # -------------------------------------------------------------------------
-    # Section 1 - Design basis
-    # -------------------------------------------------------------------------
     report["design_basis"] = {
         "structure": "Cable Supported Saddle",
         "geometry": {
@@ -1034,9 +975,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 2 - Form-found geometry
-    # -------------------------------------------------------------------------
     coords = built["points"]
     boundary_loop = built["boundary_loop"]
     anchor_pos = built["anchor_pos"]
@@ -1061,9 +999,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 3 - Reactions (settled state)
-    # -------------------------------------------------------------------------
     reactions = diag.get("settled_reactions", None)
     if reactions is None:
         reactions = diag.get("reactions", None)
@@ -1108,9 +1043,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 4 - Member forces (from engine/member_sizing.py)
-    # -------------------------------------------------------------------------
     membrane = design_forces["membrane"]
     edge_cable = design_forces["edge_cable"]
     beam = design_forces["beam"]
@@ -1130,9 +1062,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 5 - Membrane stresses (pending)
-    # -------------------------------------------------------------------------
     report["membrane_stresses"] = {
         "status": "pending",
         "note": (
@@ -1142,9 +1071,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 6 - Member schedule
-    # -------------------------------------------------------------------------
     schema = get_member_schema("saddle_span", "standard_saddle")
     member_rows = []
 
@@ -1228,9 +1154,6 @@ def _build_structural_report(
         "note": schema_note,
     }
 
-    # -------------------------------------------------------------------------
-    # Section 7 - Cable sag check (pending)
-    # -------------------------------------------------------------------------
     report["cable_sag"] = {
         "status": "pending",
         "note": (
@@ -1240,9 +1163,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 8 - Drainage check
-    # -------------------------------------------------------------------------
     triangles = built["triangles"]
     slopes_deg = []
     for tri in triangles:
@@ -1283,9 +1203,6 @@ def _build_structural_report(
         ),
     }
 
-    # -------------------------------------------------------------------------
-    # Section 9 - Bill of quantities (pending)
-    # -------------------------------------------------------------------------
     report["bq"] = {
         "status": "pending",
         "edge_cable_length_m": float(diag.get("edge_cable_length_m", 0.0)),
@@ -1590,7 +1507,6 @@ def build_standard_saddle():
 
             with st.expander("Structural Analysis Report", expanded=False):
 
-                # Section 1
                 st.markdown("### 1. Design basis")
                 db = report["design_basis"]
                 st.markdown("**Structure:** " + db["structure"])
@@ -1626,7 +1542,6 @@ def build_standard_saddle():
                 st.caption("**Code checks:** " + db["code_checks"])
                 st.caption("**Two-pass note:** " + db["two_pass_note"])
 
-                # Section 2
                 st.markdown("### 2. Form-found geometry")
                 fg = report["form_found_geometry"]
                 st.markdown(
@@ -1643,7 +1558,6 @@ def build_standard_saddle():
                     )
                 st.code(anchor_table, language="text")
 
-                # Section 3
                 st.markdown("### 3. Reactions")
                 r = report["reactions"]
                 if r["status"] == "ok":
@@ -1661,7 +1575,6 @@ def build_standard_saddle():
                     st.caption("Status: " + r["status"])
                     st.caption(r["note"])
 
-                # Section 4
                 st.markdown("### 4. Member forces")
                 mf = report["member_forces"]
                 mem = mf["membrane"]
@@ -1713,12 +1626,10 @@ def build_standard_saddle():
                 )
                 st.caption(mf["note"])
 
-                # Section 5
                 st.markdown("### 5. Membrane stresses")
                 st.caption("Status: " + report["membrane_stresses"]["status"])
                 st.caption(report["membrane_stresses"]["note"])
 
-                # Section 6
                 st.markdown("### 6. Member schedule")
                 ms = report["member_sizing"]
                 sched_table = "  member                     section       force      util   result\n"
@@ -1732,12 +1643,10 @@ def build_standard_saddle():
                 st.code(sched_table, language="text")
                 st.caption(ms["note"])
 
-                # Section 7
                 st.markdown("### 7. Cable sag check")
                 st.caption("Status: " + report["cable_sag"]["status"])
                 st.caption(report["cable_sag"]["note"])
 
-                # Section 8
                 st.markdown("### 8. Membrane gradient check")
                 mg = report["membrane_gradient"]
                 st.markdown(
@@ -1755,7 +1664,6 @@ def build_standard_saddle():
                 )
                 st.caption(mg["note"])
 
-                # Section 9
                 st.markdown("### 9. Bill of quantities")
                 bq = report["bq"]
                 st.caption("Status: " + bq["status"])
@@ -1814,8 +1722,6 @@ def build_standard_saddle():
             else:
                 d1, d2, d3 = st.columns(3)
                 d1.metric("Residual", "%.4e" % diag["residual_norm"])
-                d2.metric("Min tri area", "%.6e" % 0.0)
-                d3.metric("Mean tri area", "%.6e" % 0.0)
 
             if diag["solver"].startswith("FDM"):
                 st.markdown("---")
@@ -1866,6 +1772,8 @@ def build_standard_saddle():
                         "  |  Mean: " + ("%.2f N" % ps["mean_N"])
                     )
                     st.markdown("- Edges: " + str(ps["n_edges"]))
+                    if "n_overwritten" in ps:
+                        st.markdown("- Overwritten in dict: " + str(ps["n_overwritten"]))
                     if "n_fallback_edges" in ps:
                         st.markdown("- Fallback edges: " + str(ps["n_fallback_edges"]))
                     if "note" in ps:
