@@ -40,11 +40,12 @@
 #   Interior mesh nodes     -> always released.
 #
 # Directional constraint (kept as an active capability):
-#   A caller may pass dir_only_indices to solve_fdm. A node with a
-#   direction constraint is free to move along the given direction
-#   and fixed in the two axes perpendicular to it. Used today for
-#   cable interior nodes when the caller asks for it, and available
-#   in the future for fixed nodes along a wall, a mast base, or any
+#   A caller may pass use_dir_constraint=True to build_mesh_triangulated.
+#   When True, cable interior nodes are passed to solve_fdm with their
+#   local cable tangent as a directional constraint. The node is free
+#   along the tangent and fixed in the two axes perpendicular to it.
+#   Used today only when a caller explicitly asks for it. Available in
+#   the future for a fixed node along a wall, a mast base, or any
 #   other partially constrained support.
 #
 # Force densities:
@@ -61,12 +62,9 @@
 #   2026-10-01 - Interior points and Laplace lift.
 #   2026-10-05 - Per-edge edge_q support.
 #   2026-10-08 - Header comment drift corrected.
-#   2026-10-09 - Triangulation rebuilt from the settled shape. The
-#                initial mesh is used for the FDM solve only.
-#                Proven on the Standard Saddle in the Lab: clean
-#                triangulation of the settled shape across the
-#                edge cable pretension range 0.1 to 100 kN, zero
-#                slivers, zero zero-area triangles.
+#   2026-10-09 - Triangulation rebuilt from the settled shape.
+#                Fixed the settled retriangulation to call Delaunay
+#                directly, not through the interior grid generator.
 # =============================================================================
 
 import numpy as np
@@ -295,15 +293,29 @@ def _triangulate_polygon(pts_2d, target_edge_length):
 
 def _triangulate_settled(settled_points, n_boundary, origin, u, v):
     """
-    Rebuild the triangulation from the SETTLED coordinates. Project
-    the settled shape onto the same plan plane, run Delaunay, filter
-    to the settled boundary polygon, and return the triangles.
+    Rebuild the triangulation from the SETTLED coordinates.
+
+    Projects the settled shape onto the same plan plane, runs
+    Delaunay on the settled plan positions directly (no new
+    interior candidates are added, because the settled points
+    already include the interior nodes placed by the initial
+    triangulation), filters to the settled boundary polygon, and
+    returns the triangles.
     """
+    from scipy.spatial import Delaunay
+
     settled_2d = _project_points(settled_points, origin, u, v)
     settled_boundary_2d = settled_2d[:n_boundary]
 
-    _, triangles = _triangulate_polygon(settled_boundary_2d, None)
-    return triangles
+    tri = Delaunay(settled_2d)
+    triangles_inside = []
+    for simplex in tri.simplices:
+        a, b, c = int(simplex[0]), int(simplex[1]), int(simplex[2])
+        cx = (settled_2d[a][0] + settled_2d[b][0] + settled_2d[c][0]) / 3.0
+        cy = (settled_2d[a][1] + settled_2d[b][1] + settled_2d[c][1]) / 3.0
+        if _point_in_polygon(cx, cy, settled_boundary_2d):
+            triangles_inside.append((a, b, c))
+    return triangles_inside
 
 
 # =============================================================================
@@ -371,12 +383,8 @@ def _compute_fixed_indices(boundary_loop, anchor_indices, segment_types):
 def _compute_cable_dir_indices(boundary_loop, anchor_indices, segment_types):
     """
     Optional: for each cable-segment interior boundary node, return
-    its local cable tangent. This is a dormant capability. It is
-    passed to solve_fdm only when the caller asks for it. In the
-    current architecture the form-finding mesh uses the settled
-    shape rebuild, not a directional constraint, to keep the
-    boundary clean. The constraint remains available for callers
-    that need to hold a node to a line, e.g. a fixed wall.
+    its local cable tangent. Dormant capability. Passed to solve_fdm
+    only when the caller asks for it (use_dir_constraint=True).
     """
     n = boundary_loop.shape[0]
     seg_of_node = _compute_seg_of_node(boundary_loop, anchor_indices)
@@ -479,9 +487,7 @@ def build_mesh_triangulated(
 
     The FDM solve runs on the initial mesh, exactly as before. The
     triangles returned to the caller are rebuilt fresh from the
-    SETTLED coordinates. That is what keeps the triangulation of the
-    settled shape clean: no feedback from the triangulation into
-    the solve.
+    SETTLED coordinates.
 
     Parameters
     ----------
@@ -492,10 +498,10 @@ def build_mesh_triangulated(
     use_dir_constraint : bool
         If True, cable interior nodes are passed to solve_fdm with
         their local cable tangent as a directional constraint. This
-        is an optional capability. It is not used by the current
-        form-finding path, because the settled-shape rebuild is
-        what keeps the boundary clean. It is available for callers
-        that need a fixed node along a wall or similar.
+        is optional and off by default. The current form-finding
+        path relies on the settled-shape rebuild, not on this
+        constraint, to keep the boundary clean. The capability is
+        available for callers that need a node held to a line.
 
     See engine/SPEC_mesh_triangulation.md for the full design.
     """
@@ -509,11 +515,9 @@ def build_mesh_triangulated(
         target_edge_length, boundary
     )
 
-    # ---- Plan basis, and project the boundary ----
     normal, origin, u, v = _plan_basis(plan_plane, boundary)
     pts_2d = _project_points(boundary, origin, u, v)
 
-    # ---- Initial triangulation ----
     interior_pts_2d, triangles_initial = _triangulate_polygon(
         pts_2d, target_len
     )
@@ -524,7 +528,6 @@ def build_mesh_triangulated(
     else:
         all_pts_2d = pts_2d.copy()
 
-    # ---- Assemble 3D initial points ----
     all_points = np.zeros((all_pts_2d.shape[0], 3))
     for i in range(n_boundary):
         all_points[i] = boundary[i]
@@ -540,21 +543,18 @@ def build_mesh_triangulated(
             z = float(z_init[i])
             all_points[i] = origin + a * u + b * v + z * normal
 
-    # ---- Initial edges and fixed indices ----
     edges = _edges_from_triangles(triangles_initial, all_points.shape[0])
 
     fixed_indices = _compute_fixed_indices(
         boundary, anchors, seg_types
     )
 
-    # ---- Optional directional constraint on cable interior nodes ----
     dir_only_indices = []
     if use_dir_constraint:
         dir_only_indices = _compute_cable_dir_indices(
             boundary, anchors, seg_types
         )
 
-    # ---- Force densities ----
     from engine.form_finding import (
         assign_anisotropic_q,
         auto_warp_dir,
@@ -575,7 +575,6 @@ def build_mesh_triangulated(
 
     points_initial = all_points.copy()
 
-    # ---- FDM solve on the initial mesh ----
     fdm_result = None
     if len(fixed_indices) > 0:
         fdm_result = solve_fdm(
@@ -589,15 +588,10 @@ def build_mesh_triangulated(
     else:
         settled_points = all_points
 
-    # ---- Rebuild the triangulation from the SETTLED shape ----
-    # This is the change that keeps the mesh clean. The triangles
-    # returned to the caller describe the settled surface, not the
-    # initial mesh. They are always fresh, rebuilt on this call.
     triangles_settled = _triangulate_settled(
         settled_points, n_boundary, origin, u, v
     )
 
-    # ---- Diagnostics ----
     diagnostics = {
         "n_nodes": int(settled_points.shape[0]),
         "n_edges": len(edges),
