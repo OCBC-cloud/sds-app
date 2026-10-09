@@ -27,9 +27,17 @@
 #
 # Updated 2026-10-07:
 #   - Support reactions exposed from solve_fdm.
-#   - solve_fdm_settled added. Second-pass solve on an accepted
-#     form, using settled force densities rather than the user's
-#     form-finding pretensions.
+#   - solve_fdm_settled added.
+#
+# Updated 2026-10-09:
+#   - solve_fdm gains a dir_only_indices argument: a list of
+#     (node_index, direction_vector) pairs. For each such node,
+#     motion is restricted to the given direction. The two axes
+#     perpendicular to the direction are held. This is the general
+#     form of the existing z_only_indices constraint, which is a
+#     special case with direction = (0, 0, 1).
+#   - z_only_indices is retained and works as before, for backward
+#     compatibility. When both are supplied, they are merged.
 #
 # Reference:
 #   Schek, H.-J. (1974). The force density method for form-finding
@@ -92,19 +100,79 @@ def mesh_size_for_span(span_m):
 
 
 # =============================================================================
+# DIRECTIONAL CONSTRAINT HELPERS
+# =============================================================================
+
+def _orthonormal_basis(direction):
+    """
+    Given a unit vector d, return two unit vectors perpendicular to d
+    and to each other, forming a right-handed orthonormal frame
+    (d, p, q). Used to build the reduced 1-DOF basis for a node
+    constrained to move along d.
+    """
+    d = np.asarray(direction, dtype=float)
+    n = float(np.linalg.norm(d))
+    if n < 1e-12:
+        raise ValueError("direction vector has zero length")
+    d = d / n
+
+    ref = np.array([1.0, 0.0, 0.0])
+    if abs(float(np.dot(ref, d))) > 0.9:
+        ref = np.array([0.0, 1.0, 0.0])
+    p = ref - float(np.dot(ref, d)) * d
+    p = p / (float(np.linalg.norm(p)) + 1e-30)
+    q = np.cross(d, p)
+    q = q / (float(np.linalg.norm(q)) + 1e-30)
+    return d, p, q
+
+
+# =============================================================================
 # FDM SOLVER - PASS 1 (FORM FINDING)
 # =============================================================================
 
 def solve_fdm(points, edges, fixed_indices, force_densities,
-              loads=None, z_only_indices=None):
-    """Solve the Force Density Method equilibrium."""
+              loads=None, z_only_indices=None, dir_only_indices=None):
+    """
+    Solve the Force Density Method equilibrium.
+
+    Parameters
+    ----------
+    points : (n, 3) array of initial coordinates
+    edges : list of (i, j)
+    fixed_indices : list of node indices that do not move
+    force_densities : (m,) array or scalar
+    loads : (n, 3) array or None
+    z_only_indices : list of node indices free in Z only. X and Y
+        are held. This is a special case of dir_only_indices with
+        direction = (0, 0, 1).
+    dir_only_indices : list of (node_index, direction_vector) pairs.
+        For each such node, motion is restricted to the given
+        direction. The two axes perpendicular to the direction are
+        held. Used for cable interior nodes: a cable node is free
+        to slide along the local cable tangent, and fixed in the
+        two directions perpendicular to it. This prevents the
+        membrane from pulling the boundary node inward in the plan
+        plane, without preventing the node from bowing along the
+        cable.
+
+    Returns
+    -------
+    dict with keys: coordinates, residual_norm, n_free, n_fixed,
+                    reactions
+    """
     points = np.asarray(points, dtype=float)
     edges = list(edges)
     fixed_indices = list(fixed_indices)
+
     if z_only_indices is None:
         z_only_indices = []
     else:
         z_only_indices = list(z_only_indices)
+
+    if dir_only_indices is None:
+        dir_only_indices = []
+    else:
+        dir_only_indices = list(dir_only_indices)
 
     n = points.shape[0]
     m = len(edges)
@@ -152,6 +220,30 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
             continue
         z_only_mask[i] = True
 
+    # ---- Directional constraints ----
+    # For each (node, direction), we store the unit direction and
+    # the two unit axes perpendicular to it. The node is free to
+    # move along the direction and held along the two perpendicular
+    # axes. A node already in z_only_mask is skipped, because the
+    # two constraints are not meant to be combined on one node.
+    dir_map = {}
+    for entry in dir_only_indices:
+        try:
+            node_i, direction = entry
+        except Exception:
+            raise ValueError(
+                "dir_only_indices entries must be (node_index, direction_vector)"
+            )
+        node_i = int(node_i)
+        if node_i < 0 or node_i >= n:
+            raise ValueError("dir_only index %d out of range" % node_i)
+        if fixed_mask[node_i]:
+            continue
+        if z_only_mask[node_i]:
+            continue
+        d, p, qv = _orthonormal_basis(direction)
+        dir_map[node_i] = (d, p, qv)
+
     K = np.zeros((n, n), dtype=float)
     for k, (i, j) in enumerate(edges):
         qk = q[k]
@@ -161,6 +253,11 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         K[j, i] -= qk
 
     X = points.copy()
+
+    # ---- Nodes that are fully free in all three axes ----
+    # A node is fully free only if it is not fixed, not z_only, and
+    # not in dir_map.
+    dir_only_set = set(dir_map.keys())
 
     def _solve_axis(axis, mask_free):
         idx = np.where(mask_free)[0]
@@ -173,42 +270,99 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         rhs -= K_fx @ points[idx_fixed, axis]
         X[idx, axis] = np.linalg.solve(K_ff, rhs)
 
-    free_xy = (~fixed_mask) & (~z_only_mask)
+    free_xy = (~fixed_mask) & (~z_only_mask) & (~np.isin(np.arange(n), list(dir_only_set)))
+    free_z = (~fixed_mask) & (~np.isin(np.arange(n), list(dir_only_set)))
+
+    # Solve for the axis-free nodes in X, Y, Z as before.
     _solve_axis(0, free_xy)
     _solve_axis(1, free_xy)
-
-    free_z = (~fixed_mask)
     _solve_axis(2, free_z)
+
+    # ---- Handle direction-only nodes ----
+    # For each direction-only node, we solve a 1-DOF system along
+    # the direction, then project the result back to the node's
+    # coordinates. This is done after the axis solves, so the axis
+    # solves use only the fully-free and z_only nodes. The
+    # direction-only nodes are treated as if fixed in the axis
+    # solves (because they were excluded from free_xy and free_z),
+    # then resolved along their own direction.
+    for node_i, (d, p, qv) in dir_map.items():
+        # The node contributes one DOF along d. The equilibrium
+        # equation for that DOF is:
+        #     d^T K[i, i] d * alpha + d^T (sum_j K[i, j] X[j]) = d^T load[i]
+        # where X[i] = alpha * d (the position is parametrised along
+        # d from the origin; but the contribution from the node
+        # itself must be from its own degree of freedom).
+        #
+        # In practice, the simplest and most robust implementation
+        # is: temporarily solve the full 3-DOF system for this node
+        # with the two perpendicular directions held, using the
+        # current X as the fixed contribution from neighbours.
+
+        # Build the 3x3 local block K_ii.
+        K_ii = K[node_i, node_i] * np.eye(3)
+
+        # Contribution from neighbours: for every edge (node_i, j),
+        # the neighbour's current position contributes -q * X[j] to
+        # the node's force balance.
+        neigh_sum = np.zeros(3)
+        for k, (a, b) in enumerate(edges):
+            if a == node_i:
+                neigh_sum -= q[k] * X[b]
+            elif b == node_i:
+                neigh_sum -= q[k] * X[a]
+
+        rhs_full = loads[node_i] - neigh_sum
+
+        # Project onto the direction d: only the component along d
+        # is free.
+        d_col = d.reshape(3, 1)
+        # Effective scalar stiffness along d.
+        k_along = float(d @ (K_ii @ d))
+        if abs(k_along) < 1e-12:
+            continue
+        # Force along d.
+        f_along = float(d @ rhs_full)
+        # Displacement along d.
+        alpha = f_along / k_along
+        # The new position of the node: the old position plus the
+        # displacement along d that satisfies equilibrium.
+        #
+        # But the equilibrium equation is a linear system in the
+        # node's coordinates. We want the new coordinates X[i] such
+        # that:
+        #     K_ii @ X[i] + neigh_sum = loads[i]      (full 3-DOF)
+        # restricted to the 1-DOF along d. This means:
+        #     X[i] = X_old[i] + alpha * d
+        # where alpha is determined by:
+        #     d^T (K_ii @ (X_old[i] + alpha * d) + neigh_sum - loads[i]) = 0
+        # Simplifying:
+        #     d^T (K_ii @ X_old[i] + neigh_sum - loads[i]) + alpha * (d^T K_ii d) = 0
+        # So:
+        #     alpha = - d^T (K_ii @ X_old[i] + neigh_sum - loads[i]) / (d^T K_ii d)
+        residual_d = float(d @ (K_ii @ X[node_i] + neigh_sum - loads[node_i]))
+        k_along = float(d @ (K_ii @ d))
+        if abs(k_along) < 1e-12:
+            continue
+        alpha = - residual_d / k_along
+        X[node_i] = X[node_i] + alpha * d
 
     residual = K @ X - loads
     free_all = ~fixed_mask
     residual_norm = float(np.linalg.norm(residual[free_all]))
 
-    # -------------------------------------------------------------------------
-    # Support reactions.
-    # At a fixed node, the residual is the net force the structure
-    # applies to the support. The reaction is the force the support
-    # applies back, so it is the negative of that residual.
-    #
-    # Units: K uses q in N/m and coordinates in metres, so K @ X is
-    # in newtons. Divide by 1000 to return kilo-newtons.
-    #
-    # These are the reactions of the form-finding state. They are the
-    # forces required to hold the shape as pulled into existence by
-    # the user's chosen pretensions. They are NOT the settled
-    # reactions of the physical structure. Use solve_fdm_settled for
-    # those.
-    #
-    # Sign convention: uplift positive Z, downforce negative Z.
-    # -------------------------------------------------------------------------
     reactions = np.zeros((n, 3), dtype=float)
     for i in fixed_indices:
         reactions[i, :] = -residual[i, :] / 1000.0
 
+    n_free = int(np.sum(free_all)) - len(dir_map) * 2
+    if n_free < 0:
+        n_free = 0
+
     return {
         "coordinates": X,
         "residual_norm": residual_norm,
-        "n_free": int(free_all.sum()),
+        "n_free": n_free,
         "n_fixed": int(fixed_mask.sum()),
         "reactions": reactions,
     }
@@ -627,6 +781,88 @@ def _test_z_only_constraint():
     }
 
 
+def _test_dir_only_constraint():
+    """
+    A middle node constrained to move along the Y axis only.
+    Loaded along Y and Z. It should move in Y, not in X, not in Z.
+    """
+    points = [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+    ]
+    edges = [(0, 1), (1, 2)]
+    fixed = [0, 2]
+    dir_only = [(1, (0.0, 1.0, 0.0))]
+    loads = np.array([
+        [0.0, 0.0, 0.0],
+        [0.0, 1000.0, 1000.0],
+        [0.0, 0.0, 0.0],
+    ])
+    res = solve_fdm(points, edges, fixed, 1.0,
+                    loads=loads, dir_only_indices=dir_only)
+    coords = res["coordinates"]
+
+    x_moved = abs(coords[1, 0] - 1.0)
+    y_moved = abs(coords[1, 1] - 0.0)
+    z_moved = abs(coords[1, 2] - 0.0)
+
+    constraint_ok = (
+        x_moved < 1e-9
+        and z_moved < 1e-9
+        and y_moved > 1e-3
+    )
+
+    return {
+        "residual_norm": res["residual_norm"],
+        "x_moved": x_moved,
+        "y_moved": y_moved,
+        "z_moved": z_moved,
+        "dir_only_ok": constraint_ok,
+    }
+
+
+def _test_dir_only_diagonal():
+    """
+    A middle node constrained to move along the X-Y diagonal.
+    Loaded along X and Z. It should move in X (and Y), not in Z.
+    """
+    points = [
+        (0.0, 0.0, 0.0),
+        (1.0, 1.0, 0.0),
+        (2.0, 2.0, 0.0),
+    ]
+    edges = [(0, 1), (1, 2)]
+    fixed = [0, 2]
+    d = (1.0 / math.sqrt(2.0), 1.0 / math.sqrt(2.0), 0.0)
+    dir_only = [(1, d)]
+    loads = np.array([
+        [0.0, 0.0, 0.0],
+        [1000.0, 0.0, 1000.0],
+        [0.0, 0.0, 0.0],
+    ])
+    res = solve_fdm(points, edges, fixed, 1.0,
+                    loads=loads, dir_only_indices=dir_only)
+    coords = res["coordinates"]
+
+    z_moved = abs(coords[1, 2] - 0.0)
+    # The X-Y displacement should lie along the diagonal direction.
+    dx = coords[1, 0] - 1.0
+    dy = coords[1, 1] - 1.0
+    along_ok = abs(dx - dy) < 1e-6
+    moved = abs(dx) > 1e-4
+
+    constraint_ok = (z_moved < 1e-9) and along_ok and moved
+
+    return {
+        "residual_norm": res["residual_norm"],
+        "dx": dx,
+        "dy": dy,
+        "z_moved": z_moved,
+        "dir_diagonal_ok": constraint_ok,
+    }
+
+
 def _test_mesh_size_for_shape():
     r1 = mesh_size_for_shape(25.0, 4, 4)
     r2 = mesh_size_for_shape(28.0, 4, 4)
@@ -667,10 +903,6 @@ def _test_mesh_size_for_shape():
 
 
 def _test_settled_matches_pass1_when_q_unchanged():
-    """
-    If the settled q equals the form-finding q, the settled solve
-    should give the same reactions as the form-finding solve.
-    """
     points = [
         (0.0, 0.0, 0.0),
         (1.0, 0.0, 0.0),
@@ -713,6 +945,20 @@ def _verify_form_finding():
     results["z_only_z_moved"] = t3["z_moved"]
     results["z_only_ok"] = t3["z_only_ok"]
 
+    t3b = _test_dir_only_constraint()
+    results["dir_only_residual"] = t3b["residual_norm"]
+    results["dir_only_x_moved"] = t3b["x_moved"]
+    results["dir_only_y_moved"] = t3b["y_moved"]
+    results["dir_only_z_moved"] = t3b["z_moved"]
+    results["dir_only_ok"] = t3b["dir_only_ok"]
+
+    t3c = _test_dir_only_diagonal()
+    results["dir_diag_residual"] = t3c["residual_norm"]
+    results["dir_diag_dx"] = t3c["dx"]
+    results["dir_diag_dy"] = t3c["dy"]
+    results["dir_diag_z_moved"] = t3c["z_moved"]
+    results["dir_diag_ok"] = t3c["dir_diagonal_ok"]
+
     t4 = _test_mesh_size_for_shape()
     results["mesh_rect_near_25"] = t4["rect_near_25"]
     results["mesh_rect_near_28"] = t4["rect_near_28"]
@@ -731,6 +977,8 @@ def _verify_form_finding():
         results["saddle_converged"],
         results["saddle_ok"],
         results["z_only_ok"],
+        results["dir_only_ok"],
+        results["dir_diag_ok"],
         results["mesh_rule_ok"],
         results["settled_match_ok"],
     ])
@@ -763,6 +1011,20 @@ if __name__ == "__main__":
     print("  z moved          : %.6f" % res["z_only_z_moved"])
     print("  z_only_ok        :", res["z_only_ok"])
     print()
+    print("Test 3b - dir_only constraint (Y axis)")
+    print("  residual_norm    : %.6e" % res["dir_only_residual"])
+    print("  x moved          : %.6e" % res["dir_only_x_moved"])
+    print("  y moved          : %.6f" % res["dir_only_y_moved"])
+    print("  z moved          : %.6e" % res["dir_only_z_moved"])
+    print("  dir_only_ok      :", res["dir_only_ok"])
+    print()
+    print("Test 3c - dir_only constraint (X-Y diagonal)")
+    print("  residual_norm    : %.6e" % res["dir_diag_residual"])
+    print("  dx               : %.6f" % res["dir_diag_dx"])
+    print("  dy               : %.6f" % res["dir_diag_dy"])
+    print("  z moved          : %.6e" % res["dir_diag_z_moved"])
+    print("  dir_diag_ok      :", res["dir_diag_ok"])
+    print()
     print("Test 4 - Mesh divisibility rule")
     print("  rect near 25 m   :", res["mesh_rect_near_25"])
     print("  rect near 28 m   :", res["mesh_rect_near_28"])
@@ -776,3 +1038,8 @@ if __name__ == "__main__":
     print("  max reaction diff: %.6e" % res["settled_match_diff"])
     print("-" * 70)
     print("GATE:", "PASS" if res["pass"] else "FAIL")
+
+
+# =============================================================================
+# END OF engine/form_finding.py
+# =============================================================================
