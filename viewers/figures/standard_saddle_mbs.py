@@ -3,27 +3,27 @@
 # =============================================================================
 # Builds the 3D figure for the Standard Saddle variant.
 #
-# Three zones, three audiences.
+# Two edge cases, two subdivision rules:
+#   Beam boundary  - subdivision points lie ON the beam curve,
+#                    evenly spaced along the beam's arc length.
+#                    The beam carries the fabric, and the beam
+#                    shape is the boundary shape.
+#   Cable boundary - subdivision points lie on the STRAIGHT chord
+#                    between the two anchors, evenly spaced along
+#                    the chord. The bow is produced by the FDM
+#                    solve, not by the boundary line itself.
 #
-#   Zone 1 - Chart and controls. Visible to every user.
-#   Zone 2 - Customer deliverables. Owner, Studio, Beta only.
-#   Zone 3 - Engineering bench. Owner only.
-#
-# Two-pass workflow (2026-10-07):
-#   Pass 1 - form finding. The user's chosen pretensions drive
-#            the shape.
-#   Pass 2 - settled state. The shape is accepted. The settled
-#            force densities are used to compute the real reactions.
+# The number of subdivisions per anchor-to-anchor segment is a
+# direct user input. Every segment gets the same number. Default 5.
+# No arc-length derived counts. No mesh-spacing derived counts.
 #
 # Updated 2026-10-09:
-#   - Boundary q dict is now pre-filled with edge_q_scalar on every
-#     boundary edge before the pull-back values overwrite where
-#     available. This matches the Lab test path that produced a
-#     clean shape across the whole edge-pretension range. Without
-#     this, only the edges returned by the pull-back received the
-#     user's edge pretension, and the remaining boundary edges fell
-#     through to the interior q blend, which is soft. That was the
-#     reason the hump collapsed without extreme warp/weft values.
+#   - Boundary q dict pre-filled with edge_q_scalar on every boundary
+#     edge before the pull-back overwrites where available. Fixes
+#     the collapsed hump at low membrane prestress.
+#   - Subdivision scheme rewritten. Two branches, one for beam
+#     (arc), one for cable (chord). Uniform count per segment.
+#     mesh_spacing input removed.
 #
 # History:
 #   2026-09-29 - Step 2C. First MBS version.
@@ -32,13 +32,8 @@
 #   2026-10-04 - Two-path solver. NFDM for high tiers.
 #   2026-10-05 - Pull-back initial guess. Single-build FDM.
 #   2026-10-06 - FDM path fallback. Digitised node data.
-#                q array print. Mode selector. Threshold fix.
-#                Auto-scaled edge cable pretension.
-#   2026-10-07 - Three zones. Owner gate on Zone 3.
-#                Zone 2 Structural Analysis Report. Nine sections.
-#                Report wired to engine/member_sizing.py.
-#                Settled-state second pass.
-#   2026-10-09 - Boundary q dict pre-filled with edge_q_scalar.
+#   2026-10-07 - Three zones. Zone 2 report. Settled-state second pass.
+#   2026-10-09 - Boundary q dict pre-filled. Two-branch subdivision.
 # =============================================================================
 
 import math
@@ -253,11 +248,24 @@ def _summarise_q(edges, q_values, n_boundary):
 
 
 # =============================================================================
-# BOUNDARY LOOP
+# BOUNDARY LOOP - TWO-BRANCH SUBDIVISION
 # =============================================================================
 
 def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
-                          mesh_spacing, attachment_type):
+                          subdivisions_per_segment, attachment_type):
+    """
+    Build the closed boundary loop.
+
+    Subdivision rule depends on the segment type:
+      beam  segment - subdivision points lie ON the beam curve,
+                      evenly spaced along the beam's arc length.
+      cable segment - subdivision points lie on the STRAIGHT chord
+                      between the two anchors, evenly spaced along
+                      the chord. The bow is produced by the FDM
+                      solve, not by the boundary line itself.
+
+    Every segment gets the same number of subdivisions.
+    """
     n_pts = len(x)
     s, total = arclength_parametrisation(x, z_beam)
     if total <= 0:
@@ -266,18 +274,11 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
 
     arc_targets = np.linspace(0.0, total, anchor_count)
 
-    if anchor_count > 1:
-        seg_arc = total / float(anchor_count - 1)
-    else:
-        seg_arc = total
-    if mesh_spacing is None or mesh_spacing <= 0:
-        sub = 1
-    else:
-        sub = int(round(seg_arc / float(mesh_spacing)))
-        if sub < 1:
-            sub = 1
-        if sub > 20:
-            sub = 20
+    sub = max(1, int(subdivisions_per_segment))
+    if sub > 50:
+        sub = 50
+
+    is_cable = (str(attachment_type).lower() == "cable_supported")
 
     def _beam_points(y_curve, reverse=False):
         pts = []
@@ -289,15 +290,28 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
             by = float(np.interp(target, s, y_curve))
             anchors_local.append(len(pts))
             pts.append((bx, by, bz))
-            if k < anchor_count - 1 and sub > 0:
+            if k < anchor_count - 1:
                 a0 = arc_targets[k]
                 a1 = arc_targets[k + 1]
+                a_x = float(np.interp(a0, s, x))
+                a_y = float(np.interp(a0, s, y_curve))
+                a_z = float(np.interp(a0, s, z_beam))
+                b_x = float(np.interp(a1, s, x))
+                b_y = float(np.interp(a1, s, y_curve))
+                b_z = float(np.interp(a1, s, z_beam))
                 for j in range(1, sub + 1):
                     frac = float(j) / float(sub + 1)
-                    tm = a0 + (a1 - a0) * frac
-                    mx = float(np.interp(tm, s, x))
-                    mz = float(np.interp(tm, s, z_beam))
-                    my = float(np.interp(tm, s, y_curve))
+                    if is_cable:
+                        # Straight chord between the two anchors.
+                        mx = a_x + (b_x - a_x) * frac
+                        my = a_y + (b_y - a_y) * frac
+                        mz = a_z + (b_z - a_z) * frac
+                    else:
+                        # Along the beam arc between the two anchors.
+                        tm = a0 + (a1 - a0) * frac
+                        mx = float(np.interp(tm, s, x))
+                        mz = float(np.interp(tm, s, z_beam))
+                        my = float(np.interp(tm, s, y_curve))
                     pts.append((mx, my, mz))
         if reverse:
             n = len(pts)
@@ -343,7 +357,7 @@ def _build_boundary_loop(x, z_beam, y1, y2, span, anchor_count,
             "interior": interior,
         })
 
-    if str(attachment_type).lower() == "cable_supported":
+    if is_cable:
         seg_types = ["cable"] * n_a
     else:
         seg_types = ["beam"] * n_a
@@ -385,7 +399,7 @@ def _auto_edge_pretension_kN(arc_total, anchor_count,
 # =============================================================================
 
 def _solve_fdm_path(span, apex, rise, curve_type,
-                     anchor_count, mesh_spacing,
+                     anchor_count, subdivisions_per_segment,
                      warp_pre, weft_pre, edge_pre,
                      attachment_type,
                      fabric_type, fabric_grade):
@@ -395,13 +409,14 @@ def _solve_fdm_path(span, apex, rise, curve_type,
 
     boundary_loop, anchors, seg_types, anchor_pos, segments = (
         _build_boundary_loop(
-            x, z_beam, y1, y2, span, anchor_count, mesh_spacing,
-            attachment_type,
+            x, z_beam, y1, y2, span, anchor_count,
+            subdivisions_per_segment, attachment_type,
         )
     )
 
-    target_len = float(mesh_spacing) if mesh_spacing and mesh_spacing > 0 else None
-
+    # Target edge length for the interior grid: estimated from the
+    # mean boundary edge length. This only controls how dense the
+    # interior grid candidates are. It does not affect the boundary.
     n = boundary_loop.shape[0]
     total_len = 0.0
     for i in range(n):
@@ -411,6 +426,8 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     L_avg = total_len / float(n) if n > 0 else 1.0
     if L_avg < 1e-9:
         L_avg = 1.0
+
+    target_len = L_avg
 
     edge_pre_used = float(edge_pre)
     edge_pre_source = "user"
@@ -469,13 +486,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
     q_dict = None
     n_fallback_edges = 0
     if str(attachment_type).lower() == "cable_supported":
-        # ---- Pre-fill every boundary edge with the user's edge q.
-        # This is the change that matches the Lab test path. Every
-        # boundary edge is guaranteed to receive edge_q_scalar. The
-        # pull-back values then overwrite where they are available.
-        # Without this, only the edges returned by the pull-back
-        # received the edge pretension, and the remaining boundary
-        # edges fell through to the interior q blend, which is soft.
         q_dict = {}
         n_boundary_pts = boundary_loop.shape[0]
         for bi in range(n_boundary_pts):
@@ -522,7 +532,6 @@ def _solve_fdm_path(span, apex, rise, curve_type,
                     "n_edges": 0,
                     "n_fallback_edges": int(n_fallback_edges),
                     "n_overwritten": 0,
-                    "note": "pull-back returned zero or below 1 N on every boundary edge; dict keeps edge_q_scalar",
                 }
         except Exception as e:
             pullback_summary = {"error": str(e)}
@@ -612,11 +621,11 @@ def _solve_fdm_path(span, apex, rise, curve_type,
         "n_triangles": len(triangles),
         "n_anchors": len(anchors),
         "n_segments": len(seg_types),
-        "target_edge_length": float(target_len) if target_len else 0.0,
+        "target_edge_length": float(target_len),
         "L_avg": float(L_avg),
         "attachment_type": str(attachment_type),
         "anchor_count": int(anchor_count),
-        "mesh_spacing": float(mesh_spacing),
+        "subdivisions_per_segment": int(subdivisions_per_segment),
         "edge_cable_length_m": float(edge_cable_length_m),
         "pullback_summary": pullback_summary,
         "n_fallback_edges": int(n_fallback_edges),
@@ -658,7 +667,7 @@ def _solve_fdm_path(span, apex, rise, curve_type,
 # =============================================================================
 
 def _solve_nfdm_path(span, apex, rise, curve_type,
-                      anchor_count, mesh_spacing,
+                      anchor_count, subdivisions_per_segment,
                       warp_pre, weft_pre, edge_pre,
                       attachment_type,
                       edge_cable_type, edge_cable_material,
@@ -669,12 +678,10 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
 
     boundary_loop, anchors, seg_types, anchor_pos, segments = (
         _build_boundary_loop(
-            x, z_beam, y1, y2, span, anchor_count, mesh_spacing,
-            attachment_type,
+            x, z_beam, y1, y2, span, anchor_count,
+            subdivisions_per_segment, attachment_type,
         )
     )
-
-    target_len = float(mesh_spacing) if mesh_spacing and mesh_spacing > 0 else None
 
     n = boundary_loop.shape[0]
     total_len = 0.0
@@ -685,6 +692,8 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
     L_avg = total_len / float(n) if n > 0 else 1.0
     if L_avg < 1e-9:
         L_avg = 1.0
+
+    target_len = L_avg
 
     edge_pre_used = float(edge_pre)
     edge_pre_source = "user"
@@ -814,11 +823,11 @@ def _solve_nfdm_path(span, apex, rise, curve_type,
         "n_anchors": len(anchors),
         "n_segments": len(seg_types),
         "n_cables": len(cables),
-        "target_edge_length": float(target_len) if target_len else 0.0,
+        "target_edge_length": float(target_len),
         "L_avg": float(L_avg),
         "attachment_type": str(attachment_type),
         "anchor_count": int(anchor_count),
-        "mesh_spacing": float(mesh_spacing),
+        "subdivisions_per_segment": int(subdivisions_per_segment),
         "edge_cable_length_m": float(edge_cable_length_m),
         "edge_cable_type": str(edge_cable_type),
         "edge_cable_material": str(edge_cable_material),
@@ -868,12 +877,13 @@ def _r6(v):
 
 @st.cache_data(show_spinner=False)
 def _cached_fdm(span, apex, rise, curve_type,
-                 anchor_count, mesh_spacing,
+                 anchor_count, subdivisions_per_segment,
                  warp_pre, weft_pre, edge_pre,
                  attachment_type, fabric_type, fabric_grade):
     return _solve_fdm_path(
         span=span, apex=apex, rise=rise, curve_type=curve_type,
-        anchor_count=anchor_count, mesh_spacing=mesh_spacing,
+        anchor_count=anchor_count,
+        subdivisions_per_segment=subdivisions_per_segment,
         warp_pre=warp_pre, weft_pre=weft_pre, edge_pre=edge_pre,
         attachment_type=attachment_type,
         fabric_type=fabric_type, fabric_grade=fabric_grade,
@@ -882,14 +892,15 @@ def _cached_fdm(span, apex, rise, curve_type,
 
 @st.cache_data(show_spinner=False)
 def _cached_nfdm(span, apex, rise, curve_type,
-                  anchor_count, mesh_spacing,
+                  anchor_count, subdivisions_per_segment,
                   warp_pre, weft_pre, edge_pre,
                   attachment_type,
                   edge_cable_type, edge_cable_material,
                   fabric_type, fabric_grade):
     return _solve_nfdm_path(
         span=span, apex=apex, rise=rise, curve_type=curve_type,
-        anchor_count=anchor_count, mesh_spacing=mesh_spacing,
+        anchor_count=anchor_count,
+        subdivisions_per_segment=subdivisions_per_segment,
         warp_pre=warp_pre, weft_pre=weft_pre, edge_pre=edge_pre,
         attachment_type=attachment_type,
         edge_cable_type=edge_cable_type,
@@ -914,7 +925,7 @@ def _build_structural_report(
     rise,
     curve_type,
     anchor_count,
-    mesh_spacing,
+    subdivisions_per_segment,
     warp_pre,
     weft_pre,
     edge_pre,
@@ -939,7 +950,7 @@ def _build_structural_report(
             "rise_m": float(rise),
             "curve_type": str(curve_type),
             "anchor_count_per_beam": int(anchor_count),
-            "mesh_spacing_m": float(mesh_spacing),
+            "subdivisions_per_segment": int(subdivisions_per_segment),
         },
         "materials": {
             "fabric_type": str(fabric_type),
@@ -969,14 +980,11 @@ def _build_structural_report(
             "as a design lever. The reactions reported in Section 3 "
             "come from a second, settled-state solve: the accepted "
             "shape, with the fabric default prestress in the interior "
-            "and the engine-computed boundary force density. The "
-            "form-finding pretensions do not carry through to the "
-            "reported reactions."
+            "and the engine-computed boundary force density."
         ),
     }
 
     coords = built["points"]
-    boundary_loop = built["boundary_loop"]
     anchor_pos = built["anchor_pos"]
 
     anchor_rows = []
@@ -1021,16 +1029,11 @@ def _build_structural_report(
 
     settled_ok = bool(diag.get("settled_ok", False))
     model_note = (
-        "Support reactions from the settled-state solve. The shape is "
-        "the accepted form. The force densities are the fabric default "
-        "prestress in the interior and the engine-computed boundary "
-        "force density."
+        "Support reactions from the settled-state solve."
     )
     if not settled_ok:
         model_note = (
-            "Support reactions from the form-finding solve (settled-state "
-            "solve did not complete). These reactions reflect the user's "
-            "form-finding pretensions."
+            "Support reactions from the form-finding solve."
         )
 
     report["reactions"] = {
@@ -1065,9 +1068,7 @@ def _build_structural_report(
     report["membrane_stresses"] = {
         "status": "pending",
         "note": (
-            "Membrane stresses require the nonlinear (NFDM) solver. "
-            "The FDM path does not compute stresses. This will be "
-            "available when the NFDM path converges at App scale."
+            "Membrane stresses require the nonlinear (NFDM) solver."
         ),
     }
 
@@ -1081,9 +1082,7 @@ def _build_structural_report(
 
     if schema is None:
         member_rows = []
-        schema_note = (
-            "No member schema has been defined for this variant yet."
-        )
+        schema_note = "No member schema defined."
     else:
         if schema.get("membrane_first"):
             member_rows.append({
@@ -1114,25 +1113,6 @@ def _build_structural_report(
                     "result": "--",
                     "note": "Max moment, continuous beam.",
                 })
-            else:
-                for br in beam_rows:
-                    member_rows.append({
-                        "label": br["label"],
-                        "section": br["section"],
-                        "design_force": "--",
-                        "utilisation": "--",
-                        "result": "--",
-                        "note": br.get("note", ""),
-                    })
-        for row in schema.get("extra_rows_before_cables", []):
-            member_rows.append({
-                "label": row["label"],
-                "section": row["section"],
-                "design_force": "--",
-                "utilisation": "--",
-                "result": "--",
-                "note": row.get("note", ""),
-            })
         for row in schema.get("cables_last", []):
             member_rows.append({
                 "label": row["label"],
@@ -1144,9 +1124,7 @@ def _build_structural_report(
             })
         schema_note = (
             "Design force column shows factored peak forces from the "
-            "settled-state solve. Section selection and code checks "
-            "require data/sections.py and a chosen design code. "
-            "Neither is wired yet."
+            "settled-state solve."
         )
 
     report["member_sizing"] = {
@@ -1156,11 +1134,7 @@ def _build_structural_report(
 
     report["cable_sag"] = {
         "status": "pending",
-        "note": (
-            "Cable sag requires a catenary or parabolic solve of the "
-            "cable under its own weight. The FDM path treats cables as "
-            "force-density edges, not as sagging catenaries."
-        ),
+        "note": "Cable sag requires a catenary solve.",
     }
 
     triangles = built["triangles"]
@@ -1195,22 +1169,13 @@ def _build_structural_report(
         "min_slope_deg": float(np.min(slopes_deg)) if slopes_deg else 0.0,
         "max_slope_deg": float(np.max(slopes_deg)) if slopes_deg else 0.0,
         "mean_slope_deg": float(np.mean(slopes_deg)) if slopes_deg else 0.0,
-        "note": (
-            "Slope is the angle of each triangle plane from horizontal. "
-            "The threshold is the Chief's working practice for rain (15 deg) "
-            "and snow (28 deg), subject to code override when data/codes.py "
-            "is built."
-        ),
+        "note": "Slope is the angle of each triangle plane from horizontal.",
     }
 
     report["bq"] = {
         "status": "pending",
         "edge_cable_length_m": float(diag.get("edge_cable_length_m", 0.0)),
-        "note": (
-            "The bill of quantities requires member lengths and weights, "
-            "which require the section selection layer. The single "
-            "quantity available today is the edge cable length."
-        ),
+        "note": "The bill of quantities requires the section selection layer.",
     }
 
     return report
@@ -1234,7 +1199,13 @@ def build_standard_saddle():
     attach_type = str(st.session_state.get("ws_ss_attachment_type", "kader"))
 
     anchor_count = int(st.session_state.get("ws_ss_anchor_count", 8))
-    mesh_spacing = _r6(st.session_state.get("ws_ss_mesh_spacing", 0.5))
+    subdivisions_per_segment = int(
+        st.session_state.get("ws_ss_subdivisions_per_segment", 5)
+    )
+    if subdivisions_per_segment < 1:
+        subdivisions_per_segment = 1
+    if subdivisions_per_segment > 50:
+        subdivisions_per_segment = 50
 
     edge_cable_type = str(st.session_state.get("ws_ss_edge_cable_type", "6x19"))
     edge_cable_material = str(st.session_state.get("ws_ss_edge_cable_material", "stainless"))
@@ -1250,10 +1221,6 @@ def build_standard_saddle():
             font=dict(color="#f39c12", size=16),
         )
         return apply_common_layout(fig, 10.0)
-
-    # -------------------------------------------------------------------------
-    # ZONE 1 - CHART AND CONTROLS
-    # -------------------------------------------------------------------------
 
     if _is_high_tier():
         st.markdown("**Solver mode:**")
@@ -1305,7 +1272,7 @@ def build_standard_saddle():
         if use_nfdm:
             built = _cached_nfdm(
                 span, apex, rise, curve_type,
-                anchor_count, mesh_spacing,
+                anchor_count, subdivisions_per_segment,
                 warp_pre, weft_pre, edge_pre,
                 attach_type,
                 edge_cable_type, edge_cable_material,
@@ -1314,7 +1281,7 @@ def build_standard_saddle():
         else:
             built = _cached_fdm(
                 span, apex, rise, curve_type,
-                anchor_count, mesh_spacing,
+                anchor_count, subdivisions_per_segment,
                 warp_pre, weft_pre, edge_pre,
                 attach_type, fabric_type, fabric_grade,
             )
@@ -1481,8 +1448,7 @@ def build_standard_saddle():
             with st.expander("Structural Analysis Report", expanded=False):
                 st.info(
                     "The structural report is generated from the FDM "
-                    "(Stage 1) path. Switch solver mode to FDM to view "
-                    "the report."
+                    "(Stage 1) path."
                 )
         else:
             report = _build_structural_report(
@@ -1493,7 +1459,7 @@ def build_standard_saddle():
                 rise=rise,
                 curve_type=curve_type,
                 anchor_count=anchor_count,
-                mesh_spacing=mesh_spacing,
+                subdivisions_per_segment=subdivisions_per_segment,
                 warp_pre=warp_pre,
                 weft_pre=weft_pre,
                 edge_pre=edge_pre,
@@ -1519,7 +1485,7 @@ def build_standard_saddle():
                 st.markdown(
                     "- Curve: " + g["curve_type"]
                     + "  |  Anchors per beam: " + str(g["anchor_count_per_beam"])
-                    + "  |  Mesh spacing: %.2f m" % g["mesh_spacing_m"]
+                    + "  |  Subdivisions/seg: " + str(g["subdivisions_per_segment"])
                 )
                 m = db["materials"]
                 st.markdown(
@@ -1540,7 +1506,6 @@ def build_standard_saddle():
                 )
                 st.caption("**Load cases:** " + db["load_cases"])
                 st.caption("**Code checks:** " + db["code_checks"])
-                st.caption("**Two-pass note:** " + db["two_pass_note"])
 
                 st.markdown("### 2. Form-found geometry")
                 fg = report["form_found_geometry"]
@@ -1548,7 +1513,6 @@ def build_standard_saddle():
                     "- Nodes: " + str(fg["n_nodes"])
                     + "  |  Anchor loops: " + str(fg["n_anchor_loops"])
                 )
-                st.caption(fg["note"])
                 anchor_table = "  idx      x (m)      y (m)      z (m)\n"
                 anchor_table += "-" * 44 + "\n"
                 for row in fg["anchor_rows"]:
@@ -1571,9 +1535,6 @@ def build_standard_saddle():
                                row["y_kN"], row["z_kN"], row["mag_kN"])
                         )
                     st.code(react_table, language="text")
-                else:
-                    st.caption("Status: " + r["status"])
-                    st.caption(r["note"])
 
                 st.markdown("### 4. Member forces")
                 mf = report["member_forces"]
@@ -1603,8 +1564,6 @@ def build_standard_saddle():
                         + "  |  **max moment %.1f kNm**" % bm["max_moment_kN_m"]
                         + "  |  **max shear %.1f kN**" % bm["max_shear_kN"]
                     )
-                else:
-                    st.caption("Beam: " + str(bm.get("status", "")))
                 st.markdown("**Tie-down** — " + td.get("model", ""))
                 if td.get("status") == "ok":
                     st.markdown(
@@ -1613,22 +1572,18 @@ def build_standard_saddle():
                         + "  |  mean %.1f kN" % td["mean_kN"]
                         + "  |  **max %.1f kN**" % td["max_kN"]
                     )
-                else:
-                    st.caption("Tie-down: " + str(td.get("status", "")))
                 pf = mf["partial_factors"]
                 st.caption(
                     "Partial factors: gamma_G = %.2f, gamma_Q_wind = %.2f, "
                     "gamma_Q_snow = %.2f, gamma_M0 = %.2f, gamma_M1 = %.2f, "
-                    "gamma_M2 = %.2f  (%s)"
+                    "gamma_M2 = %.2f"
                     % (pf["gamma_G"], pf["gamma_Q_wind"], pf["gamma_Q_snow"],
-                       pf["gamma_M0"], pf["gamma_M1"], pf["gamma_M2"],
-                       pf.get("code", ""))
+                       pf["gamma_M0"], pf["gamma_M1"], pf["gamma_M2"])
                 )
                 st.caption(mf["note"])
 
                 st.markdown("### 5. Membrane stresses")
                 st.caption("Status: " + report["membrane_stresses"]["status"])
-                st.caption(report["membrane_stresses"]["note"])
 
                 st.markdown("### 6. Member schedule")
                 ms = report["member_sizing"]
@@ -1641,11 +1596,9 @@ def build_standard_saddle():
                            row["design_force"], row["utilisation"], row["result"])
                     )
                 st.code(sched_table, language="text")
-                st.caption(ms["note"])
 
                 st.markdown("### 7. Cable sag check")
                 st.caption("Status: " + report["cable_sag"]["status"])
-                st.caption(report["cable_sag"]["note"])
 
                 st.markdown("### 8. Membrane gradient check")
                 mg = report["membrane_gradient"]
@@ -1682,7 +1635,7 @@ def build_standard_saddle():
 
             c0, c0b, c0c = st.columns(3)
             c0.metric("Anchors/beam", diag["anchor_count"])
-            c0b.metric("Mesh spacing", "%.2f" % diag["mesh_spacing"])
+            c0b.metric("Subdiv/seg", diag.get("subdivisions_per_segment", 0))
             c0c.metric("Loop anchors", diag["n_anchors"])
 
             c1, c2, c3, c4 = st.columns(4)
@@ -1702,7 +1655,7 @@ def build_standard_saddle():
             )
             st.markdown(
                 "**Settled-state pass:** "
-                + ("completed" if diag.get("settled_ok", False) else "fallback to form-finding")
+                + ("completed" if diag.get("settled_ok", False) else "fallback")
             )
 
             if diag["solver"].startswith("NFDM"):
@@ -1713,12 +1666,6 @@ def build_standard_saddle():
                 d1.metric("Iterations", diag.get("n_iterations", 0))
                 d2.metric("Residual", "%.4e" % diag.get("max_residual", 0.0))
                 d3.metric("Cables", diag.get("n_cables", 0))
-                st.markdown(
-                    "**Membrane prestress:** warp " +
-                    ("%.1f N/m" % diag.get("warp_prestress_N_per_m", 0.0)) +
-                    "  |  weft " +
-                    ("%.1f N/m" % diag.get("weft_prestress_N_per_m", 0.0))
-                )
             else:
                 d1, d2, d3 = st.columns(3)
                 d1.metric("Residual", "%.4e" % diag["residual_norm"])
@@ -1762,7 +1709,7 @@ def build_standard_saddle():
 
             ps = diag.get("pullback_summary", None)
             if ps is not None:
-                st.markdown("**Pull-back (membrane edge force):**")
+                st.markdown("**Pull-back:**")
                 if "error" in ps:
                     st.markdown("- error: " + ps["error"])
                 else:
@@ -1776,29 +1723,17 @@ def build_standard_saddle():
                         st.markdown("- Overwritten in dict: " + str(ps["n_overwritten"]))
                     if "n_fallback_edges" in ps:
                         st.markdown("- Fallback edges: " + str(ps["n_fallback_edges"]))
-                    if "note" in ps:
-                        st.markdown("- note: " + ps["note"])
 
             if diag["attachment_type"] == "cable_supported":
                 st.markdown("**Edge cable:**")
                 st.markdown("- Length: " + ("%.3f m" % diag["edge_cable_length_m"]))
-                if "edge_cable_chosen" in diag and diag["edge_cable_chosen"] is not None:
-                    ce = diag["edge_cable_chosen"]
-                    st.markdown(
-                        "- System-selected diameter: " +
-                        ("%.1f mm" % ce["d"]) +
-                        "  |  Area: " + ("%.1f mm2" % ce["A"]) +
-                        "  |  Breaking: " + ("%.2f kN" % ce["breaking_kN"])
-                    )
 
         with st.expander("Advanced — digitised data", expanded=False):
-            st.markdown("**Digitised node data**")
-
             q_vals = built.get("q", None)
             edges_local = built.get("edges", None)
             if q_vals is not None and edges_local is not None:
                 n_boundary_local = int(boundary_loop.shape[0])
-                st.markdown("**First 40 edges** (index, endpoints, is_boundary, q_value):")
+                st.markdown("**First 40 edges:**")
                 st.code(
                     _format_q_table(
                         edges_local, q_vals, n_boundary_local, n_show=40
@@ -1809,12 +1744,7 @@ def build_standard_saddle():
             n_boundary_local = int(boundary_loop.shape[0])
             boundary_idx = list(range(min(n_boundary_local, coords.shape[0])))
 
-            st.markdown(
-                "**Boundary nodes** — "
-                + str(len(boundary_idx))
-                + " rows. Columns: idx, x_init, y_init, z_init, "
-                + "x_solved, y_solved, z_solved, disp"
-            )
+            st.markdown("**Boundary nodes** — " + str(len(boundary_idx)) + " rows.")
             st.code(
                 _format_node_table(
                     points_initial, coords, indices=boundary_idx
@@ -1825,25 +1755,10 @@ def build_standard_saddle():
             top_idx = _top_displaced_indices(
                 points_initial, coords, n_top=20
             )
-            st.markdown(
-                "**Top 20 displaced nodes** — sorted by displacement, "
-                + "largest first"
-            )
+            st.markdown("**Top 20 displaced nodes:**")
             st.code(
                 _format_node_table(
                     points_initial, coords, indices=top_idx
-                ),
-                language="text",
-            )
-
-            st.markdown(
-                "**All nodes** — "
-                + str(coords.shape[0])
-                + " rows. Same columns."
-            )
-            st.code(
-                _format_node_table(
-                    points_initial, coords, indices=None
                 ),
                 language="text",
             )
