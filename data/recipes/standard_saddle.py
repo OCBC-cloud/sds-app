@@ -4,51 +4,48 @@
 # Recipe for the Cable Supported Saddle workshop.
 # Read by ui/workshops/_renderer.py to build the input page.
 #
-# Structure of a recipe:
-#   groups : list of accordion groups
-#   each group has:
-#     name    - the group header (shown as an accordion title)
-#     inputs  - list of input definitions
-#   each input has:
-#     key       - the session state key (ws_ss_<key>)
-#     label     - the display label
-#     type      - the input type (see below)
-#     default   - the default value
-#     ...
-#
-# Input types supported by the universal workshop renderer:
-#   number    - numeric text input
-#   integer   - integer text input
-#   select    - dropdown, requires options
-#   radio     - radio buttons, requires options
-#   text      - free text
-#   checkbox  - toggle
-#   slider    - numeric slider (used sparingly, per the doctrine)
-#
-# Six groups per the SDSe doctrine. No sliders.
-#
-# Updated 2026-10-09:
-#   - Replaced mesh_spacing with subdivisions_per_segment. The user
-#     now controls the number of subdivision points between any two
-#     anchors directly. Uniform across every segment. Default 5.
-#     For beam boundaries, subdivision follows the beam arc. For
-#     cable boundaries, subdivision follows the straight chord.
+# Schema (from _renderer.py):
+#   top level : title, breadcrumb, structure_label, prefix,
+#               defaults, groups, actions, viewer_strings (optional)
+#   group     : key, name, inputs, help (opt), expanded (opt),
+#               preview (opt), warning (opt), info (opt), defaults (opt)
+#   input     : key, label, type, plus type-specific fields
+#   input types: number, integer, dropdown, radio, toggle
+#   options   : [ [value, label], ... ]
 #
 # History:
-#   2026-10-04 - Step 2E. Anchors and subdivision.
-#   2026-10-05 - Pull-back related inputs.
-#   2026-10-06 - Auto edge pretension noted in preview.
-#   2026-10-09 - subdivisions_per_segment replaces mesh_spacing.
+#   2026-10-09 - Rewritten to match the renderer schema exactly.
+#                Replaces mesh_spacing with subdivisions_per_segment.
 # =============================================================================
 
 STANDARD_SADDLE_RECIPE = {
-    "structure_key": "saddle_span",
-    "variant_key": "standard_saddle",
-    "title": "Cable Supported Saddle",
-    "subtitle": (
-        "Tie-down cables resist uplift. Suitable for spans up to "
-        "about 20 m."
-    ),
+    "title": "Standard Saddle Span",
+    "breadcrumb": ("Saddle Span", "Cable Supported Saddle"),
+    "structure_label": "Standard Saddle Span",
+    "prefix": "ws_ss",
+
+    "defaults": {
+        "span": 10.0,
+        "apex": 15.0,
+        "rise": 6.2,
+        "curve_type": "parabolic",
+        "anchor_count": 8,
+        "subdivisions_per_segment": 5,
+        "fabric_type": "PVDF",
+        "fabric_grade": "Type III",
+        "edge_cable_type": "6x19",
+        "edge_cable_material": "stainless",
+        "warp_pretension": 2.0,
+        "weft_pretension": 2.0,
+        "edge_cable_pretension": 0.0,
+        "attachment_type": "cable_supported",
+        "tiedown_intervals": 2,
+        "uplift_angle": 45.0,
+        "spread_angle": 30.0,
+        "base_condition": "pinned",
+        "snow_in_brief": False,
+        "load_standard": "MY",
+    },
 
     "groups": [
 
@@ -56,14 +53,18 @@ STANDARD_SADDLE_RECIPE = {
         # GROUP 1 - SHAPE
         # =====================================================================
         {
+            "key": "shape",
             "name": "1. Shape",
+            "expanded": True,
+            "help": "Overall dimensions and boundary subdivision.",
             "inputs": [
                 {
                     "key": "span",
                     "label": "Span (m)",
                     "type": "number",
                     "default": 10.0,
-                    "min": 1.0,
+                    "min": 4.0,
+                    "max": 200.0,
                     "step": 0.5,
                 },
                 {
@@ -71,7 +72,8 @@ STANDARD_SADDLE_RECIPE = {
                     "label": "Apex - plan width (m)",
                     "type": "number",
                     "default": 15.0,
-                    "min": 1.0,
+                    "min": 4.0,
+                    "max": 200.0,
                     "step": 0.5,
                 },
                 {
@@ -80,22 +82,28 @@ STANDARD_SADDLE_RECIPE = {
                     "type": "number",
                     "default": 6.2,
                     "min": 0.5,
-                    "step": 0.2,
+                    "max": 50.0,
+                    "step": 0.1,
                 },
                 {
                     "key": "curve_type",
                     "label": "Beam curve",
-                    "type": "select",
-                    "options": ["parabolic", "circular", "elliptical"],
+                    "type": "dropdown",
+                    "options": [
+                        ["parabolic", "Parabolic"],
+                        ["circular", "Circular"],
+                        ["catenary", "Catenary"],
+                    ],
                     "default": "parabolic",
                 },
                 {
                     "key": "anchor_count",
-                    "label": "Anchor count per beam",
+                    "label": "Anchors per beam",
                     "type": "integer",
                     "default": 8,
-                    "min": 2,
-                    "max": 20,
+                    "min": 3,
+                    "max": 40,
+                    "step": 1,
                 },
                 {
                     "key": "subdivisions_per_segment",
@@ -104,6 +112,9 @@ STANDARD_SADDLE_RECIPE = {
                     "default": 5,
                     "min": 1,
                     "max": 50,
+                    "step": 1,
+                    "help": "Number of subdivision points between any two "
+                            "adjacent anchors. Same count on every segment.",
                 },
             ],
         },
@@ -112,34 +123,53 @@ STANDARD_SADDLE_RECIPE = {
         # GROUP 2 - MATERIALS
         # =====================================================================
         {
+            "key": "materials",
             "name": "2. Materials",
+            "help": "Fabric and cable selection.",
             "inputs": [
                 {
                     "key": "fabric_type",
                     "label": "Fabric type",
-                    "type": "select",
-                    "options": ["PVDF", "PTFE", "ETFE"],
+                    "type": "dropdown",
+                    "options": [
+                        ["PVDF", "PVDF"],
+                        ["PTFE", "PTFE"],
+                        ["ETFE", "ETFE"],
+                    ],
                     "default": "PVDF",
                 },
                 {
                     "key": "fabric_grade",
                     "label": "Fabric grade",
-                    "type": "select",
-                    "options": ["Type I", "Type II", "Type III", "Type IV"],
+                    "type": "dropdown",
+                    "options": [
+                        ["Type I", "Type I"],
+                        ["Type II", "Type II"],
+                        ["Type III", "Type III"],
+                        ["Type IV", "Type IV"],
+                    ],
                     "default": "Type III",
                 },
                 {
                     "key": "edge_cable_type",
                     "label": "Edge cable type",
-                    "type": "select",
-                    "options": ["6x19", "Locked Coil", "Spiral"],
+                    "type": "dropdown",
+                    "options": [
+                        ["6x19", "6x19"],
+                        ["Locked Coil", "Locked Coil"],
+                        ["Spiral", "Spiral"],
+                    ],
                     "default": "6x19",
                 },
                 {
                     "key": "edge_cable_material",
                     "label": "Edge cable material",
-                    "type": "select",
-                    "options": ["stainless", "galvanized", "bright"],
+                    "type": "dropdown",
+                    "options": [
+                        ["stainless", "Stainless"],
+                        ["galvanized", "Galvanized"],
+                        ["bright", "Bright"],
+                    ],
                     "default": "stainless",
                 },
             ],
@@ -149,7 +179,9 @@ STANDARD_SADDLE_RECIPE = {
         # GROUP 3 - PRESTRESS
         # =====================================================================
         {
+            "key": "prestress",
             "name": "3. Prestress",
+            "help": "Membrane pretension and boundary attachment.",
             "inputs": [
                 {
                     "key": "warp_pretension",
@@ -171,7 +203,7 @@ STANDARD_SADDLE_RECIPE = {
                 },
                 {
                     "key": "edge_cable_pretension",
-                    "label": "Edge cable pretension (kN) - 0 = auto",
+                    "label": "Edge cable pretension (kN) [0 = auto]",
                     "type": "number",
                     "default": 0.0,
                     "min": 0.0,
@@ -182,7 +214,10 @@ STANDARD_SADDLE_RECIPE = {
                     "key": "attachment_type",
                     "label": "Boundary attachment",
                     "type": "radio",
-                    "options": ["kader", "cable_supported"],
+                    "options": [
+                        ["kader", "Kader Guider (continuous)"],
+                        ["cable_supported", "Cable Supported (anchors)"],
+                    ],
                     "default": "cable_supported",
                 },
             ],
@@ -192,13 +227,19 @@ STANDARD_SADDLE_RECIPE = {
         # GROUP 4 - TIE-DOWNS
         # =====================================================================
         {
+            "key": "tiedowns",
             "name": "4. Tie-downs",
+            "help": "Ground tie-down cables and anchor geometry.",
             "inputs": [
                 {
                     "key": "tiedown_intervals",
                     "label": "Tie-down intervals",
-                    "type": "select",
-                    "options": [2, 4, 8],
+                    "type": "dropdown",
+                    "options": [
+                        [2, "2"],
+                        [4, "4"],
+                        [8, "8"],
+                    ],
                     "default": 2,
                 },
                 {
@@ -226,19 +267,24 @@ STANDARD_SADDLE_RECIPE = {
         # GROUP 5 - FOUNDATION
         # =====================================================================
         {
+            "key": "foundation",
             "name": "5. Foundation",
+            "help": "Base support condition and load brief.",
             "inputs": [
                 {
                     "key": "base_condition",
                     "label": "Base condition",
                     "type": "radio",
-                    "options": ["pinned", "fixed"],
+                    "options": [
+                        ["pinned", "Pinned"],
+                        ["fixed", "Fixed"],
+                    ],
                     "default": "pinned",
                 },
                 {
                     "key": "snow_in_brief",
                     "label": "Snow in brief",
-                    "type": "checkbox",
+                    "type": "toggle",
                     "default": False,
                 },
             ],
@@ -248,32 +294,37 @@ STANDARD_SADDLE_RECIPE = {
         # GROUP 6 - LOAD CASE
         # =====================================================================
         {
+            "key": "load_case",
             "name": "6. Load case",
+            "help": "Design standard used for partial factors.",
             "inputs": [
                 {
                     "key": "load_standard",
                     "label": "Design standard",
-                    "type": "select",
-                    "options": ["MY", "SG", "ID", "TH", "VN", "CN", "EU", "UK", "US", "AU"],
+                    "type": "dropdown",
+                    "options": [
+                        ["MY", "MY - Malaysia"],
+                        ["SG", "SG - Singapore"],
+                        ["ID", "ID - Indonesia"],
+                        ["TH", "TH - Thailand"],
+                        ["VN", "VN - Vietnam"],
+                        ["CN", "CN - China"],
+                        ["EU", "EU - Europe"],
+                        ["UK", "UK - United Kingdom"],
+                        ["US", "US - United States"],
+                        ["AU", "AU - Australia"],
+                    ],
                     "default": "MY",
                 },
             ],
         },
     ],
 
-    "preview_keys": [
-        "span",
-        "apex",
-        "rise",
-        "anchor_count",
-        "subdivisions_per_segment",
-        "warp_pretension",
-        "weft_pretension",
-        "edge_cable_pretension",
-        "attachment_type",
-    ],
-
-    "action_label": "Build Shape",
+    "actions": {
+        "back_page": "registration",
+        "primary_label": "Intelligent Design Computing",
+        "primary_page": "results",
+    },
 }
 
 
