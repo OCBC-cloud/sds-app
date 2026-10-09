@@ -791,7 +791,8 @@ def render_tester_star_diagnostic():
     if warp_rel / weft_rel > ratio_limit:
         warp_rel = ratio_limit * weft_rel
     if weft_rel / warp_rel > ratio_limit:
-        weft_rel = ratio_limit * warp_rel    warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_avg
+        weft_rel = ratio_limit * warp_rel
+    warp_q = baseline_kN_per_m * warp_rel * 1000.0 / L_avg
     weft_q = baseline_kN_per_m * weft_rel * 1000.0 / L_avg
     edge_q = float(edge_pre) * 1000.0 / L_avg
 
