@@ -13,7 +13,7 @@
 #   6. Rebuild the triangulation from the SETTLED coordinates.
 #   7. Return the settled points and the fresh triangles.
 #
-# The key architectural point (added 2026-10-09):
+# The key architectural point:
 #   The triangulation returned to the caller is the triangulation of
 #   the SETTLED shape, not of the initial shape. The FDM solve runs
 #   on the initial mesh exactly as before, and the physics, the
@@ -25,6 +25,23 @@
 #   there is no feedback from the triangulation back into the solve.
 #   Every call rebuilds from scratch. Every edit by the user wipes
 #   the previous triangulation.
+#
+# Why the settled triangulation is not filtered by the plan polygon
+# (2026-10-09):
+#   The settled boundary bows inward relative to the convex hull of
+#   the settled point set. Filtering triangles by testing their
+#   centroid against the settled boundary polygon drops any triangle
+#   whose centroid lands just outside the bowed polygon, even though
+#   the triangle is a valid part of the surface. Those dropped
+#   triangles show up as visible gaps in the mesh, concentrated near
+#   the anchors and along the bowed segments. They were ~7% of the
+#   surface at the settings the Chief ran on 2026-10-09.
+#
+#   The fix: do not filter. Take every triangle from the settled
+#   Delaunay. The convex hull of the settled point set is either
+#   equal to the settled boundary polygon or slightly larger. The
+#   very small sliver between them is acceptable; a gap-free
+#   triangulation is not.
 #
 # Vocabulary (fixed):
 #   boundary loop   - a closed sequence of 3D points.
@@ -63,8 +80,9 @@
 #   2026-10-05 - Per-edge edge_q support.
 #   2026-10-08 - Header comment drift corrected.
 #   2026-10-09 - Triangulation rebuilt from the settled shape.
-#                Fixed the settled retriangulation to call Delaunay
-#                directly, not through the interior grid generator.
+#   2026-10-09 - Settled triangulation no longer filtered by the
+#                plan polygon. Fixes the ~7% missing patches near
+#                the bowed boundary.
 # =============================================================================
 
 import numpy as np
@@ -235,6 +253,11 @@ def _triangulate_polygon(pts_2d, target_edge_length):
     interior grid candidates added. Returns (interior_pts_2d,
     triangles) where triangles reference indices into
     np.vstack([pts_2d, interior_pts_2d]).
+
+    The polygon filter is used here because the interior candidates
+    are generated on a grid that extends beyond the polygon, and
+    must be trimmed. For the settled-shape triangulation, no filter
+    is used: see _triangulate_settled.
     """
     from scipy.spatial import Delaunay
 
@@ -296,25 +319,27 @@ def _triangulate_settled(settled_points, n_boundary, origin, u, v):
     Rebuild the triangulation from the SETTLED coordinates.
 
     Projects the settled shape onto the same plan plane, runs
-    Delaunay on the settled plan positions directly (no new
-    interior candidates are added, because the settled points
-    already include the interior nodes placed by the initial
-    triangulation), filters to the settled boundary polygon, and
-    returns the triangles.
+    Delaunay on the settled plan positions, and returns every
+    triangle. No polygon filter.
+
+    Why no filter:
+      The settled boundary bows inward relative to the convex hull
+      of the settled point set. Filtering by centroid against the
+      settled boundary polygon drops triangles whose centroid lands
+      just outside the bowed polygon, producing visible gaps. The
+      convex hull of the settled points is the correct region to
+      cover, and it is equal to or slightly larger than the settled
+      boundary polygon. A tiny sliver outside the polygon is
+      acceptable; a gap is not.
     """
     from scipy.spatial import Delaunay
 
     settled_2d = _project_points(settled_points, origin, u, v)
-    settled_boundary_2d = settled_2d[:n_boundary]
-
     tri = Delaunay(settled_2d)
     triangles_inside = []
     for simplex in tri.simplices:
         a, b, c = int(simplex[0]), int(simplex[1]), int(simplex[2])
-        cx = (settled_2d[a][0] + settled_2d[b][0] + settled_2d[c][0]) / 3.0
-        cy = (settled_2d[a][1] + settled_2d[b][1] + settled_2d[c][1]) / 3.0
-        if _point_in_polygon(cx, cy, settled_boundary_2d):
-            triangles_inside.append((a, b, c))
+        triangles_inside.append((a, b, c))
     return triangles_inside
 
 
@@ -487,7 +512,8 @@ def build_mesh_triangulated(
 
     The FDM solve runs on the initial mesh, exactly as before. The
     triangles returned to the caller are rebuilt fresh from the
-    SETTLED coordinates.
+    SETTLED coordinates, with no polygon filter. That is what keeps
+    the triangulation of the settled shape complete.
 
     Parameters
     ----------
@@ -497,11 +523,7 @@ def build_mesh_triangulated(
         (sorted).
     use_dir_constraint : bool
         If True, cable interior nodes are passed to solve_fdm with
-        their local cable tangent as a directional constraint. This
-        is optional and off by default. The current form-finding
-        path relies on the settled-shape rebuild, not on this
-        constraint, to keep the boundary clean. The capability is
-        available for callers that need a node held to a line.
+        their local cable tangent as a directional constraint.
 
     See engine/SPEC_mesh_triangulation.md for the full design.
     """
@@ -610,7 +632,7 @@ def build_mesh_triangulated(
         "plan_normal": [float(vv) for vv in normal],
         "plan_origin": [float(vv) for vv in origin],
         "warp_dir": [float(vv) for vv in warp_dir],
-        "lift_used": "fdm_anisotropic_settled_triangulation",
+        "lift_used": "fdm_anisotropic_settled_triangulation_no_filter",
         "structural_connections": [],
     }
 
