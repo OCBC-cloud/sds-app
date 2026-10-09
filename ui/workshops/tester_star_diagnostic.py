@@ -1,42 +1,33 @@
 # =============================================================================
 # SDSe - Star Diagnostic (Lab)
 # =============================================================================
-# Background test to see how a boundary node shared between the cable
-# and the membrane moves when the edge cable pretension is changed.
+# Test 1 - Does the shared boundary node move along the cable, or off it?
+#   Two FDM solves at two edge pretensions. For each boundary
+#   subdivision node, compute the displacement vector and the angle
+#   to the local cable tangent.
 #
-# The question:
-#   Is the shared boundary node free along the cable direction,
-#   free in Z only, or free in all three directions?
-#
-# The method:
-#   - Diamond in plan, 5 m long diagonal, 3 m short diagonal.
-#   - Four corners pinned at alternating heights (+1, -1, +1, -1).
-#   - Four sides, all cable, 12 subdivisions per side.
-#   - Two FDM solves. Everything fixed except the edge cable
-#     pretension.
-#   - Read the boundary subdivision nodes from both runs.
-#   - Report the displacement vector, the angle to the local cable
-#     tangent, and the angle to the Z axis.
+# Test 2 - Can a stronger cable hold the node on the cable line?
+#   Three FDM solves at three edge pretensions (low, medium, high).
+#   For each of the four sides, take the mid-side boundary node and
+#   measure its perpendicular distance from the straight chord
+#   between its two anchors. If the distance falls to near zero at
+#   high edge pretension, the cable can win when strong enough. If
+#   the distance stays large, the cable cannot win at any strength,
+#   and the fix must be a directional constraint.
 #
 # The path:
 #   The q computation, the mesh call, and the FDM call are taken
 #   from _solve_fdm_path in viewers/figures/standard_saddle_mbs.py.
-#   The boundary-edge q is passed as a DICT, not a scalar. That is
-#   the path the working saddle viewer uses for form finding.
-#   Pass a scalar and assign_anisotropic_q silently drops the value
-#   in its Case 3 branch. Pass a dict and the value reaches the
-#   boundary edges.
+#   The boundary-edge q is passed as a DICT, matching the working
+#   saddle viewer's form-finding path.
 #
-# This file is diagnostic only. Nothing here is called by the
-# production code.
+# Diagnostic only. Nothing here is called by the production code.
 #
 # History:
 #   2026-10-09 - First version.
 #   2026-10-09 - Rewritten to borrow the working q path.
-#   2026-10-09 - Rewritten again to pass a DICT of boundary q
-#                values, matching the working saddle viewer. The
-#                scalar path in assign_anisotropic_q silently
-#                applies warp_q to boundary edges.
+#   2026-10-09 - Rewritten to pass a DICT of boundary q values.
+#   2026-10-09 - Added the three-run chord-distance test.
 # =============================================================================
 
 import numpy as np
@@ -55,12 +46,6 @@ from engine.form_finding import (
 # =============================================================================
 
 def _build_diamond_boundary():
-    """
-    Diamond in plan: long diagonal 5 m along X, short diagonal 3 m
-    along Y. Four corners at alternating heights (+1, -1, +1, -1).
-    Subdivision nodes along each straight chord. All four sides are
-    cable segments.
-    """
     corners = np.array([
         (-2.5,  0.0, +1.0),
         ( 0.0, +1.5, -1.0),
@@ -69,7 +54,6 @@ def _build_diamond_boundary():
     ], dtype=float)
 
     subdivisions_per_side = 12
-
     loop = []
     anchor_indices = []
 
@@ -83,7 +67,6 @@ def _build_diamond_boundary():
             loop.append((float(p[0]), float(p[1]), float(p[2])))
 
     boundary_loop = np.asarray(loop, dtype=float)
-
     n_loop = boundary_loop.shape[0]
     segments = []
     n_a = len(anchor_indices)
@@ -104,7 +87,6 @@ def _build_diamond_boundary():
         })
 
     segment_types = ["cable"] * n_a
-
     return boundary_loop, anchor_indices, segment_types, segments
 
 
@@ -116,11 +98,6 @@ def _solve_once(boundary_loop, anchors, segment_types,
                  edge_pretension_kN,
                  warp_pre_kN_per_m, weft_pre_kN_per_m,
                  mesh_spacing_m):
-    """
-    FDM solve on the diamond boundary. The q computation, the mesh
-    call, and the FDM call are taken from _solve_fdm_path in the
-    working saddle viewer. The boundary-edge q is passed as a DICT.
-    """
     n = boundary_loop.shape[0]
     total_len = 0.0
     for i in range(n):
@@ -132,10 +109,8 @@ def _solve_once(boundary_loop, anchors, segment_types,
         L_avg = 1.0
 
     edge_pre_used = float(edge_pretension_kN)
-    edge_pre_source = "user"
     if edge_pre_used <= 0.0:
         edge_pre_used = 0.05
-        edge_pre_source = "fallback"
 
     baseline_kN_per_m = 2.0
     ratio_limit = 4.0
@@ -175,11 +150,6 @@ def _solve_once(boundary_loop, anchors, segment_types,
     pts_2d = points_initial[:, :2]
     warp_dir = auto_warp_dir(pts_2d)
 
-    # ---- Boundary-edge q, as a DICT keyed by node-pair ----
-    # One entry per boundary edge in the boundary loop. The mesh
-    # preserves boundary indices 0..n_boundary-1 in order, so the
-    # boundary edges are the consecutive pairs (i, i+1) and the
-    # closing pair (n_boundary-1, 0).
     q_dict = {}
     for i in range(n_boundary_pts):
         j = (i + 1) % n_boundary_pts
@@ -195,17 +165,6 @@ def _solve_once(boundary_loop, anchors, segment_types,
         n_boundary=n_boundary_pts,
         boundary_edge_q=q_dict,
     )
-
-    # ---- Counters: how many edges actually got the edge_q value ----
-    n_boundary_edges_in_mesh = 0
-    n_boundary_edges_applied = 0
-    for k, (a, b) in enumerate(edges):
-        if a < n_boundary_pts and b < n_boundary_pts:
-            d = abs(a - b)
-            if d == 1 or d == n_boundary_pts - 1:
-                n_boundary_edges_in_mesh += 1
-                if abs(float(q_aniso[k]) - float(edge_q_scalar)) < 1e-6:
-                    n_boundary_edges_applied += 1
 
     fdm_result = solve_fdm(
         points_initial.copy(),
@@ -225,22 +184,17 @@ def _solve_once(boundary_loop, anchors, segment_types,
         "weft_q": weft_q,
         "edge_q_scalar": edge_q_scalar,
         "edge_pre_used_kN": edge_pre_used,
-        "edge_pre_source": edge_pre_source,
-        "n_boundary_edges_in_mesh": n_boundary_edges_in_mesh,
-        "n_boundary_edges_applied": n_boundary_edges_applied,
     }
 
 
 # =============================================================================
-# DISPLACEMENT ANALYSIS
+# TEST 1 - Angle of motion to the local cable tangent
 # =============================================================================
 
 def _cable_tangent_at(coords, boundary_index, n_boundary):
     prev_idx = (boundary_index - 1) % n_boundary
     next_idx = (boundary_index + 1) % n_boundary
-    prev_pt = coords[prev_idx]
-    next_pt = coords[next_idx]
-    t = next_pt - prev_pt
+    t = coords[next_idx] - coords[prev_idx]
     mag = float(np.linalg.norm(t))
     if mag < 1e-12:
         return np.array([1.0, 0.0, 0.0])
@@ -280,7 +234,6 @@ def _analyse_run_pair(run_A, run_B):
             "z_init": float(run_A["points_initial"][i, 2]),
             "xA": float(pA[0]), "yA": float(pA[1]), "zA": float(pA[2]),
             "xB": float(pB[0]), "yB": float(pB[1]), "zB": float(pB[2]),
-            "dx": float(d[0]), "dy": float(d[1]), "dz": float(d[2]),
             "mag": mag,
             "angle_to_cable_deg": angle_cable,
             "angle_to_Z_deg": angle_z,
@@ -288,25 +241,20 @@ def _analyse_run_pair(run_A, run_B):
     return rows
 
 
-# =============================================================================
-# REPORT
-# =============================================================================
-
-def _format_table(rows):
+def _format_angle_table(rows):
     header = (
-        "%5s  %8s  %8s  %8s  %8s  %8s  %8s  %8s  %8s  %8s  %9s  %9s  %9s"
+        "%5s  %8s  %8s  %8s  %8s  %8s  %8s  %9s  %9s  %9s"
         % ("idx", "x_init", "y_init", "z_init",
-           "xA", "yA", "zA", "xB", "yB", "zB",
+           "xA", "yA", "zA",
            "|d|_mm", "ang_cab", "ang_Z")
     )
     lines = [header, "-" * len(header)]
     for r in rows:
         lines.append(
-            "%5d  %8.3f  %8.3f  %8.3f  %8.3f  %8.3f  %8.3f  %8.3f  %8.3f  %8.3f  %9.3f  %9.2f  %9.2f"
+            "%5d  %8.3f  %8.3f  %8.3f  %8.3f  %8.3f  %8.3f  %9.3f  %9.2f  %9.2f"
             % (r["index"],
                r["x_init"], r["y_init"], r["z_init"],
                r["xA"], r["yA"], r["zA"],
-               r["xB"], r["yB"], r["zB"],
                r["mag"] * 1000.0,
                r["angle_to_cable_deg"],
                r["angle_to_Z_deg"])
@@ -314,53 +262,92 @@ def _format_table(rows):
     return "\n".join(lines)
 
 
-def _verdict(rows):
+def _angle_verdict(rows):
     if not rows:
         return "No boundary subdivision nodes found."
     mags = [r["mag"] for r in rows]
-    total_motion_mm = sum(mags) * 1000.0
-    max_motion_mm = max(mags) * 1000.0 if mags else 0.0
-    if total_motion_mm < 0.1:
-        return (
-            "No measurable motion. Max motion %.4f mm. "
-            "The edge pretension is not reaching the solve, or the "
-            "node is effectively fixed in all three axes."
-            % max_motion_mm
-        )
-    weighted_cable = 0.0
-    weighted_Z = 0.0
-    weight_sum = 0.0
+    total_mm = sum(mags) * 1000.0
+    if total_mm < 0.1:
+        return "No measurable motion."
+    wc = 0.0
+    wz = 0.0
+    ws = 0.0
     for r in rows:
         w = r["mag"]
-        weighted_cable += r["angle_to_cable_deg"] * w
-        weighted_Z += r["angle_to_Z_deg"] * w
-        weight_sum += w
-    if weight_sum < 1e-12:
-        return "No weighted motion. Cannot compute a verdict."
-    mean_cable = weighted_cable / weight_sum
-    mean_Z = weighted_Z / weight_sum
+        wc += r["angle_to_cable_deg"] * w
+        wz += r["angle_to_Z_deg"] * w
+        ws += w
+    mean_cable = wc / ws if ws > 1e-12 else 0.0
+    mean_Z = wz / ws if ws > 1e-12 else 0.0
     verdict = (
-        "Max motion: %.3f mm.  Mean angle to cable tangent: %.1f deg.  "
+        "Max motion: %.3f mm.  Mean angle to cable: %.1f deg.  "
         "Mean angle to Z: %.1f deg."
-        % (max_motion_mm, mean_cable, mean_Z)
+        % (max(mags) * 1000.0, mean_cable, mean_Z)
     )
     if mean_cable < 30.0:
-        verdict += (
-            "  VERDICT: motion is predominantly along the cable. "
-            "The node is free along the cable only."
-        )
+        verdict += "  Motion along cable."
     elif mean_Z < 30.0:
-        verdict += (
-            "  VERDICT: motion is predominantly in Z. "
-            "The node is free in Z only."
-        )
+        verdict += "  Motion in Z."
     else:
-        verdict += (
-            "  VERDICT: motion is neither along the cable nor in Z. "
-            "The node is moving inward in the plan plane. "
-            "The node is effectively free in all three directions."
-        )
+        verdict += "  Motion inward in plan plane."
     return verdict
+
+
+# =============================================================================
+# TEST 2 - Mid-side node distance from the anchor chord
+# =============================================================================
+
+def _mid_node_chord_distance(coords, boundary_loop, anchor_indices, n_boundary):
+    """
+    For each side (between two consecutive anchors), find the boundary
+    subdivision node at the middle of that side, and compute the
+    perpendicular distance from that node to the straight chord
+    between the two anchors.
+    Returns a list of dicts, one per side.
+    """
+    results = []
+    n_a = len(anchor_indices)
+    for k in range(n_a):
+        aa = anchor_indices[k]
+        bb = anchor_indices[(k + 1) % n_a]
+
+        interior = []
+        i = (aa + 1) % n_boundary
+        safety = 0
+        while i != bb and safety < n_boundary:
+            interior.append(i)
+            i = (i + 1) % n_boundary
+            safety += 1
+
+        if not interior:
+            continue
+
+        mid = interior[len(interior) // 2]
+
+        pA = coords[aa]
+        pB = coords[bb]
+        pM = coords[mid]
+
+        chord = pB - pA
+        chord_len = float(np.linalg.norm(chord))
+        if chord_len < 1e-12:
+            d_perp = 0.0
+        else:
+            u = chord / chord_len
+            w = pM - pA
+            proj = float(np.dot(w, u))
+            perp = w - proj * u
+            d_perp = float(np.linalg.norm(perp))
+
+        results.append({
+            "side": k,
+            "anchor_a": int(aa),
+            "anchor_b": int(bb),
+            "mid_node": int(mid),
+            "chord_len_m": chord_len,
+            "perp_dist_mm": d_perp * 1000.0,
+        })
+    return results
 
 
 # =============================================================================
@@ -370,8 +357,9 @@ def _verdict(rows):
 def render_tester_star_diagnostic():
     st.markdown(
         "## Star Diagnostic  \n"
-        "How does the shared boundary node move when only the edge "
-        "cable pretension is changed?"
+        "Two tests on the diamond.  \n"
+        "Test 1: two runs, angle of node motion to the cable.  \n"
+        "Test 2: three runs, mid-side node distance from the anchor chord."
     )
 
     st.markdown(
@@ -381,22 +369,21 @@ def render_tester_star_diagnostic():
         "Mesh spacing 0.25 m, 12 subdivisions per side."
     )
 
-    st.markdown(
-        "**Path.** Boundary-edge q is passed as a DICT, matching the "
-        "working saddle viewer's form-finding path."
-    )
-
+    # ---------------------------------------------------------------
+    # TEST 1 INPUTS
+    # ---------------------------------------------------------------
+    st.markdown("### Test 1 - angle of motion")
     c1, c2, c3 = st.columns(3)
     with c1:
         edge_A = st.number_input(
             "Edge cable A (kN)",
-            value=0.5, min_value=0.01, max_value=100.0, step=0.1,
+            value=0.5, min_value=0.01, max_value=1000.0, step=0.1,
             key="diag_edge_A",
         )
     with c2:
         edge_B = st.number_input(
             "Edge cable B (kN)",
-            value=5.0, min_value=0.01, max_value=100.0, step=0.1,
+            value=5.0, min_value=0.01, max_value=1000.0, step=0.1,
             key="diag_edge_B",
         )
     with c3:
@@ -420,92 +407,174 @@ def render_tester_star_diagnostic():
             key="diag_weft",
         )
 
-    run = st.button(
-        "Run Diagnostic",
-        key="diag_run",
+    run1 = st.button(
+        "Run Test 1",
+        key="diag_run1",
         use_container_width=True,
         type="primary",
     )
 
-    if not run:
-        return
+    if run1:
+        boundary_loop, anchors, segment_types, segments = _build_diamond_boundary()
 
-    boundary_loop, anchors, segment_types, segments = _build_diamond_boundary()
+        with st.spinner("Running A..."):
+            run_A = _solve_once(
+                boundary_loop, anchors, segment_types,
+                edge_pretension_kN=float(edge_A),
+                warp_pre_kN_per_m=float(warp_pre),
+                weft_pre_kN_per_m=float(weft_pre),
+                mesh_spacing_m=float(mesh_spacing),
+            )
+        with st.spinner("Running B..."):
+            run_B = _solve_once(
+                boundary_loop, anchors, segment_types,
+                edge_pretension_kN=float(edge_B),
+                warp_pre_kN_per_m=float(warp_pre),
+                weft_pre_kN_per_m=float(weft_pre),
+                mesh_spacing_m=float(mesh_spacing),
+            )
 
-    with st.spinner("Running solve A..."):
-        run_A = _solve_once(
-            boundary_loop, anchors, segment_types,
-            edge_pretension_kN=float(edge_A),
-            warp_pre_kN_per_m=float(warp_pre),
-            weft_pre_kN_per_m=float(weft_pre),
-            mesh_spacing_m=float(mesh_spacing),
+        st.markdown(
+            "**A:** edge %.3f kN  |  edge_q %.4f  |  warp_q %.4f  |  weft_q %.4f  |  L_avg %.4f m"
+            % (run_A["edge_pre_used_kN"], run_A["edge_q_scalar"],
+               run_A["warp_q"], run_A["weft_q"], run_A["L_avg"])
         )
-    with st.spinner("Running solve B..."):
-        run_B = _solve_once(
-            boundary_loop, anchors, segment_types,
-            edge_pretension_kN=float(edge_B),
-            warp_pre_kN_per_m=float(warp_pre),
-            weft_pre_kN_per_m=float(weft_pre),
-            mesh_spacing_m=float(mesh_spacing),
+        st.markdown(
+            "**B:** edge %.3f kN  |  edge_q %.4f"
+            % (run_B["edge_pre_used_kN"], run_B["edge_q_scalar"])
         )
 
+        rows = _analyse_run_pair(run_A, run_B)
+        st.code(_format_angle_table(rows), language="text")
+        st.markdown("**Verdict:** " + _angle_verdict(rows))
+
+    # ---------------------------------------------------------------
+    # TEST 2 INPUTS
+    # ---------------------------------------------------------------
     st.markdown("---")
-    st.markdown("**Solve A summary**")
-    st.markdown(
-        "- Edge pretension: %.3f kN (%s)" % (
-            run_A["edge_pre_used_kN"], run_A["edge_pre_source"]
-        )
-        + "  |  edge_q: %.4f" % run_A["edge_q_scalar"]
-        + "  |  warp_q: %.4f" % run_A["warp_q"]
-        + "  |  weft_q: %.4f" % run_A["weft_q"]
-    )
-    st.markdown(
-        "- Boundary nodes: " + str(run_A["n_boundary"])
-        + "  |  L_avg: %.4f m" % run_A["L_avg"]
-        + "  |  fixed: " + str(len(run_A["fixed_indices"]))
-    )
-    st.markdown(
-        "- Boundary edges in mesh: "
-        + str(run_A["n_boundary_edges_in_mesh"])
-        + "  |  applied edge_q: "
-        + str(run_A["n_boundary_edges_applied"])
-    )
-
-    st.markdown("**Solve B summary**")
-    st.markdown(
-        "- Edge pretension: %.3f kN (%s)" % (
-            run_B["edge_pre_used_kN"], run_B["edge_pre_source"]
-        )
-        + "  |  edge_q: %.4f" % run_B["edge_q_scalar"]
-        + "  |  warp_q: %.4f" % run_B["warp_q"]
-        + "  |  weft_q: %.4f" % run_B["weft_q"]
-    )
-    st.markdown(
-        "- Boundary nodes: " + str(run_B["n_boundary"])
-        + "  |  L_avg: %.4f m" % run_B["L_avg"]
-        + "  |  fixed: " + str(len(run_B["fixed_indices"]))
-    )
-    st.markdown(
-        "- Boundary edges in mesh: "
-        + str(run_B["n_boundary_edges_in_mesh"])
-        + "  |  applied edge_q: "
-        + str(run_B["n_boundary_edges_applied"])
-    )
-
-    st.markdown("---")
-    st.markdown("**Boundary node displacement table**")
+    st.markdown("### Test 2 - can the cable hold the mid-side node?")
     st.caption(
-        "node index, initial x/y/z, settled A (xA,yA,zA), "
-        "settled B (xB,yB,zB), displacement |d| in mm, "
-        "angle to local cable tangent, angle to Z axis."
+        "Three runs. For each side, the perpendicular distance of the "
+        "mid-side node from the straight chord between its two anchors."
     )
 
-    rows = _analyse_run_pair(run_A, run_B)
-    st.code(_format_table(rows), language="text")
+    d1, d2, d3 = st.columns(3)
+    with d1:
+        edge_low = st.number_input(
+            "Edge LOW (kN)",
+            value=0.5, min_value=0.01, max_value=1000.0, step=0.1,
+            key="diag_edge_low",
+        )
+    with d2:
+        edge_mid = st.number_input(
+            "Edge MID (kN)",
+            value=20.0, min_value=0.01, max_value=5000.0, step=1.0,
+            key="diag_edge_mid",
+        )
+    with d3:
+        edge_high = st.number_input(
+            "Edge HIGH (kN)",
+            value=200.0, min_value=0.01, max_value=20000.0, step=10.0,
+            key="diag_edge_high",
+        )
 
-    st.markdown("---")
-    st.markdown("**Verdict**")
-    st.markdown(_verdict(rows))
+    run2 = st.button(
+        "Run Test 2",
+        key="diag_run2",
+        use_container_width=True,
+        type="primary",
+    )
+
+    if run2:
+        boundary_loop, anchors, segment_types, segments = _build_diamond_boundary()
+
+        with st.spinner("Running LOW..."):
+            rL = _solve_once(
+                boundary_loop, anchors, segment_types,
+                edge_pretension_kN=float(edge_low),
+                warp_pre_kN_per_m=float(warp_pre),
+                weft_pre_kN_per_m=float(weft_pre),
+                mesh_spacing_m=float(mesh_spacing),
+            )
+        with st.spinner("Running MID..."):
+            rM = _solve_once(
+                boundary_loop, anchors, segment_types,
+                edge_pretension_kN=float(edge_mid),
+                warp_pre_kN_per_m=float(warp_pre),
+                weft_pre_kN_per_m=float(weft_pre),
+                mesh_spacing_m=float(mesh_spacing),
+            )
+        with st.spinner("Running HIGH..."):
+            rH = _solve_once(
+                boundary_loop, anchors, segment_types,
+                edge_pretension_kN=float(edge_high),
+                warp_pre_kN_per_m=float(warp_pre),
+                weft_pre_kN_per_m=float(weft_pre),
+                mesh_spacing_m=float(mesh_spacing),
+            )
+
+        n_boundary = rL["n_boundary"]
+
+        dL = _mid_node_chord_distance(
+            rL["coords"], boundary_loop, anchors, n_boundary)
+        dM = _mid_node_chord_distance(
+            rM["coords"], boundary_loop, anchors, n_boundary)
+        dH = _mid_node_chord_distance(
+            rH["coords"], boundary_loop, anchors, n_boundary)
+
+        header = (
+            "%5s  %9s  %9s  %9s  %9s  %9s  %9s"
+            % ("side", "chord_m",
+               "LOW_mm", "MID_mm", "HIGH_mm",
+               "edge_q_L", "edge_q_H")
+        )
+        lines = [header, "-" * len(header)]
+        for i in range(len(dL)):
+            lines.append(
+                "%5d  %9.4f  %9.3f  %9.3f  %9.3f  %9.2f  %9.2f"
+                % (dL[i]["side"],
+                   dL[i]["chord_len_m"],
+                   dL[i]["perp_dist_mm"],
+                   dM[i]["perp_dist_mm"],
+                   dH[i]["perp_dist_mm"],
+                   rL["edge_q_scalar"],
+                   rH["edge_q_scalar"])
+            )
+        st.code("\n".join(lines), language="text")
+
+        # Summary
+        ratio_summary = []
+        for i in range(len(dL)):
+            if dL[i]["perp_dist_mm"] > 1e-6:
+                ratio = dH[i]["perp_dist_mm"] / dL[i]["perp_dist_mm"]
+            else:
+                ratio = 0.0
+            ratio_summary.append(ratio)
+
+        avg_ratio = sum(ratio_summary) / len(ratio_summary) if ratio_summary else 0.0
+        max_high = max(d["perp_dist_mm"] for d in dH) if dH else 0.0
+
+        st.markdown(
+            "**Average ratio HIGH/LOW of mid-side perpendicular distance: "
+            "%.4f**" % avg_ratio
+        )
+        st.markdown(
+            "**Max HIGH perpendicular distance: %.3f mm**" % max_high
+        )
+
+        if max_high < 5.0:
+            st.markdown(
+                "**VERDICT:** the cable wins at high pretension. "
+                "Mid-side node sits on the anchor chord. "
+                "The star is a strength problem, not a constraint problem."
+            )
+        else:
+            st.markdown(
+                "**VERDICT:** the cable cannot hold the node on the "
+                "chord, even at high pretension. "
+                "The node is free in all three directions. "
+                "The fix must be a directional constraint."
+            )
 
 
 # =============================================================================
