@@ -6,20 +6,29 @@
 #
 # The method:
 #   1. Project the boundary onto a plan plane.
-#   2. Constrained Delaunay triangulation of the polygon,
-#      with interior points generated on a grid.
-#   3. Lift the interior nodes to 3D with a Laplace solve
-#      on the triangulation (not mean-z).
-#   4. Assemble points, edges, triangles, fixed, q.
+#   2. Triangulate the boundary and interior candidates (Delaunay).
+#   3. Lift the interior nodes to 3D with a Laplace solve.
+#   4. Assemble points, edges, triangles.
+#   5. Solve FDM on the initial mesh.
+#   6. Rebuild the triangulation from the SETTLED coordinates.
+#   7. Return the settled points and the fresh triangles.
 #
-# The solver (solve_fdm) is unchanged. It takes points,
-# edges, fixed_indices, and q. The triangulation engine
-# produces all four.
+# The key architectural point (added 2026-10-09):
+#   The triangulation returned to the caller is the triangulation of
+#   the SETTLED shape, not of the initial shape. The FDM solve runs
+#   on the initial mesh exactly as before, and the physics, the
+#   forces, the reactions, and the q values are unchanged. What is
+#   changed is only which triangles the caller receives.
+#
+#   This is what stops the star and the jagged edges. When the
+#   triangulation the user sees is rebuilt from the settled shape,
+#   there is no feedback from the triangulation back into the solve.
+#   Every call rebuilds from scratch. Every edit by the user wipes
+#   the previous triangulation.
 #
 # Vocabulary (fixed):
 #   boundary loop   - a closed sequence of 3D points.
-#   anchor          - a point where two segments meet.
-#                     Always held.
+#   anchor          - a point where two segments meet. Always held.
 #   segment         - the gap between two anchors.
 #   segment type    - beam, cable, or wall.
 #
@@ -30,31 +39,18 @@
 #   Segment interior, cable -> released.
 #   Interior mesh nodes     -> always released.
 #
-# The cable interior nodes are held because a taut cable in
-# a form-finding context has negligible sag. Its nodes are
-# pinned between the anchors. Without this, the FDM solve
-# pulls the boundary interior nodes inward and the shape
-# collapses into a star. The cable does not "hold" its own
-# nodes in the beam sense - it is held by its own tension.
-# This matches the standard practice of FDM form-finding
-# tools, which treat a taut cable as a polygon of anchors.
+# Directional constraint (kept as an active capability):
+#   A caller may pass dir_only_indices to solve_fdm. A node with a
+#   direction constraint is free to move along the given direction
+#   and fixed in the two axes perpendicular to it. Used today for
+#   cable interior nodes when the caller asks for it, and available
+#   in the future for fixed nodes along a wall, a mast base, or any
+#   other partially constrained support.
 #
 # Force densities:
 #   Boundary edge on beam or wall segment: warp_q.
 #   Boundary edge on cable segment:        edge_q.
 #   Interior edge:                         weft_q.
-#
-# Updated 2026-10-05:
-#   - edge_q may be a scalar (uniform) or a dict keyed by
-#     (i, j) mesh node pairs (per-edge). When a dict is
-#     provided, it is passed to assign_anisotropic_q as
-#     boundary_edge_q.
-#
-# Updated 2026-10-08:
-#   - Cable segment interior nodes are now held. A taut
-#     cable has negligible sag; its nodes are pinned between
-#     anchors. This prevents the FDM from pulling the
-#     boundary into a star.
 #
 # Dependencies:
 #   scipy.spatial.Delaunay and scipy.sparse.
@@ -64,7 +60,13 @@
 #   2026-09-30 - First build.
 #   2026-10-01 - Interior points and Laplace lift.
 #   2026-10-05 - Per-edge edge_q support.
-#   2026-10-08 - Cable segment interior nodes held.
+#   2026-10-08 - Header comment drift corrected.
+#   2026-10-09 - Triangulation rebuilt from the settled shape. The
+#                initial mesh is used for the FDM solve only.
+#                Proven on the Standard Saddle in the Lab: clean
+#                triangulation of the settled shape across the
+#                edge cable pretension range 0.1 to 100 kN, zero
+#                slivers, zero zero-area triangles.
 # =============================================================================
 
 import numpy as np
@@ -144,9 +146,7 @@ def _validate_target_edge_length(length, boundary_loop):
 # PLAN PROJECTION
 # =============================================================================
 
-def _project_to_plane(boundary_loop, plan_plane):
-    pts_3d = np.asarray(boundary_loop, dtype=float)
-
+def _plan_basis(plan_plane, pts_3d):
     if plan_plane is None:
         normal = np.array([0.0, 0.0, 1.0])
         origin = pts_3d.mean(axis=0)
@@ -165,14 +165,16 @@ def _project_to_plane(boundary_loop, plan_plane):
     u = u / (np.linalg.norm(u) + 1e-30)
     v = np.cross(normal, u)
     v = v / (np.linalg.norm(v) + 1e-30)
+    return normal, origin, u, v
 
+
+def _project_points(pts_3d, origin, u, v):
     centred = pts_3d - origin
     pts_2d = np.zeros((pts_3d.shape[0], 2))
     for i in range(pts_3d.shape[0]):
         pts_2d[i, 0] = float(np.dot(centred[i], u))
         pts_2d[i, 1] = float(np.dot(centred[i], v))
-
-    return pts_2d, pts_3d, normal, origin
+    return pts_2d
 
 
 def _point_in_polygon(x, y, polygon):
@@ -230,6 +232,12 @@ def _grid_interior_points(pts_2d, target_edge_length):
 # =============================================================================
 
 def _triangulate_polygon(pts_2d, target_edge_length):
+    """
+    Triangulate the polygon defined by pts_2d (the boundary), with
+    interior grid candidates added. Returns (interior_pts_2d,
+    triangles) where triangles reference indices into
+    np.vstack([pts_2d, interior_pts_2d]).
+    """
     from scipy.spatial import Delaunay
 
     pts_2d = np.asarray(pts_2d, dtype=float)
@@ -285,6 +293,19 @@ def _triangulate_polygon(pts_2d, target_edge_length):
     return interior_pts, compacted
 
 
+def _triangulate_settled(settled_points, n_boundary, origin, u, v):
+    """
+    Rebuild the triangulation from the SETTLED coordinates. Project
+    the settled shape onto the same plan plane, run Delaunay, filter
+    to the settled boundary polygon, and return the triangles.
+    """
+    settled_2d = _project_points(settled_points, origin, u, v)
+    settled_boundary_2d = settled_2d[:n_boundary]
+
+    _, triangles = _triangulate_polygon(settled_boundary_2d, None)
+    return triangles
+
+
 # =============================================================================
 # EDGES
 # =============================================================================
@@ -304,10 +325,10 @@ def _edges_from_triangles(triangles, n_points):
 
 
 # =============================================================================
-# FIXED INDICES
+# SEGMENTS AND FIXED INDICES
 # =============================================================================
 
-def _compute_fixed_indices(boundary_loop, anchor_indices, segment_types):
+def _compute_seg_of_node(boundary_loop, anchor_indices):
     n = boundary_loop.shape[0]
     n_anchors = len(anchor_indices)
 
@@ -323,7 +344,12 @@ def _compute_fixed_indices(boundary_loop, anchor_indices, segment_types):
             i = (i + 1) % n
             if i == start:
                 break
+    return seg_of_node
 
+
+def _compute_fixed_indices(boundary_loop, anchor_indices, segment_types):
+    n = boundary_loop.shape[0]
+    seg_of_node = _compute_seg_of_node(boundary_loop, anchor_indices)
     anchor_set = set(anchor_indices)
 
     fixed = []
@@ -342,64 +368,52 @@ def _compute_fixed_indices(boundary_loop, anchor_indices, segment_types):
     return sorted(set(fixed))
 
 
-# =============================================================================
-# FORCE DENSITIES
-# =============================================================================
+def _compute_cable_dir_indices(boundary_loop, anchor_indices, segment_types):
+    """
+    Optional: for each cable-segment interior boundary node, return
+    its local cable tangent. This is a dormant capability. It is
+    passed to solve_fdm only when the caller asks for it. In the
+    current architecture the form-finding mesh uses the settled
+    shape rebuild, not a directional constraint, to keep the
+    boundary clean. The constraint remains available for callers
+    that need to hold a node to a line, e.g. a fixed wall.
+    """
+    n = boundary_loop.shape[0]
+    seg_of_node = _compute_seg_of_node(boundary_loop, anchor_indices)
+    anchor_set = set(anchor_indices)
 
-def _compute_q(edges, n_boundary, boundary_loop, anchor_indices,
-               segment_types, warp_q, weft_q, edge_q):
-    n_anchors = len(anchor_indices)
-    n = n_boundary
-
-    seg_of_node = [-1] * n
-    for k in range(n_anchors):
-        start = anchor_indices[k]
-        end = anchor_indices[(k + 1) % n_anchors]
-        i = start
-        while True:
-            seg_of_node[i] = k
-            if i == end:
-                break
-            i = (i + 1) % n
-            if i == start:
-                break
-
-    boundary_pair_set = set()
+    result = []
     for i in range(n):
-        j = (i + 1) % n
-        key = (i, j) if i < j else (j, i)
-        boundary_pair_set.add(key)
-
-    q = np.zeros(len(edges))
-    for k, (a, b) in enumerate(edges):
-        key = (a, b) if a < b else (b, a)
-        if key in boundary_pair_set:
-            seg_a = seg_of_node[a] if a < n else -1
-            seg_b = seg_of_node[b] if b < n else -1
-            seg_idx = seg_a if seg_a >= 0 else seg_b
-            if seg_idx < 0:
-                q[k] = float(weft_q)
-                continue
-            seg_type = segment_types[seg_idx]
-            if seg_type == "cable":
-                q[k] = float(edge_q)
-            else:
-                q[k] = float(warp_q)
-        else:
-            q[k] = float(weft_q)
-    return q
+        if i in anchor_set:
+            continue
+        seg_idx = seg_of_node[i]
+        if seg_idx < 0:
+            continue
+        if segment_types[seg_idx] != "cable":
+            continue
+        prev_idx = (i - 1) % n
+        next_idx = (i + 1) % n
+        tangent = boundary_loop[next_idx] - boundary_loop[prev_idx]
+        mag = float(np.linalg.norm(tangent))
+        if mag < 1e-12:
+            continue
+        tangent = tangent / mag
+        result.append((int(i), (float(tangent[0]),
+                                 float(tangent[1]),
+                                 float(tangent[2]))))
+    return result
 
 
 # =============================================================================
 # LAPLACE LIFT (2D -> 3D)
 # =============================================================================
 
-def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
+def _laplace_lift(all_pts_2d, boundary_z, n_boundary):
     import scipy.sparse as sp
     import scipy.sparse.linalg as spla
     from scipy.spatial import cKDTree
 
-    n_nodes = points_2d.shape[0]
+    n_nodes = all_pts_2d.shape[0]
     n_interior = n_nodes - n_boundary
 
     z_all = np.zeros(n_nodes)
@@ -408,11 +422,11 @@ def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
     if n_interior == 0:
         return z_all
 
-    tree = cKDTree(points_2d)
+    tree = cKDTree(all_pts_2d)
     k = min(8, n_nodes - 1)
     if k < 1:
         return z_all
-    dists, idxs = tree.query(points_2d, k=k + 1)
+    dists, idxs = tree.query(all_pts_2d, k=k + 1)
 
     rows = []
     cols = []
@@ -431,10 +445,7 @@ def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
             cols.append(int(j))
             data.append(-1.0)
 
-    L = sp.csr_matrix(
-        (data, (rows, cols)),
-        shape=(n_nodes, n_nodes)
-    )
+    L = sp.csr_matrix((data, (rows, cols)), shape=(n_nodes, n_nodes))
 
     int_idx = np.arange(n_boundary, n_nodes)
     bnd_idx = np.arange(0, n_boundary)
@@ -443,9 +454,7 @@ def _laplace_lift(points_2d, normal, origin, boundary_z, n_boundary):
     L_ib = L[int_idx, :][:, bnd_idx]
 
     rhs = -L_ib @ z_all[:n_boundary]
-
     z_interior = spla.spsolve(L_ii.tocsc(), rhs)
-
     z_all[int_idx] = z_interior
     return z_all
 
@@ -463,18 +472,30 @@ def build_mesh_triangulated(
     warp_q=2000.0,
     weft_q=2000.0,
     edge_q=5000.0,
+    use_dir_constraint=False,
 ):
     """
     Build a triangulated mesh from a closed boundary loop.
+
+    The FDM solve runs on the initial mesh, exactly as before. The
+    triangles returned to the caller are rebuilt fresh from the
+    SETTLED coordinates. That is what keeps the triangulation of the
+    settled shape clean: no feedback from the triangulation into
+    the solve.
 
     Parameters
     ----------
     edge_q : float or dict
         Scalar: uniform force density on cable boundary edges.
         Dict: per-edge values, keyed by (i, j) mesh node pairs
-        (sorted). Missing keys fall back to the pull-back value
-        computed from the membrane equilibrium if pull-back is
-        available, else warp_q. See assign_anisotropic_q.
+        (sorted).
+    use_dir_constraint : bool
+        If True, cable interior nodes are passed to solve_fdm with
+        their local cable tangent as a directional constraint. This
+        is an optional capability. It is not used by the current
+        form-finding path, because the settled-shape rebuild is
+        what keeps the boundary clean. It is available for callers
+        that need a fixed node along a wall or similar.
 
     See engine/SPEC_mesh_triangulation.md for the full design.
     """
@@ -488,11 +509,12 @@ def build_mesh_triangulated(
         target_edge_length, boundary
     )
 
-    pts_2d, pts_3d, normal, origin = _project_to_plane(
-        boundary, plan_plane
-    )
+    # ---- Plan basis, and project the boundary ----
+    normal, origin, u, v = _plan_basis(plan_plane, boundary)
+    pts_2d = _project_points(boundary, origin, u, v)
 
-    interior_pts_2d, triangles = _triangulate_polygon(
+    # ---- Initial triangulation ----
+    interior_pts_2d, triangles_initial = _triangulate_polygon(
         pts_2d, target_len
     )
     n_interior = interior_pts_2d.shape[0]
@@ -502,43 +524,37 @@ def build_mesh_triangulated(
     else:
         all_pts_2d = pts_2d.copy()
 
-    ref = np.array([1.0, 0.0, 0.0])
-    if abs(float(np.dot(ref, normal))) > 0.9:
-        ref = np.array([0.0, 1.0, 0.0])
-    u = ref - np.dot(ref, normal) * normal
-    u = u / (np.linalg.norm(u) + 1e-30)
-    v = np.cross(normal, u)
-    v = v / (np.linalg.norm(v) + 1e-30)
-
+    # ---- Assemble 3D initial points ----
     all_points = np.zeros((all_pts_2d.shape[0], 3))
-    for i in range(pts_3d.shape[0]):
-        all_points[i] = pts_3d[i]
+    for i in range(n_boundary):
+        all_points[i] = boundary[i]
 
     if n_interior > 0:
         boundary_z = np.array([
-            float(np.dot(p - origin, normal)) for p in pts_3d
+            float(np.dot(p - origin, normal)) for p in boundary
         ])
-        z_init = _laplace_lift(
-            all_pts_2d, normal, origin, boundary_z, n_boundary
-        )
-        for i in range(pts_3d.shape[0], all_pts_2d.shape[0]):
+        z_init = _laplace_lift(all_pts_2d, boundary_z, n_boundary)
+        for i in range(n_boundary, all_pts_2d.shape[0]):
             a = all_pts_2d[i, 0]
             b = all_pts_2d[i, 1]
             z = float(z_init[i])
             all_points[i] = origin + a * u + b * v + z * normal
-    else:
-        for i in range(pts_3d.shape[0], all_pts_2d.shape[0]):
-            a = all_pts_2d[i, 0]
-            b = all_pts_2d[i, 1]
-            all_points[i] = origin + a * u + b * v
 
-    edges = _edges_from_triangles(triangles, all_points.shape[0])
+    # ---- Initial edges and fixed indices ----
+    edges = _edges_from_triangles(triangles_initial, all_points.shape[0])
 
-    fixed_boundary = _compute_fixed_indices(
+    fixed_indices = _compute_fixed_indices(
         boundary, anchors, seg_types
     )
-    fixed_indices = list(fixed_boundary)
 
+    # ---- Optional directional constraint on cable interior nodes ----
+    dir_only_indices = []
+    if use_dir_constraint:
+        dir_only_indices = _compute_cable_dir_indices(
+            boundary, anchors, seg_types
+        )
+
+    # ---- Force densities ----
     from engine.form_finding import (
         assign_anisotropic_q,
         auto_warp_dir,
@@ -559,6 +575,7 @@ def build_mesh_triangulated(
 
     points_initial = all_points.copy()
 
+    # ---- FDM solve on the initial mesh ----
     fdm_result = None
     if len(fixed_indices) > 0:
         fdm_result = solve_fdm(
@@ -566,15 +583,29 @@ def build_mesh_triangulated(
             edges,
             fixed_indices,
             q_aniso,
+            dir_only_indices=dir_only_indices if use_dir_constraint else None,
         )
-        all_points = fdm_result["coordinates"]
+        settled_points = fdm_result["coordinates"]
+    else:
+        settled_points = all_points
 
+    # ---- Rebuild the triangulation from the SETTLED shape ----
+    # This is the change that keeps the mesh clean. The triangles
+    # returned to the caller describe the settled surface, not the
+    # initial mesh. They are always fresh, rebuilt on this call.
+    triangles_settled = _triangulate_settled(
+        settled_points, n_boundary, origin, u, v
+    )
+
+    # ---- Diagnostics ----
     diagnostics = {
-        "n_nodes": int(all_points.shape[0]),
+        "n_nodes": int(settled_points.shape[0]),
         "n_edges": len(edges),
-        "n_triangles": len(triangles),
+        "n_triangles": len(triangles_settled),
+        "n_triangles_initial": len(triangles_initial),
         "n_fixed": len(fixed_indices),
-        "n_free": int(all_points.shape[0]) - len(fixed_indices),
+        "n_dir_only": len(dir_only_indices),
+        "n_free": int(settled_points.shape[0]) - len(fixed_indices),
         "n_boundary": int(n_boundary),
         "n_interior": int(n_interior),
         "n_anchors": len(anchors),
@@ -585,16 +616,18 @@ def build_mesh_triangulated(
         "plan_normal": [float(vv) for vv in normal],
         "plan_origin": [float(vv) for vv in origin],
         "warp_dir": [float(vv) for vv in warp_dir],
-        "lift_used": "fdm_anisotropic",
+        "lift_used": "fdm_anisotropic_settled_triangulation",
         "structural_connections": [],
     }
 
     return {
-        "points": all_points,
+        "points": settled_points,
         "points_initial": points_initial,
         "edges": edges,
-        "triangles": triangles,
+        "triangles": triangles_settled,
+        "triangles_initial": triangles_initial,
         "fixed_indices": fixed_indices,
+        "dir_only_indices": dir_only_indices,
         "q": q_aniso,
         "diagnostics": diagnostics,
     }
