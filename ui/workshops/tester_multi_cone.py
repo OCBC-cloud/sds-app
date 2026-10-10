@@ -1,28 +1,31 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Stage 3 builds the double-cone mesh, following the client's build order:
+Build order (client direction, 2026-10-10):
 
-  1. Outer perimeter boundary polygon.
-       Anchor points at rib crossings plus two tips.
-       anchor_count = 2 * N + 2   (8 for the default N = 3)
-  2. Subdivide each edge between adjacent anchors into `subdivisions`
-       equal segments.  subdivisions is a widget (5 to 25, default 11).
-  3. Rings placed flat at z = eave_height (2.8 m), same plane as the
-       outer boundary.
-  4. Mesh the annular region between the outer boundary and the two
-       ring polygons.
-  5. Lift only the ring polygon vertices to RING_HEIGHT = 7.0 m.
-  6. Solve with solve_fdm.
+  1. Outer perimeter polygon.  Anchors at rib crossings plus two tips.
+     anchor_count = 2 * N + 2  (8 for N = 3).
+  2. Subdivide every anchor-to-anchor edge into `subdivisions` equal
+     parts.  Widget, 5 to 25, default 11.
+  3. Two ring polygons.  Same node count each.  Count is user input
+     (default 12).  Placed at z = RING_HEIGHT = 7.0 m, at x = +/- span/6,
+     y = 0.
+  4. Build the mesh between the perimeter (at 2.8 m) and the ring
+     polygons (at 7.0 m).  Interior nodes generated on a grid in the
+     plan.  z assigned by a distance-weight rule:
+         z = eave + (ring_height - eave) * (1 - normalised distance to
+             the nearest ring).
+     Triangulated with scipy.spatial.Delaunay.  Triangles with a vertex
+     inside a ring circle or a centroid inside a ring circle are dropped.
+  5. Ring polygon nodes are held.  Perimeter anchors are held.  All
+     other nodes are free.
+  6. solve_fdm on the shaped mesh.  The solver refines the shape.
+  7. Draw membrane, perimeter, rings, primary, ribs, anchors.
 
-Rings are holes in the fabric.  No fabric inside a ring polygon.
+No engine files are modified.  The engine is NOT used for the cone mesh:
+the engine accepts one closed boundary and cannot accept holes.
 
-No engine files are modified.  The outer flat mesh comes from
-build_mesh_triangulated.  The ring rewrite is done here.
-
-Iteration history:
-  2026-10-10 v1: first build.  Engine rejected segment_types
-                 (one per node instead of one per anchor).
-  2026-10-10 v2: segment_types now one per anchor.  This file.
+Rings are beam members.  Membrane nodes on the ring are federation
+nodes — the same node is membrane and ring, not duplicated.
 """
 
 import math
@@ -31,7 +34,6 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
-from engine.mesh_triangulated import build_mesh_triangulated
 from engine.form_finding import solve_fdm
 from viewers.figures._shared import (
     apply_common_layout,
@@ -53,6 +55,8 @@ COL_RIB = "#e07b39"
 COL_DROP = "#b0c4de"
 COL_GROUND = "#3a5a7a"
 
+
+# --- Basic helpers -----------------------------------------------------------
 
 def _ellipse_y(x, span, mid_width):
     a = span / 2.0
@@ -126,100 +130,139 @@ def _subdivide_polygon(anchors, subdivisions):
     return np.asarray(loop, dtype=float), anchor_idx
 
 
-def _build_mesh_with_rings(perimeter_loop, anchor_idx, ring_specs,
-                            target_edge_length):
-    """Call the engine on the perimeter, then rewrite to add ring holes."""
-    # v2 fix: one segment_types entry per ANCHOR, not per loop node.
-    base = build_mesh_triangulated(
-        boundary_loop=perimeter_loop,
-        anchor_indices=anchor_idx,
-        segment_types=["cable"] * len(anchor_idx),
-        target_edge_length=target_edge_length,
-        plan_plane=None,
-        warp_q=2000.0,
-        weft_q=2000.0,
-        edge_q=5000.0,
-    )
-    pts = np.array(base["points_initial"], copy=True)
-    tris = [tuple(int(k) for k in t) for t in base["triangles"]]
+# --- New mesh build ----------------------------------------------------------
 
-    z_level = float(perimeter_loop[0, 2])
-    ring_circles = [(float(s["cx"]), float(s["cy"]),
-                     float(s["diameter"]) / 2.0) for s in ring_specs]
+def _point_in_polygon(x, y, poly):
+    n = poly.shape[0]
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i, 0], poly[i, 1]
+        xj, yj = poly[j, 0], poly[j, 1]
+        if (yi > y) != (yj > y):
+            xint = (xj - xi) * (y - yi) / (yj - yi + 1e-30) + xi
+            if x < xint:
+                inside = not inside
+        j = i
+    return inside
 
-    ring_polys = []
-    ring_notes = []
-    for spec, (cx, cy, r) in zip(ring_specs, ring_circles):
-        dist = np.linalg.norm(pts[:, :2] - np.array([cx, cy]), axis=1)
-        n_used = int(np.sum(dist <= r * 2.0))
-        note = f"ring at ({cx:+.2f}, {cy:+.2f}): {n_used} nodes within {r*2:.3f} m"
-        if n_used < 6:
-            n_used = 6
-            note += "  -> raised to minimum 6"
-        if n_used > 48:
-            n_used = 48
-            note += "  -> capped at 48"
-        t = np.linspace(0.0, 2.0 * math.pi, n_used, endpoint=False)
-        poly = np.column_stack([
-            cx + r * np.cos(t),
-            cy + r * np.sin(t),
-            np.full(n_used, z_level, dtype=float),
-        ])
-        ring_polys.append(poly)
-        ring_notes.append(note)
 
-    ring_indices = []
+def _inside_any_ring(xy, rings):
+    for (cx, cy, r) in rings:
+        if (xy[0] - cx) ** 2 + (xy[1] - cy) ** 2 < r * r:
+            return True
+    return False
+
+
+def _build_cone_mesh(perimeter_loop, anchor_idx, ring_polys,
+                      ring_centres_radii, eave_height, target_len):
+    """
+    Build the mesh between the perimeter (at eave_height) and the ring
+    polygons (at RING_HEIGHT).  Interior nodes generated on a plan grid.
+    z from a distance-weight rule.  Delaunay triangulation with holes
+    dropped.
+
+    Returns dict with points, edges, triangles, fixed_indices.
+    """
+    from scipy.spatial import Delaunay
+
+    n_perim = perimeter_loop.shape[0]
+
+    # --- Collect boundary points and their z -----------------------------
+    # Order: perimeter first, then ring polygon vertices, then interior.
+    boundary_pts = [tuple(p) for p in perimeter_loop]
+    n_boundary = len(boundary_pts)
+
+    ring_start = []
     for poly in ring_polys:
-        start = pts.shape[0]
-        pts = np.vstack([pts, poly])
-        ring_indices.append(list(range(start, start + poly.shape[0])))
+        ring_start.append(len(boundary_pts))
+        for p in poly:
+            boundary_pts.append(tuple(p))
+    ring_indices = []
+    for k, poly in enumerate(ring_polys):
+        ring_indices.append(list(range(ring_start[k],
+                                       ring_start[k] + poly.shape[0])))
+    n_with_rings = len(boundary_pts)
 
-    # Drop triangles whose centroid or any vertex is inside a ring.
-    def _inside_any(xy):
-        for (cx, cy, r) in ring_circles:
-            if (xy[0] - cx) ** 2 + (xy[1] - cy) ** 2 < r * r:
-                return True
-        return False
+    # --- Interior grid in plan ------------------------------------------
+    xmin = float(np.min(perimeter_loop[:, 0]))
+    xmax = float(np.max(perimeter_loop[:, 0]))
+    ymin = float(np.min(perimeter_loop[:, 1]))
+    ymax = float(np.max(perimeter_loop[:, 1]))
 
-    kept = []
-    dropped = 0
-    for tri in tris:
-        a, b, c = tri
-        cen = (pts[a, :2] + pts[b, :2] + pts[c, :2]) / 3.0
-        if _inside_any(cen) or _inside_any(pts[a, :2]) \
-                or _inside_any(pts[b, :2]) or _inside_any(pts[c, :2]):
-            dropped += 1
-            continue
-        kept.append(tri)
+    h = float(target_len)
+    xs = np.arange(xmin + 0.5 * h, xmax, h)
+    ys = np.arange(ymin + 0.5 * h, ymax, h)
 
-    # Bridge: for each ring polygon edge, connect to the nearest
-    # kept-triangle vertex within 3 * target_edge_length.
-    all_kept_verts = sorted({v for t in kept for v in t})
-    arr = np.array(all_kept_verts, dtype=int) if all_kept_verts else np.array([], dtype=int)
-
-    new_tris = []
-    for idx_list in ring_indices:
-        n_poly = len(idx_list)
-        for i in range(n_poly):
-            a = idx_list[i]
-            b = idx_list[(i + 1) % n_poly]
-            if arr.size == 0:
+    poly_xy = perimeter_loop[:, :2]
+    interior_xy = []
+    for x in xs:
+        for y in ys:
+            if not _point_in_polygon(x, y, poly_xy):
                 continue
-            pa = pts[a]
-            d = np.linalg.norm(pts[arr, :2] - pa[None, :2], axis=1)
-            k_near = int(np.argmin(d))
-            c_idx = int(arr[k_near])
-            if d[k_near] < 3.0 * target_edge_length:
-                new_tris.append((int(a), int(b), c_idx))
+            if _inside_any_ring((x, y), ring_centres_radii):
+                continue
+            interior_xy.append((float(x), float(y)))
 
-    tris = kept + new_tris
+    # --- z for interior nodes: distance-weight rule ----------------------
+    def _z_at(x, y):
+        # Normalised distance from the nearest ring and from the perimeter.
+        # Use nearest ring circle and distance to the perimeter polygon edge.
+        d_ring = float("inf")
+        for (cx, cy, r) in ring_centres_radii:
+            d = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
+            if d < d_ring:
+                d_ring = d
+        d_ring = max(d_ring, 0.0)
 
+        # Distance to the perimeter boundary (plan distance to nearest
+        # perimeter node — cheap but a good proxy).
+        d_perim = float(np.min(np.linalg.norm(
+            poly_xy - np.array([x, y]), axis=1
+        )))
+
+        denom = d_ring + d_perim
+        if denom < 1e-9:
+            return float(RING_HEIGHT)
+        w = d_perim / denom          # 0 at ring, 1 at perimeter
+        z = RING_HEIGHT + (eave_height - RING_HEIGHT) * w
+        return float(z)
+
+    all_pts_list = list(boundary_pts)
+    for (x, y) in interior_xy:
+        all_pts_list.append((x, y, _z_at(x, y)))
+
+    all_pts = np.asarray(all_pts_list, dtype=float)
+
+    # --- Delaunay on plan positions, with holes dropped ------------------
+    pts_2d = all_pts[:, :2]
+    tri = Delaunay(pts_2d)
+
+    triangles = []
+    for simplex in tri.simplices:
+        a, b, c = int(simplex[0]), int(simplex[1]), int(simplex[2])
+        cen = (pts_2d[a] + pts_2d[b] + pts_2d[c]) / 3.0
+
+        # centroid must be inside the perimeter polygon
+        if not _point_in_polygon(cen[0], cen[1], poly_xy):
+            continue
+        # centroid must not be inside any ring circle
+        if _inside_any_ring(cen, ring_centres_radii):
+            continue
+        # no vertex may be inside any ring circle
+        if (_inside_any_ring(pts_2d[a], ring_centres_radii)
+                or _inside_any_ring(pts_2d[b], ring_centres_radii)
+                or _inside_any_ring(pts_2d[c], ring_centres_radii)):
+            continue
+        triangles.append((a, b, c))
+
+    # --- Edges ------------------------------------------------------------
     edge_set = set()
-    for t in tris:
-        a, b, c = t
+    for (a, b, c) in triangles:
         for (p, q) in ((a, b), (b, c), (c, a)):
             key = (p, q) if p < q else (q, p)
             edge_set.add(key)
+    # ring polygon edges (they are the inner boundary)
     for idx_list in ring_indices:
         n_poly = len(idx_list)
         for i in range(n_poly):
@@ -229,32 +272,31 @@ def _build_mesh_with_rings(perimeter_loop, anchor_idx, ring_specs,
             edge_set.add(key)
     edges = sorted(edge_set)
 
-    q = np.full(len(edges), 2000.0, dtype=float)
-
+    # --- Fixed: perimeter anchors + every ring polygon vertex ------------
     fixed = set(int(i) for i in anchor_idx)
     for idx_list in ring_indices:
         for i in idx_list:
             fixed.add(int(i))
 
     return {
-        "points": pts,
+        "points": all_pts,
         "edges": edges,
-        "triangles": tris,
+        "triangles": triangles,
         "fixed_indices": sorted(fixed),
-        "q": q,
         "ring_indices": ring_indices,
-        "ring_polygons": ring_polys,
-        "dropped_count": dropped,
-        "ring_notes": ring_notes,
-        "z_level": z_level,
+        "n_perimeter": n_perim,
+        "n_boundary": n_boundary,
+        "n_with_rings": n_with_rings,
     }
 
+
+# --- Page --------------------------------------------------------------------
 
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — double-cone mesh.  "
-        "Rings lifted to 7 m, then solved.</p>",
+        "Mesh built between perimeter and rings, then solved.</p>",
         unsafe_allow_html=True,
     )
 
@@ -272,7 +314,7 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 2.0, 0.1)
+        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 0.5, 0.1)
     with c2:
         curve_type = st.selectbox(
             "Curve type", ["parabolic", "circular", "catenary"], index=0
@@ -284,9 +326,15 @@ def render_tester_multi_cone():
     with c2:
         optional_ends = st.toggle("Optional ends", value=False)
 
-    subdivisions = int(st.number_input(
-        "Subdivisions per edge", 5, 25, 11, 1
-    ))
+    c1, c2 = st.columns(2)
+    with c1:
+        subdivisions = int(st.number_input(
+            "Subdivisions per edge", 5, 25, 11, 1
+        ))
+    with c2:
+        ring_nodes = int(st.number_input(
+            "Ring polygon nodes", 6, 32, 12, 1
+        ))
 
     c1, c2 = st.columns(2)
     with c1:
@@ -321,53 +369,51 @@ def render_tester_multi_cone():
     L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
     target_len = max(L_avg, 1e-6)
 
+    # --- Ring polygons at 7 m --------------------------------------------
     ring_x_positions = (-span / 6.0, +span / 6.0)
-    ring_specs = [
-        {"cx": float(rx), "cy": 0.0,
-         "cz": float(eave_height), "diameter": float(ring_diameter)}
-        for rx in ring_x_positions
-    ]
+    ring_centres_radii = []
+    ring_polys = []
+    r_ring = float(ring_diameter) / 2.0
+    t_ring = np.linspace(0.0, 2.0 * math.pi, ring_nodes, endpoint=False)
+    for rx in ring_x_positions:
+        poly = np.column_stack([
+            rx + r_ring * np.cos(t_ring),
+            0.0 + r_ring * np.sin(t_ring),
+            np.full(ring_nodes, RING_HEIGHT, dtype=float),
+        ])
+        ring_polys.append(poly)
+        ring_centres_radii.append((float(rx), 0.0, r_ring))
 
-    built = _build_mesh_with_rings(
-        perimeter_loop, anchor_idx, ring_specs, target_len
+    # --- Build cone mesh --------------------------------------------------
+    built = _build_cone_mesh(
+        perimeter_loop, anchor_idx, ring_polys,
+        ring_centres_radii, eave_height, target_len,
     )
 
     pts = built["points"]
     edges = built["edges"]
     tris = built["triangles"]
     fixed = built["fixed_indices"]
-    ring_indices = built["ring_indices"]
 
-    # Lift ring polygon vertices to RING_HEIGHT.
-    pts_lifted = pts.copy()
-    for idx_list in ring_indices:
-        for i in idx_list:
-            pts_lifted[i, 2] = RING_HEIGHT
-
-    warp_pre = max(float(warp_q_input), 0.1)
-    weft_pre = max(float(weft_q_input), 0.1)
-    warp_q = warp_pre * 1000.0
-    weft_q = weft_pre * 1000.0
-    if edge_q_input > 0.0:
-        edge_q_scalar = float(edge_q_input) * 1000.0
-    else:
-        edge_q_scalar = max(warp_q, weft_q) * target_len
-    edge_q_scalar = max(edge_q_scalar, 1.0)
-
+    # --- q ----------------------------------------------------------------
+    warp_q = max(float(warp_q_input), 0.1) * 1000.0
+    weft_q = max(float(weft_q_input), 0.1) * 1000.0
     q = np.full(len(edges), warp_q, dtype=float)
 
+    # --- Solve ------------------------------------------------------------
     try:
-        fdm = solve_fdm(pts_lifted, edges, fixed, q)
+        fdm = solve_fdm(pts, edges, fixed, q)
         coords = fdm["coordinates"]
         residual_norm = float(fdm["residual_norm"])
         solve_ok = True
         solve_err = ""
     except Exception as e:
-        coords = pts_lifted.copy()
+        coords = pts.copy()
         residual_norm = float("nan")
         solve_ok = False
         solve_err = str(e)
 
+    # --- Figure -----------------------------------------------------------
     fig = go.Figure()
 
     if len(tris) > 0:
@@ -419,7 +465,7 @@ def render_tester_multi_cone():
             name="held nodes", showlegend=False, hoverinfo="skip",
         ))
 
-    for k, idx_list in enumerate(ring_indices):
+    for k, idx_list in enumerate(built["ring_indices"]):
         pp = coords[idx_list]
         closed = np.vstack([pp, pp[:1]])
         fig.add_trace(go.Scatter3d(
@@ -427,7 +473,7 @@ def render_tester_multi_cone():
             mode="lines", line=dict(color=COL_RING_EDGE, width=5),
             name=f"ring {k+1}", showlegend=False, hoverinfo="skip",
         ))
-        cx = ring_specs[k]["cx"]
+        cx = ring_x_positions[k]
         z_up = float(np.interp(cx, xp, zp))
         fig.add_trace(go.Scatter3d(
             x=[cx, cx], y=[0.0, 0.0], z=[z_up, RING_HEIGHT],
@@ -439,13 +485,13 @@ def render_tester_multi_cone():
     st.plotly_chart(fig, use_container_width=True)
 
     with st.expander("Diagnostics", expanded=False):
-        st.write(f"Anchors (outer): {anchors.shape[0]}")
+        st.write(f"Outer anchors: {anchors.shape[0]}")
         st.write(f"Subdivisions per edge: {subdivisions}")
-        st.write(f"Perimeter loop nodes: {perimeter_loop.shape[0]}")
+        st.write(f"Perimeter nodes: {perimeter_loop.shape[0]}")
+        st.write(f"Ring polygon nodes (each): {ring_nodes}")
         st.write(f"Total mesh nodes: {pts.shape[0]}")
         st.write(f"Mesh edges: {len(edges)}")
         st.write(f"Mesh triangles: {len(tris)}")
-        st.write(f"Dropped triangles inside rings: {built['dropped_count']}")
         st.write(f"Held nodes: {len(fixed)}")
         st.write(f"Solve OK: {solve_ok}")
         if not solve_ok:
@@ -453,10 +499,7 @@ def render_tester_multi_cone():
         else:
             st.write(f"Residual norm: {residual_norm:.6e}")
         st.write(f"Target edge length: {target_len:.4f}")
-        st.write(f"Ring height (lifted): {RING_HEIGHT:.2f}")
+        st.write(f"Ring height: {RING_HEIGHT:.2f} m")
+        st.write(f"Ring diameter: {ring_diameter:.3f} m")
         st.write(f"Ring stations x: " +
                  ", ".join(f"{v:+.3f}" for v in ring_x_positions))
-        st.write(f"Ring diameter: {ring_diameter:.3f}")
-        st.write("**Ring notes:**")
-        for n in built["ring_notes"]:
-            st.write("- " + n)
