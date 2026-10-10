@@ -1,13 +1,18 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Fixes in this version (2026-10-10 v6b):
-  - Viewer cleaned up.  Removed from the figure: ground ellipse
-    (blue line), perimeter polygon outline (yellow line), held-node
-    markers (amber dots), and drop members (blue-grey lines).
-  - Kept in the viewer: the membrane mesh, the primary beam, the
-    ribs, and the ring polygons.
+Fixes in this version (2026-10-10 v9):
+  - Ring polygon node count is now derived from the ring
+    circumference and the mesh spacing:
+        n = max(12, min(32, round(2 * pi * r / target_len)))
+    Previously the count came from "fabric nodes within 2 * ring
+    radius", which for a 0.5 m ring could fall to 6.  A 6-node
+    polygon is a hexagon and the fabric meets the ring at flat
+    chords, not a smooth ring.  This fix rounds the ring properly
+    and keeps the polygon nodes evenly spaced around the circle.
 
-Carried over from v6:
+Carried over from v6b:
+  - Viewer shows membrane, primary beam, ribs, and ring polygons
+    only.
   - z interpolation weight w = d_ring / (d_ring + d_perim).
   - Ring attachment test uses 3D distance to the ring circle.
   - Fabric nodes attached to a ring are snapped to RING_HEIGHT
@@ -32,6 +37,8 @@ from viewers.figures._shared import (
 
 RING_HEIGHT = 7.0
 RIB_SEGMENTS = 80
+RING_NODES_MIN = 12
+RING_NODES_MAX = 32
 
 COL_MEMBRANE = "#4a7a9c"
 COL_RING_EDGE = "#ffd166"
@@ -137,6 +144,20 @@ def _inside_any_ring(xy, rings):
     return False
 
 
+def _ring_node_count(r, target_len):
+    """Ring polygon node count from circumference and mesh spacing.
+
+    n = round(2 * pi * r / target_len), clamped [12, 32].
+
+    This keeps the polygon nodes roughly one mesh spacing apart
+    around the ring, and never below 12 so the ring is properly
+    round rather than a hexagon.
+    """
+    n = int(round(2.0 * math.pi * r / max(target_len, 1e-6)))
+    n = max(RING_NODES_MIN, min(RING_NODES_MAX, n))
+    return n
+
+
 def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
                       eave_height, target_len):
     from scipy.spatial import Delaunay
@@ -177,16 +198,10 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
         w = d_ring / denom
         return float(RING_HEIGHT + (eave_height - RING_HEIGHT) * w)
 
-    ring_node_counts = []
-    for (cx, cy, r) in ring_centres_radii:
-        cnt = 0
-        for (x, y) in interior_xy:
-            d = math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-            if d <= 2.0 * r:
-                cnt += 1
-        cnt = max(cnt, 6)
-        cnt = min(cnt, 32)
-        ring_node_counts.append(cnt)
+    # --- Ring polygon node count from ring circumference ---------------
+    ring_node_counts = [
+        _ring_node_count(r, target_len) for (_, _, r) in ring_centres_radii
+    ]
 
     all_pts_list = [tuple(p) for p in perimeter_loop]
     n_perimeter = len(all_pts_list)
@@ -356,8 +371,8 @@ def _format_status_table(points_initial, points_settled, held_sets,
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — double-cone mesh.  "
-        "Membrane, primary beam, ribs, and rings only.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — double-cone mesh, "
+        "ring polygon count from circumference.</p>",
         unsafe_allow_html=True,
     )
 
@@ -490,14 +505,12 @@ def render_tester_multi_cone():
             name="membrane", showlegend=False, hoverinfo="skip",
         ))
 
-    # Primary beam
     fig.add_trace(go.Scatter3d(
         x=xp, y=np.zeros_like(xp), z=zp,
         mode="lines", line=dict(color=COL_PRIMARY, width=7),
         name="primary beam", showlegend=False, hoverinfo="skip",
     ))
 
-    # Ribs
     for i in range(len(rib_x)):
         rp = _rib_polyline(
             float(rib_x[i]), float(rib_half_width[i]),
@@ -509,7 +522,6 @@ def render_tester_multi_cone():
             name=f"rib x={rib_x[i]:+.2f}", showlegend=False, hoverinfo="skip",
         ))
 
-    # Rings only (no drop members)
     for k, idx_list in enumerate(built["ring_indices"]):
         pp = coords[idx_list]
         closed = np.vstack([pp, pp[:1]])
@@ -544,7 +556,7 @@ def render_tester_multi_cone():
         st.write(f"Ring diameter: {ring_diameter:.3f} m")
         st.write(f"Ring stations x: " +
                  ", ".join(f"{v:+.3f}" for v in ring_x_positions))
-        st.write("Ring node counts (from mesh): " +
+        st.write("Ring node counts (from circumference): " +
                  ", ".join(str(c) for c in built["ring_node_counts"]))
         st.write("Ring fabric nodes held (attached): " +
                  ", ".join(str(c) for c in built["ring_attach_counts"]))
