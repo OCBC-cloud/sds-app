@@ -1,20 +1,22 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Fixes in this version (2026-10-10 v7):
-  - All decorative traces removed from the viewer.  No perimeter
-    yellow line, no anchor markers, no ring edge markers, no drop
-    members, no primary or rib arcs, no ground ellipse.  The view
-    shows only the membrane mesh and the rings themselves.
-  - Camera tightened so the roof fills the frame.
-  - Full digitised node table for every node, in its own expander.
-  - The "Digitised node status" expander still lists held nodes and
-    the top displaced free nodes for a quick read.
+Fixes in this version (2026-10-10 v8):
+  - Primary beam, secondary ribs, and drop members restored to the
+    viewer.  Ground ellipse still off.  Yellow perimeter line, anchor
+    markers, and ring edge highlight off.
+  - Ring held band widened.  A fabric node is attached to a ring if
+    its 3D distance to the ring circle is within 3 * target_len
+    (previously 1 * target_len).  Attached nodes are snapped to
+    z = RING_HEIGHT and held.
+  - Initial z of free fabric nodes near the rings raised.  For a
+    node within 6 * target_len of a ring circle, the z rule shifts
+    toward the ring height.  This stops the sag toward the ring hole
+    and closes the gap between fabric and ring.
+  - solve_fdm runs once on the shaped mesh.
 
 Carried over from v6:
-  - z interpolation weight w = d_ring / (d_ring + d_perim).
-  - Ring attachment test is 3D distance to the ring circle.
-  - Fabric nodes attached to a ring are snapped to RING_HEIGHT
-    and held.
+  - z weight w = d_ring / (d_ring + d_perim).
+  - Ring polygon node count derived from the fabric mesh.
 
 No engine files are modified.
 """
@@ -34,10 +36,19 @@ from viewers.figures._shared import (
 
 
 RING_HEIGHT = 7.0
+ELLIPSE_SEGMENTS = 200
 RIB_SEGMENTS = 80
+
+ATTACH_BAND = 3.0        # x target_len: fabric nodes within this 3D distance
+                         # of the ring circle are snapped to ring height
+RAISE_BAND = 6.0         # x target_len: nodes within this distance of the
+                         # ring get an extra lift to their initial z
 
 COL_MEMBRANE = "#4a7a9c"
 COL_RING_EDGE = "#ffd166"
+COL_PRIMARY = "#FF6B6B"
+COL_RIB = "#e07b39"
+COL_DROP = "#b0c4de"
 
 
 def _ellipse_y(x, span, mid_width):
@@ -62,6 +73,14 @@ def _rib_arch_y_at_eave(peak_z, half_width, eave_height):
     if u2 < 0.0:
         return None
     return half_width * math.sqrt(u2)
+
+
+def _rib_polyline(rib_x, half_width, peak_z, n):
+    y = np.linspace(-half_width, +half_width, n)
+    u = y / half_width
+    z = peak_z * (1.0 - u ** 2)
+    x = np.full_like(y, rib_x)
+    return np.column_stack([x, y, z])
 
 
 def _tip_x_at_eave(span, apex, eave_height, curve_type):
@@ -154,13 +173,17 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
                 continue
             interior_xy.append((float(x), float(y)))
 
-    def _z_at(x, y):
-        d_ring = float("inf")
+    # --- z rule with a raise band around each ring ----------------------
+    def _d_ring(x, y):
+        d = float("inf")
         for (cx, cy, r) in ring_centres_radii:
-            d = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
-            if d < d_ring:
-                d_ring = d
-        d_ring = max(d_ring, 0.0)
+            dd = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
+            if dd < d:
+                d = dd
+        return max(d, 0.0)
+
+    def _z_at(x, y):
+        d_ring = _d_ring(x, y)
         d_perim = float(np.min(np.linalg.norm(
             poly_xy - np.array([x, y]), axis=1
         )))
@@ -168,7 +191,15 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
         if denom < 1e-9:
             return float(RING_HEIGHT)
         w = d_ring / denom
-        return float(RING_HEIGHT + (eave_height - RING_HEIGHT) * w)
+        z = RING_HEIGHT + (eave_height - RING_HEIGHT) * w
+
+        # Raise: within RAISE_BAND * target_len of the ring, pull z up
+        # toward RING_HEIGHT with a smooth ramp.
+        raise_dist = RAISE_BAND * target_len
+        if d_ring < raise_dist:
+            f = 1.0 - (d_ring / raise_dist)     # 1 at ring, 0 at band edge
+            z = z + (RING_HEIGHT - z) * f
+        return float(z)
 
     ring_node_counts = []
     for (cx, cy, r) in ring_centres_radii:
@@ -241,6 +272,8 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
     for key in boundary_edge_set:
         all_edge_set.add(key)
 
+    # --- Wider attach band (3 * target_len), snap to ring height -------
+    attach_band = ATTACH_BAND * target_len
     attached_node_indices = set()
     ring_attach_counts = []
     ring_attach_edges_added = []
@@ -252,10 +285,9 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
         edges_added_here = 0
         for i in range(fabric_start, fabric_end):
             x, y, z = all_pts[i]
-            d_plan = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
-            d_plan = max(d_plan, 0.0)
+            d_plan = max(math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r, 0.0)
             d3 = math.sqrt(d_plan ** 2 + (z - RING_HEIGHT) ** 2)
-            if d3 < 1.0 * target_len:
+            if d3 < attach_band:
                 attached_node_indices.add(i)
                 all_pts[i, 2] = RING_HEIGHT
                 held_here += 1
@@ -298,18 +330,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
     }
 
 
-def _status_line(i, status, points_initial, points_settled):
-    xi, yi, zi = points_initial[i]
-    xs, ys, zs = points_settled[i]
-    d = float(np.linalg.norm(
-        np.array([xs - xi, ys - yi, zs - zi])
-    ))
-    return (
-        "%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
-        % (i, xi, yi, zi, xs, ys, zs, d, status)
-    )
-
-
 _HEADER = (
     "%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s"
     % ("idx", "x_init", "y_init", "z_init",
@@ -317,25 +337,14 @@ _HEADER = (
 )
 
 
-def _format_all_nodes(points_initial, points_settled, held_sets,
-                       ring_indices, attached_set, anchor_idx):
-    n = points_initial.shape[0]
-    status_of = ["free"] * n
-    for i in anchor_idx:
-        status_of[int(i)] = "held_perimeter_anchor"
-    ring_poly_all = set()
-    for idx_list in ring_indices:
-        for i in idx_list:
-            ring_poly_all.add(int(i))
-            status_of[int(i)] = "held_ring_polygon"
-    for i in attached_set:
-        status_of[int(i)] = "held_ring_attached"
-
-    lines = [_HEADER, "-" * len(_HEADER)]
-    for i in range(n):
-        lines.append(_status_line(i, status_of[i],
-                                   points_initial, points_settled))
-    return "\n".join(lines)
+def _status_line(i, status, points_initial, points_settled):
+    xi, yi, zi = points_initial[i]
+    xs, ys, zs = points_settled[i]
+    d = float(np.linalg.norm(np.array([xs - xi, ys - yi, zs - zi])))
+    return (
+        "%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
+        % (i, xi, yi, zi, xs, ys, zs, d, status)
+    )
 
 
 def _format_held_and_top(points_initial, points_settled, held_sets,
@@ -369,8 +378,8 @@ def _format_held_and_top(points_initial, points_settled, held_sets,
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — membrane only view, "
-        "full node digitisation.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — double-cone mesh, "
+        "wider ring band, raised initial z.</p>",
         unsafe_allow_html=True,
     )
 
@@ -492,7 +501,7 @@ def render_tester_multi_cone():
             ring_poly_all.add(int(i))
     held_sets["held_ring_polygon"] = ring_poly_all
 
-    # --- Figure: only the membrane and the rings -------------------------
+    # --- Figure: membrane, rings, and the structural beams ---------------
     fig = go.Figure()
 
     if len(tris) > 0:
@@ -504,6 +513,26 @@ def render_tester_multi_cone():
             name="membrane", showlegend=False, hoverinfo="skip",
         ))
 
+    # Primary beam
+    fig.add_trace(go.Scatter3d(
+        x=xp, y=np.zeros_like(xp), z=zp,
+        mode="lines", line=dict(color=COL_PRIMARY, width=6),
+        name="primary beam", showlegend=False, hoverinfo="skip",
+    ))
+
+    # Secondary ribs
+    for i in range(len(rib_x)):
+        rp = _rib_polyline(
+            float(rib_x[i]), float(rib_half_width[i]),
+            float(rib_peak_z[i]), RIB_SEGMENTS,
+        )
+        fig.add_trace(go.Scatter3d(
+            x=rp[:, 0], y=rp[:, 1], z=rp[:, 2],
+            mode="lines", line=dict(color=COL_RIB, width=4),
+            name=f"rib x={rib_x[i]:+.2f}", showlegend=False, hoverinfo="skip",
+        ))
+
+    # Rings + drop members
     for k, idx_list in enumerate(built["ring_indices"]):
         pp = coords[idx_list]
         closed = np.vstack([pp, pp[:1]])
@@ -512,14 +541,21 @@ def render_tester_multi_cone():
             mode="lines", line=dict(color=COL_RING_EDGE, width=5),
             name=f"ring {k+1}", showlegend=False, hoverinfo="skip",
         ))
+        cx = ring_x_positions[k]
+        z_up = float(np.interp(cx, xp, zp))
+        fig.add_trace(go.Scatter3d(
+            x=[cx, cx], y=[0.0, 0.0], z=[z_up, RING_HEIGHT],
+            mode="lines", line=dict(color=COL_DROP, width=3),
+            name=f"drop {k+1}", showlegend=False, hoverinfo="skip",
+        ))
 
-    # --- Tight camera ----------------------------------------------------
+    # Tighter camera
     all_x = coords[:, 0]
     all_y = coords[:, 1]
     all_z = coords[:, 2]
-    cx = 0.5 * (float(np.min(all_x)) + float(np.max(all_x)))
-    cy = 0.5 * (float(np.min(all_y)) + float(np.max(all_y)))
-    cz = 0.5 * (float(np.min(all_z)) + float(np.max(all_z)))
+    cx0 = 0.5 * (float(np.min(all_x)) + float(np.max(all_x)))
+    cy0 = 0.5 * (float(np.min(all_y)) + float(np.max(all_y)))
+    cz0 = 0.5 * (float(np.min(all_z)) + float(np.max(all_z)))
     dx = float(np.max(all_x) - np.min(all_x))
     dy = float(np.max(all_y) - np.min(all_y))
     dz = float(np.max(all_z) - np.min(all_z))
@@ -528,9 +564,9 @@ def render_tester_multi_cone():
     apply_common_layout(fig, apex)
     fig.update_layout(
         scene=dict(
-            xaxis=dict(range=[cx - 0.6 * rng, cx + 0.6 * rng]),
-            yaxis=dict(range=[cy - 0.6 * rng, cy + 0.6 * rng]),
-            zaxis=dict(range=[cz - 0.6 * rng, cz + 0.6 * rng]),
+            xaxis=dict(range=[cx0 - 0.6 * rng, cx0 + 0.6 * rng]),
+            yaxis=dict(range=[cy0 - 0.6 * rng, cy0 + 0.6 * rng]),
+            zaxis=dict(range=[cz0 - 0.6 * rng, cz0 + 0.6 * rng]),
             aspectmode="cube",
         ),
         margin=dict(l=0, r=0, t=0, b=0),
@@ -553,6 +589,8 @@ def render_tester_multi_cone():
         else:
             st.write(f"Residual norm: {residual_norm:.6e}")
         st.write(f"Target edge length: {target_len:.4f}")
+        st.write(f"Attach band: {ATTACH_BAND} x target_len")
+        st.write(f"Raise band: {RAISE_BAND} x target_len")
         st.write(f"Warp q: {warp_q:.2f}  |  Weft q: {weft_q:.2f}  "
                  f"|  Edge q: {edge_q_scalar:.2f}")
         st.write(f"Ring height: {RING_HEIGHT:.2f} m")
@@ -569,16 +607,5 @@ def render_tester_multi_cone():
     with st.expander("Digitised node status (held + top displaced)", expanded=False):
         st.code(
             _format_held_and_top(pts, coords, held_sets, n_top_free=20),
-            language="text",
-        )
-
-    with st.expander("All nodes (full digitisation)", expanded=False):
-        st.code(
-            _format_all_nodes(
-                pts, coords, held_sets,
-                built["ring_indices"],
-                built["attached_node_indices"],
-                anchor_idx,
-            ),
             language="text",
         )
