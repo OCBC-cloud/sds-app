@@ -1,22 +1,19 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Fixes in this version (2026-10-10 v9):
-  - Ring polygon node count is now derived from the ring
-    circumference and the mesh spacing:
-        n = max(12, min(32, round(2 * pi * r / target_len)))
-    Previously the count came from "fabric nodes within 2 * ring
-    radius", which for a 0.5 m ring could fall to 6.  A 6-node
-    polygon is a hexagon and the fabric meets the ring at flat
-    chords, not a smooth ring.  This fix rounds the ring properly
-    and keeps the polygon nodes evenly spaced around the circle.
+Full node digitisation (v10):
+  - The "All nodes" expander prints every node in index order:
+    idx, x_init, y_init, z_init, x_set, y_set, z_set, disp, status.
+  - This is what the previous "Digitised node status" expander did
+    for held + top displaced only.  Now it prints everything.
 
-Carried over from v6b:
-  - Viewer shows membrane, primary beam, ribs, and ring polygons
-    only.
+Carried over from v9:
+  - Ring polygon node count from ring circumference:
+        n = max(12, min(32, round(2 * pi * r / target_len)))
   - z interpolation weight w = d_ring / (d_ring + d_perim).
-  - Ring attachment test uses 3D distance to the ring circle.
-  - Fabric nodes attached to a ring are snapped to RING_HEIGHT
-    and held.
+  - Ring attachment 3D distance to the ring circle, band 1x
+    target_len.
+  - Attached nodes snapped to RING_HEIGHT and held.
+  - Viewer shows membrane, primary beam, ribs, ring polygons.
 
 No engine files are modified.
 """
@@ -145,14 +142,6 @@ def _inside_any_ring(xy, rings):
 
 
 def _ring_node_count(r, target_len):
-    """Ring polygon node count from circumference and mesh spacing.
-
-    n = round(2 * pi * r / target_len), clamped [12, 32].
-
-    This keeps the polygon nodes roughly one mesh spacing apart
-    around the ring, and never below 12 so the ring is properly
-    round rather than a hexagon.
-    """
     n = int(round(2.0 * math.pi * r / max(target_len, 1e-6)))
     n = max(RING_NODES_MIN, min(RING_NODES_MAX, n))
     return n
@@ -198,7 +187,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
         w = d_ring / denom
         return float(RING_HEIGHT + (eave_height - RING_HEIGHT) * w)
 
-    # --- Ring polygon node count from ring circumference ---------------
     ring_node_counts = [
         _ring_node_count(r, target_len) for (_, _, r) in ring_centres_radii
     ]
@@ -320,59 +308,46 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
     }
 
 
-def _format_status_table(points_initial, points_settled, held_sets,
-                          n_top_free=20):
-    n = points_initial.shape[0]
-    disp = np.linalg.norm(points_settled - points_initial, axis=1)
+_HEADER = (
+    "%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s"
+    % ("idx", "x_init", "y_init", "z_init",
+       "x_set", "y_set", "z_set", "disp", "status")
+)
 
-    held_combined = set()
-    for s in held_sets.values():
-        held_combined.update(s)
 
-    lines = []
-    header = (
-        "%6s  %9s  %9s  %9s  %9s  %9s  %9s  %9s  %s"
-        % ("idx", "x_init", "y_init", "z_init",
-           "x_set", "y_set", "z_set", "disp", "status")
+def _status_line(i, status, points_initial, points_settled):
+    xi, yi, zi = points_initial[i]
+    xs, ys, zs = points_settled[i]
+    d = float(np.linalg.norm(np.array([xs - xi, ys - yi, zs - zi])))
+    return (
+        "%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
+        % (i, xi, yi, zi, xs, ys, zs, d, status)
     )
-    lines.append(header)
-    lines.append("-" * len(header))
 
-    for i in sorted(held_combined):
-        xi, yi, zi = points_initial[i]
-        xs, ys, zs = points_settled[i]
-        d = float(disp[i])
-        status = "held"
-        for name, s in held_sets.items():
-            if i in s:
-                status = name
-                break
-        lines.append(
-            "%6d  %9.4f  %9.4f  %9.4f  %9.4f  %9.4f  %9.4f  %9.4e  %s"
-            % (i, xi, yi, zi, xs, ys, zs, d, status)
-        )
 
-    free_idx = [i for i in range(n) if i not in held_combined]
-    if free_idx:
-        free_idx = sorted(free_idx, key=lambda i: -disp[i])[:n_top_free]
-        lines.append("")
-        lines.append("Top %d most-displaced FREE nodes:" % len(free_idx))
-        for i in free_idx:
-            xi, yi, zi = points_initial[i]
-            xs, ys, zs = points_settled[i]
-            d = float(disp[i])
-            lines.append(
-                "%6d  %9.4f  %9.4f  %9.4f  %9.4f  %9.4f  %9.4f  %9.4e  %s"
-                % (i, xi, yi, zi, xs, ys, zs, d, "free")
-            )
+def _format_all_nodes(points_initial, points_settled, anchor_idx,
+                       ring_indices, attached_set):
+    n = points_initial.shape[0]
+    status_of = ["free"] * n
+    for i in anchor_idx:
+        status_of[int(i)] = "held_perimeter_anchor"
+    for idx_list in ring_indices:
+        for i in idx_list:
+            status_of[int(i)] = "held_ring_polygon"
+    for i in attached_set:
+        status_of[int(i)] = "held_ring_attached"
+
+    lines = [_HEADER, "-" * len(_HEADER)]
+    for i in range(n):
+        lines.append(_status_line(i, status_of[i],
+                                   points_initial, points_settled))
     return "\n".join(lines)
 
 
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — double-cone mesh, "
-        "ring polygon count from circumference.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — full node digitisation.</p>",
         unsafe_allow_html=True,
     )
 
@@ -484,16 +459,6 @@ def render_tester_multi_cone():
         solve_ok = False
         solve_err = str(e)
 
-    held_sets = {
-        "held_perimeter_anchor": set(int(i) for i in anchor_idx),
-        "held_ring_attached": set(int(i) for i in built["attached_node_indices"]),
-    }
-    ring_poly_all = set()
-    for idx_list in built["ring_indices"]:
-        for i in idx_list:
-            ring_poly_all.add(int(i))
-    held_sets["held_ring_polygon"] = ring_poly_all
-
     fig = go.Figure()
 
     if len(tris) > 0:
@@ -563,11 +528,12 @@ def render_tester_multi_cone():
         st.write("Ring attachment edges added: " +
                  ", ".join(str(c) for c in built["ring_attach_edges_added"]))
 
-    with st.expander("Digitised node status", expanded=False):
-        st.markdown("**Held nodes and top displaced free nodes:**")
+    with st.expander("All nodes (full digitisation)", expanded=False):
         st.code(
-            _format_status_table(
-                pts, coords, held_sets, n_top_free=20
+            _format_all_nodes(
+                pts, coords, anchor_idx,
+                built["ring_indices"],
+                built["attached_node_indices"],
             ),
             language="text",
         )
