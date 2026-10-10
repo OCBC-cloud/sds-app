@@ -14,6 +14,8 @@
 #                here from the landing page.
 #   2026-10-09 - Added Star Diagnostic tile. Background test for the
 #                shared cable-membrane boundary node movement.
+#   2026-10-10 - Added Multi-Cone Roof Tester tile. Stage 1 Lab page
+#                for the multi-cone roof. Mesh only. Experimental.
 # =============================================================================
 
 import streamlit as st
@@ -161,6 +163,24 @@ def render_lab():
     )
     if st.button("Open Star Diagnostic", key="lab_star_diag", use_container_width=True):
         st.session_state.page = "tester_star_diagnostic"
+        st.rerun()
+
+    # ---- Multi-Cone Roof Tester
+    st.markdown(
+        '<div class="lab-tile">'
+        '<div class="lab-tile-name">Multi-Cone Roof Tester</div>'
+        '<div class="lab-tile-desc">'
+        'Stage 1 Lab page for the multi-cone roof. Mesh only. '
+        'Builds the perimeter from the rib stations, meshes with '
+        'the existing triangulated engine, solves with the existing '
+        'FDM solver, and draws the membrane, anchors, and ring '
+        'markers. No beams drawn yet. Experimental.'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Multi-Cone Roof Tester", key="lab_tester_multi_cone", use_container_width=True):
+        st.session_state.page = "tester_multi_cone"
         st.rerun()
 
     # ---- Placeholder for future test pages
