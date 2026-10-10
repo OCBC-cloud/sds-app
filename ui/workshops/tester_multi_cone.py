@@ -1,19 +1,20 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Full node digitisation (v10):
-  - The "All nodes" expander prints every node in index order:
-    idx, x_init, y_init, z_init, x_set, y_set, z_set, disp, status.
-  - This is what the previous "Digitised node status" expander did
-    for held + top displaced only.  Now it prints everything.
+Fix in this version (2026-10-10 v11):
+  - Ring attachment rewritten (Option A).
+    The ring polygon nodes ARE the innermost fabric nodes.
+    For each ring polygon node, connect it to the two nearest
+    fabric nodes that lie just outside the ring circle.  Every
+    ring polygon node therefore has at least two fabric edges.
+    No more "which fabric nodes are within X of the ring" rule.
 
-Carried over from v9:
+Carried over from v10:
   - Ring polygon node count from ring circumference:
         n = max(12, min(32, round(2 * pi * r / target_len)))
   - z interpolation weight w = d_ring / (d_ring + d_perim).
-  - Ring attachment 3D distance to the ring circle, band 1x
-    target_len.
   - Attached nodes snapped to RING_HEIGHT and held.
   - Viewer shows membrane, primary beam, ribs, ring polygons.
+  - Full node digitisation.
 
 No engine files are modified.
 """
@@ -251,35 +252,49 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
     for key in boundary_edge_set:
         all_edge_set.add(key)
 
+    # --- v11: Option A ring attachment --------------------------------
+    # For each ring polygon node, find the two nearest fabric nodes that
+    # lie outside the ring circle, and add an edge from the polygon node
+    # to each.  Every ring polygon node gets at least two fabric edges.
+    # The fabric nodes so connected are held at RING_HEIGHT.
     attached_node_indices = set()
     ring_attach_counts = []
     ring_attach_edges_added = []
 
+    fabric_indices = list(range(fabric_start, fabric_end))
+
     for k, (cx, cy, r) in enumerate(ring_centres_radii):
         idx_list = ring_indices[k]
-        poly_xy_local = all_pts[idx_list, :2]
-        held_here = 0
+        attached_here = set()
         edges_added_here = 0
-        for i in range(fabric_start, fabric_end):
-            x, y, z = all_pts[i]
-            d_plan = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
-            d_plan = max(d_plan, 0.0)
-            d3 = math.sqrt(d_plan ** 2 + (z - RING_HEIGHT) ** 2)
-            if d3 < 1.0 * target_len:
-                attached_node_indices.add(i)
-                all_pts[i, 2] = RING_HEIGHT
-                held_here += 1
-                dd = np.linalg.norm(poly_xy_local - np.array([x, y]),
-                                    axis=1)
-                order = np.argsort(dd)
-                for kk in order[:2]:
-                    a = int(idx_list[kk])
-                    key = (i, a) if i < a else (a, i)
-                    if key not in all_edge_set:
-                        all_edge_set.add(key)
-                        edges_added_here += 1
-        ring_attach_counts.append(held_here)
+
+        for poly_node in idx_list:
+            px, py, pz = all_pts[poly_node]
+            # Candidates: fabric nodes outside the ring circle.
+            best = []
+            for fi in fabric_indices:
+                fx, fy, fz = all_pts[fi]
+                d_plan = math.sqrt((fx - cx) ** 2 + (fy - cy) ** 2)
+                if d_plan <= r:
+                    continue
+                d3 = math.sqrt((fx - px) ** 2 + (fy - py) ** 2
+                                + (fz - pz) ** 2)
+                best.append((d3, fi))
+            best.sort()
+            for (d3, fi) in best[:2]:
+                key = (poly_node, fi) if poly_node < fi else (fi, poly_node)
+                if key not in all_edge_set:
+                    all_edge_set.add(key)
+                    edges_added_here += 1
+                attached_here.add(fi)
+
+        ring_attach_counts.append(len(attached_here))
         ring_attach_edges_added.append(edges_added_here)
+        attached_node_indices.update(attached_here)
+
+    # Snap attached fabric nodes to RING_HEIGHT.
+    for i in attached_node_indices:
+        all_pts[i, 2] = RING_HEIGHT
 
     edges = sorted(all_edge_set)
 
@@ -347,7 +362,8 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — full node digitisation.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — ring attachment per "
+        "polygon node (Option A).</p>",
         unsafe_allow_html=True,
     )
 
@@ -523,7 +539,7 @@ def render_tester_multi_cone():
                  ", ".join(f"{v:+.3f}" for v in ring_x_positions))
         st.write("Ring node counts (from circumference): " +
                  ", ".join(str(c) for c in built["ring_node_counts"]))
-        st.write("Ring fabric nodes held (attached): " +
+        st.write("Ring fabric nodes attached: " +
                  ", ".join(str(c) for c in built["ring_attach_counts"]))
         st.write("Ring attachment edges added: " +
                  ", ".join(str(c) for c in built["ring_attach_edges_added"]))
