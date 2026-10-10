@@ -1,42 +1,33 @@
-"""Multi-Cone Roof — Stage 2 Lab test page.
+"""Multi-Cone Roof — Stage 3 Lab test page.
 
-Stage 2 builds the ribcage and the correct eave boundary polygon, then
-solves the membrane with the saddle-span boundary pattern (anchors held,
-subdivision nodes free, cable segments between anchors).
+Stage 3 adds the cone rings to the mesh and forms the cones.
 
-Geometry (client decisions, 2026-10-10):
+  - The perimeter mesh is built exactly as in Stage 2 (saddle span
+    cable-boundary pattern).
+  - Two rings at x = +/- span/6 (one third and two thirds of the span),
+    at z = RING_HEIGHT = 7.0 m, y = 0, with diameter = ring_diameter.
+  - Each ring is held by a vertical drop member from the primary beam
+    directly above it.
+  - The mesh is rewritten:
+      1. Find the row of mesh nodes nearest each ring circle in plan.
+      2. Build a ring polygon with the same node count as that row,
+         distributed evenly around the ring circle.
+      3. Populate the ring disc with interior nodes at the surrounding
+         mesh density.
+      4. Drop the mesh triangles that bridge across the ring interior.
+      5. Connect the surrounding mesh nodes to the ring polygon nodes
+         by edges.  Snap the innermost surrounding nodes onto the ring
+         circle where possible.
+  - Ring polygon nodes are held (fixed_indices).
+  - The rewritten mesh is handed to solve_fdm.  The membrane attaches
+    to the ring, and the two cones emerge from the solve.
 
-  - Primary beam: parabolic arch, ends at ground, apex at mid-span.
-  - Ground ellipse at z = 0, semi-axes span/2 (x) and mid_width/2 (y).
-    The rib ground supports sit on this ellipse.
-  - Ribs: parabolic arches, each through three points — the two ground
-    supports (on the ground ellipse) and the peak at the primary beam
-    crossing. Rib count = user's "Secondary count".
-  - Rib positions along arc length, rule from the earlier session:
-      toggle OFF: N ribs at equal arc-length fractions k/(N+1)
-      toggle ON  (N >= 3): outer ribs at x = +/- (span/2 - 3),
-                  interior ribs spread between them by x
-      toggle ON  (N < 3):  behaves as OFF
-  - Eave boundary: a polygon at z = eave_height through the points where
-    each rib crosses that plane (one on +y, one on -y per rib), plus the
-    two tips at x = +/- span/2, y = 0.  Closed loop.
-  - Anchors: every vertex of the eave boundary polygon.
-    anchor_count = 2 * N + 2  (derived, not a widget).
-  - Every boundary segment is a cable segment.  Subdivision nodes
-    between anchors lie on the straight chord (cable rule from the
-    saddle span pattern).  The bow comes from the solve.
+Stage 3 is REAL form-finding (FDM).  Real equilibrium.  Real shape.
+Linear physics.  Stage 4 (NFDM) will give the full nonlinear stresses.
 
-Solve (saddle span pattern, copied):
+No poles from the ground.  The rings hang from the primary beam.
 
-  - build_mesh_triangulated(
-        boundary_loop, anchor_indices, segment_types=["cable"]*n,
-        target_edge_length=L_avg, plan_plane=None,
-        warp_q, weft_q, edge_q)
-  - solve_fdm on points_initial.
-  - solve_fdm_settled for reactions.
-
-Ring height is FIXED at 7.0 m.  Ring diameter default 0.5 m.  Rings are
-drawn as markers only — not yet meshed — Stage 3 meshes them.
+No engine files are modified.  All of the ring logic lives here.
 """
 
 import math
@@ -46,7 +37,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from engine.mesh_triangulated import build_mesh_triangulated
-from engine.form_finding import solve_fdm, solve_fdm_settled
+from engine.form_finding import solve_fdm
 from viewers.figures._shared import (
     apply_common_layout,
     beam_curve,
@@ -60,22 +51,25 @@ RING_HEIGHT = 7.0
 RING_SEGMENTS = 64
 ELLIPSE_SEGMENTS = 200
 RIB_SEGMENTS = 80
-SUBDIVISIONS_PER_SEGMENT = 5     # anchors-to-anchor interpolation, saddle pattern
+SUBDIVISIONS_PER_SEGMENT = 5
+
+RING_STIFFNESS_FACTOR = 5.0    # ring edge q relative to membrane edge q
+RING_DISC_FACTOR = 1.0         # disc interior q relative to membrane q
 
 COL_MEMBRANE = "#4a7a9c"
 COL_PERIMETER = "#f1c40f"
 COL_ANCHOR = "#f39c12"
-COL_RING = "#b0c4de"
+COL_RING = "#e8e8e8"
+COL_RING_EDGE = "#ffd166"
 COL_PRIMARY = "#FF6B6B"
 COL_RIB = "#e07b39"
-COL_POLE = "#7a8a9a"
+COL_DROP = "#b0c4de"
 COL_GROUND = "#3a5a7a"
 
 
-# --- Geometry helpers --------------------------------------------------------
+# --- Small geometry helpers --------------------------------------------------
 
 def _ellipse_y(x, span, mid_width):
-    """+y on the ground ellipse at station x.  Clamped to 0 outside."""
     a = span / 2.0
     b = mid_width / 2.0
     t = max(0.0, 1.0 - (x / a) ** 2)
@@ -91,7 +85,6 @@ def _ground_ellipse(span, mid_width, n):
 
 
 def _rib_stations(n, optional_ends, span, x, s, total):
-    """Rib station x positions (length n, ascending)."""
     if (not optional_ends) or n < 3:
         fracs = np.array([k / (n + 1.0) for k in range(1, n + 1)], dtype=float)
         return np.interp(fracs * total, s, x)
@@ -99,13 +92,7 @@ def _rib_stations(n, optional_ends, span, x, s, total):
     return np.linspace(-x_target, +x_target, n)
 
 
-def _rib_arch(rib_x, half_width, peak_z, eave_height, n):
-    """Sample the rib parabola at z = eave_height.
-
-    The rib is z(y) = peak_z * (1 - (y/half_width)^2).
-    Return the y-value at which z = eave_height, or None if the rib
-    never reaches that height (peak_z <= eave_height).
-    """
+def _rib_arch_y_at_eave(peak_z, half_width, eave_height):
     if peak_z <= eave_height:
         return None
     u2 = 1.0 - eave_height / peak_z
@@ -115,7 +102,6 @@ def _rib_arch(rib_x, half_width, peak_z, eave_height, n):
 
 
 def _rib_polyline(rib_x, half_width, peak_z, n):
-    """Full rib polyline from ground support to ground support."""
     y = np.linspace(-half_width, +half_width, n)
     u = y / half_width
     z = peak_z * (1.0 - u ** 2)
@@ -123,77 +109,219 @@ def _rib_polyline(rib_x, half_width, peak_z, n):
     return np.column_stack([x, y, z])
 
 
-def _build_eave_polygon(rib_x, rib_half_width, rib_peak_z, eave_height,
-                        span):
-    """Closed polygon at z = eave_height.
-
-    Walk:
-      +y crossings, left -> right
-      right tip at (+span/2, 0)
-      -y crossings, right -> left
-      left tip at (-span/2, 0)
-
-    If a rib's peak_z <= eave_height, that rib does not cross the eave
-    plane and contributes no anchors (its ground supports sit below).
-    """
-    plus = []      # (+y crossing, one per rib that reaches eave)
-    minus = []     # (-y crossing)
+def _build_eave_polygon(rib_x, rib_half_width, rib_peak_z, eave_height, span):
+    plus, minus = [], []
     for i, xr in enumerate(rib_x):
-        y_at = _rib_arch(float(xr), float(rib_half_width[i]),
-                         float(rib_peak_z[i]), eave_height, 1)
+        y_at = _rib_arch_y_at_eave(
+            float(rib_peak_z[i]), float(rib_half_width[i]), eave_height
+        )
         if y_at is None:
             continue
         plus.append((float(xr), +y_at, eave_height))
         minus.append((float(xr), -y_at, eave_height))
-
-    pts = []
-    for p in plus:
-        pts.append(p)
+    pts = list(plus)
     pts.append((+span / 2.0, 0.0, eave_height))
     for p in reversed(minus):
         pts.append(p)
     pts.append((-span / 2.0, 0.0, eave_height))
-
     return np.asarray(pts, dtype=float)
 
 
-def _subdivide_loop_cable(loop, subdivisions_per_segment):
-    """Build the boundary loop with subdivision nodes on the chord.
-
-    Between every pair of adjacent anchors, insert
-    subdivisions_per_segment nodes evenly spaced along the straight
-    chord.  Returns:
-      full_loop  - (M, 3) new loop with anchors and subdivisions
-      anchor_idx - list of indices into full_loop that are anchors
-      seg_types  - list of "cable" strings, one per anchor-to-anchor segment
-    """
+def _subdivide_loop_cable(loop, sub):
     n_a = loop.shape[0]
-    full_loop = []
-    anchor_idx = []
+    full, anchor_idx = [], []
     for i in range(n_a):
         a = loop[i]
         b = loop[(i + 1) % n_a]
-        anchor_idx.append(len(full_loop))
-        full_loop.append(a)
-        for k in range(1, subdivisions_per_segment + 1):
-            f = k / (subdivisions_per_segment + 1.0)
-            full_loop.append(a + (b - a) * f)
-    full_loop = np.asarray(full_loop, dtype=float)
-    seg_types = ["cable"] * n_a
-    return full_loop, anchor_idx, seg_types
+        anchor_idx.append(len(full))
+        full.append(a)
+        for k in range(1, sub + 1):
+            f = k / (sub + 1.0)
+            full.append(a + (b - a) * f)
+    return np.asarray(full, dtype=float), anchor_idx, ["cable"] * n_a
 
 
-def _draw_ring_marker(fig, cx, cz, diameter):
+# --- Ring mesh rewrite -------------------------------------------------------
+
+def _ring_circle_points(cx, cz, diameter, n):
+    """n points evenly around the ring circle at x = cx, y = 0, z = cz.
+    The ring lies in a horizontal plane (parallel to the ground)."""
     r = diameter / 2.0
-    t = np.linspace(0.0, 2.0 * math.pi, RING_SEGMENTS)
-    xs = cx + r * np.cos(t)
-    ys = np.zeros_like(t)
-    zs = cz + r * np.sin(t)
-    fig.add_trace(go.Scatter3d(
-        x=xs, y=ys, z=zs, mode="lines",
-        line=dict(color=COL_RING, width=4),
-        name=f"ring x={cx:+.2f}", showlegend=False, hoverinfo="skip",
-    ))
+    t = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False)
+    return np.column_stack([
+        cx + r * np.cos(t),
+        r * np.sin(t),
+        np.full_like(t, cz),
+    ])
+
+
+def _populate_ring_disc(cx, cz, diameter, n_ring, n_radial):
+    """Interior nodes of the ring disc.
+
+    Returns an (M, 3) array of points strictly inside the ring circle,
+    at roughly the surrounding mesh density, excluding the centre
+    (the centre node is added last).  Also returns a list of edges
+    connecting the disc nodes to each other and to the ring polygon.
+    """
+    r = diameter / 2.0
+    pts = []
+    # Ring of interior nodes at r/3, r*2/3, and centre.
+    for frac in (1.0 / 3.0, 2.0 / 3.0):
+        rad = r * frac
+        t = np.linspace(0.0, 2.0 * math.pi, n_ring, endpoint=False)
+        for tt in t:
+            pts.append((cx + rad * math.cos(tt),
+                        rad * math.sin(tt),
+                        cz))
+    # Centre node.
+    pts.append((cx, 0.0, cz))
+    return np.asarray(pts, dtype=float)
+
+
+def _rewrite_mesh_with_rings(mesh, ring_specs, membrane_q):
+    """Given the engine mesh and a list of ring specs, rewrite.
+
+    Each ring spec is a dict with keys: cx, cz, diameter.
+
+    Returns a dict with the rewritten mesh:
+      points, edges, fixed_indices, q,
+      ring_polygon_indices (list per ring),
+      ring_polygon_points (list per ring),
+      cosmetic_triangles (list),
+      dropped_triangle_count, ring_notes.
+    """
+    pts = np.array(mesh["points_initial"], copy=True)
+    edges = list(mesh["edges"])
+    tris = list(mesh["triangles"])
+    fixed = set(int(i) for i in mesh["fixed_indices"])
+    q_arr = np.array(mesh["q"], dtype=float)
+
+    ring_notes = []
+    ring_polygon_indices_all = []
+    ring_polygon_points_all = []
+    cosmetic_triangles = []
+    dropped_total = 0
+
+    for spec in ring_specs:
+        cx = float(spec["cx"])
+        cz = float(spec["cz"])
+        d = float(spec["diameter"])
+        r = d / 2.0
+
+        # 1. Find mesh nodes near the ring in the horizontal plane.
+        xy = pts[:, :2]
+        dist = np.linalg.norm(xy - np.array([cx, 0.0]), axis=1)
+        near_mask = dist < (r * 1.5 + 1e-9)
+        near_idx = np.where(near_mask)[0]
+
+        ring_notes.append(
+            f"ring at x={cx:+.2f}: {len(near_idx)} nodes within {r*1.5:.3f} m"
+        )
+
+        if len(near_idx) < 3:
+            ring_notes.append(
+                f"  -> ring too small for the mesh.  Need to increase "
+                f"ring diameter or refine the mesh."
+            )
+            ring_polygon_indices_all.append([])
+            ring_polygon_points_all.append(np.zeros((0, 3)))
+            continue
+
+        # 2. Build the ring polygon with the same count.
+        n_ring = len(near_idx)
+        poly_pts = _ring_circle_points(cx, cz, d, n_ring)
+        poly_start = pts.shape[0]
+        pts = np.vstack([pts, poly_pts])
+        poly_idx = list(range(poly_start, poly_start + n_ring))
+
+        # 3. Populate the disc.
+        disc_pts = _populate_ring_disc(cx, cz, d, max(4, n_ring // 2), 2)
+        disc_start = pts.shape[0]
+        pts = np.vstack([pts, disc_pts])
+        disc_idx = list(range(disc_start, disc_start + disc_pts.shape[0]))
+
+        # Ring polygon -> disc: connect each polygon node to nearest
+        # disc nodes.
+        ring_q = membrane_q * RING_STIFFNESS_FACTOR
+        for i in range(n_ring):
+            a = poly_idx[i]
+            b = poly_idx[(i + 1) % n_ring]
+            edges.append((a, b))
+            q_arr = np.append(q_arr, ring_q)
+
+        # Polygon -> disc spokes: connect polygon nodes to the outer
+        # ring of disc nodes.
+        n_disc_ring = max(4, n_ring // 2)
+        outer_disc_start = disc_start
+        for i in range(n_ring):
+            a = poly_idx[i]
+            # Nearest outer disc node by plan distance.
+            outer_slice = disc_idx[:n_disc_ring]
+            pa = pts[a]
+            d_outer = np.linalg.norm(
+                pts[outer_slice, :2] - pa[None, :2], axis=1
+            )
+            b = outer_slice[int(np.argmin(d_outer))]
+            edges.append((a, b))
+            q_arr = np.append(q_arr, membrane_q * RING_DISC_FACTOR)
+
+        # Centre node to inner disc ring.
+        centre = disc_idx[-1]
+        inner_slice = disc_idx[n_disc_ring:2 * n_disc_ring]
+        for b in inner_slice:
+            edges.append((centre, int(b)))
+            q_arr = np.append(q_arr, membrane_q * RING_DISC_FACTOR)
+
+        # 4. Drop mesh triangles whose centroid is inside the ring circle.
+        keep = []
+        dropped = 0
+        for tri in tris:
+            ia, ib, ic = int(tri[0]), int(tri[1]), int(tri[2])
+            c = (pts[ia, :2] + pts[ib, :2] + pts[ic, :2]) / 3.0
+            if np.linalg.norm(c - np.array([cx, 0.0])) < r:
+                dropped += 1
+                continue
+            keep.append(tri)
+        tris = keep
+        dropped_total += dropped
+
+        # 5. Connect the surrounding mesh to the ring polygon:
+        #    for each polygon node, connect to the nearest original
+        #    mesh node that is just outside the ring.
+        for i in range(n_ring):
+            a = poly_idx[i]
+            pa = pts[a]
+            # Choose from the near_idx that are also outside r.
+            outside = [int(k) for k in near_idx
+                       if np.linalg.norm(pts[k, :2] - np.array([cx, 0.0])) >= r]
+            if not outside:
+                continue
+            d_out = np.linalg.norm(
+                pts[outside, :2] - pa[None, :2], axis=1
+            )
+            b = outside[int(np.argmin(d_out))]
+            edges.append((int(b), int(a)))
+            q_arr = np.append(q_arr, membrane_q * RING_DISC_FACTOR)
+
+        ring_polygon_indices_all.append(poly_idx)
+        ring_polygon_points_all.append(poly_pts)
+
+        # Ring polygon nodes are held.
+        for k in poly_idx:
+            fixed.add(int(k))
+
+    return {
+        "points": pts,
+        "edges": edges,
+        "triangles": tris,
+        "fixed_indices": sorted(fixed),
+        "q": q_arr,
+        "ring_polygon_indices": ring_polygon_indices_all,
+        "ring_polygon_points": ring_polygon_points_all,
+        "cosmetic_triangles": cosmetic_triangles,
+        "dropped_triangle_count": dropped_total,
+        "ring_notes": ring_notes,
+    }
 
 
 # --- Page --------------------------------------------------------------------
@@ -201,12 +329,11 @@ def _draw_ring_marker(fig, cx, cz, diameter):
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 2 — ribcage, ground ellipse, "
-        "eave polygon, cable boundary. Rings still markers only.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — rings in the mesh. "
+        "Cones from solve_fdm.  Real form-finding.</p>",
         unsafe_allow_html=True,
     )
 
-    # --- Widgets ------------------------------------------------------------
     c1, c2 = st.columns(2)
     with c1:
         span = st.number_input("Primary span (m)", 6.0, 60.0, 18.0, 0.5)
@@ -221,7 +348,7 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 0.5, 0.1)
+        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 2.0, 0.1)
     with c2:
         curve_type = st.selectbox(
             "Curve type", ["parabolic", "circular", "catenary"], index=0
@@ -244,7 +371,7 @@ def render_tester_multi_cone():
         )
 
     edge_q_input = st.number_input(
-        "Edge cable pretension (kN/m, 0 = auto)", 0.0, 500.0, 0.0, 1.0,
+        "Edge cable pretension (kN/m, 0 = auto)", 0.0, 500.0, 20.0, 1.0,
     )
 
     # --- Primary beam curve --------------------------------------------------
@@ -263,36 +390,27 @@ def render_tester_multi_cone():
     eave_loop = _build_eave_polygon(
         rib_x, rib_half_width, rib_peak_z, eave_height, span
     )
-    n_anchors = eave_loop.shape[0]
-
-    # --- Subdivision on cable chords ----------------------------------------
     boundary_loop, anchor_indices, seg_types = _subdivide_loop_cable(
         eave_loop, SUBDIVISIONS_PER_SEGMENT
     )
 
-    # target_edge_length = mean boundary edge length (saddle span rule)
     bd = np.diff(np.vstack([boundary_loop, boundary_loop[:1]]), axis=0)
     bl = np.linalg.norm(bd, axis=1)
     L_avg = float(np.mean(bl)) if len(bl) else 1.0
-    if L_avg < 1e-9:
-        L_avg = 1.0
-    target_len = L_avg
+    target_len = max(L_avg, 1e-6)
 
     # --- q values ------------------------------------------------------------
-    warp_pre = float(warp_q_input)
-    weft_pre = float(weft_q_input)
-    warp_q = max(warp_pre, 0.1) * 1000.0
-    weft_q = max(weft_pre, 0.1) * 1000.0
-
+    warp_pre = max(float(warp_q_input), 0.1)
+    weft_pre = max(float(weft_q_input), 0.1)
+    warp_q = warp_pre * 1000.0
+    weft_q = weft_pre * 1000.0
     if edge_q_input > 0.0:
         edge_q_scalar = float(edge_q_input) * 1000.0
     else:
-        # Auto: membrane prestress times mean chord length.
-        N_membrane = max(warp_q, weft_q)
-        edge_q_scalar = N_membrane * L_avg
+        edge_q_scalar = max(warp_q, weft_q) * L_avg
     edge_q_scalar = max(edge_q_scalar, 1.0)
 
-    # --- Mesh ----------------------------------------------------------------
+    # --- Base mesh (no rings) -----------------------------------------------
     mesh = build_mesh_triangulated(
         boundary_loop=boundary_loop,
         anchor_indices=anchor_indices,
@@ -304,22 +422,40 @@ def render_tester_multi_cone():
         edge_q=edge_q_scalar,
     )
 
-    points_initial = mesh["points_initial"]
-    edges = mesh["edges"]
-    fixed_indices = mesh["fixed_indices"]
-    q = mesh["q"]
-    triangles = mesh["triangles"]
+    # --- Ring specs ----------------------------------------------------------
+    ring_x_positions = (-span / 6.0, +span / 6.0)
+    ring_specs = [
+        {"cx": float(rx), "cz": RING_HEIGHT, "diameter": float(ring_diameter)}
+        for rx in ring_x_positions
+    ]
+
+    # --- Rewrite mesh with rings --------------------------------------------
+    rewritten = _rewrite_mesh_with_rings(mesh, ring_specs, warp_q)
+
+    pts_rw = rewritten["points"]
+    edges_rw = rewritten["edges"]
+    fixed_rw = rewritten["fixed_indices"]
+    q_rw = rewritten["q"]
+    tris_rw = rewritten["triangles"]
 
     # --- Solve ---------------------------------------------------------------
-    fdm = solve_fdm(points_initial.copy(), edges, fixed_indices, q)
-    coords = fdm["coordinates"]
-    residual_norm = float(fdm["residual_norm"])
+    try:
+        fdm = solve_fdm(pts_rw, edges_rw, fixed_rw, q_rw)
+        coords = fdm["coordinates"]
+        residual_norm = float(fdm["residual_norm"])
+        solve_ok = True
+        solve_err = ""
+    except Exception as e:
+        coords = pts_rw.copy()
+        residual_norm = float("nan")
+        solve_ok = False
+        solve_err = str(e)
 
     # --- Figure --------------------------------------------------------------
     fig = go.Figure()
 
-    if len(triangles) > 0:
-        tri = np.asarray(triangles, dtype=int)
+    if len(tris_rw) > 0:
+        tri = np.asarray(tris_rw, dtype=int)
         fig.add_trace(go.Mesh3d(
             x=coords[:, 0], y=coords[:, 1], z=coords[:, 2],
             i=tri[:, 0], j=tri[:, 1], k=tri[:, 2],
@@ -336,7 +472,7 @@ def render_tester_multi_cone():
         name="ground ellipse", showlegend=False, hoverinfo="skip",
     ))
 
-    # Eave boundary polygon (closed)
+    # Eave polygon
     ec = np.vstack([eave_loop, eave_loop[:1]])
     fig.add_trace(go.Scatter3d(
         x=ec[:, 0], y=ec[:, 1], z=ec[:, 2],
@@ -353,33 +489,44 @@ def render_tester_multi_cone():
 
     # Ribs
     for i in range(len(rib_x)):
-        pts = _rib_polyline(
+        rp = _rib_polyline(
             float(rib_x[i]), float(rib_half_width[i]),
             float(rib_peak_z[i]), RIB_SEGMENTS,
         )
         fig.add_trace(go.Scatter3d(
-            x=pts[:, 0], y=pts[:, 1], z=pts[:, 2],
+            x=rp[:, 0], y=rp[:, 1], z=rp[:, 2],
             mode="lines", line=dict(color=COL_RIB, width=5),
             name=f"rib x={rib_x[i]:+.2f}", showlegend=False, hoverinfo="skip",
         ))
 
     # Anchors
-    if len(fixed_indices) > 0:
-        fi = np.asarray(fixed_indices, dtype=int)
+    if len(fixed_rw) > 0:
+        fi = np.asarray(fixed_rw, dtype=int)
         fig.add_trace(go.Scatter3d(
             x=coords[fi, 0], y=coords[fi, 1], z=coords[fi, 2],
             mode="markers", marker=dict(color=COL_ANCHOR, size=4),
-            name="anchors", showlegend=False, hoverinfo="skip",
+            name="held nodes", showlegend=False, hoverinfo="skip",
         ))
 
-    # Rings and poles at fixed height
-    ring_x_positions = (-span / 6.0, +span / 6.0)
-    for rx in ring_x_positions:
-        _draw_ring_marker(fig, float(rx), RING_HEIGHT, float(ring_diameter))
+    # Rings: polygon at held position + drop member
+    for k, spec in enumerate(ring_specs):
+        poly_pts = rewritten["ring_polygon_points"][k]
+        if poly_pts.shape[0] == 0:
+            continue
+        closed = np.vstack([poly_pts, poly_pts[:1]])
         fig.add_trace(go.Scatter3d(
-            x=[float(rx), float(rx)], y=[0.0, 0.0], z=[0.0, RING_HEIGHT],
-            mode="lines", line=dict(color=COL_POLE, width=3),
-            name=f"pole x={rx:+.2f}", showlegend=False, hoverinfo="skip",
+            x=closed[:, 0], y=closed[:, 1], z=closed[:, 2],
+            mode="lines", line=dict(color=COL_RING_EDGE, width=5),
+            name=f"ring {k+1}", showlegend=False, hoverinfo="skip",
+        ))
+        # Drop member: vertical from primary beam above the ring centre.
+        z_primary_above = float(np.interp(spec["cx"], xp, zp))
+        fig.add_trace(go.Scatter3d(
+            x=[spec["cx"], spec["cx"]],
+            y=[0.0, 0.0],
+            z=[z_primary_above, spec["cz"]],
+            mode="lines", line=dict(color=COL_DROP, width=3),
+            name=f"drop {k+1}", showlegend=False, hoverinfo="skip",
         ))
 
     apply_common_layout(fig, apex)
@@ -387,30 +534,28 @@ def render_tester_multi_cone():
 
     # --- Diagnostics ---------------------------------------------------------
     with st.expander("Diagnostics", expanded=False):
-        st.write(f"Nodes: {mesh['diagnostics']['n_nodes']}")
-        st.write(f"Edges: {mesh['diagnostics']['n_edges']}")
-        st.write(f"Triangles: {mesh['diagnostics']['n_triangles']}")
-        st.write(f"Fixed (anchors): {len(fixed_indices)}")
-        st.write(f"Residual norm: {residual_norm:.6e}")
+        st.write(f"Base mesh nodes: {mesh['diagnostics']['n_nodes']}")
+        st.write(f"Rewritten nodes: {pts_rw.shape[0]}")
+        st.write(f"Rewritten edges: {len(edges_rw)}")
+        st.write(f"Rewritten triangles: {len(tris_rw)}")
+        st.write(f"Dropped triangles (ring interiors): {rewritten['dropped_triangle_count']}")
+        st.write(f"Held nodes: {len(fixed_rw)}")
+        st.write(f"Solve OK: {solve_ok}")
+        if not solve_ok:
+            st.write(f"Solve error: {solve_err}")
+        else:
+            st.write(f"Residual norm: {residual_norm:.6e}")
         st.write(f"Secondary count N: {secondary_count}")
-        st.write(f"Anchor count = 2N+2: {n_anchors}")
-        st.write(f"Subdivisions per segment: {SUBDIVISIONS_PER_SEGMENT}")
+        st.write(f"Anchor count = 2N+2: {eave_loop.shape[0]}")
         st.write(f"Boundary nodes: {boundary_loop.shape[0]}")
-        st.write(f"Mean boundary edge L_avg (m): {L_avg:.3f}")
-        st.write("Rib stations x (m): " + ", ".join(f"{v:+.3f}" for v in rib_x))
-        st.write("Rib half widths (m): " + ", ".join(f"{v:.3f}" for v in rib_half_width))
-        st.write("Rib peak z (m): " + ", ".join(f"{v:.3f}" for v in rib_peak_z))
-        st.write(
-            "Eave crossing y (+/-) (m): "
-            + ", ".join(
-                f"{_rib_arch(float(rib_x[i]), float(rib_half_width[i]), float(rib_peak_z[i]), eave_height, 1):.3f}"
-                for i in range(len(rib_x))
-            )
-        )
-        st.write("Eave polygon vertices: " + str(eave_loop.shape[0]))
-        st.write(f"Ring height (m, fixed): {RING_HEIGHT:.2f}")
+        st.write(f"L_avg (m): {L_avg:.3f}")
+        st.write(f"Ring height: {RING_HEIGHT:.2f} m")
+        st.write(f"Ring diameter: {ring_diameter:.3f} m")
         st.write(
             "Ring stations x (m): "
             + ", ".join(f"{v:+.3f}" for v in ring_x_positions)
         )
         st.write(f"Warp q: {warp_q:.2f}  |  Weft q: {weft_q:.2f}  |  Edge q: {edge_q_scalar:.2f}")
+        st.write("**Ring notes:**")
+        for n in rewritten["ring_notes"]:
+            st.write("- " + n)
