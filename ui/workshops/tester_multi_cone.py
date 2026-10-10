@@ -6,7 +6,7 @@ Scope of this file (per handover Section 3.9):
   3. Arc-length parametrise the primary beam.
   4. Rib stations along arc length (Section 3.4).
   5. Rib widths (Section 3.5).
-  6. Perimeter polyline (Section 3.8).
+  6. Perimeter polyline (Section 3.8), including the two tip points.
   7. target_edge_length = perimeter_length / 40.
   8. build_mesh_triangulated(..., segment_types=["beam"]*n_segments, ...).
   9. solve_fdm(points_initial, edges, fixed_indices, q).
@@ -21,6 +21,19 @@ Open-question resolutions (handover Section 7):
       and will drive Stage 2 beam drawing.
   B — The optional-ends toggle repositions the outermost two ribs to
       x = +/-(span/2 - 3) when ON.  It does NOT change the rib count N.
+
+Perimeter tip rule (revised):
+  With optional-ends OFF the perimeter reaches the full primary span at
+  both ends.  Two tip points are inserted, one at (+span/2, 0) and one
+  at (-span/2, 0), both at eave_height.  The three ribs sit inside this
+  envelope.  This produces the pointed-lens (American football) outline
+  described in handover Section 3.2.  With more ribs the polygon edges
+  between consecutive rib ends and the tip approximate the smooth lens
+  more closely.
+
+  With optional-ends ON, the tips are the two blunting ribs at
+  x = +/-(span/2 - 3).  There are no tip points beyond those ribs; the
+  closures are straight segments across the rib width (rugby ball).
 """
 
 import math
@@ -68,8 +81,6 @@ def _rib_stations_arc_fractions(n, optional_ends, span, x, s, total):
 
     # Locate the arc-length fractions of the two blunting x positions.
     x_target = span / 2.0 - 3.0
-    # np.interp wants ascending x; x from beam_curve is already ascending
-    # (-span/2 -> +span/2).  s is cumulative arc length along that same x.
     frac_right = float(np.interp(x_target, x, s) / total)
     frac_left = float(np.interp(-x_target, x, s) / total)
 
@@ -104,32 +115,49 @@ def _rib_widths(n, mid_width):
     return np.maximum(widths, 1.0)
 
 
-def _perimeter_from_ribs(rib_x, rib_widths, eave_height):
-    """Build the closed perimeter loop, rule 3.8.
+def _perimeter_from_ribs(rib_x, rib_widths, eave_height, span, optional_ends):
+    """Build the closed perimeter loop, rule 3.8 (revised).
 
-    Walk:
+    Optional-ends OFF (sharp lens / football):
       +y side  left -> right   (every rib's +y end)
-      close across right end   (from rightmost +y to rightmost -y)
-      -y side  right -> left   (every rib's -y end)
-      close across left end    (from leftmost -y back to leftmost +y)
+      right tip                ((+span/2, 0))
+      -y side  right -> left   (every rib's -y end, excluding the last)
+      left tip                 ((-span/2, 0))
+      close back to start      (implicit; loop closes on itself)
 
-    For a sharp lens (optional-ends OFF) the leftmost and rightmost ribs are
-    the extreme-x ribs, and their two endpoints are the tips.  For a rugby
-    ball (optional-ends ON) the leftmost and rightmost ribs are the blunting
-    ribs, and the closures are straight cross segments of their width.
+    Optional-ends ON (rugby ball):
+      +y side  left -> right   (every rib's +y end)
+      close right end          (straight down the rightmost rib)
+      -y side  right -> left   (every rib's -y end, excluding the last)
+      close left end           (straight up the leftmost rib)
+
+    All points at z = eave_height.
     """
     n = len(rib_x)
     pts = []
-    # +y side, left -> right
+
+    # +y side, left -> right (all ribs, including the two extremes).
     for i in range(n):
         pts.append((rib_x[i], +rib_widths[i] / 2.0, eave_height))
-    # close right end: rightmost +y -> rightmost -y (already have +y)
-    pts.append((rib_x[-1], -rib_widths[-1] / 2.0, eave_height))
-    # -y side, right -> left (skip rightmost, already added)
+
+    if not optional_ends:
+        # Right tip at the full primary span.
+        pts.append((+span / 2.0, 0.0, eave_height))
+    else:
+        # Blunt closure across the rightmost rib.
+        pts.append((rib_x[-1], -rib_widths[-1] / 2.0, eave_height))
+
+    # -y side, right -> left (skip the rightmost rib, already placed).
     for i in range(n - 2, -1, -1):
         pts.append((rib_x[i], -rib_widths[i] / 2.0, eave_height))
-    # close left end: leftmost -y -> leftmost +y (start point)
-    # (the start point is already index 0; the loop is closed implicitly)
+
+    if not optional_ends:
+        # Left tip at the full primary span.
+        pts.append((-span / 2.0, 0.0, eave_height))
+    else:
+        # Blunt closure across the leftmost rib.
+        pts.append((rib_x[0], +rib_widths[0] / 2.0, eave_height))
+
     return np.array(pts, dtype=float)
 
 
@@ -221,7 +249,9 @@ def render_tester_multi_cone():
     rib_widths = _rib_widths(secondary_count, mid_width)
 
     # --- Perimeter -----------------------------------------------------------
-    perimeter = _perimeter_from_ribs(rib_x, rib_widths, eave_height)
+    perimeter = _perimeter_from_ribs(
+        rib_x, rib_widths, eave_height, span, optional_ends
+    )
 
     # Perimeter length (closed loop).
     deltas = np.diff(np.vstack([perimeter, perimeter[:1]]), axis=0)
@@ -277,25 +307,14 @@ def render_tester_multi_cone():
             )
         )
 
-    # Perimeter (yellow line).
+    # Perimeter (yellow line, closed by repeating the first point).
+    perim_closed = np.vstack([perimeter, perimeter[:1]])
     fig.add_trace(
         go.Scatter3d(
-            x=perimeter[:, 0], y=perimeter[:, 1], z=perimeter[:, 2],
+            x=perim_closed[:, 0], y=perim_closed[:, 1], z=perim_closed[:, 2],
             mode="lines",
             line=dict(color=COL_PERIMETER, width=6),
             name="perimeter",
-            showlegend=False,
-            hoverinfo="skip",
-        )
-    )
-    # Close the perimeter visually.
-    fig.add_trace(
-        go.Scatter3d(
-            x=[perimeter[-1, 0], perimeter[0, 0]],
-            y=[perimeter[-1, 1], perimeter[0, 1]],
-            z=[perimeter[-1, 2], perimeter[0, 2]],
-            mode="lines",
-            line=dict(color=COL_PERIMETER, width=6),
             showlegend=False,
             hoverinfo="skip",
         )
@@ -335,5 +354,6 @@ def render_tester_multi_cone():
         st.write("Rib stations x (m): " + ", ".join(f"{v:+.3f}" for v in rib_x))
         st.write("Rib widths (m): " + ", ".join(f"{v:.3f}" for v in rib_widths))
         st.write("Primary z at rib stations (m): " + ", ".join(f"{v:.3f}" for v in rib_z))
-        st.write(f"Perimeter length (m): {perimeter_length:.3f}")
-        st.write(f"Target edge length (m): {target_edge_length:.3f}")
+        st.write("Perimeter points: " + str(perimeter.shape[0]))
+        st.write("Perimeter length (m): " + f"{perimeter_length:.3f}")
+        st.write("Target edge length (m): " + f"{target_edge_length:.3f}")
