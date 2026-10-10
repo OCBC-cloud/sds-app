@@ -1,22 +1,18 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Fixes in this version (2026-10-10 v8):
-  - Primary beam, secondary ribs, and drop members restored to the
-    viewer.  Ground ellipse still off.  Yellow perimeter line, anchor
-    markers, and ring edge highlight off.
-  - Ring held band widened.  A fabric node is attached to a ring if
-    its 3D distance to the ring circle is within 3 * target_len
-    (previously 1 * target_len).  Attached nodes are snapped to
-    z = RING_HEIGHT and held.
-  - Initial z of free fabric nodes near the rings raised.  For a
-    node within 6 * target_len of a ring circle, the z rule shifts
-    toward the ring height.  This stops the sag toward the ring hole
-    and closes the gap between fabric and ring.
-  - solve_fdm runs once on the shaped mesh.
+Rollback to v7 with beams restored.
 
-Carried over from v6:
-  - z weight w = d_ring / (d_ring + d_perim).
-  - Ring polygon node count derived from the fabric mesh.
+Carried over from v7:
+  - z interpolation weight w = d_ring / (d_ring + d_perim).
+  - Ring attachment test is 3D distance to the ring circle, band 1x target_len.
+  - Fabric nodes attached to a ring snapped to RING_HEIGHT and held.
+
+Change from v7:
+  - Primary beam, secondary ribs, and drop members back in the viewer.
+    Ground ellipse still off.
+
+Viewer shows: membrane mesh, two ring polygons, primary beam, ribs,
+drop members.  Nothing else.
 
 No engine files are modified.
 """
@@ -36,13 +32,7 @@ from viewers.figures._shared import (
 
 
 RING_HEIGHT = 7.0
-ELLIPSE_SEGMENTS = 200
 RIB_SEGMENTS = 80
-
-ATTACH_BAND = 3.0        # x target_len: fabric nodes within this 3D distance
-                         # of the ring circle are snapped to ring height
-RAISE_BAND = 6.0         # x target_len: nodes within this distance of the
-                         # ring get an extra lift to their initial z
 
 COL_MEMBRANE = "#4a7a9c"
 COL_RING_EDGE = "#ffd166"
@@ -173,17 +163,13 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
                 continue
             interior_xy.append((float(x), float(y)))
 
-    # --- z rule with a raise band around each ring ----------------------
-    def _d_ring(x, y):
-        d = float("inf")
-        for (cx, cy, r) in ring_centres_radii:
-            dd = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
-            if dd < d:
-                d = dd
-        return max(d, 0.0)
-
     def _z_at(x, y):
-        d_ring = _d_ring(x, y)
+        d_ring = float("inf")
+        for (cx, cy, r) in ring_centres_radii:
+            d = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
+            if d < d_ring:
+                d_ring = d
+        d_ring = max(d_ring, 0.0)
         d_perim = float(np.min(np.linalg.norm(
             poly_xy - np.array([x, y]), axis=1
         )))
@@ -191,15 +177,7 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
         if denom < 1e-9:
             return float(RING_HEIGHT)
         w = d_ring / denom
-        z = RING_HEIGHT + (eave_height - RING_HEIGHT) * w
-
-        # Raise: within RAISE_BAND * target_len of the ring, pull z up
-        # toward RING_HEIGHT with a smooth ramp.
-        raise_dist = RAISE_BAND * target_len
-        if d_ring < raise_dist:
-            f = 1.0 - (d_ring / raise_dist)     # 1 at ring, 0 at band edge
-            z = z + (RING_HEIGHT - z) * f
-        return float(z)
+        return float(RING_HEIGHT + (eave_height - RING_HEIGHT) * w)
 
     ring_node_counts = []
     for (cx, cy, r) in ring_centres_radii:
@@ -272,8 +250,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
     for key in boundary_edge_set:
         all_edge_set.add(key)
 
-    # --- Wider attach band (3 * target_len), snap to ring height -------
-    attach_band = ATTACH_BAND * target_len
     attached_node_indices = set()
     ring_attach_counts = []
     ring_attach_edges_added = []
@@ -285,9 +261,10 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
         edges_added_here = 0
         for i in range(fabric_start, fabric_end):
             x, y, z = all_pts[i]
-            d_plan = max(math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r, 0.0)
+            d_plan = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
+            d_plan = max(d_plan, 0.0)
             d3 = math.sqrt(d_plan ** 2 + (z - RING_HEIGHT) ** 2)
-            if d3 < attach_band:
+            if d3 < 1.0 * target_len:
                 attached_node_indices.add(i)
                 all_pts[i, 2] = RING_HEIGHT
                 held_here += 1
@@ -379,7 +356,7 @@ def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — double-cone mesh, "
-        "wider ring band, raised initial z.</p>",
+        "beams restored.</p>",
         unsafe_allow_html=True,
     )
 
@@ -501,7 +478,7 @@ def render_tester_multi_cone():
             ring_poly_all.add(int(i))
     held_sets["held_ring_polygon"] = ring_poly_all
 
-    # --- Figure: membrane, rings, and the structural beams ---------------
+    # --- Figure ---------------------------------------------------------
     fig = go.Figure()
 
     if len(tris) > 0:
@@ -520,7 +497,7 @@ def render_tester_multi_cone():
         name="primary beam", showlegend=False, hoverinfo="skip",
     ))
 
-    # Secondary ribs
+    # Ribs
     for i in range(len(rib_x)):
         rp = _rib_polyline(
             float(rib_x[i]), float(rib_half_width[i]),
@@ -589,8 +566,6 @@ def render_tester_multi_cone():
         else:
             st.write(f"Residual norm: {residual_norm:.6e}")
         st.write(f"Target edge length: {target_len:.4f}")
-        st.write(f"Attach band: {ATTACH_BAND} x target_len")
-        st.write(f"Raise band: {RAISE_BAND} x target_len")
         st.write(f"Warp q: {warp_q:.2f}  |  Weft q: {weft_q:.2f}  "
                  f"|  Edge q: {edge_q_scalar:.2f}")
         st.write(f"Ring height: {RING_HEIGHT:.2f} m")
