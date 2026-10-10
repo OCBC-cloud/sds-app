@@ -27,13 +27,27 @@ Perimeter tip rule (revised):
   both ends.  Two tip points are inserted, one at (+span/2, 0) and one
   at (-span/2, 0), both at eave_height.  The three ribs sit inside this
   envelope.  This produces the pointed-lens (American football) outline
-  described in handover Section 3.2.  With more ribs the polygon edges
-  between consecutive rib ends and the tip approximate the smooth lens
-  more closely.
+  described in handover Section 3.2.
 
   With optional-ends ON, the tips are the two blunting ribs at
   x = +/-(span/2 - 3).  There are no tip points beyond those ribs; the
   closures are straight segments across the rib width (rugby ball).
+
+Stage 1 fix history:
+  2026-10-10 — corrected the -y walk in _perimeter_from_ribs so all N
+               ribs are included when optional-ends is OFF (the previous
+               version skipped one rib, giving 7 perimeter points instead
+               of 8).  Optional-ends ON still skips the rightmost rib's
+               -y end because that point is the blunt closure.  Also
+               corrected the optional-ends ON rib placement to land the
+               outermost two ribs on exactly x = +/-(span/2 - 3) by
+               interpolating directly in x rather than round-tripping
+               through arc length.
+
+Ring height:
+  Ring height is FIXED at 7.0 m for this stage.  Not solver-decided, not
+  provisional, not a widget.  The rings are drawn as markers at z = 7.0 m
+  on the spine.  Stage 3 will mesh the rings at this fixed height.
 """
 
 import math
@@ -53,7 +67,7 @@ from viewers.figures._shared import (
 
 # --- Constants ---------------------------------------------------------------
 
-RING_HEIGHT_OFFSET = 1.5      # m, provisional drop below the primary beam
+RING_HEIGHT = 7.0             # m, FIXED for this stage (client decision)
 RING_SEGMENTS = 64            # circle resolution for the ring markers
 TARGET_EDGE_DIVISOR = 40.0    # perimeter_length / this -> target_edge_length
 
@@ -66,31 +80,34 @@ COL_PRIMARY = "#FF6B6B"
 
 # --- Geometry helpers --------------------------------------------------------
 
-def _rib_stations_arc_fractions(n, optional_ends, span, x, s, total):
-    """Return rib stations as arc-length fractions (length n, ascending).
+def _rib_stations(n, optional_ends, span, x, s, total):
+    """Return rib station x positions (length n, ascending).
 
-    Rule 3.4:
-      - Optional-ends OFF: N ribs at fractions k/(N+1), k = 1..N.
-      - Optional-ends ON (and N >= 3): the two outermost ribs sit at the
-        arc-length fractions where x = +/-(span/2 - 3).  The remaining
-        N-2 ribs spread evenly by arc length between them.
+    Rule 3.4 (corrected):
+      - Optional-ends OFF: N ribs at the N interior equal-arc-length
+        divisions of the primary.  For a symmetric parabola these land
+        at x = span/2 * cos(k*pi/(N+1)) analog, achieved here by
+        interpolating the arc-length fractions k/(N+1) back to x.
+      - Optional-ends ON (and N >= 3): the two outermost ribs sit at
+        exactly x = +/-(span/2 - 3).  The remaining N-2 ribs spread
+        evenly by arc length between them.  Placement is by direct x
+        interpolation, so the outermost pair lands on the exact target.
       - Optional-ends ON with N = 1 or 2 behaves as OFF.
+
+    Returns rib_x only.  The arc-length fraction is recomputed for the
+    diagnostics by the caller.
     """
     if (not optional_ends) or n < 3:
-        return np.array([k / (n + 1.0) for k in range(1, n + 1)], dtype=float)
+        # OFF rule: equal arc-length fractions k/(N+1).
+        fracs = np.array([k / (n + 1.0) for k in range(1, n + 1)], dtype=float)
+        return np.interp(fracs * total, s, x)
 
-    # Locate the arc-length fractions of the two blunting x positions.
+    # ON rule.  Place the two outermost ribs exactly, then spread the
+    # interior ribs by direct x interpolation between them.
     x_target = span / 2.0 - 3.0
-    frac_right = float(np.interp(x_target, x, s) / total)
-    frac_left = float(np.interp(-x_target, x, s) / total)
-
-    frac_left = max(0.0, min(1.0, frac_left))
-    frac_right = max(0.0, min(1.0, frac_right))
-    if frac_right <= frac_left:
-        # Degenerate span; fall back to the OFF rule.
-        return np.array([k / (n + 1.0) for k in range(1, n + 1)], dtype=float)
-
-    interior = np.linspace(frac_left, frac_right, n)
+    x_left = -x_target
+    x_right = +x_target
+    interior = np.linspace(x_left, x_right, n)
     return interior
 
 
@@ -119,43 +136,43 @@ def _perimeter_from_ribs(rib_x, rib_widths, eave_height, span, optional_ends):
     """Build the closed perimeter loop, rule 3.8 (revised).
 
     Optional-ends OFF (sharp lens / football):
-      +y side  left -> right   (every rib's +y end)
-      right tip                ((+span/2, 0))
-      -y side  right -> left   (every rib's -y end, excluding the last)
-      left tip                 ((-span/2, 0))
-      close back to start      (implicit; loop closes on itself)
+      +y side: every rib's +y end, left -> right (N points)
+      right tip: (+span/2, 0)                        (1 point)
+      -y side: every rib's -y end, right -> left     (N points)
+      left tip: (-span/2, 0)                         (1 point)
+      total: 2N + 2 points
 
     Optional-ends ON (rugby ball):
-      +y side  left -> right   (every rib's +y end)
-      close right end          (straight down the rightmost rib)
-      -y side  right -> left   (every rib's -y end, excluding the last)
-      close left end           (straight up the leftmost rib)
+      +y side: every rib's +y end, left -> right (N points)
+      right closure: rightmost rib's -y end       (1 point)
+      -y side: ribs n-2 .. 0, right -> left       (N-1 points)
+      left closure: leftmost rib's +y end (the start) is implicit.
+      total: 2N points
 
     All points at z = eave_height.
     """
     n = len(rib_x)
     pts = []
 
-    # +y side, left -> right (all ribs, including the two extremes).
+    # +y side, left -> right (all ribs).
     for i in range(n):
         pts.append((rib_x[i], +rib_widths[i] / 2.0, eave_height))
 
     if not optional_ends:
         # Right tip at the full primary span.
         pts.append((+span / 2.0, 0.0, eave_height))
-    else:
-        # Blunt closure across the rightmost rib.
-        pts.append((rib_x[-1], -rib_widths[-1] / 2.0, eave_height))
-
-    # -y side, right -> left (skip the rightmost rib, already placed).
-    for i in range(n - 2, -1, -1):
-        pts.append((rib_x[i], -rib_widths[i] / 2.0, eave_height))
-
-    if not optional_ends:
+        # -y side, right -> left (ALL ribs).
+        for i in range(n - 1, -1, -1):
+            pts.append((rib_x[i], -rib_widths[i] / 2.0, eave_height))
         # Left tip at the full primary span.
         pts.append((-span / 2.0, 0.0, eave_height))
     else:
-        # Blunt closure across the leftmost rib.
+        # Blunt closure across the rightmost rib.
+        pts.append((rib_x[-1], -rib_widths[-1] / 2.0, eave_height))
+        # -y side, right -> left (skip rightmost, already placed).
+        for i in range(n - 2, -1, -1):
+            pts.append((rib_x[i], -rib_widths[i] / 2.0, eave_height))
+        # Blunt closure across the leftmost rib (back to start).
         pts.append((rib_x[0], +rib_widths[0] / 2.0, eave_height))
 
     return np.array(pts, dtype=float)
@@ -186,7 +203,7 @@ def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>Stage 1 — mesh only. "
-        "Perimeter + membrane + ring markers.</p>",
+        "Perimeter + membrane + ring markers at fixed height.</p>",
         unsafe_allow_html=True,
     )
 
@@ -241,11 +258,8 @@ def render_tester_multi_cone():
     s, total = arclength_parametrisation(x, z)
 
     # --- Rib stations --------------------------------------------------------
-    fracs = _rib_stations_arc_fractions(
-        secondary_count, optional_ends, span, x, s, total
-    )
-    rib_x = np.interp(fracs * total, s, x)
-    rib_z = np.interp(fracs * total, s, z)   # primary z at each rib
+    rib_x = _rib_stations(secondary_count, optional_ends, span, x, s, total)
+    rib_z = np.interp(rib_x, x, z)          # primary z at each rib
     rib_widths = _rib_widths(secondary_count, mid_width)
 
     # --- Perimeter -----------------------------------------------------------
@@ -307,7 +321,7 @@ def render_tester_multi_cone():
             )
         )
 
-    # Perimeter (yellow line, closed by repeating the first point).
+    # Perimeter (yellow line, closed).
     perim_closed = np.vstack([perimeter, perimeter[:1]])
     fig.add_trace(
         go.Scatter3d(
@@ -334,12 +348,10 @@ def render_tester_multi_cone():
             )
         )
 
-    # Ring markers (drawing only, Section 3.7).
-    ring_fracs = (1.0 / 3.0, 2.0 / 3.0)
-    for frac in ring_fracs:
-        rx = np.interp(frac * total, s, x)
-        rz = np.interp(frac * total, s, z)
-        _draw_ring_marker(fig, float(rx), float(rz - RING_HEIGHT_OFFSET), float(ring_diameter))
+    # Ring markers at the FIXED height of 7.0 m (Stage 1 decision).
+    ring_x_positions = (-span / 6.0, +span / 6.0)   # one-third and two-thirds
+    for rx in ring_x_positions:
+        _draw_ring_marker(fig, float(rx), RING_HEIGHT, float(ring_diameter))
 
     apply_common_layout(fig, apex)
     st.plotly_chart(fig, use_container_width=True)
@@ -357,3 +369,5 @@ def render_tester_multi_cone():
         st.write("Perimeter points: " + str(perimeter.shape[0]))
         st.write("Perimeter length (m): " + f"{perimeter_length:.3f}")
         st.write("Target edge length (m): " + f"{target_edge_length:.3f}")
+        st.write(f"Ring height (m, fixed): {RING_HEIGHT:.2f}")
+        st.write("Ring stations x (m): " + ", ".join(f"{v:+.3f}" for v in ring_x_positions))
