@@ -1,37 +1,17 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Fixes in this version (2026-10-10 v6):
-  - z interpolation weight corrected.  The weight is now
-        w = d_ring / (d_ring + d_perim)
-    so a node near the ring gets z near RING_HEIGHT, and a node near
-    the perimeter gets z near eave_height.  (v5 had the numerator
-    and denominator swapped, giving an inverted cone.)
-  - Ring attachment test uses 3D distance to the ring circle, not
-    plan distance.  A fabric node 4 m below the ring will not be
-    counted as attached.
-  - Fabric nodes attached to a ring are snapped to the ring's z
-    (RING_HEIGHT) and held there.  The inner edge of the fabric
-    therefore sits exactly at ring height.
+Fixes in this version (2026-10-10 v6b):
+  - Viewer cleaned up.  Removed from the figure: ground ellipse
+    (blue line), perimeter polygon outline (yellow line), held-node
+    markers (amber dots), and drop members (blue-grey lines).
+  - Kept in the viewer: the membrane mesh, the primary beam, the
+    ribs, and the ring polygons.
 
-Build order (client direction):
-
-  1. Outer perimeter polygon.  Anchors at rib crossings plus two
-     tips where the primary beam crosses eave height.
-  2. Subdivide every anchor-to-anchor edge into `subdivisions`
-     equal parts.  Widget, 5 to 25, default 11.
-  3. Ring polygons.  Node count derived from the mesh (fabric nodes
-     within 2 * ring radius).  Placed at RING_HEIGHT = 7.0 m.
-  4. Cone mesh built between perimeter (at eave) and ring polygons
-     (at 7.0 m).  scipy Delaunay.  Holes dropped.
-  5. Fabric nodes whose 3D distance to a ring circle is within one
-     target_edge_length are (a) snapped to z = RING_HEIGHT,
-     (b) held, and (c) connected to the two nearest ring polygon
-     nodes.
-  6. Perimeter anchors and ring polygon nodes held.
-  7. Boundary edges use edge_q_scalar.  Interior edges use warp_q.
-  8. solve_fdm.
-
-Diagnostics include a digitised node status table.
+Carried over from v6:
+  - z interpolation weight w = d_ring / (d_ring + d_perim).
+  - Ring attachment test uses 3D distance to the ring circle.
+  - Fabric nodes attached to a ring are snapped to RING_HEIGHT
+    and held.
 
 No engine files are modified.
 """
@@ -51,17 +31,12 @@ from viewers.figures._shared import (
 
 
 RING_HEIGHT = 7.0
-ELLIPSE_SEGMENTS = 200
 RIB_SEGMENTS = 80
 
 COL_MEMBRANE = "#4a7a9c"
-COL_PERIMETER = "#f1c40f"
-COL_ANCHOR = "#f39c12"
 COL_RING_EDGE = "#ffd166"
 COL_PRIMARY = "#FF6B6B"
 COL_RIB = "#e07b39"
-COL_DROP = "#b0c4de"
-COL_GROUND = "#3a5a7a"
 
 
 def _ellipse_y(x, span, mid_width):
@@ -69,14 +44,6 @@ def _ellipse_y(x, span, mid_width):
     b = mid_width / 2.0
     t = max(0.0, 1.0 - (x / a) ** 2)
     return b * math.sqrt(t)
-
-
-def _ground_ellipse(span, mid_width, n):
-    a = span / 2.0
-    b = mid_width / 2.0
-    t = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False)
-    return np.column_stack([a * np.cos(t), b * np.sin(t),
-                            np.zeros(n, dtype=float)])
 
 
 def _rib_stations(n, optional_ends, span, x, s, total):
@@ -194,7 +161,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
                 continue
             interior_xy.append((float(x), float(y)))
 
-    # --- v6 fix: correct interpolation weight ---------------------------
     def _z_at(x, y):
         d_ring = float("inf")
         for (cx, cy, r) in ring_centres_radii:
@@ -208,10 +174,9 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
         denom = d_ring + d_perim
         if denom < 1e-9:
             return float(RING_HEIGHT)
-        w = d_ring / denom                     # 0 at ring, 1 at perimeter
+        w = d_ring / denom
         return float(RING_HEIGHT + (eave_height - RING_HEIGHT) * w)
 
-    # --- Ring polygon node count from the fabric mesh -------------------
     ring_node_counts = []
     for (cx, cy, r) in ring_centres_radii:
         cnt = 0
@@ -223,7 +188,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
         cnt = min(cnt, 32)
         ring_node_counts.append(cnt)
 
-    # --- Build ring polygons --------------------------------------------
     all_pts_list = [tuple(p) for p in perimeter_loop]
     n_perimeter = len(all_pts_list)
     ring_indices = []
@@ -240,7 +204,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
             all_pts_list.append(tuple(p))
         ring_indices.append(list(range(start, start + n_poly)))
 
-    # --- Fabric interior nodes ------------------------------------------
     fabric_start = len(all_pts_list)
     for (x, y) in interior_xy:
         all_pts_list.append((x, y, _z_at(x, y)))
@@ -249,7 +212,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
     all_pts = np.asarray(all_pts_list, dtype=float)
     pts_2d = all_pts[:, :2]
 
-    # --- Delaunay, drop holes -------------------------------------------
     tri = Delaunay(pts_2d)
     triangles = []
     for simplex in tri.simplices:
@@ -265,7 +227,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
             continue
         triangles.append((a, b, c))
 
-    # --- Boundary edge sets ---------------------------------------------
     boundary_edge_set = set()
     for idx_list in ring_indices:
         n_poly = len(idx_list)
@@ -287,11 +248,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
     for key in boundary_edge_set:
         all_edge_set.add(key)
 
-    # --- v6: 3D-distance attachment, snap to ring z ---------------------
-    # A fabric node is attached to a ring if its 3D distance to the ring
-    # circle is within target_len.  Attached nodes are snapped to
-    # z = RING_HEIGHT, held, and connected to the two nearest ring
-    # polygon nodes.
     attached_node_indices = set()
     ring_attach_counts = []
     ring_attach_edges_added = []
@@ -308,7 +264,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_centres_radii,
             d3 = math.sqrt(d_plan ** 2 + (z - RING_HEIGHT) ** 2)
             if d3 < 1.0 * target_len:
                 attached_node_indices.add(i)
-                # Snap the node to the ring z.
                 all_pts[i, 2] = RING_HEIGHT
                 held_here += 1
                 dd = np.linalg.norm(poly_xy_local - np.array([x, y]),
@@ -401,8 +356,8 @@ def _format_status_table(points_initial, points_settled, held_sets,
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — double-cone mesh, "
-        "rings held, digitised node reporting.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — double-cone mesh.  "
+        "Membrane, primary beam, ribs, and rings only.</p>",
         unsafe_allow_html=True,
     )
 
@@ -535,27 +490,14 @@ def render_tester_multi_cone():
             name="membrane", showlegend=False, hoverinfo="skip",
         ))
 
-    ge = _ground_ellipse(span, mid_width, ELLIPSE_SEGMENTS)
-    ge_c = np.vstack([ge, ge[:1]])
-    fig.add_trace(go.Scatter3d(
-        x=ge_c[:, 0], y=ge_c[:, 1], z=ge_c[:, 2],
-        mode="lines", line=dict(color=COL_GROUND, width=4),
-        name="ground ellipse", showlegend=False, hoverinfo="skip",
-    ))
-
-    pc = np.vstack([perimeter_loop, perimeter_loop[:1]])
-    fig.add_trace(go.Scatter3d(
-        x=pc[:, 0], y=pc[:, 1], z=pc[:, 2],
-        mode="lines", line=dict(color=COL_PERIMETER, width=5),
-        name="perimeter", showlegend=False, hoverinfo="skip",
-    ))
-
+    # Primary beam
     fig.add_trace(go.Scatter3d(
         x=xp, y=np.zeros_like(xp), z=zp,
         mode="lines", line=dict(color=COL_PRIMARY, width=7),
         name="primary beam", showlegend=False, hoverinfo="skip",
     ))
 
+    # Ribs
     for i in range(len(rib_x)):
         rp = _rib_polyline(
             float(rib_x[i]), float(rib_half_width[i]),
@@ -567,14 +509,7 @@ def render_tester_multi_cone():
             name=f"rib x={rib_x[i]:+.2f}", showlegend=False, hoverinfo="skip",
         ))
 
-    if len(fixed) > 0:
-        fi = np.asarray(fixed, dtype=int)
-        fig.add_trace(go.Scatter3d(
-            x=coords[fi, 0], y=coords[fi, 1], z=coords[fi, 2],
-            mode="markers", marker=dict(color=COL_ANCHOR, size=4),
-            name="held nodes", showlegend=False, hoverinfo="skip",
-        ))
-
+    # Rings only (no drop members)
     for k, idx_list in enumerate(built["ring_indices"]):
         pp = coords[idx_list]
         closed = np.vstack([pp, pp[:1]])
@@ -582,13 +517,6 @@ def render_tester_multi_cone():
             x=closed[:, 0], y=closed[:, 1], z=closed[:, 2],
             mode="lines", line=dict(color=COL_RING_EDGE, width=5),
             name=f"ring {k+1}", showlegend=False, hoverinfo="skip",
-        ))
-        cx = ring_x_positions[k]
-        z_up = float(np.interp(cx, xp, zp))
-        fig.add_trace(go.Scatter3d(
-            x=[cx, cx], y=[0.0, 0.0], z=[z_up, RING_HEIGHT],
-            mode="lines", line=dict(color=COL_DROP, width=3),
-            name=f"drop {k+1}", showlegend=False, hoverinfo="skip",
         ))
 
     apply_common_layout(fig, apex)
