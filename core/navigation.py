@@ -16,6 +16,9 @@
 # Updated 2026-10-09:
 #   - Added tester_star_diagnostic route. Background test for the
 #     shared cable-membrane boundary node movement.
+# Updated 2026-10-10:
+#   - Added tester_multi_cone route. Stage 1 Lab page for the
+#     multi-cone roof. Mesh only. Experimental.
 # =============================================================================
 
 import streamlit as st
@@ -91,6 +94,11 @@ def _render_tester_star_diagnostic():
     render_tester_star_diagnostic()
 
 
+def _render_tester_multi_cone():
+    from ui.workshops.tester_multi_cone import render_tester_multi_cone
+    render_tester_multi_cone()
+
+
 PAGE_RENDERERS = {
     "landing": _render_landing,
     "studio": _render_studio,
@@ -103,6 +111,7 @@ PAGE_RENDERERS = {
     "tester_mbs": _render_tester_mbs,
     "renderer_test": _render_renderer_test,
     "tester_star_diagnostic": _render_tester_star_diagnostic,
+    "tester_multi_cone": _render_tester_multi_cone,
 }
 
 
