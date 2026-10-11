@@ -112,8 +112,6 @@ PAGE_RENDERERS = {
     "renderer_test": _render_renderer_test,
     "tester_star_diagnostic": _render_tester_star_diagnostic,
     "tester_multi_cone": _render_tester_multi_cone,
-    "tester_single_cone": _render_tester_single_cone,
-    "tester_two_cone": _render_tester_two_cone,
 }
 
 
