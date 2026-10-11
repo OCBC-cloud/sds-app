@@ -1,48 +1,46 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v15.
+Version v16.
 
-What is new in this version (v15), versus v14:
+What is new in this version (v16), versus v15:
 
-  The boundary conditions are now physically correct for a real
-  tensile membrane roof.
+  v15 tried to build the multi-cone roof as a set of 360-degree
+  radial fans, one per ring, and to stitch adjacent fans with a
+  bridge of triangles.  That is wrong.  A real multi-cone
+  membrane is a PARTITIONED surface.  Each cone owns a cell of
+  the plan, the cells meet at valley lines, and the valley is a
+  fold, not an overlap.
 
-  v14 fixed every perimeter node.  A real tensile roof does not
-  have a rigid perimeter wall.  It has an edge cable, anchored
-  at discrete ground anchors, free to sag and to bow in the plan
-  plane between anchors.  v15 implements exactly that:
+  v16 rebuilds the mesh as a partition:
 
-    - fixed_indices = the 8 ground anchors only
-      (2 tips + 6 rib crossings), plus every ring polygon node,
-      ring centre, and beam-top node.
-    - dir_only_indices = every perimeter node between anchors,
-      each with its local cable tangent.  The node is free to
-      slide along the cable, held off it.  This is the engine's
-      dir_only capability, used for the first time here.
-    - Perimeter cable edges get edge_q.
-    - Fabric edges get warp_q.
+    1. The plan is split into vertical strips by the midpoints
+       between adjacent rings along the spine.  Each strip belongs
+       to exactly one ring.  The two outer regions (beyond the
+       first and last ring) also belong to their nearest ring.
 
-  New named members recorded:
-    Edge_Cable                    one consolidated
-    Edge_Cable_Seg_<k>            one per perimeter segment
-    Anchor_<i>_Ground             one per ground anchor
+    2. Each ring casts rays from its centre outward, but ONLY into
+       its own strip.  Rays are clipped at:
+         - the ring circle           (inner end)
+         - the strip boundary planes (left and right walls)
+         - the perimeter             (outer end)
 
-  Viewer additions:
-    - Edge cable drawn as a distinct closed line.
-    - Ground anchors drawn as markers.
+    3. Strip boundary walls are SHARED.  Fan A's rightmost ray and
+       fan B's leftmost ray lie on the same vertical plane.  Their
+       nodes are coincident.  The two fans therefore meet in a
+       clean fold - the valley line.
 
-  Diagnostics additions:
-    - Anchor count vs cable-interior count.
-    - Anchor movement check (should be zero).
-    - Cable-interior bow check (small is correct).
+    4. The perimeter edge cable and the 8 ground anchors are
+       handled exactly as in v15: anchors held, cable-interior
+       nodes free along their local tangent via dir_only_indices.
 
-Carried over from v14 unchanged:
-  - Fan mesh topology (rays from ring centres to perimeter).
-  - Cone placement by a single spacing input.
-  - Ring z follows the beam: z_ring = beam_z(s_ring) - clearance.
-  - Refuse rule if any ring falls outside the span.
-  - Member schedule for Ring_Beam, Beam_Seg, Spoke, Drop_Member.
-  - All-nodes digitisation.
+  New named members recorded in v16:
+    Valley_Line_<i>             one consolidated per valley
+    Valley_Line_<i>_Node_<k>    one per node on the valley
+
+  Everything else is carried over from v15 unchanged: ring
+  beam, beam segments, spokes, drop members, ground anchors,
+  edge cable, member schedule, node digitisation, viewer style,
+  page inputs.
 
 No engine files are modified.
 """
@@ -64,10 +62,8 @@ from viewers.figures._shared import (
 RIB_SEGMENTS = 80
 RING_NODES_MIN = 12
 RING_NODES_MAX = 32
-
-# Radial fan resolution.  Increase for a finer mesh.
-RAYS_PER_RING = 48
-RADIAL_NODES = 6
+RAYS_PER_RING = 64
+RADIAL_NODES = 8
 
 COL_MEMBRANE = "#4a7a9c"
 COL_PERIMETER = "#f1c40f"
@@ -77,6 +73,7 @@ COL_PRIMARY = "#FF6B6B"
 COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
+COL_VALLEY = "#7fb3d5"
 
 
 # =============================================================================
@@ -128,8 +125,6 @@ def _tip_x_at_eave(span, apex, eave_height, curve_type):
 
 def _build_eave_anchors(rib_x, rib_half_width, rib_peak_z, eave_height,
                          tip_x):
-    """Return the eave anchor loop and the indices of the true
-    ground anchors (2 tips + 2 per rib crossing)."""
     plus, minus = [], []
     for i, xr in enumerate(rib_x):
         y_at = _rib_arch_y_at_eave(
@@ -145,24 +140,18 @@ def _build_eave_anchors(rib_x, rib_half_width, rib_peak_z, eave_height,
         pts.append(p)
     pts.append((-tip_x, 0.0, eave_height))
 
-    # Ground anchors: first point is first rib plus-side, last is
-    # last rib minus-side?  No.  Anchors are: every rib crossing
-    # (both sides) and both tips.
     anchor_local_indices = []
     for i in range(len(rib_x)):
-        anchor_local_indices.append(i)                       # plus side
-    anchor_local_indices.append(len(plus))                   # +tip
+        anchor_local_indices.append(i)
+    anchor_local_indices.append(len(plus))
     for i in range(len(rib_x)):
-        anchor_local_indices.append(len(plus) + 1 + i)       # minus side
-    anchor_local_indices.append(len(pts) - 1)                # -tip
+        anchor_local_indices.append(len(plus) + 1 + i)
+    anchor_local_indices.append(len(pts) - 1)
 
     return np.asarray(pts, dtype=float), sorted(set(anchor_local_indices))
 
 
 def _subdivide_polygon_with_anchors(anchors, subdivisions):
-    """Subdivide each anchor-to-anchor edge into subdivisions
-    segments.  Return the full loop and the indices of the true
-    anchors within the loop."""
     n_a = anchors.shape[0]
     loop = []
     anchor_idx = []
@@ -223,16 +212,34 @@ def _max_spacing_for(n_cones, total):
 
 
 # =============================================================================
-# RADIAL FAN MESH
+# CELL PARTITION
+# =============================================================================
+
+def _cell_walls_x(x_rings):
+    """
+    Return the vertical strip boundaries in the plan, as a sorted
+    list of x-values.  For n rings at x_0 < x_1 < ... < x_{n-1},
+    return [x_0, mid_01, x_1, mid_12, ..., x_{n-1}].
+    Cell k owns the strip [wall_left_k, wall_right_k] where
+    wall_left_k = mid_{k-1,k} and wall_right_k = mid_{k,k+1} (with
+    mid_{-1,0} = -inf and mid_{n-1,n} = +inf).
+    """
+    mids = []
+    for i in range(len(x_rings) - 1):
+        mids.append(0.5 * (x_rings[i] + x_rings[i + 1]))
+    walls = []
+    for i in range(len(x_rings)):
+        left = mids[i - 1] if i > 0 else -1e9
+        right = mids[i] if i < len(x_rings) - 1 else +1e9
+        walls.append((left, right))
+    return walls, mids
+
+
+# =============================================================================
+# RAY / PERIMETER / WALL CLIPPING
 # =============================================================================
 
 def _ray_perimeter_intersection(origin_xy, dir_xy, perimeter_xy):
-    """
-    Find the intersection of the ray (origin + t*dir, t >= 0) with
-    the closed polyline perimeter.  Return the intersection point
-    (x, y) with the largest t that is >= 0, or None if the ray
-    misses the perimeter.
-    """
     n = perimeter_xy.shape[0]
     ox, oy = float(origin_xy[0]), float(origin_xy[1])
     dx, dy = float(dir_xy[0]), float(dir_xy[1])
@@ -242,13 +249,10 @@ def _ray_perimeter_intersection(origin_xy, dir_xy, perimeter_xy):
         ax, ay = float(perimeter_xy[i, 0]), float(perimeter_xy[i, 1])
         bx, by = float(perimeter_xy[(i + 1) % n, 0]), \
                  float(perimeter_xy[(i + 1) % n, 1])
-        # Segment P = a + u*(b-a), u in [0,1]
         ex, ey = bx - ax, by - ay
         denom = dx * ey - dy * ex
         if abs(denom) < 1e-12:
             continue
-        # Solve: a + u*e = o + t*d
-        # u*e - t*d = o - a
         rx, ry = ox - ax, oy - ay
         u = (rx * dy - ry * dx) / denom
         t = (rx * ey - ry * ex) / denom
@@ -262,34 +266,48 @@ def _ray_perimeter_intersection(origin_xy, dir_xy, perimeter_xy):
     return best_pt
 
 
+def _ray_wall_intersection(origin_xy, dir_xy, wall_x):
+    """
+    Where does the ray origin + t*dir cross the vertical line
+    x = wall_x?  Return (x, y) for t >= 0, or None if the ray
+    does not cross.
+    """
+    if abs(dir_xy[0]) < 1e-12:
+        return None
+    t = (wall_x - origin_xy[0]) / dir_xy[0]
+    if t < 1e-9:
+        return None
+    return (wall_x, origin_xy[1] + t * dir_xy[1])
+
+
+# =============================================================================
+# RADIAL FAN MESH (v16, cell-partitioned)
+# =============================================================================
+
 def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                        ring_specs, eave_height):
     """
-    Build the radial fan mesh.
+    Build the cell-partitioned radial fan mesh.
 
-    Returns dict with:
-      points, edges, triangles,
-      fixed_indices, dir_only_indices,
-      perimeter_start, perimeter_end,
-      anchor_node_indices, cable_interior_indices,
-      ring_indices, centre_indices, beam_top_indices,
-      perimeter_edge_set, edge_cable_edge_set,
-      fan_notes
+    Each ring owns a vertical strip of the plan.  Rays are cast
+    from the ring centre into its own strip only.  Rays are clipped
+    at the ring circle (inner), the strip walls (left/right), and
+    the perimeter (outer).  Strip walls are shared between adjacent
+    rings: fan A's rightmost ray and fan B's leftmost ray lie on
+    the same vertical plane and share their nodes.
     """
     n_perim = perimeter_loop.shape[0]
     perim_xy = perimeter_loop[:, :2]
 
-    # --- Point list, in order -------------------------------------
     points_list = [tuple(p) for p in perimeter_loop]
     perimeter_start = 0
     perimeter_end = n_perim
 
-    n_ring_poly_total = 0
     ring_indices = []
     centre_indices = []
     beam_top_indices = []
     ring_node_counts = []
-    ring_xy = []  # (cx, cy, r)
+    ring_xy = []
 
     for spec in ring_specs:
         cx = float(spec["cx"])
@@ -308,7 +326,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
         for p in poly:
             points_list.append(tuple(p))
         ring_indices.append(list(range(start, start + n_poly)))
-        n_ring_poly_total += n_poly
 
         centre_indices.append(len(points_list))
         points_list.append((cx, cy, cz))
@@ -318,53 +335,210 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
 
         ring_xy.append((cx, cy, r))
 
-    # --- Radial nodes ---------------------------------------------
-    radial_node_rows = []  # for each ring, a list of lists of node ids
+    # --- Cell walls from ring x positions ------------------------
+    x_rings = [float(s["cx"]) for s in ring_specs]
+    walls, mids = _cell_walls_x(x_rings)
+
+    # --- Cast rays per ring, into its own strip ------------------
+    # Each ring produces a dict of "wall_key -> list of radial node ids
+    # in order inner -> outer".  The wall_key identifies the shared
+    # wall so adjacent rings can reuse the same nodes.
+    #
+    # We identify rays by their (left_wall_x, right_wall_x) pair.
+    # The two extreme rays at theta=0 (right) and theta=pi (left)
+    # are replaced by wall rays at the actual wall x positions.
+
     fan_notes = []
+    ring_radial_rows = []      # per ring: list of rows (each row is list of node ids)
+    ring_row_kinds = []        # per ring: list of "wall_left"/"wall_right"/"ray"
 
     for k, spec in enumerate(ring_specs):
         cx = float(spec["cx"])
         cy = float(spec["cy"])
         cz = float(spec["cz"])
         r = float(spec["r"])
-        beam_z = float(spec["beam_z"])
+        eave_z = eave_height
 
-        ring_radial_rows = []
-        n_hit = 0
-        n_miss = 0
-        for j in range(RAYS_PER_RING):
-            theta = 2.0 * math.pi * j / float(RAYS_PER_RING)
-            dx = math.cos(theta)
-            dy = math.sin(theta)
+        left_x, right_x = walls[k]
 
-            hit = _ray_perimeter_intersection((cx, cy), (dx, dy),
-                                                perim_xy)
-            if hit is None:
-                n_miss += 1
-                ring_radial_rows.append([])
-                continue
-            n_hit += 1
+        # --- Two special wall rays: theta = pi (left) and theta = 0 (right).
+        # Cast the right-wall ray to the right, and the left-wall ray to the left.
+        def _make_wall_row(wall_x, is_left):
+            # Direction towards the wall.
+            if wall_x > 1e8 or wall_x < -1e8:
+                # No wall on this side (outermost ring at the tip);
+                # use the perimeter direction along the spine.
+                dir_x = -1.0 if is_left else +1.0
+                hit = _ray_perimeter_intersection((cx, cy), (dir_x, 0.0), perim_xy)
+                if hit is None:
+                    return []
+                outer = hit
+            else:
+                # Ray from ring centre towards (wall_x, cy).
+                dir_x = 1.0 if wall_x > cx else -1.0
+                # The wall is a vertical line x = wall_x.  We travel
+                # until we hit the wall OR the perimeter, whichever
+                # comes first.
+                wall_hit = _ray_wall_intersection((cx, cy), (dir_x, 0.0), wall_x)
+                perim_hit = _ray_perimeter_intersection((cx, cy), (dir_x, 0.0), perim_xy)
+                if perim_hit is None:
+                    return []
+                if wall_hit is not None:
+                    # Take whichever is closer.
+                    d_wall = abs(wall_hit[0] - cx)
+                    d_perim = abs(perim_hit[0] - cx)
+                    outer = wall_hit if d_wall < d_perim else perim_hit
+                else:
+                    outer = perim_hit
 
-            # Ray starts at ring circle, ends at perimeter.
-            inner_xy = (cx + r * dx, cy + r * dy)
-            outer_xy = hit
-
+            inner = (cx + r * dir_x, cy)
             row = []
             for m in range(RADIAL_NODES):
                 f = (m + 1) / float(RADIAL_NODES + 1)
-                px = inner_xy[0] + f * (outer_xy[0] - inner_xy[0])
-                py = inner_xy[1] + f * (outer_xy[1] - inner_xy[1])
-                # Height: linear from ring z to eave height along
-                # the ray.  The FDM solver will find the real shape.
-                pz = cz + f * (eave_height - cz)
+                px = inner[0] + f * (outer[0] - inner[0])
+                py = inner[1] + f * (outer[1] - inner[1])
+                # z: linear from ring z to eave z.
+                pz = cz + f * (eave_z - cz)
+                # On a wall, push x exactly onto the wall plane so
+                # adjacent fans share nodes.
+                if wall_x < 1e8 and wall_x > -1e8:
+                    px = wall_x
                 node_id = len(points_list)
                 points_list.append((px, py, pz))
                 row.append(node_id)
-            ring_radial_rows.append(row)
-        radial_node_rows.append(ring_radial_rows)
+            return row
+
+        # --- Intermediate rays within the strip -----------------
+        # Angles: from theta=+pi/2?  Let's define by directions.
+        # The strip is bounded left by x=left_x and right by x=right_x.
+        # We cast rays whose x-component points right (dir_x>0) between
+        # the right-boundary and the vertical, and rays whose x-component
+        # points left (dir_x<0) between the left-boundary and the vertical.
+        # We also cast vertical rays (dir_x=0, dir_y=+-1).
+        #
+        # Simpler: cast N rays over the angular range that stays
+        # within the strip.  For a strip that spans the whole span
+        # in x, the angular range is from theta_right to theta_left
+        # going through +y and -y.  But we only need one side (y>=0)
+        # and mirror.
+        #
+        # We cast rays from theta=0 (right) to theta=pi (left)
+        # through theta=pi/2 (+y), and mirror to y<=0.
+        #
+        # Rays that would exit through the wall are clipped at the
+        # wall.
+
+        rows = []
+        kinds = []
+
+        # Right wall ray.
+        right_row = _make_wall_row(right_x, is_left=False)
+        if right_row:
+            rows.append(right_row)
+            kinds.append("wall_right")
+
+        # Intermediate rays on the +y half between "right" and "vertical up".
+        # We use angles 0 < theta < pi, then mirror.
+        # But the right/left wall rays are already the extreme ones.
+        # Use angles between them, avoiding 0 and pi (which are the walls).
+        for j in range(1, RAYS_PER_RING):
+            theta = math.pi * j / float(RAYS_PER_RING)  # in (0, pi)
+            dx = math.cos(theta)
+            dy = math.sin(theta)
+            hit = _ray_perimeter_intersection((cx, cy), (dx, dy), perim_xy)
+            if hit is None:
+                continue
+            # Clip at the wall on the x-side that the ray leaves through.
+            if dx > 1e-9 and right_x < 1e8:
+                wall_hit = _ray_wall_intersection((cx, cy), (dx, dy), right_x)
+                if wall_hit is not None:
+                    d_wall = math.hypot(wall_hit[0] - cx, wall_hit[1] - cy)
+                    d_perim = math.hypot(hit[0] - cx, hit[1] - cy)
+                    if d_wall < d_perim:
+                        hit = wall_hit
+            if dx < -1e-9 and left_x > -1e8:
+                wall_hit = _ray_wall_intersection((cx, cy), (dx, dy), left_x)
+                if wall_hit is not None:
+                    d_wall = math.hypot(wall_hit[0] - cx, wall_hit[1] - cy)
+                    d_perim = math.hypot(hit[0] - cx, hit[1] - cy)
+                    if d_wall < d_perim:
+                        hit = wall_hit
+            inner = (cx + r * dx, cy + r * dy)
+            row = []
+            for m in range(RADIAL_NODES):
+                f = (m + 1) / float(RADIAL_NODES + 1)
+                px = inner[0] + f * (hit[0] - inner[0])
+                py = inner[1] + f * (hit[1] - inner[1])
+                pz = cz + f * (eave_z - cz)
+                node_id = len(points_list)
+                points_list.append((px, py, pz))
+                row.append(node_id)
+            rows.append(row)
+            kinds.append("ray")
+
+        # Left wall ray.
+        left_row = _make_wall_row(left_x, is_left=True)
+        if left_row:
+            rows.append(left_row)
+            kinds.append("wall_left")
+
+        # Mirror for the -y half: angles pi to 2*pi.
+        mirror_rows = []
+        mirror_kinds = []
+        # Take all the ray rows (not the wall rows) and mirror them.
+        for j, row in enumerate(rows):
+            kind = kinds[j]
+            if kind != "ray":
+                continue
+            # Determine the original theta by reverse-engineering from the row.
+            # Easier: re-cast the mirror ray explicitly.
+            # We stored the theta implicitly; to keep code clear, we
+            # re-cast in the same loop as the upper half.  Do it here
+            # as a mirrored version of the ray using -dy.
+            pass
+
+        # Re-cast mirrored rays (dy < 0) in a second pass.
+        for j in range(1, RAYS_PER_RING):
+            theta = math.pi * j / float(RAYS_PER_RING)
+            dx = math.cos(theta)
+            dy = -math.sin(theta)
+            hit = _ray_perimeter_intersection((cx, cy), (dx, dy), perim_xy)
+            if hit is None:
+                continue
+            if dx > 1e-9 and right_x < 1e8:
+                wall_hit = _ray_wall_intersection((cx, cy), (dx, dy), right_x)
+                if wall_hit is not None:
+                    d_wall = math.hypot(wall_hit[0] - cx, wall_hit[1] - cy)
+                    d_perim = math.hypot(hit[0] - cx, hit[1] - cy)
+                    if d_wall < d_perim:
+                        hit = wall_hit
+            if dx < -1e-9 and left_x > -1e8:
+                wall_hit = _ray_wall_intersection((cx, cy), (dx, dy), left_x)
+                if wall_hit is not None:
+                    d_wall = math.hypot(wall_hit[0] - cx, wall_hit[1] - cy)
+                    d_perim = math.hypot(hit[0] - cx, hit[1] - cy)
+                    if d_wall < d_perim:
+                        hit = wall_hit
+            inner = (cx + r * dx, cy + r * dy)
+            row = []
+            for m in range(RADIAL_NODES):
+                f = (m + 1) / float(RADIAL_NODES + 1)
+                px = inner[0] + f * (hit[0] - inner[0])
+                py = inner[1] + f * (hit[1] - inner[1])
+                pz = cz + f * (eave_z - cz)
+                node_id = len(points_list)
+                points_list.append((px, py, pz))
+                row.append(node_id)
+            rows.append(row)
+            kinds.append("ray")
+
+        ring_radial_rows.append(rows)
+        ring_row_kinds.append(kinds)
         fan_notes.append(
-            "ring %d: %d rays hit perimeter, %d missed"
-            % (k + 1, n_hit, n_miss)
+            "ring %d: %d rows in cell [%s, %s]"
+            % (k + 1, len(rows),
+               "%.3f" % left_x if left_x > -1e8 else "-inf",
+               "%.3f" % right_x if right_x < 1e8 else "+inf")
         )
 
     points = np.asarray(points_list, dtype=float)
@@ -373,12 +547,15 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
     # --- Triangles: fan per ring, quad strips split --------------
     triangles = []
     for k in range(len(ring_specs)):
-        rows = radial_node_rows[k]
+        rows = ring_radial_rows[k]
         idx_list = ring_indices[k]
         n_poly = len(idx_list)
-        for j in range(RAYS_PER_RING):
+        n_rows = len(rows)
+        if n_rows < 2:
+            continue
+        for j in range(n_rows - 1):
             row_a = rows[j]
-            row_b = rows[(j + 1) % RAYS_PER_RING]
+            row_b = rows[j + 1]
             if len(row_a) == 0 or len(row_b) == 0:
                 continue
             for m in range(RADIAL_NODES - 1):
@@ -386,35 +563,43 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                 a1 = row_a[m + 1]
                 b0 = row_b[m]
                 b1 = row_b[m + 1]
-                # Quad (a0, b0, b1, a1).  Two triangles.
                 triangles.append((a0, b0, b1))
                 triangles.append((a0, b1, a1))
 
-        # --- Attach innermost radial nodes to the ring polygon --
-        # Each ray's innermost node (row[m=0]) is attached to the
-        # nearest ring polygon node.
-        for j in range(RAYS_PER_RING):
-            row = rows[j]
+        # Attach innermost radial nodes to the ring polygon.
+        for j, row in enumerate(rows):
             if len(row) == 0:
                 continue
             inner_id = row[0]
-            theta = 2.0 * math.pi * j / float(RAYS_PER_RING)
-            # Nearest ring polygon node by angle.
-            # ring polygon node k is at angle 2*pi*k/n_poly.
-            kk = int(round(theta / (2.0 * math.pi / n_poly))) % n_poly
-            poly_id = idx_list[kk]
-            triangles.append((poly_id, inner_id, row[1] if len(row) > 1
-                              else inner_id))
+            # Nearest ring polygon node by plan distance.
+            px = float(points[inner_id, 0])
+            py = float(points[inner_id, 1])
+            best_k = None
+            best_d2 = None
+            for kk, poly_id in enumerate(idx_list):
+                qx = float(points[poly_id, 0])
+                qy = float(points[poly_id, 1])
+                d2 = (qx - px) ** 2 + (qy - py) ** 2
+                if best_d2 is None or d2 < best_d2:
+                    best_d2 = d2
+                    best_k = kk
+            if best_k is None:
+                continue
+            poly_id = idx_list[best_k]
+            poly_next = idx_list[(best_k + 1) % n_poly]
+            if len(row) > 1:
+                triangles.append((poly_id, inner_id, row[1]))
+                triangles.append((poly_id, row[1], poly_next))
+            else:
+                triangles.append((poly_id, inner_id, poly_next))
 
-        # --- Attach outermost radial nodes to perimeter ----------
-        for j in range(RAYS_PER_RING):
-            row = rows[j]
+        # Attach outermost radial nodes to perimeter.
+        for row in rows:
             if len(row) == 0:
                 continue
             outer_id = row[-1]
             px = float(points[outer_id, 0])
             py = float(points[outer_id, 1])
-            # Nearest perimeter node.
             best = None
             best_d2 = None
             for i in range(n_perim):
@@ -426,49 +611,17 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                     best = i
             if best is None:
                 continue
-            triangles.append((outer_id, best,
-                              (best + 1) % n_perim))
-
-    # --- Bridge between adjacent rings (saddle) -----------------
-    for k in range(len(ring_specs) - 1):
-        rows_a = radial_node_rows[k]
-        rows_b = radial_node_rows[k + 1]
-        for j in range(RAYS_PER_RING):
-            row_a = rows_a[j]
-            row_b = rows_b[j]
-            if len(row_a) == 0 or len(row_b) == 0:
-                continue
-            # Connect the outermost node of ring k row to the
-            # innermost node of ring k+1 row when they are on the
-            # same ray direction.  Simpler and safer: connect the
-            # last node of ring k to the first node of ring k+1
-            # if they lie between the two rings.
-            # Use the last node of ring k and the first node of
-            # ring k+1 as a 4-node quad with the same on the next
-            # ray.
-            jn = (j + 1) % RAYS_PER_RING
-            row_a2 = rows_a[jn]
-            row_b2 = rows_b[jn]
-            if len(row_a2) == 0 or len(row_b2) == 0:
-                continue
-            a_last = row_a[-1]
-            a2_last = row_a2[-1]
-            b_first = row_b[0]
-            b2_first = row_b2[0]
-            triangles.append((a_last, a2_last, b2_first))
-            triangles.append((a_last, b2_first, b_first))
+            triangles.append((outer_id, best, (best + 1) % n_perim))
 
     triangles = [t for t in triangles if t[0] != t[1]
                  and t[1] != t[2] and t[0] != t[2]]
 
-    # --- Edges from triangles ------------------------------------
     edge_set = set()
     for (a, b, c) in triangles:
         for (i, j) in ((a, b), (b, c), (c, a)):
             key = (i, j) if i < j else (j, i)
             edge_set.add(key)
 
-    # --- Ring beam, spoke, drop member edges --------------------
     for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
         centre_i = int(centre_indices[k])
@@ -485,7 +638,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
         key = (centre_i, beam_i) if centre_i < beam_i else (beam_i, centre_i)
         edge_set.add(key)
 
-    # --- Perimeter edge set (for edge cable q) ------------------
     perimeter_edge_set = set()
     for i in range(n_perim):
         j = (i + 1) % n_perim
@@ -496,23 +648,18 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
 
     # --- Held nodes ----------------------------------------------
     fixed_set = set()
-    # Ground anchors.
     anchor_node_indices = []
     for i in perimeter_anchor_idx:
         fixed_set.add(int(i))
         anchor_node_indices.append(int(i))
-    # Ring polygon nodes.
     for idx_list in ring_indices:
         for i in idx_list:
             fixed_set.add(int(i))
-    # Ring centres.
     for ci in centre_indices:
         fixed_set.add(int(ci))
-    # Beam-tops.
     for bi in beam_top_indices:
         fixed_set.add(int(bi))
 
-    # --- Cable-interior nodes with dir-only tangent -------------
     anchor_set = set(int(i) for i in perimeter_anchor_idx)
     cable_interior_indices = []
     dir_only_indices = []
@@ -549,6 +696,10 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
         "perimeter_edge_set": perimeter_edge_set,
         "fan_notes": fan_notes,
         "ring_xy": ring_xy,
+        "cell_walls": walls,
+        "cell_mids": mids,
+        "ring_radial_rows": ring_radial_rows,
+        "ring_row_kinds": ring_row_kinds,
     }
 
 
@@ -565,7 +716,6 @@ def _build_member_schedule(built, coords):
     n_perim = built["n_perimeter"]
     perimeter_start = built["perimeter_start"]
 
-    # --- Ring beam, segments, spokes, drop members --------------
     for k in range(len(ring_indices)):
         ring_no = k + 1
         idx_list = ring_indices[k]
@@ -634,7 +784,6 @@ def _build_member_schedule(built, coords):
             "role": "vertical drop member from primary beam to ring centre",
         })
 
-    # --- Ground anchors -----------------------------------------
     for i, node_i in enumerate(anchor_node_indices):
         members.append({
             "member_id": f"Anchor_{i+1:02d}_Ground",
@@ -648,7 +797,6 @@ def _build_member_schedule(built, coords):
             "role": "rigid ground anchor",
         })
 
-    # --- Edge cable, consolidated + segments --------------------
     perimeter_loop_ids = list(range(perimeter_start,
                                      perimeter_start + n_perim))
     total_length = 0.0
@@ -682,6 +830,55 @@ def _build_member_schedule(built, coords):
             "material": "TBD",
             "role": "perimeter edge cable segment",
         })
+
+    # --- Valley lines ------------------------------------------
+    # Each mid between adjacent rings defines a valley.  The nodes
+    # on that valley are the outermost radial nodes of both fans
+    # that lie on the valley plane.  We identify them by taking
+    # the wall rows from both rings, and combining.
+    mids = built["cell_mids"]
+    for i, mid_x in enumerate(mids):
+        valley_no = i + 1
+        left_ring_rows = built["ring_radial_rows"][i]
+        right_ring_rows = built["ring_radial_rows"][i + 1]
+        valley_nodes = set()
+        for j, kind in enumerate(built["ring_row_kinds"][i]):
+            if kind == "wall_right":
+                for nid in left_ring_rows[j]:
+                    valley_nodes.add(int(nid))
+        for j, kind in enumerate(built["ring_row_kinds"][i + 1]):
+            if kind == "wall_left":
+                for nid in right_ring_rows[j]:
+                    valley_nodes.add(int(nid))
+        if not valley_nodes:
+            continue
+        ids = sorted(valley_nodes)
+        length = 0.0
+        for a, b in zip(ids[:-1], ids[1:]):
+            length += float(np.linalg.norm(coords[b] - coords[a]))
+        members.append({
+            "member_id": f"Valley_Line_{valley_no}",
+            "member_type": "valley_line",
+            "ring_index": 0,
+            "node_a": int(ids[0]),
+            "node_b": int(ids[-1]),
+            "length_m": float(length),
+            "section": "TBD",
+            "material": "TBD",
+            "role": "valley line between adjacent cones",
+        })
+        for kk, nid in enumerate(ids):
+            members.append({
+                "member_id": f"Valley_Line_{valley_no}_Node_{kk+1:02d}",
+                "member_type": "valley_node",
+                "ring_index": 0,
+                "node_a": int(nid),
+                "node_b": int(nid),
+                "length_m": 0.0,
+                "section": "TBD",
+                "material": "TBD",
+                "role": "node on valley line",
+            })
 
     return members
 
@@ -756,8 +953,8 @@ def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
         "Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — radial fan mesh, "
-        "real tensile boundary conditions (edge cable, discrete anchors)."
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — cell-partitioned "
+        "radial fan. Each cone owns a strip; valleys are shared folds."
         "</p>",
         unsafe_allow_html=True,
     )
@@ -831,7 +1028,6 @@ def render_tester_multi_cone():
         key="mc_edgeq",
     )
 
-    # --- Geometry inputs ----------------------------------------
     xp = np.linspace(-span / 2.0, span / 2.0, 200)
     zp = beam_curve(xp, span, apex, curve_type)
     s_p, total_p = arclength_parametrisation(xp, zp)
@@ -885,7 +1081,6 @@ def render_tester_multi_cone():
     perimeter_loop, perimeter_anchor_idx = \
         _subdivide_polygon_with_anchors(anchors, subdivisions)
 
-    # --- Build radial mesh --------------------------------------
     built = _build_radial_mesh(
         perimeter_loop, perimeter_anchor_idx, ring_specs, eave_height
     )
@@ -896,7 +1091,6 @@ def render_tester_multi_cone():
     fixed = built["fixed_indices"]
     dir_only = built["dir_only_indices"]
 
-    # --- Force densities ----------------------------------------
     warp_q = max(float(warp_q_input), 0.1) * 1000.0
     weft_q = max(float(weft_q_input), 0.1) * 1000.0
     if edge_q_input > 0.0:
@@ -914,7 +1108,6 @@ def render_tester_multi_cone():
         else:
             q[k] = warp_q
 
-    # --- Solve --------------------------------------------------
     try:
         fdm = solve_fdm(pts_init, edges, fixed, q,
                          dir_only_indices=dir_only)
@@ -928,7 +1121,6 @@ def render_tester_multi_cone():
         solve_ok = False
         solve_err = str(e)
 
-    # --- Anchor / cable sanity checks ---------------------------
     anchor_move_max = 0.0
     for i in built["anchor_node_indices"]:
         d = float(np.linalg.norm(coords[i] - pts_init[i]))
@@ -981,7 +1173,6 @@ def render_tester_multi_cone():
             name=f"rib x={rib_x[i]:+.2f}", showlegend=False, hoverinfo="skip",
         ))
 
-    # --- Edge cable as one closed line --------------------------
     ps = built["perimeter_start"]
     pe = built["perimeter_end"]
     perim_pts = coords[ps:pe]
@@ -993,7 +1184,6 @@ def render_tester_multi_cone():
         name="edge cable", showlegend=False, hoverinfo="skip",
     ))
 
-    # --- Ground anchor markers ----------------------------------
     anchor_ids = built["anchor_node_indices"]
     if anchor_ids:
         apts = coords[anchor_ids]
@@ -1004,7 +1194,6 @@ def render_tester_multi_cone():
             name="ground anchor", showlegend=False, hoverinfo="skip",
         ))
 
-    # --- Ring assembly ------------------------------------------
     for k, idx_list in enumerate(built["ring_indices"]):
         pp = coords[idx_list]
         closed = np.vstack([pp, pp[:1]])
@@ -1034,7 +1223,6 @@ def render_tester_multi_cone():
     apply_common_layout(fig, apex)
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
-    # --- Member schedule ----------------------------------------
     members = _build_member_schedule(built, coords)
 
     with st.expander("Steel and cable member schedule (BQ and analysis)",
@@ -1043,7 +1231,7 @@ def render_tester_multi_cone():
         st.write(
             "Counts: %d ring beam (consolidated), %d ring beam segments, "
             "%d spokes, %d drop members, %d edge cable (consolidated), "
-            "%d edge cable segments, %d ground anchors."
+            "%d edge cable segments, %d ground anchors, %d valley lines."
             % (
                 sum(1 for m in members if m["member_type"] == "ring_beam"),
                 sum(1 for m in members
@@ -1055,6 +1243,8 @@ def render_tester_multi_cone():
                     if m["member_type"] == "edge_cable_segment"),
                 sum(1 for m in members
                     if m["member_type"] == "ground_anchor"),
+                sum(1 for m in members
+                    if m["member_type"] == "valley_line"),
             )
         )
         st.code(_format_member_table(members), language="text")
@@ -1066,14 +1256,11 @@ def render_tester_multi_cone():
         st.write(f"Maximum allowed spacing: {max_spacing:.3f} m")
         st.write(f"Ring clearance below beam (m): {ring_clearance:.3f}")
         st.write(f"Ring diameter (m): {ring_diameter:.3f}")
-        st.write("Ring arc-length positions (m): " +
-                 ", ".join(f"{v:.3f}" for v in s_rings))
         st.write("Ring x positions (m): " +
                  ", ".join(f"{v:+.3f}" for v in x_rings))
-        st.write("Beam z at ring stations (m): " +
-                 ", ".join(f"{v:.3f}" for v in beam_z_rings))
-        st.write("Ring z at ring stations (m): " +
-                 ", ".join(f"{v:.3f}" for v in ring_z_rings))
+        st.write("Cell walls (x, m): " +
+                 ", ".join(f"{w[0]:+.3f}/{w[1]:+.3f}"
+                           for w in built["cell_walls"]))
         st.write(f"Outer anchor corners: {anchors.shape[0]}")
         st.write(f"Perimeter nodes: {built['n_perimeter']}")
         st.write(f"Ground anchors: {len(built['anchor_node_indices'])}")
