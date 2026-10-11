@@ -1,30 +1,50 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Changes in this version (2026-10-10 v12):
-  - Number of cones is a widget (2 to 8, default 2).  Each cone
-    gets a ring.  Ring stations spread evenly by arc length along
-    the primary beam between the 1/(N+1) and N/(N+1) fractions.
-  - Ring z at each station = primary beam z at that x minus a
-    user-set clearance.  Default 1.000 m.  Widget 0.1 to 5.0.
-    As the beam drops toward the ends, the rings follow.
-  - Each ring has a centre node, held.
-  - Radial spokes: one edge from the centre node to each ring
-    polygon node.  Rigid steel members.  All nodes held.  Recorded
-    for later sizing.
-  - One drop member per ring: edge from the centre node up to a
-    new held node on the primary beam directly above the ring.
-    Rigid steel member.  Both nodes held.
-  - All ring assembly nodes are held.  The fabric pulls on the
-    ring; the ring does not move.
+Version v13.
 
-Carried over:
-  - Ring polygon node count from circumference, floor 12, cap 32.
-  - z interpolation weight w = d_ring / (d_ring + d_perim).
-  - Attachment band 1 x target_len, 3D distance.
-  - Attached fabric nodes snapped to RING_HEIGHT and held.
-  - Viewer shows membrane, primary beam, ribs, ring polygons,
-    spokes, drop members.
-  - Full node digitisation.
+What is new in this version:
+  - Cone placement is by a single spacing input.  No per-cone
+    widgets.  The user says how far apart adjacent cones are
+    (measured along the primary beam's arc length, from the
+    absolute mid-span of the structure), and the solver places
+    the rings accordingly.
+
+  Placement rule:
+      Let d = spacing in metres along the arc.
+      Let L = total arc length of the primary beam.
+      Let s_mid = L / 2 (the mid-span arc-length position).
+
+      If N cones is odd:
+        rings at arc-length positions
+          s_mid + k * d    for k in {0, +/-1, +/-2, ...}
+        up to N total rings.
+
+      If N cones is even:
+        rings at arc-length positions
+          s_mid + k * d    for k in {+/-0.5, +/-1.5, +/-2.5, ...}
+        up to N total rings.  The spacing between the two middle
+        rings is d.
+
+  Ring z at each station:
+      z_ring = primary_beam_z(s_ring) - clearance.
+      Rings follow the beam's slope.
+
+  Refuse rule:
+      If any ring's arc-length position falls outside
+      [0, L], the input is refused.  Diagnostics show the
+      maximum allowed spacing for this cone count and span.
+
+  Each ring:
+      - 12 polygon nodes at the ring height,
+      - one centre node, held,
+      - one beam-top node at the beam's z directly above, held,
+      - radial spokes from centre to each polygon node,
+      - one drop member from centre to beam-top,
+      - fabric nodes within 1 * target_edge_length of the ring
+        attached and held at ring height.
+
+Viewer shows membrane, primary beam, ribs, ring polygons.
+No decoration markers.
 
 No engine files are modified.
 """
@@ -43,6 +63,7 @@ from viewers.figures._shared import (
 )
 
 
+RING_HEIGHT_FALLBACK = 7.0
 RIB_SEGMENTS = 80
 RING_NODES_MIN = 12
 RING_NODES_MAX = 32
@@ -51,9 +72,9 @@ COL_MEMBRANE = "#4a7a9c"
 COL_RING_EDGE = "#ffd166"
 COL_PRIMARY = "#FF6B6B"
 COL_RIB = "#e07b39"
-COL_SPOKE = "#c0c0c0"
-COL_DROP = "#a0a0a0"
 
+
+# --- Shape helpers -----------------------------------------------------------
 
 def _ellipse_y(x, span, mid_width):
     a = span / 2.0
@@ -68,20 +89,6 @@ def _rib_stations(n, optional_ends, span, x, s, total):
         return np.interp(fracs * total, s, x)
     xt = span / 2.0 - 3.0
     return np.linspace(-xt, +xt, n)
-
-
-def _cone_stations(n_cones, span, x_primary, s, total):
-    """x positions of cone centres along the primary, evenly by arc length.
-
-    N cones at interior equal-arc-length divisions k/(N+1) for
-    k = 1..N.  For N = 2 that gives the two third-points.
-    """
-    if n_cones < 2:
-        n_cones = 2
-    fracs = np.array(
-        [k / (n_cones + 1.0) for k in range(1, n_cones + 1)], dtype=float
-    )
-    return np.interp(fracs * total, s, x_primary)
 
 
 def _rib_arch_y_at_eave(peak_z, half_width, eave_height):
@@ -173,11 +180,62 @@ def _ring_node_count(r, target_len):
     return n
 
 
+# --- Cone placement ----------------------------------------------------------
+
+def _cone_arc_positions(n_cones, spacing, total):
+    """Return arc-length positions for n_cones rings, centred at total/2.
+
+    Odd n: positions at total/2 + k * spacing for k = 0, +/-1, ...
+    Even n: positions at total/2 + k * spacing for k = +/-0.5, +/-1.5, ...
+
+    Raises ValueError if any position falls outside [0, total].
+    """
+    if n_cones < 1:
+        raise ValueError("Number of cones must be at least 1.")
+    mid = total / 2.0
+    if n_cones % 2 == 1:
+        # k = 0, +1, -1, +2, -2, ...
+        half = (n_cones - 1) // 2
+        ks = [0]
+        for i in range(1, half + 1):
+            ks.append(+i)
+            ks.append(-i)
+    else:
+        # k = +0.5, -0.5, +1.5, -1.5, ...
+        half = n_cones // 2
+        ks = []
+        for i in range(half):
+            k = i + 0.5
+            ks.append(+k)
+            ks.append(-k)
+    positions = [mid + k * spacing for k in ks]
+    for p in positions:
+        if p < 0.0 or p > total:
+            raise ValueError(
+                "Ring position %.3f m falls outside the primary span "
+                "of %.3f m.  Reduce spacing or cone count." % (p, total)
+            )
+    return sorted(positions)
+
+
+def _max_spacing_for(n_cones, total):
+    """Largest spacing that keeps every ring inside [0, total]."""
+    if n_cones <= 1:
+        return float("inf")
+    mid = total / 2.0
+    if n_cones % 2 == 1:
+        k_max = (n_cones - 1) // 2
+    else:
+        k_max = (n_cones - 1) / 2.0
+    if k_max <= 0:
+        return float("inf")
+    return mid / k_max
+
+
+# --- Mesh build --------------------------------------------------------------
+
 def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
                       eave_height, target_len):
-    """
-    ring_specs: list of dicts with keys cx, cy, cz, r.
-    """
     from scipy.spatial import Delaunay
 
     poly_xy = perimeter_loop[:, :2]
@@ -193,7 +251,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     xs = np.arange(xmin + 0.5 * h, xmax, h)
     ys = np.arange(ymin + 0.5 * h, ymax, h)
 
-    # A node is excluded if it falls inside any ring circle in plan.
     interior_xy = []
     for x in xs:
         for y in ys:
@@ -203,16 +260,12 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
                 continue
             interior_xy.append((float(x), float(y)))
 
-    # z for free fabric: weight by distance to nearest ring (whose z
-    # varies per ring) and to the perimeter.
     def _nearest_ring(x, y):
         best_d = float("inf")
         best_z = eave_height
         for spec in ring_specs:
-            cx = float(spec["cx"])
-            cy = float(spec["cy"])
-            r = float(spec["r"])
-            cz = float(spec["cz"])
+            cx = float(spec["cx"]); cy = float(spec["cy"])
+            r = float(spec["r"]); cz = float(spec["cz"])
             d = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
             if d < best_d:
                 best_d = d
@@ -220,36 +273,29 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         return max(best_d, 0.0), best_z
 
     def _z_at(x, y):
-        d_ring, ring_z_local = _nearest_ring(x, y)
+        d_ring, rz = _nearest_ring(x, y)
         d_perim = float(np.min(np.linalg.norm(
             poly_xy - np.array([x, y]), axis=1
         )))
         denom = d_ring + d_perim
         if denom < 1e-9:
-            return float(ring_z_local)
+            return float(rz)
         w = d_ring / denom
-        return float(ring_z_local + (eave_height - ring_z_local) * w)
+        return float(rz + (eave_height - rz) * w)
 
-    # Build the master points list.
     all_pts_list = [tuple(p) for p in perimeter_loop]
     n_perimeter = len(all_pts_list)
 
-    # Each ring: polygon nodes, centre node, beam-top node.
-    ring_indices = []           # polygon node indices per ring
-    centre_indices = []         # centre node index per ring
-    beam_top_indices = []       # beam-top node index per ring
+    ring_indices = []
+    centre_indices = []
+    beam_top_indices = []
     ring_node_counts = []
-    ring_polygon_points = []
 
     for spec in ring_specs:
-        cx = float(spec["cx"])
-        cy = float(spec["cy"])
-        cz = float(spec["cz"])
-        r = float(spec["r"])
-
+        cx = float(spec["cx"]); cy = float(spec["cy"])
+        cz = float(spec["cz"]); r = float(spec["r"])
         n_poly = _ring_node_count(r, target_len)
         ring_node_counts.append(n_poly)
-
         t = np.linspace(0.0, 2.0 * math.pi, n_poly, endpoint=False)
         poly = np.column_stack([
             cx + r * np.cos(t),
@@ -260,17 +306,13 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         for p in poly:
             all_pts_list.append(tuple(p))
         ring_indices.append(list(range(start, start + n_poly)))
-        ring_polygon_points.append(poly)
 
-        # Centre node.
         centre_indices.append(len(all_pts_list))
         all_pts_list.append((cx, cy, cz))
 
-        # Beam top node: directly above the ring centre, at the beam's z.
         beam_top_indices.append(len(all_pts_list))
         all_pts_list.append((cx, cy, float(spec["beam_z"])))
 
-    # Free fabric nodes.
     fabric_start = len(all_pts_list)
     for (x, y) in interior_xy:
         all_pts_list.append((x, y, _z_at(x, y)))
@@ -279,10 +321,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     all_pts = np.asarray(all_pts_list, dtype=float)
     pts_2d = all_pts[:, :2]
 
-    # Delaunay on the fabric grid + perimeter only.  Ring assembly
-    # nodes are NOT included in the Delaunay (they are their own
-    # rigid structure).  Ring polygon edges and the fabric-to-ring
-    # edges are added separately.
     tri = Delaunay(pts_2d[:fabric_end])
     triangles = []
     for simplex in tri.simplices:
@@ -312,18 +350,10 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     for key in boundary_edge_set:
         all_edge_set.add(key)
 
-    # Ring assembly edges.
-    structural_connections = []
-    for k, spec in enumerate(ring_specs):
-        cx = float(spec["cx"])
-        cy = float(spec["cy"])
-        cz = float(spec["cz"])
-
+    for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
         centre_i = centre_indices[k]
         beam_i = beam_top_indices[k]
-
-        # Ring polygon edges.
         n_poly = len(idx_list)
         for i in range(n_poly):
             a = idx_list[i]
@@ -331,44 +361,23 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
             key = (a, b) if a < b else (b, a)
             all_edge_set.add(key)
             boundary_edge_set.add(key)
-
-        # Radial spokes: centre to each polygon node.
         for i in idx_list:
             key = (centre_i, i) if centre_i < i else (i, centre_i)
             all_edge_set.add(key)
-
-        # Drop member: centre up to beam-top.
         key = (centre_i, beam_i) if centre_i < beam_i else (beam_i, centre_i)
         all_edge_set.add(key)
 
-        structural_connections.append({
-            "ring_index": k,
-            "centre_node": int(centre_i),
-            "beam_top_node": int(beam_i),
-            "polygon_nodes": [int(i) for i in idx_list],
-            "n_spokes": int(n_poly),
-            "member_types": ["ring_beam", "spoke", "drop_member"],
-            "note": "Rigid steel members.  All end nodes held.",
-        })
-
-    # Attachment: for each ring polygon node, find the two nearest
-    # fabric nodes outside the ring circle, add edges, hold the
-    # fabric nodes at the ring z.
     attached_node_indices = set()
     ring_attach_counts = []
     ring_attach_edges_added = []
-
     fabric_indices = list(range(fabric_start, fabric_end))
 
     for k, spec in enumerate(ring_specs):
-        cx = float(spec["cx"])
-        cy = float(spec["cy"])
-        cz = float(spec["cz"])
-        r = float(spec["r"])
+        cx = float(spec["cx"]); cy = float(spec["cy"])
+        r = float(spec["r"]); cz = float(spec["cz"])
         idx_list = ring_indices[k]
         attached_here = set()
         edges_added_here = 0
-
         for poly_node in idx_list:
             px, py, pz = all_pts[poly_node]
             best = []
@@ -387,22 +396,17 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
                     all_edge_set.add(key)
                     edges_added_here += 1
                 attached_here.add(fi)
-
         ring_attach_counts.append(len(attached_here))
         ring_attach_edges_added.append(edges_added_here)
         attached_node_indices.update(attached_here)
 
-    # Snap attached fabric nodes to their ring z.
     for i in attached_node_indices:
-        # Which ring is closest in plan?
         fx, fy = all_pts[i, 0], all_pts[i, 1]
         best_d = float("inf")
         best_z = all_pts[i, 2]
         for spec in ring_specs:
-            cx = float(spec["cx"])
-            cy = float(spec["cy"])
-            r = float(spec["r"])
-            cz = float(spec["cz"])
+            cx = float(spec["cx"]); cy = float(spec["cy"])
+            r = float(spec["r"]); cz = float(spec["cz"])
             d = math.sqrt((fx - cx) ** 2 + (fy - cy) ** 2) - r
             if d < best_d:
                 best_d = d
@@ -432,17 +436,17 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         "centre_indices": centre_indices,
         "beam_top_indices": beam_top_indices,
         "ring_node_counts": ring_node_counts,
-        "ring_polygon_points": ring_polygon_points,
         "attached_node_indices": sorted(attached_node_indices),
         "ring_attach_counts": ring_attach_counts,
         "ring_attach_edges_added": ring_attach_edges_added,
-        "structural_connections": structural_connections,
         "n_perimeter": n_perimeter,
         "n_interior": len(interior_xy),
         "fabric_start": fabric_start,
         "fabric_end": fabric_end,
     }
 
+
+# --- Node digitisation -------------------------------------------------------
 
 _HEADER = (
     "%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s"
@@ -477,7 +481,6 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
         status_of[int(i)] = "held_beam_top"
     for i in attached_set:
         status_of[int(i)] = "held_ring_attached"
-
     lines = [_HEADER, "-" * len(_HEADER)]
     for i in range(n):
         lines.append(_status_line(i, status_of[i],
@@ -485,68 +488,86 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
     return "\n".join(lines)
 
 
+# --- Page --------------------------------------------------------------------
+
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — multi-cone, rings hung "
-        "from the primary beam by rigid steel members.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — multi-cone by spacing.  "
+        "One number per rule.</p>",
         unsafe_allow_html=True,
     )
 
     c1, c2 = st.columns(2)
     with c1:
-        span = st.number_input("Primary span (m)", 6.0, 60.0, 18.0, 0.5)
+        span = st.number_input("Primary span (m)", 6.0, 60.0, 18.0, 0.5,
+                                key="mc_span")
     with c2:
-        apex = st.number_input("Primary apex (m)", 1.0, 30.0, 9.0, 0.5)
+        apex = st.number_input("Primary apex (m)", 1.0, 30.0, 9.0, 0.5,
+                                key="mc_apex")
 
     c1, c2 = st.columns(2)
     with c1:
-        mid_width = st.number_input("Mid-span width (m)", 6.0, 60.0, 18.0, 0.5)
+        mid_width = st.number_input("Mid-span width (m)", 6.0, 60.0, 18.0, 0.5,
+                                     key="mc_width")
     with c2:
-        eave_height = st.number_input("Eave height (m)", 0.5, 10.0, 2.8, 0.1)
+        eave_height = st.number_input("Eave height (m)", 0.5, 10.0, 2.8, 0.1,
+                                       key="mc_eave")
 
     c1, c2 = st.columns(2)
     with c1:
-        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 0.5, 0.1)
+        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 0.5, 0.1,
+                                         key="mc_rd")
     with c2:
         curve_type = st.selectbox(
-            "Curve type", ["parabolic", "circular", "catenary"], index=0
+            "Curve type", ["parabolic", "circular", "catenary"],
+            index=0, key="mc_curve",
         )
 
     c1, c2 = st.columns(2)
     with c1:
-        secondary_count = int(st.number_input("Secondary count", 2, 20, 3, 1))
+        secondary_count = int(st.number_input("Secondary count", 2, 20, 3, 1,
+                                                key="mc_nribs"))
     with c2:
-        optional_ends = st.toggle("Optional ends", value=False)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        number_of_cones = int(st.number_input(
-            "Number of cones", 2, 8, 2, 1
-        ))
-    with c2:
-        ring_clearance = st.number_input(
-            "Ring clearance below beam (m)", 0.1, 5.0, 1.0, 0.1
-        )
+        optional_ends = st.toggle("Optional ends", value=False,
+                                    key="mc_optends")
 
     subdivisions = int(st.number_input(
-        "Subdivisions per edge", 5, 25, 11, 1
+        "Subdivisions per edge", 5, 25, 11, 1, key="mc_subdiv"
     ))
 
     c1, c2 = st.columns(2)
     with c1:
+        number_of_cones = int(st.number_input(
+            "Number of cones", 1, 20, 3, 1, key="mc_ncones"
+        ))
+    with c2:
+        ring_spacing = st.number_input(
+            "Distance between adjacent cones (m, along beam)",
+            0.5, 10.0, 3.0, 0.1, key="mc_spacing"
+        )
+
+    ring_clearance = st.number_input(
+        "Ring clearance below beam (m)", 0.1, 5.0, 1.0, 0.1,
+        key="mc_clr",
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
         warp_q_input = st.number_input(
-            "Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1
+            "Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp",
         )
     with c2:
         weft_q_input = st.number_input(
-            "Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1
+            "Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft",
         )
 
     edge_q_input = st.number_input(
         "Edge cable pretension (kN/m, 0 = auto)", 0.0, 500.0, 20.0, 1.0,
+        key="mc_edgeq",
     )
 
+    # --- Primary curve, ribs -----------------------------------------
     xp = np.linspace(-span / 2.0, span / 2.0, 200)
     zp = beam_curve(xp, span, apex, curve_type)
     s_p, total_p = arclength_parametrisation(xp, zp)
@@ -557,33 +578,54 @@ def render_tester_multi_cone():
         [_ellipse_y(float(xr), span, mid_width) for xr in rib_x], dtype=float
     )
 
-    tip_x = _tip_x_at_eave(span, apex, eave_height, curve_type)
+    # --- Cone placement by rule --------------------------------------
+    placement_error = ""
+    ring_specs = []
+    s_rings = []
+    x_rings = []
+    beam_z_rings = []
+    ring_z_rings = []
 
+    max_spacing = _max_spacing_for(number_of_cones, total_p)
+    try:
+        s_rings = _cone_arc_positions(number_of_cones, ring_spacing, total_p)
+        for s_val in s_rings:
+            x_val = float(np.interp(s_val, s_p, xp))
+            bz_val = float(np.interp(s_val, s_p, zp))
+            rz_val = bz_val - float(ring_clearance)
+            x_rings.append(x_val)
+            beam_z_rings.append(bz_val)
+            ring_z_rings.append(rz_val)
+            ring_specs.append({
+                "cx": x_val,
+                "cy": 0.0,
+                "cz": rz_val,
+                "r": float(ring_diameter) / 2.0,
+                "beam_z": bz_val,
+            })
+    except ValueError as e:
+        placement_error = str(e)
+
+    if placement_error:
+        st.error(
+            "Placement refused: " + placement_error + "\n\n"
+            "For %d cones on a primary of arc length %.3f m the maximum "
+            "allowed spacing is %.3f m."
+            % (number_of_cones, total_p, max_spacing)
+        )
+        return
+
+    # --- Eave boundary polygon ---------------------------------------
+    tip_x = _tip_x_at_eave(span, apex, eave_height, curve_type)
     anchors = _build_eave_anchors(
         rib_x, rib_half_width, rib_peak_z, eave_height, tip_x
     )
     perimeter_loop, anchor_idx = _subdivide_polygon(anchors, subdivisions)
-
     bd = np.diff(np.vstack([perimeter_loop, perimeter_loop[:1]]), axis=0)
     L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
     target_len = max(L_avg, 1e-6)
 
-    # --- Cone stations and per-ring z ---------------------------------
-    cone_x = _cone_stations(number_of_cones, span, xp, s_p, total_p)
-    beam_z_at_cones = np.interp(cone_x, xp, zp)
-    ring_z_at_cones = beam_z_at_cones - float(ring_clearance)
-
-    r_ring = float(ring_diameter) / 2.0
-    ring_specs = []
-    for i in range(number_of_cones):
-        ring_specs.append({
-            "cx": float(cone_x[i]),
-            "cy": 0.0,
-            "cz": float(ring_z_at_cones[i]),
-            "r": r_ring,
-            "beam_z": float(beam_z_at_cones[i]),
-        })
-
+    # --- Build mesh --------------------------------------------------
     built = _build_cone_mesh(
         perimeter_loop, anchor_idx, ring_specs,
         eave_height, target_len,
@@ -623,6 +665,7 @@ def render_tester_multi_cone():
         solve_ok = False
         solve_err = str(e)
 
+    # --- Figure ------------------------------------------------------
     fig = go.Figure()
 
     if len(tris) > 0:
@@ -651,9 +694,7 @@ def render_tester_multi_cone():
             name=f"rib x={rib_x[i]:+.2f}", showlegend=False, hoverinfo="skip",
         ))
 
-    # Rings: polygon, spokes, drop member, centre marker
-    for k in range(len(ring_specs)):
-        idx_list = built["ring_indices"][k]
+    for k, idx_list in enumerate(built["ring_indices"]):
         pp = coords[idx_list]
         closed = np.vstack([pp, pp[:1]])
         fig.add_trace(go.Scatter3d(
@@ -661,38 +702,30 @@ def render_tester_multi_cone():
             mode="lines", line=dict(color=COL_RING_EDGE, width=5),
             name=f"ring {k+1}", showlegend=False, hoverinfo="skip",
         ))
-        centre_i = built["centre_indices"][k]
-        beam_i = built["beam_top_indices"][k]
-        cx, cy, cz = coords[centre_i]
-        # Spokes (centre to each polygon node)
-        for poly_i in idx_list:
-            fig.add_trace(go.Scatter3d(
-                x=[cx, coords[poly_i, 0]],
-                y=[cy, coords[poly_i, 1]],
-                z=[cz, coords[poly_i, 2]],
-                mode="lines",
-                line=dict(color=COL_SPOKE, width=2),
-                name="spoke", showlegend=False, hoverinfo="skip",
-            ))
-        # Drop member
-        bx, by, bz = coords[beam_i]
-        fig.add_trace(go.Scatter3d(
-            x=[cx, bx], y=[cy, by], z=[cz, bz],
-            mode="lines", line=dict(color=COL_DROP, width=4),
-            name="drop", showlegend=False, hoverinfo="skip",
-        ))
 
     apply_common_layout(fig, apex)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
     with st.expander("Diagnostics", expanded=False):
+        st.write(f"Number of cones: {number_of_cones}")
+        st.write(f"Spacing (m, along beam): {ring_spacing:.3f}")
+        st.write(f"Primary arc length (m): {total_p:.3f}")
+        st.write(f"Maximum allowed spacing for this cone count: "
+                 f"{max_spacing:.3f} m")
+        st.write(f"Ring clearance below beam (m): {ring_clearance:.3f}")
+        st.write(f"Ring diameter (m): {ring_diameter:.3f}")
+        st.write("Ring arc-length positions (m): " +
+                 ", ".join(f"{v:.3f}" for v in s_rings))
+        st.write("Ring x positions (m): " +
+                 ", ".join(f"{v:+.3f}" for v in x_rings))
+        st.write("Beam z at ring stations (m): " +
+                 ", ".join(f"{v:.3f}" for v in beam_z_rings))
+        st.write("Ring z at ring stations (m): " +
+                 ", ".join(f"{v:.3f}" for v in ring_z_rings))
         st.write(f"Outer anchors: {anchors.shape[0]}")
-        st.write(f"Perimeter tip x (m): +/-{tip_x:.4f}")
-        st.write(f"Subdivisions per edge: {subdivisions}")
         st.write(f"Perimeter nodes: {perimeter_loop.shape[0]}")
         st.write(f"Total mesh nodes: {pts.shape[0]}")
         st.write(f"Mesh edges: {len(edges)}")
-        st.write(f"Boundary edges: {len(boundary_edge_set)}")
         st.write(f"Mesh triangles: {len(tris)}")
         st.write(f"Held nodes: {len(fixed)}")
         st.write(f"Solve OK: {solve_ok}")
@@ -701,18 +734,7 @@ def render_tester_multi_cone():
         else:
             st.write(f"Residual norm: {residual_norm:.6e}")
         st.write(f"Target edge length: {target_len:.4f}")
-        st.write(f"Warp q: {warp_q:.2f}  |  Weft q: {weft_q:.2f}  "
-                 f"|  Edge q: {edge_q_scalar:.2f}")
-        st.write(f"Number of cones: {number_of_cones}")
-        st.write(f"Ring clearance below beam (m): {ring_clearance:.3f}")
-        st.write("Cone stations x (m): " +
-                 ", ".join(f"{v:+.3f}" for v in cone_x))
-        st.write("Beam z at cone stations (m): " +
-                 ", ".join(f"{v:.3f}" for v in beam_z_at_cones))
-        st.write("Ring z at cone stations (m): " +
-                 ", ".join(f"{v:.3f}" for v in ring_z_at_cones))
-        st.write(f"Ring diameter: {ring_diameter:.3f} m")
-        st.write("Ring node counts (from circumference): " +
+        st.write("Ring node counts: " +
                  ", ".join(str(c) for c in built["ring_node_counts"]))
         st.write("Ring fabric nodes attached: " +
                  ", ".join(str(c) for c in built["ring_attach_counts"]))
