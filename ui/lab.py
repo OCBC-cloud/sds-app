@@ -199,6 +199,21 @@ def render_lab():
     if st.button("Open Single Cone Tester", key="open_single_cone"):
         st.session_state.page = "tester_single_cone"
         st.rerun()
+        # ---- Two Cone Tester ------------------------------------------
+    st.markdown(
+        '<div class="lab-tile">'
+        '<div class="lab-tile-name">Two Cone Tester</div>'
+        '<div class="lab-tile-desc">'
+        'Isolated valley test. Two rings, one eave, one valley cable. '
+        'Valley interior nodes are free along their local tangent '
+        'only, so the valley sags or lifts naturally under load.'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Two Cone Tester", key="open_two_cone"):
+        st.session_state.page = "tester_two_cone"
+        st.rerun()
 
     # ---- Placeholder for future test pages
     st.markdown(
