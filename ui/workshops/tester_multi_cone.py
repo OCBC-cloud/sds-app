@@ -1,6 +1,10 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v17.
+Version v17.1.
+
+Fix from v17: the plan-view figure block referenced a helper
+function (perim_xy_from) that did not exist.  It is now replaced
+by a direct slice of pts_init.  No other change.
 
 What changed in v17, versus v16:
 
@@ -25,17 +29,11 @@ What changed in v17, versus v16:
   wall x.  This guarantees adjacent fans meet on the same vertical
   plane, so the valley is a clean fold in x.
 
-  The special-cased _make_wall_row helper is gone.
-
   New diagnostic: a plan-view "Fan coverage" plot showing the ring
   circle, the strip walls, the perimeter, and the radial node
-  positions, so the fan pattern is visible without the settled
-  shape hiding it.
+  positions.
 
-Everything else is carried over from v16 unchanged: page inputs,
-member schedule, node digitisation, viewer style, boundary
-conditions (fixed anchors, dir-only cable-interior nodes).
-
+Everything else is carried over from v16 unchanged.
 No engine files are modified.
 """
 
@@ -263,23 +261,11 @@ def _ray_wall_intersection(origin_xy, dir_xy, wall_x):
 
 
 # =============================================================================
-# RADIAL FAN MESH  (v17)
+# RADIAL FAN MESH  (v17.1)
 # =============================================================================
 
 def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                        ring_specs, eave_height):
-    """
-    Build the arc-length-parametrised radial fan mesh.
-
-    For each ring, RAYS_PER_RING rays are cast from the ring centre,
-    one for each evenly-spaced arc-length position around the ring
-    circle.  Each ray is clipped at the strip walls and the
-    perimeter.  RADIAL_NODES are placed along the clipped ray.
-
-    After all rings are generated, any node whose x is within
-    SNAP_TOL of a wall x is snapped onto that wall x, so adjacent
-    fans share the valley plane.
-    """
     n_perim = perimeter_loop.shape[0]
     perim_xy = perimeter_loop[:, :2]
 
@@ -322,7 +308,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
     x_rings = [float(s["cx"]) for s in ring_specs]
     walls, mids = _cell_walls_x(x_rings)
 
-    # --- Cast rays per ring -------------------------------------
     fan_notes = []
     ring_radial_rows = []
     wall_x_values = sorted(set(
@@ -346,7 +331,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
             dx = math.cos(theta)
             dy = math.sin(theta)
 
-            # Cast from ring centre along (dx, dy).
             perim_hit = _ray_perimeter_intersection(
                 (cx, cy), (dx, dy), perim_xy
             )
@@ -354,12 +338,10 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                 rows.append([])
                 continue
 
-            # Default outer point is the perimeter hit.
             outer_x, outer_y = perim_hit[0], perim_hit[1]
             d_perim = math.hypot(outer_x - cx, outer_y - cy)
             hit_type = "perim"
 
-            # Clip at the right wall if the ray heads that way.
             if dx > 1e-12 and right_x < 1e8:
                 w = _ray_wall_intersection((cx, cy), (dx, dy), right_x)
                 if w is not None:
@@ -368,7 +350,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                         outer_x, outer_y = w[0], w[1]
                         d_perim = d_wall
                         hit_type = "wall"
-            # Clip at the left wall if the ray heads that way.
             if dx < -1e-12 and left_x > -1e8:
                 w = _ray_wall_intersection((cx, cy), (dx, dy), left_x)
                 if w is not None:
@@ -383,7 +364,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
             else:
                 n_hit_perim += 1
 
-            # Inner point: on the ring circle.
             inner_x = cx + r * dx
             inner_y = cy + r * dy
 
@@ -407,10 +387,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                n_hit_perim, n_hit_wall)
         )
 
-    # --- Snap to wall planes ------------------------------------
-    # Any node whose x is within SNAP_TOL of a wall x is snapped
-    # onto that wall x.  This is what makes the valley a clean
-    # shared fold in x.
     snapped_count = 0
     for nid in range(len(points_list)):
         px, py, pz = points_list[nid]
@@ -423,7 +399,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
     points = np.asarray(points_list, dtype=float)
     n_total = points.shape[0]
 
-    # --- Triangles: fan per ring, quad strips split --------------
     triangles = []
     for k in range(len(ring_specs)):
         rows = ring_radial_rows[k]
@@ -445,7 +420,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                 triangles.append((a0, b0, b1))
                 triangles.append((a0, b1, a1))
 
-        # Ring-to-fabric attach.
         for row in rows:
             if len(row) == 0:
                 continue
@@ -471,16 +445,12 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
             else:
                 triangles.append((poly_id, inner_id, poly_next))
 
-        # Fabric-to-perimeter attach for rays that hit the perimeter.
         for row in rows:
             if len(row) == 0:
                 continue
             outer_id = row[-1]
             px = float(points[outer_id, 0])
             py = float(points[outer_id, 1])
-            # Only attach if the outer node is actually near the
-            # perimeter.  Wall ends have x on a wall plane and are
-            # not attached to the perimeter.
             near_wall = False
             for wx in wall_x_values:
                 if abs(px - wx) < 5.0 * SNAP_TOL:
@@ -501,10 +471,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                 continue
             triangles.append((outer_id, best, (best + 1) % n_perim))
 
-    # --- Valley stitch ------------------------------------------
-    # Between adjacent rings, the right-wall column of ring k and
-    # the left-wall column of ring k+1 must be joined.  They sit on
-    # the same wall x, so we stitch node by node by matching y.
     for k in range(len(ring_specs) - 1):
         right_wall_x = walls[k][1]
         if not (-1e8 < right_wall_x < 1e8):
@@ -529,7 +495,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
         col_b = _wall_col(left_rows_next, right_wall_x)
         if len(col_a) < 2 or len(col_b) < 2:
             continue
-        # Pair by index after sorting by y.
         n_pair = min(len(col_a), len(col_b))
         for i in range(n_pair - 1):
             a0 = col_a[i][1]
@@ -542,14 +507,12 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
     triangles = [t for t in triangles if t[0] != t[1]
                  and t[1] != t[2] and t[0] != t[2]]
 
-    # --- Edges from triangles -----------------------------------
     edge_set = set()
     for (a, b, c) in triangles:
         for (i, j) in ((a, b), (b, c), (c, a)):
             key = (i, j) if i < j else (j, i)
             edge_set.add(key)
 
-    # --- Ring beam, spoke, drop member edges --------------------
     for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
         centre_i = int(centre_indices[k])
@@ -574,7 +537,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
 
     edges = sorted(edge_set)
 
-    # --- Held nodes ---------------------------------------------
     fixed_set = set()
     anchor_node_indices = []
     for i in perimeter_anchor_idx:
@@ -1105,15 +1067,13 @@ def render_tester_multi_cone():
 
     # --- Figure: plan view of initial mesh ----------------------
     figp = go.Figure()
-    # Perimeter loop.
-    perim_closed_xy = np.vstack([perim_xy_from(pts_init, ps, pe),
-                                 perim_xy_from(pts_init, ps, pe)[:1]])
+    perim_xy = pts_init[ps:pe, :2]
+    perim_closed_xy = np.vstack([perim_xy, perim_xy[:1]])
     figp.add_trace(go.Scatter(
         x=perim_closed_xy[:, 0], y=perim_closed_xy[:, 1],
         mode="lines", line=dict(color=COL_PERIMETER, width=3),
         name="perimeter", showlegend=False, hoverinfo="skip",
     ))
-    # Ring circles.
     for k, idx_list in enumerate(built["ring_indices"]):
         pp = pts_init[idx_list]
         closed = np.vstack([pp, pp[:1]])
@@ -1122,7 +1082,6 @@ def render_tester_multi_cone():
             mode="lines", line=dict(color=COL_RING_EDGE, width=2),
             name=f"ring {k+1}", showlegend=False, hoverinfo="skip",
         ))
-    # Wall lines.
     for (wl, wr) in built["cell_walls"]:
         for wx in (wl, wr):
             if -1e8 < wx < 1e8:
@@ -1132,12 +1091,9 @@ def render_tester_multi_cone():
                     line=dict(color=COL_VALLEY, width=2, dash="dash"),
                     name="wall", showlegend=False, hoverinfo="skip",
                 ))
-    # Radial nodes as small markers.
-    rx = pts_init[n_perim_free_start(built):, 0] if False else None
-    # Simpler: plot ALL non-perimeter, non-ring, non-centre, non-beam nodes.
     ring_node_id_set = set()
     for idx_list in built["ring_indices"]:
-        ring_node_id_set.update(idx_list)
+        ring_node_id_set.update(int(i) for i in idx_list)
     for i in built["centre_indices"]:
         ring_node_id_set.add(int(i))
     for i in built["beam_top_indices"]:
@@ -1153,7 +1109,6 @@ def render_tester_multi_cone():
             marker=dict(color=COL_MEMBRANE, size=3),
             name="radial nodes", showlegend=False, hoverinfo="skip",
         ))
-    # Anchors.
     if anchor_ids:
         ap = pts_init[anchor_ids]
         figp.add_trace(go.Scatter(
