@@ -93,13 +93,6 @@ def _render_tester_star_diagnostic():
     from ui.workshops.tester_star_diagnostic import render_tester_star_diagnostic
     render_tester_star_diagnostic()
 
-def _render_tester_two_cone():
-    from ui.workshops.tester_two_cone import render_tester_two_cone
-    render_tester_two_cone()
-
-def _render_tester_single_cone():
-    from ui.workshops.tester_single_cone import render_tester_single_cone
-    render_tester_single_cone()
 
 def _render_tester_multi_cone():
     from ui.workshops.tester_multi_cone import render_tester_multi_cone
