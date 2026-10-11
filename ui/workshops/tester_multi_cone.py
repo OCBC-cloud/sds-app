@@ -1,50 +1,34 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v13.
+Version v14.
 
 What is new in this version:
-  - Cone placement is by a single spacing input.  No per-cone
-    widgets.  The user says how far apart adjacent cones are
-    (measured along the primary beam's arc length, from the
-    absolute mid-span of the structure), and the solver places
-    the rings accordingly.
+  - Spokes and drop members are drawn back in the viewer.
+  - Every steel member (spoke, drop member, ring beam segment,
+    ring beam consolidated) is recorded by name for BQ and analysis.
 
-  Placement rule:
-      Let d = spacing in metres along the arc.
-      Let L = total arc length of the primary beam.
-      Let s_mid = L / 2 (the mid-span arc-length position).
+Members recorded per ring:
+  - Ring beam:  one consolidated member per ring, plus N
+                segment members between adjacent polygon nodes.
+                Name:  Ring_<i>_Ring_Beam  and  Ring_<i>_Beam_Seg_<k>
+  - Spokes:     one per ring polygon node.
+                Name:  Ring_<i>_Spoke_<k>
+  - Drop member: one per ring.
+                Name:  Ring_<i>_Drop_Member
 
-      If N cones is odd:
-        rings at arc-length positions
-          s_mid + k * d    for k in {0, +/-1, +/-2, ...}
-        up to N total rings.
+Member fields:
+  member_id, member_type, ring_index, node_a, node_b,
+  length_m, section, material, role
 
-      If N cones is even:
-        rings at arc-length positions
-          s_mid + k * d    for k in {+/-0.5, +/-1.5, +/-2.5, ...}
-        up to N total rings.  The spacing between the two middle
-        rings is d.
+section and material are placeholders ("TBD") until the sizing
+engine assigns them.
 
-  Ring z at each station:
-      z_ring = primary_beam_z(s_ring) - clearance.
-      Rings follow the beam's slope.
-
-  Refuse rule:
-      If any ring's arc-length position falls outside
-      [0, L], the input is refused.  Diagnostics show the
-      maximum allowed spacing for this cone count and span.
-
-  Each ring:
-      - 12 polygon nodes at the ring height,
-      - one centre node, held,
-      - one beam-top node at the beam's z directly above, held,
-      - radial spokes from centre to each polygon node,
-      - one drop member from centre to beam-top,
-      - fabric nodes within 1 * target_edge_length of the ring
-        attached and held at ring height.
-
-Viewer shows membrane, primary beam, ribs, ring polygons.
-No decoration markers.
+Carried over from v13:
+  - Cone placement by a single spacing input.
+  - Ring z follows the beam: z_ring = beam_z(s_ring) - clearance.
+  - Refuse rule if any ring falls outside the span.
+  - Per-cone widgets removed.  Three numbers control layout:
+      number of cones, spacing, clearance.
 
 No engine files are modified.
 """
@@ -63,7 +47,6 @@ from viewers.figures._shared import (
 )
 
 
-RING_HEIGHT_FALLBACK = 7.0
 RIB_SEGMENTS = 80
 RING_NODES_MIN = 12
 RING_NODES_MAX = 32
@@ -72,9 +55,9 @@ COL_MEMBRANE = "#4a7a9c"
 COL_RING_EDGE = "#ffd166"
 COL_PRIMARY = "#FF6B6B"
 COL_RIB = "#e07b39"
+COL_SPOKE = "#c0c0c0"
+COL_DROP = "#a0a0a0"
 
-
-# --- Shape helpers -----------------------------------------------------------
 
 def _ellipse_y(x, span, mid_width):
     a = span / 2.0
@@ -180,28 +163,17 @@ def _ring_node_count(r, target_len):
     return n
 
 
-# --- Cone placement ----------------------------------------------------------
-
 def _cone_arc_positions(n_cones, spacing, total):
-    """Return arc-length positions for n_cones rings, centred at total/2.
-
-    Odd n: positions at total/2 + k * spacing for k = 0, +/-1, ...
-    Even n: positions at total/2 + k * spacing for k = +/-0.5, +/-1.5, ...
-
-    Raises ValueError if any position falls outside [0, total].
-    """
     if n_cones < 1:
         raise ValueError("Number of cones must be at least 1.")
     mid = total / 2.0
     if n_cones % 2 == 1:
-        # k = 0, +1, -1, +2, -2, ...
         half = (n_cones - 1) // 2
         ks = [0]
         for i in range(1, half + 1):
             ks.append(+i)
             ks.append(-i)
     else:
-        # k = +0.5, -0.5, +1.5, -1.5, ...
         half = n_cones // 2
         ks = []
         for i in range(half):
@@ -219,7 +191,6 @@ def _cone_arc_positions(n_cones, spacing, total):
 
 
 def _max_spacing_for(n_cones, total):
-    """Largest spacing that keeps every ring inside [0, total]."""
     if n_cones <= 1:
         return float("inf")
     mid = total / 2.0
@@ -231,8 +202,6 @@ def _max_spacing_for(n_cones, total):
         return float("inf")
     return mid / k_max
 
-
-# --- Mesh build --------------------------------------------------------------
 
 def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
                       eave_height, target_len):
@@ -350,23 +319,28 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     for key in boundary_edge_set:
         all_edge_set.add(key)
 
+    # --- Ring assembly edges -----------------------------------------
     for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
         centre_i = centre_indices[k]
         beam_i = beam_top_indices[k]
         n_poly = len(idx_list)
+        # Ring beam segments
         for i in range(n_poly):
             a = idx_list[i]
             b = idx_list[(i + 1) % n_poly]
             key = (a, b) if a < b else (b, a)
             all_edge_set.add(key)
             boundary_edge_set.add(key)
+        # Spokes
         for i in idx_list:
             key = (centre_i, i) if centre_i < i else (i, centre_i)
             all_edge_set.add(key)
+        # Drop member
         key = (centre_i, beam_i) if centre_i < beam_i else (beam_i, centre_i)
         all_edge_set.add(key)
 
+    # --- Fabric attachment -------------------------------------------
     attached_node_indices = set()
     ring_attach_counts = []
     ring_attach_edges_added = []
@@ -446,6 +420,113 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     }
 
 
+# --- Member schedule ---------------------------------------------------------
+
+def _build_member_schedule(built, coords, ring_x_positions):
+    """Return a list of named member records for BQ and analysis.
+
+    Fields: member_id, member_type, ring_index, node_a, node_b,
+            length_m, section, material, role
+    """
+    members = []
+    ring_indices = built["ring_indices"]
+    centre_indices = built["centre_indices"]
+    beam_top_indices = built["beam_top_indices"]
+
+    for k in range(len(ring_indices)):
+        ring_no = k + 1
+        idx_list = ring_indices[k]
+        centre_i = int(centre_indices[k])
+        beam_i = int(beam_top_indices[k])
+        n_poly = len(idx_list)
+
+        # Ring beam consolidated (one member for BQ).
+        ring_length = 0.0
+        for i in range(n_poly):
+            a = int(idx_list[i])
+            b = int(idx_list[(i + 1) % n_poly])
+            ring_length += float(np.linalg.norm(coords[b] - coords[a]))
+        members.append({
+            "member_id": f"Ring_{ring_no}_Ring_Beam",
+            "member_type": "ring_beam",
+            "ring_index": ring_no,
+            "node_a": int(idx_list[0]),
+            "node_b": int(idx_list[0]),
+            "length_m": float(ring_length),
+            "section": "TBD",
+            "material": "TBD",
+            "role": "closed ring beam, one per cone",
+        })
+
+        # Ring beam segments (one per polygon node).
+        for i in range(n_poly):
+            a = int(idx_list[i])
+            b = int(idx_list[(i + 1) % n_poly])
+            L = float(np.linalg.norm(coords[b] - coords[a]))
+            members.append({
+                "member_id": f"Ring_{ring_no}_Beam_Seg_{i+1:02d}",
+                "member_type": "ring_beam_segment",
+                "ring_index": ring_no,
+                "node_a": a,
+                "node_b": b,
+                "length_m": L,
+                "section": "TBD",
+                "material": "TBD",
+                "role": "ring beam segment between adjacent nodes",
+            })
+
+        # Spokes: one per polygon node.
+        for i, node_i in enumerate(idx_list):
+            node_i = int(node_i)
+            L = float(np.linalg.norm(coords[node_i] - coords[centre_i]))
+            members.append({
+                "member_id": f"Ring_{ring_no}_Spoke_{i+1:02d}",
+                "member_type": "spoke",
+                "ring_index": ring_no,
+                "node_a": centre_i,
+                "node_b": node_i,
+                "length_m": L,
+                "section": "TBD",
+                "material": "TBD",
+                "role": "radial spoke from ring centre to ring circle",
+            })
+
+        # Drop member: one per ring.
+        L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
+        members.append({
+            "member_id": f"Ring_{ring_no}_Drop_Member",
+            "member_type": "drop_member",
+            "ring_index": ring_no,
+            "node_a": beam_i,
+            "node_b": centre_i,
+            "length_m": L,
+            "section": "TBD",
+            "material": "TBD",
+            "role": "vertical drop member from primary beam to ring centre",
+        })
+
+    return members
+
+
+def _format_member_table(members):
+    lines = []
+    header = (
+        "%-28s  %-18s  %-5s  %-6s  %-6s  %-9s  %-7s  %-8s  %s"
+        % ("member_id", "member_type", "ring", "node_a", "node_b",
+           "length_m", "section", "material", "role")
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+    for m in members:
+        lines.append(
+            "%-28s  %-18s  %-5d  %-6d  %-6d  %-9.4f  %-7s  %-8s  %s"
+            % (m["member_id"], m["member_type"], m["ring_index"],
+               m["node_a"], m["node_b"], m["length_m"],
+               m["section"], m["material"], m["role"])
+        )
+    return "\n".join(lines)
+
+
 # --- Node digitisation -------------------------------------------------------
 
 _HEADER = (
@@ -493,8 +574,8 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — multi-cone by spacing.  "
-        "One number per rule.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — multi-cone, steel "
+        "member schedule.</p>",
         unsafe_allow_html=True,
     )
 
@@ -567,7 +648,6 @@ def render_tester_multi_cone():
         key="mc_edgeq",
     )
 
-    # --- Primary curve, ribs -----------------------------------------
     xp = np.linspace(-span / 2.0, span / 2.0, 200)
     zp = beam_curve(xp, span, apex, curve_type)
     s_p, total_p = arclength_parametrisation(xp, zp)
@@ -578,7 +658,6 @@ def render_tester_multi_cone():
         [_ellipse_y(float(xr), span, mid_width) for xr in rib_x], dtype=float
     )
 
-    # --- Cone placement by rule --------------------------------------
     placement_error = ""
     ring_specs = []
     s_rings = []
@@ -615,7 +694,6 @@ def render_tester_multi_cone():
         )
         return
 
-    # --- Eave boundary polygon ---------------------------------------
     tip_x = _tip_x_at_eave(span, apex, eave_height, curve_type)
     anchors = _build_eave_anchors(
         rib_x, rib_half_width, rib_peak_z, eave_height, tip_x
@@ -625,7 +703,6 @@ def render_tester_multi_cone():
     L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
     target_len = max(L_avg, 1e-6)
 
-    # --- Build mesh --------------------------------------------------
     built = _build_cone_mesh(
         perimeter_loop, anchor_idx, ring_specs,
         eave_height, target_len,
@@ -702,16 +779,51 @@ def render_tester_multi_cone():
             mode="lines", line=dict(color=COL_RING_EDGE, width=5),
             name=f"ring {k+1}", showlegend=False, hoverinfo="skip",
         ))
+        centre_i = built["centre_indices"][k]
+        beam_i = built["beam_top_indices"][k]
+        cx, cy, cz = coords[centre_i]
+        # Spokes drawn
+        for poly_i in idx_list:
+            fig.add_trace(go.Scatter3d(
+                x=[cx, coords[poly_i, 0]],
+                y=[cy, coords[poly_i, 1]],
+                z=[cz, coords[poly_i, 2]],
+                mode="lines", line=dict(color=COL_SPOKE, width=2),
+                name="spoke", showlegend=False, hoverinfo="skip",
+            ))
+        # Drop member drawn
+        bx, by, bz = coords[beam_i]
+        fig.add_trace(go.Scatter3d(
+            x=[cx, bx], y=[cy, by], z=[cz, bz],
+            mode="lines", line=dict(color=COL_DROP, width=4),
+            name="drop", showlegend=False, hoverinfo="skip",
+        ))
 
     apply_common_layout(fig, apex)
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
+
+    # --- Member schedule --------------------------------------------
+    members = _build_member_schedule(built, coords, x_rings)
+
+    with st.expander("Steel member schedule (BQ and analysis)", expanded=False):
+        st.write(f"Total members recorded: {len(members)}")
+        st.write(
+            "Counts: %d ring beam (consolidated), %d ring beam segments, "
+            "%d spokes, %d drop members."
+            % (
+                sum(1 for m in members if m["member_type"] == "ring_beam"),
+                sum(1 for m in members if m["member_type"] == "ring_beam_segment"),
+                sum(1 for m in members if m["member_type"] == "spoke"),
+                sum(1 for m in members if m["member_type"] == "drop_member"),
+            )
+        )
+        st.code(_format_member_table(members), language="text")
 
     with st.expander("Diagnostics", expanded=False):
         st.write(f"Number of cones: {number_of_cones}")
         st.write(f"Spacing (m, along beam): {ring_spacing:.3f}")
         st.write(f"Primary arc length (m): {total_p:.3f}")
-        st.write(f"Maximum allowed spacing for this cone count: "
-                 f"{max_spacing:.3f} m")
+        st.write(f"Maximum allowed spacing: {max_spacing:.3f} m")
         st.write(f"Ring clearance below beam (m): {ring_clearance:.3f}")
         st.write(f"Ring diameter (m): {ring_diameter:.3f}")
         st.write("Ring arc-length positions (m): " +
