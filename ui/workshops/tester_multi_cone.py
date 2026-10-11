@@ -1,51 +1,26 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v18.
+Version v19.
 
-The v17 builder fanned each ring with a full 360-degree sweep and
-clipped rays at the walls per-ring.  That produced two separate wall
-columns (one per adjacent ring), at different y values, with no shared
-node IDs.  The fabric had a free edge at every valley.  The solver then
-pulled that free fabric wherever it wanted — the explosion in the 3D.
+The v18 builder had two different walks over the same boundary
+polyline: an arc-length walk for the ray outer points, and an
+index-based walk for the fabric-to-boundary attach.  They did not
+agree, so outer ray nodes were attached to synthetic positions
+that had no node id.  The wall columns were built but no fan
+actually attached to them.  The middle strip was tiled correctly
+by accident (its wall columns happened to line up), but the left
+and right cones had free outer nodes that the solver pulled
+inward.  Hence the fractured outer fans.
 
-v18 does NOT clip rays at the walls.  It builds the walls first, as
-first-class node columns at fixed positions along the wall planes.
-Both adjacent rings fan INTO the same wall nodes.  Zero tolerance
-snapping.  Zero nearest-node heuristics.  Shared IDs.
+v19 carries node ids through the boundary walk.  Every boundary
+sample is a real node id.  If the arc-length sample falls between
+two existing boundary nodes, a new node is inserted at that exact
+position, and its id is recorded.  The ray outer node and the
+boundary attach node are then the SAME id.
 
-The mesh is now a genuine partition of the plan:
+No tolerance snapping.  No nearest-node heuristics.  Shared ids.
 
-  - Strip for ring 1 :  x < wall_L
-  - Strip for ring 2 :  wall_L <= x <= wall_R
-  - Strip for ring 3 :  x > wall_R
-
-  Wall_L is a single column of nodes shared by ring 1 and ring 2.
-  Wall_R is a single column of nodes shared by ring 2 and ring 3.
-
-  The perimeter is a single closed loop, already shared.
-  The rings are held.
-  The edge cable is anchored at the 8 ground anchors.
-
-Each ring's fan is built as a quad strip between:
-  - the ring circle (inner curve, split into RING_NODES points)
-  - the wall-to-wall boundary of its strip (outer curve, split
-    into RAYS_PER_RING points).
-
-Both curves are parametrised by the same arc-length fraction, so the
-mapping ring_node_k -> outer_node_k is one-to-one and the quads tile
-the strip with no gaps and no overlaps.
-
-The outer curve of a strip is a single closed polyline:
-  perimeter top  ->  right wall column  ->  perimeter bottom  ->
-  left wall column  ->  back to perimeter top.
-
-It is sampled at RAYS_PER_RING positions by arc length.  Those
-positions then determine, for each ring, the exact outer boundary
-point for each of its rays.  Adjacent rings share the wall nodes
-because the wall nodes are generated once, before any ring's fan.
-
-Everything else is carried over from v17.1 unchanged.
-No engine files are modified.
+Everything else is carried over from v18 unchanged.
 """
 
 import math
@@ -232,208 +207,85 @@ def _cell_walls_x(x_rings):
 
 
 # =============================================================================
+# BOUNDARY WALK WITH NODE IDS
+# =============================================================================
+
+def _walk_boundary_with_ids(points_list, boundary_ids, sample_count):
+    """
+    Walk a closed boundary polyline given as an ordered list of node ids.
+    Sample it at `sample_count` evenly-spaced arc-length positions,
+    carrying the node id for each sample.
+
+    If a sample falls on an existing node, reuse that id.  If it falls
+    between two nodes, insert a NEW node at the exact sample position
+    and use the new id.  Either way, return a list of node ids, one per
+    sample, plus a dict { node_id : (x, y, z) } for any newly inserted
+    nodes.
+
+    This guarantees that the samples are actual nodes: both the ray
+    outer point and the fabric attach use the same id.
+    """
+    n = len(boundary_ids)
+    if n < 2:
+        return [], {}
+
+    # Build positions along the closed polyline.
+    positions = np.zeros((n, 2))
+    for i, nid in enumerate(boundary_ids):
+        positions[i, 0] = points_list[nid][0]
+        positions[i, 1] = points_list[nid][1]
+
+    # Segment lengths.
+    seg = np.diff(np.vstack([positions, positions[:1]]), axis=0)
+    seglen = np.linalg.norm(seg, axis=1)
+    total_len = float(np.sum(seglen))
+    if total_len < 1e-9:
+        return [], {}
+    cum = np.concatenate([[0.0], np.cumsum(seglen)])
+
+    # Sample.
+    new_nodes = {}
+    sample_ids = []
+    for s_idx in range(sample_count):
+        s = total_len * s_idx / float(sample_count)
+        # Find the segment containing s.
+        j = int(np.searchsorted(cum, s, side="right") - 1)
+        if j < 0:
+            j = 0
+        if j >= n:
+            j = n - 1
+        a = positions[j]
+        b = positions[(j + 1) % n]
+        seg_len = seglen[j]
+        if seg_len < 1e-12:
+            # Zero-length segment; reuse the start node.
+            sample_ids.append(boundary_ids[j])
+            continue
+        t = (s - cum[j]) / seg_len
+        if t < 1e-6:
+            sample_ids.append(boundary_ids[j])
+        elif t > 1.0 - 1e-6:
+            sample_ids.append(boundary_ids[(j + 1) % n])
+        else:
+            # Insert a new node at this exact position.
+            px = a[0] + t * (b[0] - a[0])
+            py = a[1] + t * (b[1] - a[1])
+            nid_new = len(points_list)
+            # Wall nodes should keep the wall x exactly.
+            z_new = points_list[boundary_ids[j]][2]
+            points_list.append((px, py, z_new))
+            new_nodes[nid_new] = (px, py, z_new)
+            sample_ids.append(nid_new)
+
+    return sample_ids, new_nodes
+
+
+# =============================================================================
 # MESH BUILDING
 # =============================================================================
 
-def _build_perimeter_and_walls(perimeter_loop, wall_x_values, eave_height):
-    """
-    Build the perimeter and wall node columns once.
-
-    Returns:
-      perimeter_ids   : list of node ids for the perimeter loop
-      wall_columns    : dict { wall_x : list of node ids (from -y to +y) }
-      y_min, y_max    : plan-y bounds for wall columns
-    """
-    points_list = [tuple(p) for p in perimeter_loop]
-    perimeter_ids = list(range(len(points_list)))
-
-    ys = perimeter_loop[:, 1]
-    y_min = float(np.min(ys))
-    y_max = float(np.max(ys))
-
-    wall_columns = {}
-    # Each wall is a column of nodes at fixed x, spanned from y_min
-    # to y_max.  Use the same count as RAYS_PER_RING for uniformity.
-    n_wall = RAYS_PER_RING
-    for wx in wall_x_values:
-        col = []
-        for k in range(n_wall):
-            f = k / float(n_wall - 1) if n_wall > 1 else 0.5
-            y = y_min + f * (y_max - y_min)
-            # The z of the wall node follows the same linear law as
-            # the fabric: wall nodes are not held, so z is set to
-            # eave_height minus a small fraction.  Actually we want
-            # them to be free in z, so set an initial z that is
-            # between the ring and eave.  Use eave for now.
-            z = eave_height
-            nid = len(points_list)
-            points_list.append((float(wx), float(y), float(z)))
-            col.append(nid)
-        wall_columns[wx] = col
-
-    return np.asarray(points_list, dtype=float), perimeter_ids, wall_columns, \
-        y_min, y_max
-
-
-def _boundary_polyline_for_ring(k, ring_specs, perimeter_ids, perim_xy,
-                                wall_columns, y_min, y_max, eave_height):
-    """
-    Build the outer boundary curve of ring k's strip as a closed
-    polyline of (x, y, z, node_id) samples, ordered around the strip.
-
-    Ring k's strip is:
-      left  bound = walls[k][0]   (None = whole left half)
-      right bound = walls[k][1]   (None = whole right half)
-
-    For the outer rings, the un-bounded side is simply the perimeter
-    on that side.
-
-    Returns a list of (x, y, z, node_id) samples, ordered by walking
-    the strip boundary once.  If a wall is present, the samples on
-    that wall use the shared wall node ids.
-    """
-    cx = float(ring_specs[k]["cx"])
-    cy = float(ring_specs[k]["cy"])
-
-    left_wall, right_wall = None, None
-    if k > 0:
-        left_wall = 0.5 * (float(ring_specs[k - 1]["cx"]) +
-                            float(ring_specs[k]["cx"]))
-    if k < len(ring_specs) - 1:
-        right_wall = 0.5 * (float(ring_specs[k]["cx"]) +
-                             float(ring_specs[k + 1]["cx"]))
-
-    # Collect perimeter nodes that belong to this strip.
-    perim_strip_ids = []
-    for pid in perimeter_ids:
-        px = float(perim_xy[pid, 0])
-        if left_wall is not None and px < left_wall - 1e-9:
-            continue
-        if right_wall is not None and px > right_wall + 1e-9:
-            continue
-        perim_strip_ids.append(pid)
-
-    # Order the perimeter samples as they appear on the closed loop,
-    # keeping only those in this strip.  The perimeter loop is a
-    # single closed sequence; we walk it and pick out the strip ones
-    # in order, wrapping around.
-    n_perim = len(perimeter_ids)
-    ordered_perim_ids = []
-    seen = set(perim_strip_ids)
-    for i in range(n_perim):
-        if i in seen:
-            if not ordered_perim_ids:
-                # find the start of the contiguous block
-                pass
-            ordered_perim_ids.append(i)
-    # Ensure ordered by walking from the first hit.
-    if ordered_perim_ids:
-        start_idx = ordered_perim_ids[0]
-        ordered = []
-        i = start_idx
-        visited = set()
-        while i not in visited:
-            visited.add(i)
-            if i in seen:
-                ordered.append(i)
-            i = (i + 1) % n_perim
-        ordered_perim_ids = ordered
-
-    # Build the closed boundary polyline for this strip:
-    #   perimeter (this strip's segment),
-    #   plus wall columns if present.
-    boundary = []  # list of (x, y, z, node_id)
-    wall_left_nodes = None
-    wall_right_nodes = None
-    if left_wall is not None:
-        wall_left_nodes = wall_columns[left_wall]
-    if right_wall is not None:
-        wall_right_nodes = wall_columns[right_wall]
-
-    # The full strip boundary, going clockwise in plan:
-    #   start at top-right of the strip
-    #   -> right wall down to bottom-right
-    #   -> perimeter bottom of the strip (leftward)
-    #   -> left wall up to top-left
-    #   -> perimeter top of the strip (rightward)
-
-    # Right wall (top -> bottom in y).
-    if wall_right_nodes is not None:
-        for nid in reversed(wall_right_nodes):
-            x, y, z = wall_right_nodes and (0, 0, 0)  # placeholder
-            # fetch actual coords below; we only carry ids here
-            boundary.append(("wall", nid, right_wall))
-
-    # Perimeter segment of the strip, from right end to left end.
-    # We split the strip perimeter into the +y half and the -y half.
-    perim_plus = [pid for pid in ordered_perim_ids
-                  if float(perim_xy[pid, 1]) >= 0.0]
-    perim_minus = [pid for pid in ordered_perim_ids
-                   if float(perim_xy[pid, 1]) < 0.0]
-
-    # Walk order for a strip boundary, starting after the right wall,
-    # going counterclockwise through -y then +y.  Simpler: build the
-    # boundary as three segments in y-order (top, right wall, bottom,
-    # left wall).  For a two-sided strip, only the perimeter arcs
-    # belong.
-    #
-    # For robustness, build:
-    #   top arc:    perimeter samples with y >= 0, from right to left
-    #   bottom arc: perimeter samples with y <= 0, from left to right
-    # and stitch the wall columns between them.
-    top_arc = sorted(perim_plus, key=lambda pid: float(perim_xy[pid, 0]))
-    bottom_arc = sorted(perim_minus, key=lambda pid: -float(perim_xy[pid, 0]))
-
-    # Rebuild boundary in a simple, deterministic order:
-    #   right wall (top to bottom)
-    #   bottom arc (right to left in x, i.e. -x direction)
-    #   left wall (bottom to top)
-    #   top arc (left to right in x, i.e. +x direction)
-    boundary = []
-    if wall_right_nodes is not None:
-        for nid in reversed(wall_right_nodes):
-            boundary.append(("wall", nid, right_wall))
-    # bottom arc goes from right end toward left end (decreasing x).
-    for pid in sorted(perim_minus, key=lambda pid: -float(perim_xy[pid, 0])):
-        boundary.append(("perim", pid, None))
-    if wall_left_nodes is not None:
-        for nid in wall_left_nodes:
-            boundary.append(("wall", nid, left_wall))
-    # top arc goes from left end toward right end (increasing x).
-    for pid in sorted(perim_plus, key=lambda pid: float(perim_xy[pid, 0])):
-        boundary.append(("perim", pid, None))
-
-    # If wall_left is None (i.e. k==0), we still need to close the
-    # strip boundary around x = -inf.  In that case, the strip is the
-    # whole left half of the ellipse, and the "left wall" is the left
-    # tip of the perimeter.  Nothing to add; the boundary naturally
-    # closes because top arc and bottom arc share the leftmost
-    # perimeter node.
-    #
-    # Similarly for rightmost ring with right_wall = None.
-
-    return boundary
-
-
-def _boundary_point_xy(node_kind, node_ref, wall_x, points_array,
-                       perim_xy):
-    if node_kind == "perim":
-        px = float(points_array[node_ref, 0])
-        py = float(points_array[node_ref, 1])
-        return px, py
-    else:  # wall
-        wx = float(wall_x)
-        # use the y from the wall node's actual position
-        py = float(points_array[node_ref, 1])
-        return wx, py
-
-
 def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                        ring_specs, eave_height):
-    """
-    Build the mesh in v18 style: shared wall columns, no tolerance
-    snapping, no nearest-node heuristics.
-    """
     n_perim = perimeter_loop.shape[0]
     perim_xy = perimeter_loop[:, :2]
 
@@ -442,15 +294,33 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
     wall_x_values = sorted(w for (wl, wr) in walls for w in (wl, wr)
                            if w is not None)
 
-    # --- Build perimeter + walls as node columns -----------------
-    points, perimeter_ids, wall_columns, y_min, y_max = \
-        _build_perimeter_and_walls(perimeter_loop, wall_x_values,
-                                    eave_height)
-    points_list = [tuple(p) for p in points]
+    # --- Perimeter nodes --------------------------------------
+    points_list = [tuple(p) for p in perimeter_loop]
     perimeter_start = 0
     perimeter_end = n_perim
+    perimeter_ids = list(range(n_perim))
 
-    # --- Build ring circles and ring centres --------------------
+    # --- Wall node columns ------------------------------------
+    ys = perimeter_loop[:, 1]
+    y_min = float(np.min(ys))
+    y_max = float(np.max(ys))
+
+    wall_columns = {}
+    wall_node_set = set()
+    n_wall = RAYS_PER_RING
+    for wx in wall_x_values:
+        col = []
+        for k in range(n_wall):
+            f = k / float(n_wall - 1) if n_wall > 1 else 0.5
+            y = y_min + f * (y_max - y_min)
+            z = eave_height
+            nid = len(points_list)
+            points_list.append((float(wx), float(y), float(z)))
+            col.append(nid)
+            wall_node_set.add(nid)
+        wall_columns[wx] = col
+
+    # --- Ring circles and ring centres ------------------------
     ring_indices = []
     centre_indices = []
     beam_top_indices = []
@@ -483,10 +353,13 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
 
         ring_xy.append((cx, cy, r))
 
-    # --- For each ring, sample its strip boundary at RAYS_PER_RING
-    #     equal arc-length positions, and generate radial nodes. -----
+    # --- For each ring, build a strip boundary as an ordered id
+    #     list, then sample it at RAYS_PER_RING positions.
+    #     Generate radial nodes between the ring circle and the
+    #     sampled boundary node for each ray.
     fan_notes = []
-    ring_radial_rows = []  # per ring: list of rows (inner->outer node ids)
+    ring_radial_rows = []  # list of rows; each row is a list of node ids
+    ring_boundary_sample_ids = []  # for later triangle attach
 
     for k, spec in enumerate(ring_specs):
         cx = float(spec["cx"])
@@ -495,71 +368,88 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
         r = float(spec["r"])
         eave_z = eave_height
 
-        boundary = _boundary_polyline_for_ring(
-            k, ring_specs, perimeter_ids, perim_xy, wall_columns,
-            y_min, y_max, eave_height
+        left_wall = walls[k][0]
+        right_wall = walls[k][1]
+
+        # 1. Boundary as an ordered list of existing node ids.
+        #    Walk the perimeter in loop order, keeping only perimeter
+        #    nodes whose x lies within [left_wall, right_wall].
+        #    Then prepend/append the wall columns as appropriate.
+        perim_in_strip = []
+        for pid in perimeter_ids:
+            px = float(perim_xy[pid, 0])
+            if left_wall is not None and px < left_wall - 1e-9:
+                continue
+            if right_wall is not None and px > right_wall + 1e-9:
+                continue
+            perim_in_strip.append(pid)
+
+        if not perim_in_strip:
+            ring_radial_rows.append([])
+            ring_boundary_sample_ids.append([])
+            fan_notes.append("ring %d : no perimeter nodes in strip"
+                             % (k + 1))
+            continue
+
+        # Walk the perimeter loop once, starting at the first in-strip
+        # node and collecting contiguous in-strip nodes.
+        in_strip_set = set(perim_in_strip)
+        start_idx = perim_in_strip[0]
+        ordered_perim = []
+        i = start_idx
+        # Guard against infinite loop
+        for _ in range(n_perim + 1):
+            if i in in_strip_set:
+                ordered_perim.append(i)
+            i = (i + 1) % n_perim
+            if i == start_idx:
+                break
+
+        # Split into +y and -y halves.
+        perim_plus = [pid for pid in ordered_perim
+                      if float(perim_xy[pid, 1]) >= 0.0]
+        perim_minus = [pid for pid in ordered_perim
+                       if float(perim_xy[pid, 1]) < 0.0]
+        # Sort by x for a deterministic walk: top arc from left to right
+        # (+x direction); bottom arc from right to left (-x direction).
+        perim_top = sorted(perim_plus, key=lambda pid: float(perim_xy[pid, 0]))
+        perim_bot = sorted(perim_minus, key=lambda pid: -float(perim_xy[pid, 0]))
+
+        # Build the closed boundary id list:
+        #   right wall (top -> bottom),  bottom arc,  left wall (bottom -> top),  top arc
+        boundary_ids = []
+        if right_wall is not None:
+            for nid in reversed(wall_columns[right_wall]):
+                boundary_ids.append(nid)
+        for pid in perim_bot:
+            boundary_ids.append(pid)
+        if left_wall is not None:
+            for nid in wall_columns[left_wall]:
+                boundary_ids.append(nid)
+        for pid in perim_top:
+            boundary_ids.append(pid)
+
+        # 2. Sample the boundary at RAYS_PER_RING arc-length positions,
+        #    carrying node ids (inserting new nodes as needed).
+        sample_ids, _new_nodes = _walk_boundary_with_ids(
+            points_list, boundary_ids, RAYS_PER_RING
         )
-        if len(boundary) < 2:
+        if not sample_ids:
             ring_radial_rows.append([])
-            fan_notes.append("ring %d : empty boundary" % (k + 1))
+            ring_boundary_sample_ids.append([])
+            fan_notes.append("ring %d : empty boundary samples" % (k + 1))
             continue
 
-        # Build the boundary polyline as a closed curve in (x, y)
-        # using the points array (which now includes wall nodes).
-        boundary_xy = np.zeros((len(boundary), 2))
-        for i, (kind, nref, wx) in enumerate(boundary):
-            if kind == "perim":
-                boundary_xy[i, 0] = points[nref, 0]
-                boundary_xy[i, 1] = points[nref, 1]
-            else:
-                # wall node
-                boundary_xy[i, 0] = wx
-                boundary_xy[i, 1] = points[nref, 1]
-        # Close the loop explicitly for arc-length walk.
-        if np.allclose(boundary_xy[0], boundary_xy[-1]):
-            closed = boundary_xy[:-1]
-        else:
-            closed = boundary_xy
-        m = closed.shape[0]
-        seg = np.diff(np.vstack([closed, closed[:1]]), axis=0)
-        seglen = np.linalg.norm(seg, axis=1)
-        total_len = float(np.sum(seglen))
-        if total_len < 1e-9:
-            ring_radial_rows.append([])
-            fan_notes.append("ring %d : zero boundary length" % (k + 1))
-            continue
-        cum = np.concatenate([[0.0], np.cumsum(seglen)])
-        # Sample at RAYS_PER_RING evenly-spaced arc lengths.
-        targets = np.linspace(0.0, total_len, RAYS_PER_RING, endpoint=False)
-        sample_ids = []
-        sample_xy = []
-        for s in targets:
-            j = int(np.searchsorted(cum, s, side="right") - 1)
-            if j < 0:
-                j = 0
-            if j >= m:
-                j = m - 1
-            t = (s - cum[j]) / max(seglen[j], 1e-12)
-            a = closed[j]
-            b = closed[(j + 1) % m]
-            p = a + t * (b - a)
-            sample_xy.append(p)
-        sample_xy = np.asarray(sample_xy)
-
-        # Now generate radial nodes for each sample: place RADIAL_NODES
-        # along the line from the ring circle at the sample's angular
-        # position to the sample point on the strip boundary.
+        # 3. Build radial rows.  For each sample, cast inward to the
+        #    ring circle along the direction from the ring centre.
         rows = []
-        for j in range(RAYS_PER_RING):
-            bx, by = sample_xy[j]
-            # The ring node that corresponds to this boundary sample:
-            # use the direction from the ring centre to the boundary
-            # sample, and take the point on the ring in that direction.
+        for j, outer_id in enumerate(sample_ids):
+            bx = float(points_list[outer_id][0])
+            by = float(points_list[outer_id][1])
             vx = bx - cx
             vy = by - cy
             vlen = math.hypot(vx, vy)
             if vlen < 1e-9:
-                # fall back: use the sample itself as the ring point
                 ix, iy = cx, cy
             else:
                 ix = cx + r * vx / vlen
@@ -575,18 +465,19 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                 row.append(nid)
             rows.append(row)
         ring_radial_rows.append(rows)
+        ring_boundary_sample_ids.append(sample_ids)
         fan_notes.append(
             "ring %d : %d boundary samples, %d radial rows"
-            % (k + 1, RAYS_PER_RING, len(rows))
+            % (k + 1, len(sample_ids), len(rows))
         )
 
     points = np.asarray(points_list, dtype=float)
     n_total = points.shape[0]
 
-    # --- Triangles ----------------------------------------------
+    # --- Triangles --------------------------------------------
     triangles = []
 
-    # (a) Radial quad strips, one per ring.
+    # (a) Radial quad strips per ring.
     for k in range(len(ring_specs)):
         rows = ring_radial_rows[k]
         if not rows:
@@ -595,8 +486,6 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
         for j in range(n_rows):
             row_a = rows[j]
             row_b = rows[(j + 1) % n_rows]
-            if not row_a or not row_b:
-                continue
             for mm in range(RADIAL_NODES - 1):
                 a0 = row_a[mm]
                 a1 = row_a[mm + 1]
@@ -605,8 +494,7 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
                 triangles.append((a0, b0, b1))
                 triangles.append((a0, b1, a1))
 
-    # (b) Ring-to-fabric attach: connect the innermost radial node
-    #     of each row to the ring polygon node nearest in angle.
+    # (b) Ring-to-fabric attach.
     for k in range(len(ring_specs)):
         rows = ring_radial_rows[k]
         idx_list = ring_indices[k]
@@ -628,74 +516,44 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
             triangles.append((poly_id, inner_id, row[1]))
             triangles.append((poly_id, row[1], poly_next))
 
-    # (c) Fabric-to-shared-outer-curve attach.  For each ring, the
-    #     outermost radial node of each row is the boundary sample.
-    #     We connect it to the corresponding boundary node id (which
-    #     is either a perimeter node id or a wall node id).
+    # (c) Fabric-to-boundary attach.  The boundary sample ids and the
+    #     outer ids of the radial rows are the SAME node ids, so this
+    #     is a simple join: for each row j, connect the row's outer
+    #     node (== boundary sample j) to the boundary samples j and
+    #     j+1.  The boundary samples are on shared wall/perimeter
+    #     nodes, so adjacent rings automatically meet on the same
+    #     ids.
     for k in range(len(ring_specs)):
         rows = ring_radial_rows[k]
-        boundary = _boundary_polyline_for_ring(
-            k, ring_specs, perimeter_ids, perim_xy, wall_columns,
-            y_min, y_max, eave_height
-        )
-        if not boundary or not rows:
+        boundary_ids = ring_boundary_sample_ids[k]
+        if not rows or not boundary_ids:
             continue
-        boundary_node_ids = []
-        for (kind, nref, wx) in boundary:
-            boundary_node_ids.append(int(nref))
-        # Now sample boundary_node_ids at the same RAYS_PER_RING
-        # arc-length positions used earlier, but by *list index* this
-        # time.  To keep it simple and consistent, use the boundary
-        # polyline's own ordering: sample it uniformly by index.
-        n_b = len(boundary_node_ids)
-        for j in range(RAYS_PER_RING):
-            idx_a = int(round(j * n_b / float(RAYS_PER_RING))) % n_b
-            idx_b = int(round((j + 1) * n_b / float(RAYS_PER_RING))) % n_b
-            a_id = boundary_node_ids[idx_a]
-            b_id = boundary_node_ids[idx_b]
-            row = rows[j]
-            outer_id = row[-1]
-            if a_id == b_id:
-                # degenerate; skip
-                continue
-            triangles.append((outer_id, a_id, b_id))
-            # Also ensure the row's outer node is triangulated on
-            # both sides by the radial strip and this attach.
-        # Also, to close any small gaps between consecutive rows,
-        # add a bridge from row j's outer node to row (j+1)'s outer.
-        # This is not needed if the boundary sampling is consistent,
-        # but include it as a safety net.
-
-    # (d) Wall stitching.  Between adjacent rings k and k+1, the
-    #     wall column is already a shared list of nodes.  Each wall
-    #     node should be connected to the innermost radial nodes of
-    #     the two adjacent rings that touch that wall node.  This
-    #     is what makes the valley a real fold.
-    #
-    #     In the sampling above, the boundary polyline for ring k
-    #     includes the right wall of ring k in some order; the same
-    #     wall nodes appear in ring k+1's boundary as its left wall.
-    #     We therefore do NOT need explicit stitching; the boundary
-    #     attach already uses those shared node ids.  The fold is
-    #     automatic.
-    #
-    #     We do add one safety: for each wall column, for each pair
-    #     of consecutive wall nodes, add a triangle if any of its
-    #     adjacent radial nodes are already attached there but the
-    #     two sides have not yet been joined.  Skipping for now;
-    #     the boundary attach should already cover this.
+        n_b = len(boundary_ids)
+        for j in range(min(n_b, len(rows))):
+            outer_id = rows[j][-1]
+            b_j = boundary_ids[j]
+            b_jp1 = boundary_ids[(j + 1) % n_b]
+            if outer_id == b_j:
+                # already the same node; skip the degenerate triangle
+                pass
+            else:
+                triangles.append((outer_id, b_j, b_jp1))
+            # Also connect to previous boundary sample for closedness.
+            b_jm1 = boundary_ids[(j - 1) % n_b]
+            if outer_id == b_j:
+                triangles.append((outer_id, b_jm1, b_j))
 
     triangles = [t for t in triangles if t[0] != t[1]
                  and t[1] != t[2] and t[0] != t[2]]
 
-    # --- Edges from triangles -----------------------------------
+    # --- Edges from triangles ---------------------------------
     edge_set = set()
     for (a, b, c) in triangles:
         for (i, j) in ((a, b), (b, c), (c, a)):
             key = (i, j) if i < j else (j, i)
             edge_set.add(key)
 
-    # --- Ring beam, spoke, drop member edges --------------------
+    # --- Ring beam, spoke, drop member edges ------------------
     for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
         centre_i = int(centre_indices[k])
@@ -712,7 +570,7 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
         key = (centre_i, beam_i) if centre_i < beam_i else (beam_i, centre_i)
         edge_set.add(key)
 
-    # --- Perimeter edge set -------------------------------------
+    # --- Perimeter edge set ----------------------------------
     perimeter_edge_set = set()
     for i in range(n_perim):
         j = (i + 1) % n_perim
@@ -721,7 +579,7 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
 
     edges = sorted(edge_set)
 
-    # --- Held nodes ---------------------------------------------
+    # --- Held nodes ------------------------------------------
     fixed_set = set()
     anchor_node_indices = []
     for i in perimeter_anchor_idx:
@@ -776,6 +634,7 @@ def _build_radial_mesh(perimeter_loop, perimeter_anchor_idx,
         "ring_radial_rows": ring_radial_rows,
         "wall_x_values": wall_x_values,
         "wall_columns": wall_columns,
+        "ring_boundary_sample_ids": ring_boundary_sample_ids,
     }
 
 
@@ -984,7 +843,7 @@ def render_tester_multi_cone():
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
         "Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — shared-wall "
-        "partition, no tolerance snapping, no nearest-node heuristics."
+        "partition, ids carried through boundary walk."
         "</p>",
         unsafe_allow_html=True,
     )
@@ -1278,7 +1137,6 @@ def render_tester_multi_cone():
                     line=dict(color=COL_VALLEY, width=2, dash="dash"),
                     name="wall", showlegend=False, hoverinfo="skip",
                 ))
-    # wall nodes
     for wx, col in built["wall_columns"].items():
         wx_pts = pts_init[col]
         figp.add_trace(go.Scatter(
@@ -1287,7 +1145,6 @@ def render_tester_multi_cone():
             marker=dict(color=COL_WALL, size=6, symbol="square"),
             name=f"wall x={wx:+.2f}", showlegend=False, hoverinfo="skip",
         ))
-    # radial nodes
     ring_node_id_set = set()
     for idx_list in built["ring_indices"]:
         ring_node_id_set.update(int(i) for i in idx_list)
@@ -1375,7 +1232,7 @@ def render_tester_multi_cone():
                  ", ".join(f"{v:+.3f}" for v in built["wall_x_values"]))
         st.write(f"Wall columns: "
                  f"{len(built['wall_columns'])} at "
-                 f"{[(k, len(v)) for k, v in built['wall_columns'].items()]}")
+                 f"{[(round(k,3), len(v)) for k, v in built['wall_columns'].items()]}")
         st.write(f"Outer anchor corners: {anchors.shape[0]}")
         st.write(f"Perimeter nodes: {built['n_perimeter']}")
         st.write(f"Ground anchors: {len(built['anchor_node_indices'])}")
