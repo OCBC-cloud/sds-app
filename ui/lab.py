@@ -220,6 +220,25 @@ def render_lab():
         st.session_state.page = "mesh_z_diagnostic"
         st.rerun()
 
+    # ---- Multi-Cone Roof v17 (Laplace lift)
+    st.markdown(
+        '<div class="lab-tile">'
+        '<div class="lab-tile-name">Multi-Cone Roof v17</div>'
+        '<div class="lab-tile-desc">'
+        'Same as the v16 multi-cone roof, with the fabric lift '
+        'replaced by a Laplace (harmonic) solve. The fabric now '
+        'meets the eave and every ring exactly, instead of being '
+        'lifted by a linear distance blend. This is the fix for '
+        'the large FDM residual in v14/v15/v16.'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Multi-Cone Roof v17", key="lab_mc_v17",
+                 use_container_width=True):
+        st.session_state.page = "tester_multi_cone_v17"
+        st.rerun()
+
     # ---- Placeholder for future test pages
     st.markdown(
         '<div class="lab-tile" style="opacity: 0.5;">'
