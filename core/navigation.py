@@ -98,6 +98,10 @@ def _render_tester_multi_cone():
     from ui.workshops.tester_multi_cone import render_tester_multi_cone
     render_tester_multi_cone()
 
+def _render_tester_multi_cone_v17():
+    from ui.workshops.tester_multi_cone_v17 import render_tester_multi_cone_v17
+    render_tester_multi_cone_v17()
+
 def _render_mesh_z_diagnostic():
     from ui.workshops.mesh_z_diagnostic import render_mesh_z_diagnostic
     render_mesh_z_diagnostic()
