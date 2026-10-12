@@ -1,0 +1,43 @@
+# =============================================================================
+# SDSe - Standalone Form Finding Test
+# =============================================================================
+# Runs engine/form_finding_test.py on its own.
+# This file is separate from test.yml on purpose: it is a proving
+# ground for the new standalone solver test, before it is wired
+# into run_tests.py.
+# =============================================================================
+
+name: Form Finding Test
+
+on:
+  push:
+    branches:
+      - main
+      - modular-v10
+  pull_request:
+    branches:
+      - main
+      - modular-v10
+  workflow_dispatch:
+
+jobs:
+  standalone_form_finding:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run standalone form finding test
+        run: |
+          python -m engine.form_finding_test
