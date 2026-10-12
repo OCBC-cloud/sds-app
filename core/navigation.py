@@ -119,6 +119,7 @@ PAGE_RENDERERS = {
     "renderer_test": _render_renderer_test,
     "tester_star_diagnostic": _render_tester_star_diagnostic,
     "tester_multi_cone": _render_tester_multi_cone,
+    "mesh_z_diagnostic": _render_mesh_z_diagnostic,
     "form_finding_lab": _render_form_finding_lab,
 }
 
