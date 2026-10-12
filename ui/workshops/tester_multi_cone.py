@@ -1,46 +1,24 @@
 """Multi-Cone Roof — Lab test page.
 
-Version v24.
+Version v25.
 
-The correct architecture.  Every tensile membrane roof is a
-partition of the plan into cells.  Each cell's boundary is a
-closed loop made of its own support curves and shared walls.
-Shared walls are welded.  Free interior nodes go where the
-solver puts them.  Cables are dir-only along their own axis.
-Rings are held.  Anchors are held.
+Fixes from v24:
 
-This file implements that architecture for the multi-cone
-family on a spine.  The same recipe covers any tensile roof:
-single cone, multi-cone, hypar with a mast, fan canopy, ridge
-row.  Different recipes plug in the ring list and the
-perimeter.  The mesh builder is one builder, parameterised.
+  1. Valley interior nodes are z-only.  Held in x and y.
+     Free in z.  This is what keeps the valley in plan and lets
+     it bow up or down in z.  The dir-only treatment of v24 let
+     the interior nodes slide along y, and the membrane pulled
+     them inward, collapsing the valley.  Z-only removes that
+     degree of freedom.  (A perfect cable model would preserve
+     the length; FDM does not support that directly.  Z-only is
+     the practical approximation.)
 
-v24 vs v23:
+  2. Perimeter subdivisions default raised from 6 to 12.
 
-  1. Wall placement is by equal arc-length between adjacent
-     rings.  Wall plane is a straight chord in plan (vertical
-     in x for symmetric layouts on a spine).
+  3. Plan view draws the whole subdivided perimeter, not just
+     the anchor corners.
 
-  2. Each cone's boundary is a CLOSED LOOP, built explicitly
-     as:  wall_L (down) -> ellipse arc (bottom) -> wall_R (up)
-     -> ellipse arc (top) -> back to start.
-
-     For a cone with no wall on a side, the "wall" segment is
-     absent and the loop passes through the ellipse tip instead.
-
-  3. Fan from ring to closed boundary loop.  Inner curve =
-     ring circle.  Outer curve = the closed loop.
-
-  4. Initial z on every fan node is a linear ramp from ring z
-     to boundary z.  This produces the cone-shaped initial guess
-     that the solver needs when valleys are present.
-
-  5. Wall columns are one shared node list.  Adjacent cones
-     attach to the SAME node IDs.  Welded.
-
-  6. Widget check:  wall spacing must be at least 2x the ring
-     radius.  Configurations below that are refused with a clear
-     message.
+Everything else is carried over from v24.
 """
 
 import math
@@ -73,7 +51,6 @@ COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
 COL_VALLEY = "#7fb3d5"
-COL_RING_CENTRE = "#ffe066"
 
 
 # =============================================================================
@@ -213,57 +190,13 @@ def _max_spacing_for(n_cones, total):
 
 
 # =============================================================================
-# WALL PLACEMENT
+# MESH BUILDER (v25)
 # =============================================================================
 
-def _wall_arc_positions(s_rings):
-    """
-    Return the arc-length positions of the N-1 walls between N
-    rings.  Each wall is at the midpoint of the arc length
-    between its two neighbouring rings.
-    """
-    walls = []
-    for i in range(len(s_rings) - 1):
-        walls.append(0.5 * (s_rings[i] + s_rings[i + 1]))
-    return walls
-
-
-def _wall_ellipse_intersection(wall_x, span, mid_width):
-    """
-    For a symmetric wall at constant x = wall_x, return the two
-    intersection points with the perimeter ellipse: (+y_at_wall)
-    and (-y_at_wall).
-    """
-    y_at_wall = _ellipse_y(wall_x, span, mid_width)
-    return +y_at_wall, -y_at_wall
-
-
-# =============================================================================
-# MESH BUILDER (v24)
-# =============================================================================
-
-def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
+def _build_mesh_v25(perimeter_loop, perimeter_anchor_idx, ring_specs,
                     eave_height, span, mid_width):
-    """
-    The correct architecture.
-
-    1. Perimeter is a closed loop of nodes with known IDs.
-    2. Wall columns are shared node lists, one per wall.
-    3. Each cone has a closed boundary loop, built from its
-       ellipse arc and its walls (0, 1, or 2 walls).
-    4. The fan fills the interior of each cone.
-    5. Interior nodes are placed on a linear ramp in z from
-       ring z to boundary z.
-    6. Interior nodes are free.  Ring nodes are held.  Anchor
-       nodes are held.  Wall interior nodes are dir-only along
-       local tangent.  Perimeter interior nodes are dir-only
-       along local tangent.
-    """
     n_perim = perimeter_loop.shape[0]
     perim_xy = perimeter_loop[:, :2]
-
-    a_ell = span / 2.0
-    b_ell = mid_width / 2.0
 
     points_list = [tuple(p) for p in perimeter_loop]
     perimeter_ids = list(range(n_perim))
@@ -271,19 +204,16 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
     n_cones = len(ring_specs)
     x_rings = [float(s["cx"]) for s in ring_specs]
 
-    # Wall x positions: midpoint between adjacent rings in x.
     wall_xs = []
     for i in range(n_cones - 1):
         wall_xs.append(0.5 * (x_rings[i] + x_rings[i + 1]))
 
-    # --- Wall columns: one shared list per wall ---
-    # Each wall column runs from the ellipse at +y_wall (top)
-    # to the ellipse at -y_wall (bottom).  Ends held in xyz.
-    # Interior nodes dir-only along local tangent.
-    wall_columns = {}   # wx -> list of node ids (bottom .. top)
-    wall_ends = {}      # wx -> (top_id, bottom_id)
+    # --- Wall columns ---
+    wall_columns = {}
+    wall_ends = {}
     for wx in wall_xs:
-        y_top, y_bot = _wall_ellipse_intersection(wx, span, mid_width)
+        y_top = _ellipse_y(wx, span, mid_width)
+        y_bot = -y_top
         col = []
         for k in range(WALL_NODES):
             f = k / float(WALL_NODES - 1)
@@ -292,7 +222,7 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
             points_list.append((float(wx), float(y), float(eave_height)))
             col.append(nid)
         wall_columns[wx] = col
-        wall_ends[wx] = (col[-1], col[0])  # top = last, bottom = first
+        wall_ends[wx] = (col[-1], col[0])
 
     # --- Ring circles and centres ---
     ring_indices = []
@@ -323,11 +253,10 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
         beam_top_indices.append(len(points_list))
         points_list.append((cx, cy, float(spec["beam_z"])))
 
-    # --- For each cone, build the closed boundary loop, then fan ---
+    # --- Closed boundary loop per cone and fan ---
     fan_notes = []
     ring_radial_rows = []
-    ring_loop_ids = []      # the closed boundary loop per cone
-    ring_loop_xy = []       # convenience: 2D coordinates of the loop
+    ring_loop_ids = []
 
     for k, spec in enumerate(ring_specs):
         cx = float(spec["cx"])
@@ -342,25 +271,18 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
             k, n_cones, left_wall, right_wall,
             perimeter_ids, perimeter_loop,
             wall_columns, wall_ends,
-            span, mid_width, eave_height,
+            span, mid_width,
         )
         ring_loop_ids.append(loop_ids)
-        ring_loop_xy.append(np.array(
-            [[points_list[nid][0], points_list[nid][1]]
-             for nid in loop_ids]
-        ))
 
-        # Fan: sample the loop at RAYS_PER_RING positions by arc
-        # length, generate RADIAL_NODES between ring circle and
-        # each loop sample.
         n_loop = len(loop_ids)
         if n_loop < 2:
             ring_radial_rows.append([])
             fan_notes.append("cone %d : empty loop" % (k + 1))
             continue
 
-        # Arc-length sampling of the closed loop.
-        loop_xy = ring_loop_xy[-1]
+        loop_xy = np.array([[points_list[nid][0], points_list[nid][1]]
+                             for nid in loop_ids])
         seg = np.diff(np.vstack([loop_xy, loop_xy[:1]]), axis=0)
         seglen = np.linalg.norm(seg, axis=1)
         total_len = float(np.sum(seglen))
@@ -370,9 +292,7 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
             continue
         cum = np.concatenate([[0.0], np.cumsum(seglen)])
 
-        # Number of rays for this cone: use a fixed target count
-        # so all cones look similar.
-        n_rays = max(8, min(RAYS_PER_RING, n_loop * 2))
+        n_rays = RAYS_PER_RING
         targets = np.linspace(0.0, total_len, n_rays, endpoint=False)
 
         rows = []
@@ -387,8 +307,6 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
             b_pt = loop_xy[(j + 1) % n_loop]
             outer_xy = a_pt + t_seg * (b_pt - a_pt)
 
-            # The corresponding ring point: use the direction
-            # from the ring centre to the outer point.
             vx = outer_xy[0] - cx
             vy = outer_xy[1] - cy
             vlen = math.hypot(vx, vy)
@@ -403,7 +321,7 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 f = (m + 1) / float(RADIAL_NODES + 1)
                 px = ix + f * (outer_xy[0] - ix)
                 py = iy + f * (outer_xy[1] - iy)
-                # Initial z: linear ramp from ring z to eave height.
+                # Initial z: linear ramp from ring z to eave.
                 pz = cz + f * (eave_height - cz)
                 nid = len(points_list)
                 points_list.append((px, py, pz))
@@ -431,7 +349,6 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
         cy = float(ring_specs[k]["cy"])
         n_rows = len(rows)
 
-        # Radial quad strips.
         for j in range(n_rows):
             jn = (j + 1) % n_rows
             row_a = rows[j]
@@ -444,7 +361,6 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 triangles.append((a0, b0, b1))
                 triangles.append((a0, b1, a1))
 
-        # Ring attach.
         for row in rows:
             if not row:
                 continue
@@ -460,8 +376,6 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
             triangles.append((poly_id, inner_id, row[1]))
             triangles.append((poly_id, row[1], poly_next))
 
-        # Outer attach: connect the outermost radial node of each
-        # ray to the closed loop node(s) nearest to it in the loop.
         loop_ids = ring_loop_ids[k]
         n_loop = len(loop_ids)
         for j in range(n_rows):
@@ -471,7 +385,6 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
             outer_id = row[-1]
             px = float(points[outer_id, 0])
             py = float(points[outer_id, 1])
-            # Nearest loop node by plan distance (small scan).
             best = None
             best_d = None
             for nid in loop_ids:
@@ -492,14 +405,12 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
     triangles = [t for t in triangles if t[0] != t[1]
                  and t[1] != t[2] and t[0] != t[2]]
 
-    # --- Edges from triangles ---
     edge_set = set()
     for (a, b, c) in triangles:
         for (i, j) in ((a, b), (b, c), (c, a)):
             key = (i, j) if i < j else (j, i)
             edge_set.add(key)
 
-    # Ring beam, spokes, drop members.
     for k in range(n_cones):
         idx_list = ring_indices[k]
         centre_i = int(centre_indices[k])
@@ -514,24 +425,20 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
         edge_set.add((centre_i, beam_i) if centre_i < beam_i
                      else (beam_i, centre_i))
 
-    # Perimeter edges.
     perimeter_edge_set = set()
     for i in range(n_perim):
         j = (i + 1) % n_perim
         perimeter_edge_set.add((i, j) if i < j else (j, i))
 
-    # Valley (wall) edges.
     valley_edge_set = set()
     for wx, col in wall_columns.items():
         for i in range(len(col) - 1):
             a = col[i]
             b = col[i + 1]
-            key = (a, b) if a < b else (b, a)
-            valley_edge_set.add(key)
+            valley_edge_set.add((a, b) if a < b else (b, a))
 
     edges = sorted(edge_set)
 
-    # --- Fixed nodes ---
     fixed_set = set()
     anchor_node_indices = []
     for i in perimeter_anchor_idx:
@@ -545,7 +452,6 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
     for bi in beam_top_indices:
         fixed_set.add(int(bi))
 
-    # Wall end nodes held.
     valley_end_ids = []
     for wx, (top_id, bot_id) in wall_ends.items():
         fixed_set.add(int(top_id))
@@ -553,8 +459,8 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
         valley_end_ids.append(int(top_id))
         valley_end_ids.append(int(bot_id))
 
-    # --- Dir-only constraints ---
-    # Perimeter interior: free along local perimeter tangent.
+    # --- Boundary constraints ---
+    # Perimeter interior: dir-only along local tangent.
     anchor_set = set(int(i) for i in perimeter_anchor_idx)
     cable_interior_indices = []
     dir_only_indices = []
@@ -572,27 +478,14 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
         dir_only_indices.append(
             (int(i), (float(t[0]), float(t[1]), float(t[2]))))
 
-    # Wall interior: free along local wall tangent.
+    # Valley interior: z-only.  Held in x and y.  Free in z.
     valley_interior_ids = []
+    z_only_indices = []
     for wx, col in wall_columns.items():
         for idx_in_col in range(1, len(col) - 1):
             nid = col[idx_in_col]
-            prev_id = col[idx_in_col - 1]
-            next_id = col[idx_in_col + 1]
-            px, py, pz = points[prev_id]
-            nx, ny, nz = points[next_id]
-            tx = nx - px
-            ty = ny - py
-            tz = nz - pz
-            mag = math.sqrt(tx * tx + ty * ty + tz * tz)
-            if mag < 1e-9:
-                continue
-            tx /= mag
-            ty /= mag
-            tz /= mag
             valley_interior_ids.append(int(nid))
-            dir_only_indices.append(
-                (int(nid), (float(tx), float(ty), float(tz))))
+            z_only_indices.append(int(nid))
 
     return {
         "points": points,
@@ -600,6 +493,7 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
         "triangles": triangles,
         "fixed_indices": sorted(fixed_set),
         "dir_only_indices": dir_only_indices,
+        "z_only_indices": z_only_indices,
         "perimeter_start": 0,
         "perimeter_end": n_perim,
         "n_perimeter": n_perim,
@@ -624,27 +518,13 @@ def _build_mesh_v24(perimeter_loop, perimeter_anchor_idx, ring_specs,
 def _build_cone_boundary_loop(k, n_cones, left_wall, right_wall,
                               perimeter_ids, perimeter_loop,
                               wall_columns, wall_ends,
-                              span, mid_width, eave_height):
-    """
-    Build the closed boundary loop for cone k.
-
-    Loop order:  start at the TOP of the right wall (or the
-    right tip of the ellipse if no right wall), go DOWN the right
-    wall, across the ellipse arc (bottom), UP the left wall (or
-    the left tip), across the ellipse arc (top), back to start.
-
-    The loop is returned as a list of node ids.
-    """
+                              span, mid_width):
     n_perim = len(perimeter_ids)
     perim_xy = perimeter_loop[:, :2]
 
-    # Determine the x-ranges of the ellipse arcs owned by cone k.
-    # For symmetric layout: right bound is right_wall_x (or the
-    # right tip), left bound is left_wall_x (or the left tip).
     x_right = right_wall if right_wall is not None else (span / 2.0 + 1.0)
     x_left = left_wall if left_wall is not None else (-span / 2.0 - 1.0)
 
-    # Pick perimeter nodes in [x_left, x_right].  In-loop order.
     in_strip = []
     for pid in perimeter_ids:
         px = float(perim_xy[pid, 0])
@@ -653,7 +533,6 @@ def _build_cone_boundary_loop(k, n_cones, left_wall, right_wall,
     if not in_strip:
         return []
 
-    # Order them along the perimeter loop.
     in_set = set(in_strip)
     start = in_strip[0]
     ordered = []
@@ -667,53 +546,26 @@ def _build_cone_boundary_loop(k, n_cones, left_wall, right_wall,
         if i == start:
             break
 
-    # Split into +y and -y halves.
     perim_top = [pid for pid in ordered
                  if float(perim_xy[pid, 1]) >= 0.0]
     perim_bot = [pid for pid in ordered
                  if float(perim_xy[pid, 1]) < 0.0]
-    # Sort by x, deterministic.
     perim_top = sorted(perim_top, key=lambda pid: float(perim_xy[pid, 0]))
     perim_bot = sorted(perim_bot, key=lambda pid: -float(perim_xy[pid, 0]))
 
     loop = []
-
-    # Right wall (top -> bottom).
     if right_wall is not None:
-        wx = right_wall
-        col = wall_columns[wx]      # bottom (index 0) .. top (last)
+        col = wall_columns[right_wall]
         for nid in reversed(col):
             loop.append(nid)
-    else:
-        # No right wall: pass through the right tip of the ellipse.
-        # The topmost and bottommost perimeter nodes in the
-        # ordered strip are near the tip; they are already in
-        # perim_top and perim_bot.  No wall nodes to add.
-
-        # Handle the corner case: at the extreme right of the
-        # ordered strip, the top arc's rightmost node and the
-        # bottom arc's leftmost node are the two "tip" nodes.
-        # We join them naturally by walking through.
-        pass
-
-    # Bottom arc (right end -> left end).
     for pid in perim_bot:
         loop.append(pid)
-
-    # Left wall (bottom -> top).
     if left_wall is not None:
-        wx = left_wall
-        col = wall_columns[wx]      # bottom (index 0) .. top (last)
+        col = wall_columns[left_wall]
         for nid in col:
             loop.append(nid)
-    else:
-        # No left wall: pass through the left tip.
-        pass
-
-    # Top arc (left end -> right end).
     for pid in perim_top:
         loop.append(pid)
-
     return loop
 
 
@@ -733,13 +585,13 @@ def _cached_build_mesh(perimeter_loop_bytes, perimeter_anchor_idx_tuple,
             "cx": spec_t[0], "cy": spec_t[1], "cz": spec_t[2],
             "r": spec_t[3], "beam_z": spec_t[4],
         })
-    return _build_mesh_v24(perimeter_loop, perimeter_anchor_idx,
+    return _build_mesh_v25(perimeter_loop, perimeter_anchor_idx,
                             ring_specs, eave_height, span, mid_width)
 
 
 @st.cache_data(show_spinner=False)
 def _cached_solve(points_bytes, edges_tuple, fixed_tuple,
-                  q_bytes, dir_only_tuple):
+                  q_bytes, dir_only_tuple, z_only_tuple):
     points = np.frombuffer(points_bytes,
                             dtype=np.float64).reshape(-1, 3)
     edges = list(edges_tuple)
@@ -747,7 +599,9 @@ def _cached_solve(points_bytes, edges_tuple, fixed_tuple,
     q = np.frombuffer(q_bytes, dtype=np.float64)
     dir_only = [(int(nid), (float(d[0]), float(d[1]), float(d[2])))
                 for nid, d in dir_only_tuple]
+    z_only = list(z_only_tuple)
     return solve_fdm(points, edges, fixed, q,
+                      z_only_indices=z_only,
                       dir_only_indices=dir_only)
 
 
@@ -931,7 +785,7 @@ def _format_all_nodes(points_initial, points_settled, built):
     for i in built["cable_interior_indices"]:
         status_of[int(i)] = "cable_interior_dir_only"
     for i in built["valley_interior_ids"]:
-        status_of[int(i)] = "valley_interior_dir_only"
+        status_of[int(i)] = "valley_interior_z_only"
     for i in built["valley_end_ids"]:
         status_of[int(i)] = "held_valley_end"
     for idx_list in built["ring_indices"]:
@@ -961,8 +815,8 @@ def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
         "Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — v24.  "
-        "Closed-loop per cone, welded walls, ramp initial z.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — v25.  "
+        "Valley z-only, smoother perimeter, fixed plan view.</p>",
         unsafe_allow_html=True,
     )
 
@@ -1001,7 +855,7 @@ def render_tester_multi_cone():
                                     key="mc_optends")
 
     subdivisions = int(st.number_input(
-        "Subdivisions per edge", 4, 15, 6, 1, key="mc_subdiv"
+        "Subdivisions per edge", 4, 20, 12, 1, key="mc_subdiv"
     ))
 
     c1, c2 = st.columns(2)
@@ -1081,7 +935,6 @@ def render_tester_multi_cone():
         st.error("Placement refused: " + placement_error)
         return
 
-    # Widget check: wall spacing.
     if number_of_cones >= 2:
         min_wall_spacing = min(
             abs(x_rings[i + 1] - x_rings[i])
@@ -1093,7 +946,7 @@ def render_tester_multi_cone():
                 "Placement refused: cone spacing is too small.  "
                 "Minimum spacing between ring centres is %.3f m "
                 "(2x ring radius).  Current minimum spacing is "
-                "%.3f m.  Reduce cone count or increase span."
+                "%.3f m."
                 % (min_required, min_wall_spacing)
             )
             return
@@ -1123,6 +976,7 @@ def render_tester_multi_cone():
     tris = built["triangles"]
     fixed = built["fixed_indices"]
     dir_only = built["dir_only_indices"]
+    z_only = built["z_only_indices"]
 
     warp_q = max(float(warp_q_input), 0.1) * 1000.0
     weft_q = max(float(weft_q_input), 0.1) * 1000.0
@@ -1149,6 +1003,7 @@ def render_tester_multi_cone():
         (int(nid), (float(d[0]), float(d[1]), float(d[2])))
         for nid, d in dir_only
     )
+    z_only_tuple = tuple(int(i) for i in z_only)
     try:
         fdm = _cached_solve(
             pts_init.tobytes(),
@@ -1156,6 +1011,7 @@ def render_tester_multi_cone():
             tuple(int(i) for i in fixed),
             q.tobytes(),
             dir_only_tuple,
+            z_only_tuple,
         )
         coords = fdm["coordinates"]
         residual_norm = float(fdm["residual_norm"])
@@ -1267,13 +1123,26 @@ def render_tester_multi_cone():
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
     figp = go.Figure()
+    # Whole subdivided perimeter.
     perim_xy = pts_init[ps:pe, :2]
     perim_closed_xy = np.vstack([perim_xy, perim_xy[:1]])
     figp.add_trace(go.Scatter(
         x=perim_closed_xy[:, 0], y=perim_closed_xy[:, 1],
-        mode="lines", line=dict(color=COL_PERIMETER, width=3),
+        mode="lines+markers",
+        line=dict(color=COL_PERIMETER, width=3),
+        marker=dict(color=COL_PERIMETER, size=2),
         name="perimeter", showlegend=False, hoverinfo="skip",
     ))
+    # Anchors as big diamonds.
+    anchor_ids = built["anchor_node_indices"]
+    if anchor_ids:
+        ap = pts_init[anchor_ids]
+        figp.add_trace(go.Scatter(
+            x=ap[:, 0], y=ap[:, 1],
+            mode="markers",
+            marker=dict(color=COL_ANCHOR, size=10, symbol="diamond"),
+            name="anchor", showlegend=False, hoverinfo="skip",
+        ))
     for k, idx_list in enumerate(built["ring_indices"]):
         pp = pts_init[idx_list]
         closed = np.vstack([pp, pp[:1]])
@@ -1291,7 +1160,6 @@ def render_tester_multi_cone():
             marker=dict(color=COL_VALLEY, size=5),
             name="valley", showlegend=False, hoverinfo="skip",
         ))
-    # Loop for each cone in lighter colour to show boundaries.
     for k, loop_ids in enumerate(built["ring_loop_ids"]):
         if not loop_ids:
             continue
@@ -1303,6 +1171,7 @@ def render_tester_multi_cone():
             line=dict(color="#4a90e2", width=1, dash="dot"),
             name=f"loop {k+1}", showlegend=False, hoverinfo="skip",
         ))
+    # Interior free nodes.
     ring_node_set = set()
     for idx_list in built["ring_indices"]:
         ring_node_set.update(int(i) for i in idx_list)
@@ -1335,7 +1204,7 @@ def render_tester_multi_cone():
                    gridcolor="#1e2a3a", zerolinecolor="#1e2a3a"),
         yaxis=dict(title="Y (m)",
                    gridcolor="#1e2a3a", zerolinecolor="#1e2a3a"),
-        title=dict(text="Plan view — loops dotted",
+        title=dict(text="Plan view (initial mesh)",
                    font=dict(color="#f39c12", size=14)),
     )
     st.plotly_chart(figp, use_container_width=True, key="mc_plan")
@@ -1357,6 +1226,7 @@ def render_tester_multi_cone():
         st.write(f"Triangles: {len(tris)}")
         st.write(f"Held: {len(fixed)}")
         st.write(f"Dir-only: {len(dir_only)}")
+        st.write(f"Z-only (valley): {len(z_only)}")
         st.write(f"Solve OK: {solve_ok}")
         if not solve_ok:
             st.write(f"Error: {solve_err}")
