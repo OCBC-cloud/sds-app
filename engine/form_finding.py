@@ -32,12 +32,23 @@
 # Updated 2026-10-09:
 #   - solve_fdm gains a dir_only_indices argument: a list of
 #     (node_index, direction_vector) pairs. For each such node,
-#     motion is restricted to the given direction. The two axes
-#     perpendicular to the direction are held. This is the general
-#     form of the existing z_only_indices constraint, which is a
-#     special case with direction = (0, 0, 1).
-#   - z_only_indices is retained and works as before, for backward
-#     compatibility. When both are supplied, they are merged.
+#     motion is restricted to the given direction.
+#
+# Updated 2026-10-12:
+#   - dir_only is now implemented as a TRUE reduced-basis solve,
+#     not a post-hoc 1-DOF correction. The DOF layout is:
+#         fully-free node : 3 DOF (x, y, z)
+#         dir_only node   : 1 DOF along the given direction
+#         z_only node     : 1 DOF along (0, 0, 1)  [special case]
+#         fixed node      : 0 DOF
+#     The reduced system is assembled from the full K matrix by
+#     projecting each row and column against the node's direction
+#     basis. The result is a single linear solve with machine-
+#     precision residual on every free DOF, correct coupling
+#     between neighbouring dir_only nodes, and correct reactions.
+#   - z_only is now routed through the same machinery. The old
+#     z_only_indices argument is preserved for compatibility.
+#   - Return dict gains dof_count (int) for diagnostic visibility.
 #
 # Reference:
 #   Schek, H.-J. (1974). The force density method for form-finding
@@ -126,6 +137,15 @@ def _orthonormal_basis(direction):
     return d, p, q
 
 
+def _unit_direction(direction):
+    """Return the direction as a unit 3-vector. Raise if zero length."""
+    d = np.asarray(direction, dtype=float)
+    n = float(np.linalg.norm(d))
+    if n < 1e-12:
+        raise ValueError("direction vector has zero length")
+    return d / n
+
+
 # =============================================================================
 # FDM SOLVER - PASS 1 (FORM FINDING)
 # =============================================================================
@@ -143,22 +163,17 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
     force_densities : (m,) array or scalar
     loads : (n, 3) array or None
     z_only_indices : list of node indices free in Z only. X and Y
-        are held. This is a special case of dir_only_indices with
-        direction = (0, 0, 1).
+        are held. Internally routed as dir_only with direction
+        (0, 0, 1).
     dir_only_indices : list of (node_index, direction_vector) pairs.
         For each such node, motion is restricted to the given
-        direction. The two axes perpendicular to the direction are
-        held. Used for cable interior nodes: a cable node is free
-        to slide along the local cable tangent, and fixed in the
-        two directions perpendicular to it. This prevents the
-        membrane from pulling the boundary node inward in the plan
-        plane, without preventing the node from bowing along the
-        cable.
+        direction. The node has 1 DOF along that direction. Used
+        for cable interior nodes.
 
     Returns
     -------
     dict with keys: coordinates, residual_norm, n_free, n_fixed,
-                    reactions
+                    dof_count, reactions
     """
     points = np.asarray(points, dtype=float)
     edges = list(edges)
@@ -206,27 +221,27 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         if loads.shape != (n, 3):
             raise ValueError("loads must have shape (n, 3)")
 
+    # ---- Classify every node into one of four kinds ----
+    # fixed        : 0 DOF, coordinate held
+    # dir_only     : 1 DOF along the given unit direction
+    # z_only       : 1 DOF along (0, 0, 1)  [special case of dir_only]
+    # fully_free   : 3 DOF (x, y, z)
+    #
+    # Precedence: fixed > dir_only > z_only > fully_free.
+    # A node listed in both dir_only and z_only takes the dir_only
+    # direction. A node listed in dir_only or z_only and also in
+    # fixed_indices is treated as fixed (the more restrictive wins).
+
     fixed_mask = np.zeros(n, dtype=bool)
     for i in fixed_indices:
         if i < 0 or i >= n:
             raise ValueError("fixed index %d out of range" % i)
         fixed_mask[i] = True
 
-    z_only_mask = np.zeros(n, dtype=bool)
-    for i in z_only_indices:
-        if i < 0 or i >= n:
-            raise ValueError("z_only index %d out of range" % i)
-        if fixed_mask[i]:
-            continue
-        z_only_mask[i] = True
+    # node_dir[i] is None for fully_free, a unit 3-vector for dir_only.
+    node_dir = [None] * n
+    node_is_dir_only = np.zeros(n, dtype=bool)
 
-    # ---- Directional constraints ----
-    # For each (node, direction), we store the unit direction and
-    # the two unit axes perpendicular to it. The node is free to
-    # move along the direction and held along the two perpendicular
-    # axes. A node already in z_only_mask is skipped, because the
-    # two constraints are not meant to be combined on one node.
-    dir_map = {}
     for entry in dir_only_indices:
         try:
             node_i, direction = entry
@@ -239,11 +254,21 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
             raise ValueError("dir_only index %d out of range" % node_i)
         if fixed_mask[node_i]:
             continue
-        if z_only_mask[node_i]:
-            continue
-        d, p, qv = _orthonormal_basis(direction)
-        dir_map[node_i] = (d, p, qv)
+        node_dir[node_i] = _unit_direction(direction)
+        node_is_dir_only[node_i] = True
 
+    for i in z_only_indices:
+        if i < 0 or i >= n:
+            raise ValueError("z_only index %d out of range" % i)
+        if fixed_mask[i]:
+            continue
+        if node_is_dir_only[i]:
+            # dir_only already set; leave it.
+            continue
+        node_dir[i] = np.array([0.0, 0.0, 1.0])
+        node_is_dir_only[i] = True
+
+    # ---- Assemble the full n x n force-density matrix K ----
     K = np.zeros((n, n), dtype=float)
     for k, (i, j) in enumerate(edges):
         qk = q[k]
@@ -252,101 +277,174 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
         K[i, j] -= qk
         K[j, i] -= qk
 
-    X = points.copy()
+    # ---- Build the DOF map ----
+    # For each free node:
+    #   fully_free -> three DOFs: (x, y, z)
+    #   dir_only   -> one DOF: displacement alpha along node_dir[i]
+    #
+    # dof_of_node[i] is a list of (dof_index, basis_vector) tuples.
+    # For a fully_free node the basis vectors are the standard axes
+    # e_x, e_y, e_z. For a dir_only node the basis is (d_i,).
+    #
+    # The reduced system is:
+    #     for each DOF pair (a, b):
+    #         K_red[a, b] = phi_a^T K[na, nb] phi_b
+    #     for each DOF a:
+    #         f_red[a]    = phi_a^T (loads[na] - sum over fixed neighbours)
+    #     solve K_red * u = f_red
+    #     then X[i] = X0[i] + sum_a u[a] * phi_a
+    #
+    # X0 is the *initial* points array, so a dir_only node's DOF
+    # is its displacement along its direction from where it started.
 
-    # ---- Nodes that are fully free in all three axes ----
-    # A node is fully free only if it is not fixed, not z_only, and
-    # not in dir_map.
-    dir_only_set = set(dir_map.keys())
+    dof_of_node = [None] * n
+    dof_basis = []           # list of 3-vectors
+    dof_node = []            # node index for each DOF
 
-    def _solve_axis(axis, mask_free):
-        idx = np.where(mask_free)[0]
-        idx_fixed = np.where(~mask_free)[0]
-        if len(idx) == 0:
-            return
-        K_ff = K[np.ix_(idx, idx)]
-        K_fx = K[np.ix_(idx, idx_fixed)]
-        rhs = loads[idx, axis].copy()
-        rhs -= K_fx @ points[idx_fixed, axis]
-        X[idx, axis] = np.linalg.solve(K_ff, rhs)
-
-    free_xy = (~fixed_mask) & (~z_only_mask) & (~np.isin(np.arange(n), list(dir_only_set)))
-    free_z = (~fixed_mask) & (~np.isin(np.arange(n), list(dir_only_set)))
-
-    # Solve for the axis-free nodes in X, Y, Z as before.
-    _solve_axis(0, free_xy)
-    _solve_axis(1, free_xy)
-    _solve_axis(2, free_z)
-
-    # ---- Handle direction-only nodes ----
-    # For each direction-only node, we solve a 1-DOF system along
-    # the direction, then project the result back to the node's
-    # coordinates. This is done after the axis solves, so the axis
-    # solves use only the fully-free and z_only nodes. The
-    # direction-only nodes are treated as if fixed in the axis
-    # solves (because they were excluded from free_xy and free_z),
-    # then resolved along their own direction.
-    for node_i, (d, p, qv) in dir_map.items():
-        # The node contributes one DOF along d. The equilibrium
-        # equation for that DOF is:
-        #     d^T K[i, i] d * alpha + d^T (sum_j K[i, j] X[j]) = d^T load[i]
-        # where X[i] = alpha * d (the position is parametrised along
-        # d from the origin; but the contribution from the node
-        # itself must be from its own degree of freedom).
-        #
-        # In practice, the simplest and most robust implementation
-        # is: temporarily solve the full 3-DOF system for this node
-        # with the two perpendicular directions held, using the
-        # current X as the fixed contribution from neighbours.
-
-        # Build the 3x3 local block K_ii.
-        K_ii = K[node_i, node_i] * np.eye(3)
-
-        # Contribution from neighbours: for every edge (node_i, j),
-        # the neighbour's current position contributes -q * X[j] to
-        # the node's force balance.
-        neigh_sum = np.zeros(3)
-        for k, (a, b) in enumerate(edges):
-            if a == node_i:
-                neigh_sum -= q[k] * X[b]
-            elif b == node_i:
-                neigh_sum -= q[k] * X[a]
-
-        rhs_full = loads[node_i] - neigh_sum
-
-        # Project onto the direction d: only the component along d
-        # is free.
-        d_col = d.reshape(3, 1)
-        # Effective scalar stiffness along d.
-        k_along = float(d @ (K_ii @ d))
-        if abs(k_along) < 1e-12:
+    for i in range(n):
+        if fixed_mask[i]:
+            dof_of_node[i] = []
             continue
-        # Force along d.
-        f_along = float(d @ rhs_full)
-        # Displacement along d.
-        alpha = f_along / k_along
-        # The new position of the node: the old position plus the
-        # displacement along d that satisfies equilibrium.
-        #
-        # But the equilibrium equation is a linear system in the
-        # node's coordinates. We want the new coordinates X[i] such
-        # that:
-        #     K_ii @ X[i] + neigh_sum = loads[i]      (full 3-DOF)
-        # restricted to the 1-DOF along d. This means:
-        #     X[i] = X_old[i] + alpha * d
-        # where alpha is determined by:
-        #     d^T (K_ii @ (X_old[i] + alpha * d) + neigh_sum - loads[i]) = 0
-        # Simplifying:
-        #     d^T (K_ii @ X_old[i] + neigh_sum - loads[i]) + alpha * (d^T K_ii d) = 0
-        # So:
-        #     alpha = - d^T (K_ii @ X_old[i] + neigh_sum - loads[i]) / (d^T K_ii d)
-        residual_d = float(d @ (K_ii @ X[node_i] + neigh_sum - loads[node_i]))
-        k_along = float(d @ (K_ii @ d))
-        if abs(k_along) < 1e-12:
-            continue
-        alpha = - residual_d / k_along
-        X[node_i] = X[node_i] + alpha * d
+        if node_is_dir_only[i]:
+            d = node_dir[i]
+            dof_of_node[i] = [(len(dof_basis), d)]
+            dof_basis.append(d)
+            dof_node.append(i)
+        else:
+            ex = np.array([1.0, 0.0, 0.0])
+            ey = np.array([0.0, 1.0, 0.0])
+            ez = np.array([0.0, 0.0, 1.0])
+            dof_of_node[i] = [
+                (len(dof_basis), ex),
+                (len(dof_basis) + 1, ey),
+                (len(dof_basis) + 2, ez),
+            ]
+            dof_basis.extend([ex, ey, ez])
+            dof_node.extend([i, i, i])
 
+    n_dof = len(dof_basis)
+
+    if n_dof == 0:
+        # Everything fixed. Residual is just K @ X0 - loads.
+        X = points.copy()
+        residual = K @ X - loads
+        reactions = np.zeros((n, 3), dtype=float)
+        for i in fixed_indices:
+            reactions[i, :] = -residual[i, :] / 1000.0
+        return {
+            "coordinates": X,
+            "residual_norm": 0.0,
+            "n_free": 0,
+            "n_fixed": int(fixed_mask.sum()),
+            "dof_count": 0,
+            "reactions": reactions,
+        }
+
+    # ---- Assemble the reduced system ----
+    # Build the DOF index arrays for fast access.
+    # For each node, its DOF indices and basis vectors, padded for
+    # fully_free nodes with three entries.
+    # We accumulate K_red and rhs directly.
+    K_red = np.zeros((n_dof, n_dof), dtype=float)
+    rhs = np.zeros(n_dof, dtype=float)
+
+    # Precompute phi_a (n_dof x 3) as a dense array for clarity.
+    phi = np.zeros((n_dof, 3), dtype=float)
+    for a in range(n_dof):
+        phi[a, :] = dof_basis[a]
+
+    # For each edge (i, j) with force density q_k, its contribution
+    # to the energy is q_k / 2 * ||X_i - X_j||^2 in the linear
+    # approximation sense. In matrix form, the reduced stiffness
+    # gets:
+    #     K_red += q_k * (phi_i - phi_j)^T (phi_i - phi_j)
+    # where phi_i is the (k_i x 3) matrix of basis vectors at node i.
+    # This is the cleanest way to assemble and it handles any mix
+    # of free, dir_only, z_only, and fixed nodes uniformly.
+    #
+    # We'll build per-node basis matrices (k_i x 3), where k_i is
+    # 0, 1, or 3.
+
+    node_basis = [None] * n
+    node_dof_idx = [None] * n
+    for i in range(n):
+        if not dof_of_node[i]:
+            node_basis[i] = np.zeros((0, 3), dtype=float)
+            node_dof_idx[i] = np.zeros((0,), dtype=int)
+        else:
+            rows = [dof_basis[a] for (a, _) in dof_of_node[i]]
+            idxs = [a for (a, _) in dof_of_node[i]]
+            node_basis[i] = np.vstack(rows)
+            node_dof_idx[i] = np.array(idxs, dtype=int)
+
+    for k, (i, j) in enumerate(edges):
+        qk = float(q[k])
+        Bi = node_basis[i]   # (ki x 3)
+        Bj = node_basis[j]   # (kj x 3)
+        ki = Bi.shape[0]
+        kj = Bj.shape[0]
+        if ki == 0 and kj == 0:
+            continue
+        # d = X_i - X_j, linear in DOFs.
+        # d_dof = Bi^T u_i - Bj^T u_j  (a 3-vector)
+        # Energy contribution = qk/2 * ||d_dof||^2
+        # K_red block for (i, i): qk * Bi^T Bi
+        if ki > 0:
+            K_red[np.ix_(node_dof_idx[i], node_dof_idx[i])] += qk * (Bi @ Bi.T)
+        if kj > 0:
+            K_red[np.ix_(node_dof_idx[j], node_dof_idx[j])] += qk * (Bj @ Bj.T)
+        if ki > 0 and kj > 0:
+            cross = qk * (Bi @ Bj.T)
+            K_red[np.ix_(node_dof_idx[i], node_dof_idx[j])] -= cross
+            K_red[np.ix_(node_dof_idx[j], node_dof_idx[i])] -= cross.T
+
+    # ---- Right-hand side ----
+    # The full residual at node i is:
+    #     R_i = sum_j q_ij (X_i - X_j) - loads_i
+    # We want the equilibrium: sum over free DOFs of phi_a^T R_i = 0.
+    #
+    # Substitute X_i = X0_i + sum_a u_a phi_a for free nodes, and
+    # X_j = X0_j for fixed nodes. The equations become:
+    #     K_red u = f_red
+    # where f_red_a = phi_a^T (loads_i - sum_j q_ij (X0_i - X0_j))
+    # with the understanding that (X0_i - X0_j) uses initial
+    # coordinates and the DOFs u carry the actual displacement.
+    #
+    # This is equivalent to the standard "shift the loads to the
+    # RHS" formulation, but done in the reduced basis.
+
+    # Build a sparse-ish accumulator for node-level force from
+    # initial positions plus loads.
+    # For each node i, F_i = loads_i - sum_j q_ij (X0_i - X0_j)
+    F = loads.copy()
+    X0 = points
+    for k, (i, j) in enumerate(edges):
+        qk = float(q[k])
+        diff = X0[i] - X0[j]
+        F[i] -= qk * diff
+        F[j] += qk * diff
+
+    # Project onto each DOF.
+    for a in range(n_dof):
+        i = dof_node[a]
+        rhs[a] = float(phi[a] @ F[i])
+
+    # ---- Solve ----
+    # K_red is symmetric positive definite when q > 0 and the
+    # graph is connected. Use a robust solver with a fallback.
+    try:
+        u = np.linalg.solve(K_red, rhs)
+    except np.linalg.LinAlgError:
+        # Singular. Use least-squares as a diagnostic fallback.
+        u, *_ = np.linalg.lstsq(K_red, rhs, rcond=None)
+
+    # ---- Reconstruct coordinates ----
+    X = X0.copy()
+    for a in range(n_dof):
+        i = dof_node[a]
+        X[i] = X[i] + u[a] * dof_basis[a]
+
+    # ---- Residual and reactions ----
     residual = K @ X - loads
     free_all = ~fixed_mask
     residual_norm = float(np.linalg.norm(residual[free_all]))
@@ -355,15 +453,12 @@ def solve_fdm(points, edges, fixed_indices, force_densities,
     for i in fixed_indices:
         reactions[i, :] = -residual[i, :] / 1000.0
 
-    n_free = int(np.sum(free_all)) - len(dir_map) * 2
-    if n_free < 0:
-        n_free = 0
-
     return {
         "coordinates": X,
         "residual_norm": residual_norm,
-        "n_free": n_free,
+        "n_free": int(np.sum(free_all)),
         "n_fixed": int(fixed_mask.sum()),
+        "dof_count": int(n_dof),
         "reactions": reactions,
     }
 
@@ -377,17 +472,11 @@ def solve_fdm_settled(settled_points, edges, fixed_indices,
     """
     Solve the settled state of an already form-found shape.
 
-    The two-pass workflow:
-
-        Pass 1 - solve_fdm. The user's chosen pretensions are used
-                 as force densities. The shape falls out.
-        Pass 2 - solve_fdm_settled. The shape is accepted. The
-                 settled force densities are used to compute the
-                 real reactions of the settled structure.
-
-    The shape does not move. The function computes the force
-    balance at every node; at fixed nodes that balance is the
-    reaction.
+    Pass 1 - solve_fdm. The user's chosen pretensions are used
+             as force densities. The shape falls out.
+    Pass 2 - solve_fdm_settled. The shape is accepted. The
+             settled force densities are used to compute the
+             real reactions of the settled structure.
 
     Parameters
     ----------
@@ -494,16 +583,33 @@ def assign_anisotropic_q(
     if n_boundary is None:
         n_boundary = 0
 
+    def _is_boundary_edge(a, b):
+        return (
+            n_boundary > 0
+            and a < n_boundary
+            and b < n_boundary
+            and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
+        )
+
+    def _blend(pa, pb):
+        d = pb - pa
+        dn = float(np.linalg.norm(d))
+        if dn < 1e-12:
+            return float(warp_q)
+        d = d / dn
+        cos_t = float(np.dot(d, warp_dir))
+        if cos_t > 1.0:
+            cos_t = 1.0
+        elif cos_t < -1.0:
+            cos_t = -1.0
+        cos2 = cos_t * cos_t
+        sin2 = 1.0 - cos2
+        return float(warp_q) * cos2 + float(weft_q) * sin2
+
     # --- Case 1: boundary_edge_q is a dict keyed by edge pairs.
     if isinstance(boundary_edge_q, dict):
         for k, (a, b) in enumerate(edges):
-            is_boundary_edge = (
-                n_boundary > 0
-                and a < n_boundary
-                and b < n_boundary
-                and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
-            )
-            if is_boundary_edge:
+            if _is_boundary_edge(a, b):
                 key = _edge_key(int(a), int(b))
                 val = boundary_edge_q.get(key, None)
                 if val is None:
@@ -513,22 +619,7 @@ def assign_anisotropic_q(
                     continue
                 q[k] = float(warp_q)
                 continue
-            pa = points_2d[a]
-            pb = points_2d[b]
-            d = pb - pa
-            dn = float(np.linalg.norm(d))
-            if dn < 1e-12:
-                q[k] = float(warp_q)
-                continue
-            d = d / dn
-            cos_t = float(np.dot(d, warp_dir))
-            if cos_t > 1.0:
-                cos_t = 1.0
-            elif cos_t < -1.0:
-                cos_t = -1.0
-            cos2 = cos_t * cos_t
-            sin2 = 1.0 - cos2
-            q[k] = float(warp_q) * cos2 + float(weft_q) * sin2
+            q[k] = _blend(points_2d[a], points_2d[b])
         return q
 
     # --- Case 2: boundary_edge_q is an array.
@@ -539,31 +630,10 @@ def assign_anisotropic_q(
                 % (boundary_edge_q.shape[0], m)
             )
         for k, (a, b) in enumerate(edges):
-            is_boundary_edge = (
-                n_boundary > 0
-                and a < n_boundary
-                and b < n_boundary
-                and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
-            )
-            if is_boundary_edge:
+            if _is_boundary_edge(a, b):
                 q[k] = float(boundary_edge_q[k])
                 continue
-            pa = points_2d[a]
-            pb = points_2d[b]
-            d = pb - pa
-            dn = float(np.linalg.norm(d))
-            if dn < 1e-12:
-                q[k] = float(warp_q)
-                continue
-            d = d / dn
-            cos_t = float(np.dot(d, warp_dir))
-            if cos_t > 1.0:
-                cos_t = 1.0
-            elif cos_t < -1.0:
-                cos_t = -1.0
-            cos2 = cos_t * cos_t
-            sin2 = 1.0 - cos2
-            q[k] = float(warp_q) * cos2 + float(weft_q) * sin2
+            q[k] = _blend(points_2d[a], points_2d[b])
         return q
 
     # --- Case 3: scalar boundary_edge_q.
@@ -573,13 +643,7 @@ def assign_anisotropic_q(
         boundary_edge_q_scalar = float(boundary_edge_q)
 
     for k, (a, b) in enumerate(edges):
-        is_boundary_edge = (
-            n_boundary > 0
-            and a < n_boundary
-            and b < n_boundary
-            and (abs(a - b) == 1 or abs(a - b) == n_boundary - 1)
-        )
-        if is_boundary_edge:
+        if _is_boundary_edge(a, b):
             if boundary_edge_type is not None and k < len(boundary_edge_type):
                 seg_type = boundary_edge_type[k]
                 if seg_type == "cable":
@@ -589,22 +653,7 @@ def assign_anisotropic_q(
             else:
                 q[k] = float(warp_q)
             continue
-        pa = points_2d[a]
-        pb = points_2d[b]
-        d = pb - pa
-        dn = float(np.linalg.norm(d))
-        if dn < 1e-12:
-            q[k] = float(warp_q)
-            continue
-        d = d / dn
-        cos_t = float(np.dot(d, warp_dir))
-        if cos_t > 1.0:
-            cos_t = 1.0
-        elif cos_t < -1.0:
-            cos_t = -1.0
-        cos2 = cos_t * cos_t
-        sin2 = 1.0 - cos2
-        q[k] = float(warp_q) * cos2 + float(weft_q) * sin2
+        q[k] = _blend(points_2d[a], points_2d[b])
 
     return q
 
@@ -846,7 +895,6 @@ def _test_dir_only_diagonal():
     coords = res["coordinates"]
 
     z_moved = abs(coords[1, 2] - 0.0)
-    # The X-Y displacement should lie along the diagonal direction.
     dx = coords[1, 0] - 1.0
     dy = coords[1, 1] - 1.0
     along_ok = abs(dx - dy) < 1e-6
@@ -860,6 +908,137 @@ def _test_dir_only_diagonal():
         "dy": dy,
         "z_moved": z_moved,
         "dir_diagonal_ok": constraint_ok,
+    }
+
+
+def _test_two_coupled_dir_only():
+    """
+    Two dir_only nodes connected to each other. This is the case
+    the old post-correction implementation could not solve
+    correctly. With the reduced-basis solve, the residual must be
+    at machine precision and both nodes must stay on their lines.
+    """
+    points = [
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+        (3.0, 0.0, 0.0),
+    ]
+    edges = [(0, 1), (1, 2), (2, 3)]
+    fixed = [0, 3]
+    dir_only = [
+        (1, (0.0, 1.0, 0.0)),
+        (2, (0.0, 1.0, 0.0)),
+    ]
+    loads = np.array([
+        [0.0, 0.0, 0.0],
+        [0.0, 100.0, 50.0],
+        [0.0, 100.0, -50.0],
+        [0.0, 0.0, 0.0],
+    ])
+    res = solve_fdm(points, edges, fixed, 1.0,
+                    loads=loads, dir_only_indices=dir_only)
+    coords = res["coordinates"]
+
+    x1 = abs(coords[1, 0] - 1.0)
+    z1 = abs(coords[1, 2] - 0.0)
+    x2 = abs(coords[2, 0] - 2.0)
+    z2 = abs(coords[2, 2] - 0.0)
+
+    constraint_ok = (
+        x1 < 1e-9 and z1 < 1e-9
+        and x2 < 1e-9 and z2 < 1e-9
+        and res["residual_norm"] < 1e-9
+    )
+
+    return {
+        "residual_norm": res["residual_norm"],
+        "x1_moved": x1,
+        "z1_moved": z1,
+        "x2_moved": x2,
+        "z2_moved": z2,
+        "dof_count": res["dof_count"],
+        "coupled_dir_only_ok": constraint_ok,
+    }
+
+
+def _test_dir_only_machine_precision_residual():
+    """
+    A chain with dir_only interior nodes. Every free DOF must have
+    machine-precision residual after the solve. This is the test
+    that the old implementation could not pass.
+    """
+    n = 6
+    points = [(float(i), 0.0, 0.0) for i in range(n)]
+    edges = [(i, i + 1) for i in range(n - 1)]
+    fixed = [0, n - 1]
+    dir_only = [(i, (0.0, 1.0, 0.0)) for i in range(1, n - 1)]
+    loads = np.zeros((n, 3))
+    for i in range(1, n - 1):
+        loads[i, 1] = 100.0 * i
+        loads[i, 2] = 50.0 * (i % 2)
+
+    res = solve_fdm(points, edges, fixed, 1.0,
+                    loads=loads, dir_only_indices=dir_only)
+
+    return {
+        "residual_norm": res["residual_norm"],
+        "dof_count": res["dof_count"],
+        "machine_precision_ok": res["residual_norm"] < 1e-9,
+    }
+
+
+def _test_dir_only_smooth_bow():
+    """
+    A taut cable held at both ends, with a transverse load.
+    dir_only at every interior node along the X axis should give
+    a smooth symmetric bow in Y, with all nodes on the X axis in
+    plan (no drift in X, no drift in Z).
+    """
+    n = 21
+    points = [(float(i), 0.0, 0.0) for i in range(n)]
+    edges = [(i, i + 1) for i in range(n - 1)]
+    fixed = [0, n - 1]
+    dir_only = [(i, (0.0, 1.0, 0.0)) for i in range(1, n - 1)]
+
+    loads = np.zeros((n, 3))
+    # A uniform transverse load. This is not a real distributed
+    # load, but it exercises the solver.
+    for i in range(1, n - 1):
+        loads[i, 1] = 100.0
+
+    res = solve_fdm(points, edges, fixed, 1.0,
+                    loads=loads, dir_only_indices=dir_only)
+    coords = res["coordinates"]
+
+    xs = coords[:, 0]
+    ys = coords[:, 1]
+    zs = coords[:, 2]
+
+    # X drift at interior nodes must be zero.
+    x_drift = float(np.max(np.abs(xs - np.arange(n, dtype=float))))
+    # Z drift must be zero.
+    z_drift = float(np.max(np.abs(zs)))
+    # Y bow must be symmetric: peak at the middle.
+    mid = n // 2
+    y_mid = float(ys[mid])
+    y_ends_ok = abs(ys[1]) < 1e-9 and abs(ys[n - 2]) < 1e-9
+    symmetric = abs(ys[1] - ys[n - 2]) < 1e-9
+    bowed = y_mid > 1e-3
+
+    return {
+        "residual_norm": res["residual_norm"],
+        "x_drift": x_drift,
+        "z_drift": z_drift,
+        "y_mid": y_mid,
+        "smooth_bow_ok": (
+            x_drift < 1e-9
+            and z_drift < 1e-9
+            and y_ends_ok
+            and symmetric
+            and bowed
+            and res["residual_norm"] < 1e-9
+        ),
     }
 
 
@@ -959,6 +1138,26 @@ def _verify_form_finding():
     results["dir_diag_z_moved"] = t3c["z_moved"]
     results["dir_diag_ok"] = t3c["dir_diagonal_ok"]
 
+    t3d = _test_two_coupled_dir_only()
+    results["coupled_dir_only_residual"] = t3d["residual_norm"]
+    results["coupled_dir_only_x1"] = t3d["x1_moved"]
+    results["coupled_dir_only_z1"] = t3d["z1_moved"]
+    results["coupled_dir_only_x2"] = t3d["x2_moved"]
+    results["coupled_dir_only_z2"] = t3d["z2_moved"]
+    results["coupled_dir_only_ok"] = t3d["coupled_dir_only_ok"]
+
+    t3e = _test_dir_only_machine_precision_residual()
+    results["dir_chain_residual"] = t3e["residual_norm"]
+    results["dir_chain_dof_count"] = t3e["dof_count"]
+    results["dir_chain_ok"] = t3e["machine_precision_ok"]
+
+    t3f = _test_dir_only_smooth_bow()
+    results["cable_bow_residual"] = t3f["residual_norm"]
+    results["cable_bow_x_drift"] = t3f["x_drift"]
+    results["cable_bow_z_drift"] = t3f["z_drift"]
+    results["cable_bow_y_mid"] = t3f["y_mid"]
+    results["cable_bow_ok"] = t3f["smooth_bow_ok"]
+
     t4 = _test_mesh_size_for_shape()
     results["mesh_rect_near_25"] = t4["rect_near_25"]
     results["mesh_rect_near_28"] = t4["rect_near_28"]
@@ -979,6 +1178,9 @@ def _verify_form_finding():
         results["z_only_ok"],
         results["dir_only_ok"],
         results["dir_diag_ok"],
+        results["coupled_dir_only_ok"],
+        results["dir_chain_ok"],
+        results["cable_bow_ok"],
         results["mesh_rule_ok"],
         results["settled_match_ok"],
     ])
@@ -1024,6 +1226,26 @@ if __name__ == "__main__":
     print("  dy               : %.6f" % res["dir_diag_dy"])
     print("  z moved          : %.6e" % res["dir_diag_z_moved"])
     print("  dir_diag_ok      :", res["dir_diag_ok"])
+    print()
+    print("Test 3d - two coupled dir_only nodes")
+    print("  residual_norm    : %.6e" % res["coupled_dir_only_residual"])
+    print("  x1 moved         : %.6e" % res["coupled_dir_only_x1"])
+    print("  z1 moved         : %.6e" % res["coupled_dir_only_z1"])
+    print("  x2 moved         : %.6e" % res["coupled_dir_only_x2"])
+    print("  z2 moved         : %.6e" % res["coupled_dir_only_z2"])
+    print("  coupled_dir_only_ok :", res["coupled_dir_only_ok"])
+    print()
+    print("Test 3e - dir_only chain, machine-precision residual")
+    print("  residual_norm    : %.6e" % res["dir_chain_residual"])
+    print("  dof_count        :", res["dir_chain_dof_count"])
+    print("  dir_chain_ok     :", res["dir_chain_ok"])
+    print()
+    print("Test 3f - dir_only smooth bow (cable)")
+    print("  residual_norm    : %.6e" % res["cable_bow_residual"])
+    print("  x_drift          : %.6e" % res["cable_bow_x_drift"])
+    print("  z_drift          : %.6e" % res["cable_bow_z_drift"])
+    print("  y_mid            : %.6f" % res["cable_bow_y_mid"])
+    print("  cable_bow_ok     :", res["cable_bow_ok"])
     print()
     print("Test 4 - Mesh divisibility rule")
     print("  rect near 25 m   :", res["mesh_rect_near_25"])
