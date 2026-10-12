@@ -1,36 +1,28 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v14.
+Version v15.
 
-What is new in this version:
+What is new in v15:
+  - The perimeter eave loop is now treated as a cable.
+  - The anchor corners (rib eave endpoints and the two tip points)
+    remain fully fixed.
+  - Every intermediate perimeter node is now dir_only along the
+    local eave tangent. It is free to slide along the eave, and
+    held in the two perpendicular directions.
+  - This uses the reduced-basis dir_only solver in
+    engine/form_finding_test.py.
+  - No other change. The mesh, ring placement, ring attachment,
+    member schedule, and viewer are identical to v14.
+
+Carried over from v14:
   - Spokes and drop members are drawn back in the viewer.
   - Every steel member (spoke, drop member, ring beam segment,
     ring beam consolidated) is recorded by name for BQ and analysis.
-
-Members recorded per ring:
-  - Ring beam:  one consolidated member per ring, plus N
-                segment members between adjacent polygon nodes.
-                Name:  Ring_<i>_Ring_Beam  and  Ring_<i>_Beam_Seg_<k>
-  - Spokes:     one per ring polygon node.
-                Name:  Ring_<i>_Spoke_<k>
-  - Drop member: one per ring.
-                Name:  Ring_<i>_Drop_Member
-
-Member fields:
-  member_id, member_type, ring_index, node_a, node_b,
-  length_m, section, material, role
-
-section and material are placeholders ("TBD") until the sizing
-engine assigns them.
-
-Carried over from v13:
   - Cone placement by a single spacing input.
   - Ring z follows the beam: z_ring = beam_z(s_ring) - clearance.
   - Refuse rule if any ring falls outside the span.
-  - Per-cone widgets removed.  Three numbers control layout:
-      number of cones, spacing, clearance.
 
-No engine files are modified.
+No other engine files are modified.
 """
 
 import math
@@ -39,7 +31,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
-from engine.form_finding import solve_fdm
+from engine.form_finding_test import solve_fdm
 from viewers.figures._shared import (
     apply_common_layout,
     beam_curve,
@@ -133,6 +125,22 @@ def _subdivide_polygon(anchors, subdivisions):
             f = k / float(subdivisions)
             loop.append(a + (b - a) * f)
     return np.asarray(loop, dtype=float), anchor_idx
+
+
+def _eave_tangents(loop):
+    """Return the unit tangent at each node of a closed loop."""
+    n = loop.shape[0]
+    tangents = np.zeros((n, 3), dtype=float)
+    for i in range(n):
+        a = loop[(i - 1) % n]
+        b = loop[(i + 1) % n]
+        t = b - a
+        tn = float(np.linalg.norm(t))
+        if tn < 1e-12:
+            tangents[i] = np.array([1.0, 0.0, 0.0])
+        else:
+            tangents[i] = t / tn
+    return tangents
 
 
 def _point_in_polygon(x, y, poly):
@@ -319,28 +327,23 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     for key in boundary_edge_set:
         all_edge_set.add(key)
 
-    # --- Ring assembly edges -----------------------------------------
     for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
         centre_i = centre_indices[k]
         beam_i = beam_top_indices[k]
         n_poly = len(idx_list)
-        # Ring beam segments
         for i in range(n_poly):
             a = idx_list[i]
             b = idx_list[(i + 1) % n_poly]
             key = (a, b) if a < b else (b, a)
             all_edge_set.add(key)
             boundary_edge_set.add(key)
-        # Spokes
         for i in idx_list:
             key = (centre_i, i) if centre_i < i else (i, centre_i)
             all_edge_set.add(key)
-        # Drop member
         key = (centre_i, beam_i) if centre_i < beam_i else (beam_i, centre_i)
         all_edge_set.add(key)
 
-    # --- Fabric attachment -------------------------------------------
     attached_node_indices = set()
     ring_attach_counts = []
     ring_attach_edges_added = []
@@ -420,14 +423,7 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     }
 
 
-# --- Member schedule ---------------------------------------------------------
-
 def _build_member_schedule(built, coords, ring_x_positions):
-    """Return a list of named member records for BQ and analysis.
-
-    Fields: member_id, member_type, ring_index, node_a, node_b,
-            length_m, section, material, role
-    """
     members = []
     ring_indices = built["ring_indices"]
     centre_indices = built["centre_indices"]
@@ -440,7 +436,6 @@ def _build_member_schedule(built, coords, ring_x_positions):
         beam_i = int(beam_top_indices[k])
         n_poly = len(idx_list)
 
-        # Ring beam consolidated (one member for BQ).
         ring_length = 0.0
         for i in range(n_poly):
             a = int(idx_list[i])
@@ -458,7 +453,6 @@ def _build_member_schedule(built, coords, ring_x_positions):
             "role": "closed ring beam, one per cone",
         })
 
-        # Ring beam segments (one per polygon node).
         for i in range(n_poly):
             a = int(idx_list[i])
             b = int(idx_list[(i + 1) % n_poly])
@@ -475,7 +469,6 @@ def _build_member_schedule(built, coords, ring_x_positions):
                 "role": "ring beam segment between adjacent nodes",
             })
 
-        # Spokes: one per polygon node.
         for i, node_i in enumerate(idx_list):
             node_i = int(node_i)
             L = float(np.linalg.norm(coords[node_i] - coords[centre_i]))
@@ -491,7 +484,6 @@ def _build_member_schedule(built, coords, ring_x_positions):
                 "role": "radial spoke from ring centre to ring circle",
             })
 
-        # Drop member: one per ring.
         L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
         members.append({
             "member_id": f"Ring_{ring_no}_Drop_Member",
@@ -527,8 +519,6 @@ def _format_member_table(members):
     return "\n".join(lines)
 
 
-# --- Node digitisation -------------------------------------------------------
-
 _HEADER = (
     "%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s"
     % ("idx", "x_init", "y_init", "z_init",
@@ -548,11 +538,13 @@ def _status_line(i, status, points_initial, points_settled):
 
 def _format_all_nodes(points_initial, points_settled, anchor_idx,
                        ring_indices, centre_indices, beam_top_indices,
-                       attached_set):
+                       attached_set, intermediate_perimeter_set):
     n = points_initial.shape[0]
     status_of = ["free"] * n
     for i in anchor_idx:
         status_of[int(i)] = "held_perimeter_anchor"
+    for i in intermediate_perimeter_set:
+        status_of[int(i)] = "eave_cable_dir_only"
     for idx_list in ring_indices:
         for i in idx_list:
             status_of[int(i)] = "held_ring_polygon"
@@ -569,13 +561,11 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
     return "\n".join(lines)
 
 
-# --- Page --------------------------------------------------------------------
-
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — multi-cone, steel "
-        "member schedule.</p>",
+        "member schedule, eave cable.</p>",
         unsafe_allow_html=True,
     )
 
@@ -714,6 +704,26 @@ def render_tester_multi_cone():
     tris = built["triangles"]
     fixed = built["fixed_indices"]
 
+    # ---- Eave cable: dir_only on intermediate perimeter nodes ----
+    # Build a set of the intermediate perimeter node indices.
+    # These are all perimeter nodes except the anchors.
+    n_perimeter = built["n_perimeter"]
+    anchor_set = set(int(i) for i in anchor_idx)
+    intermediate_perimeter = [
+        i for i in range(n_perimeter) if i not in anchor_set
+    ]
+
+    tangents = _eave_tangents(perimeter_loop)
+    dir_only_list = []
+    for i in intermediate_perimeter:
+        t = tangents[i]
+        dir_only_list.append((i, (float(t[0]), float(t[1]), float(t[2]))))
+
+    # The intermediate perimeter nodes must NOT be in the fixed set,
+    # otherwise they will be held and the dir_only constraint will be
+    # ignored. Remove them from the fixed list.
+    fixed = [i for i in fixed if i not in set(intermediate_perimeter)]
+
     warp_q = max(float(warp_q_input), 0.1) * 1000.0
     weft_q = max(float(weft_q_input), 0.1) * 1000.0
     if edge_q_input > 0.0:
@@ -731,16 +741,19 @@ def render_tester_multi_cone():
             q[k] = warp_q
 
     try:
-        fdm = solve_fdm(pts, edges, fixed, q)
+        fdm = solve_fdm(pts, edges, fixed, q,
+                        dir_only_indices=dir_only_list)
         coords = fdm["coordinates"]
         residual_norm = float(fdm["residual_norm"])
         solve_ok = True
         solve_err = ""
+        dof_count = int(fdm.get("dof_count", 0))
     except Exception as e:
         coords = pts.copy()
         residual_norm = float("nan")
         solve_ok = False
         solve_err = str(e)
+        dof_count = 0
 
     # --- Figure ------------------------------------------------------
     fig = go.Figure()
@@ -782,7 +795,6 @@ def render_tester_multi_cone():
         centre_i = built["centre_indices"][k]
         beam_i = built["beam_top_indices"][k]
         cx, cy, cz = coords[centre_i]
-        # Spokes drawn
         for poly_i in idx_list:
             fig.add_trace(go.Scatter3d(
                 x=[cx, coords[poly_i, 0]],
@@ -791,7 +803,6 @@ def render_tester_multi_cone():
                 mode="lines", line=dict(color=COL_SPOKE, width=2),
                 name="spoke", showlegend=False, hoverinfo="skip",
             ))
-        # Drop member drawn
         bx, by, bz = coords[beam_i]
         fig.add_trace(go.Scatter3d(
             x=[cx, bx], y=[cy, by], z=[cz, bz],
@@ -802,7 +813,6 @@ def render_tester_multi_cone():
     apply_common_layout(fig, apex)
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
-    # --- Member schedule --------------------------------------------
     members = _build_member_schedule(built, coords, x_rings)
 
     with st.expander("Steel member schedule (BQ and analysis)", expanded=False):
@@ -820,6 +830,7 @@ def render_tester_multi_cone():
         st.code(_format_member_table(members), language="text")
 
     with st.expander("Diagnostics", expanded=False):
+        st.write(f"Version: v15 (eave cable)")
         st.write(f"Number of cones: {number_of_cones}")
         st.write(f"Spacing (m, along beam): {ring_spacing:.3f}")
         st.write(f"Primary arc length (m): {total_p:.3f}")
@@ -830,16 +841,15 @@ def render_tester_multi_cone():
                  ", ".join(f"{v:.3f}" for v in s_rings))
         st.write("Ring x positions (m): " +
                  ", ".join(f"{v:+.3f}" for v in x_rings))
-        st.write("Beam z at ring stations (m): " +
-                 ", ".join(f"{v:.3f}" for v in beam_z_rings))
-        st.write("Ring z at ring stations (m): " +
-                 ", ".join(f"{v:.3f}" for v in ring_z_rings))
         st.write(f"Outer anchors: {anchors.shape[0]}")
         st.write(f"Perimeter nodes: {perimeter_loop.shape[0]}")
+        st.write(f"Eave cable dir_only nodes: {len(intermediate_perimeter)}")
+        st.write(f"Held perimeter anchors: {len(anchor_set)}")
         st.write(f"Total mesh nodes: {pts.shape[0]}")
         st.write(f"Mesh edges: {len(edges)}")
         st.write(f"Mesh triangles: {len(tris)}")
         st.write(f"Held nodes: {len(fixed)}")
+        st.write(f"DOF count: {dof_count}")
         st.write(f"Solve OK: {solve_ok}")
         if not solve_ok:
             st.write(f"Solve error: {solve_err}")
@@ -850,8 +860,6 @@ def render_tester_multi_cone():
                  ", ".join(str(c) for c in built["ring_node_counts"]))
         st.write("Ring fabric nodes attached: " +
                  ", ".join(str(c) for c in built["ring_attach_counts"]))
-        st.write("Ring attachment edges added: " +
-                 ", ".join(str(c) for c in built["ring_attach_edges_added"]))
 
     with st.expander("All nodes (full digitisation)", expanded=False):
         st.code(
@@ -861,6 +869,7 @@ def render_tester_multi_cone():
                 built["centre_indices"],
                 built["beam_top_indices"],
                 built["attached_node_indices"],
+                intermediate_perimeter,
             ),
             language="text",
         )
