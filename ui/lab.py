@@ -182,6 +182,7 @@ def render_lab():
     if st.button("Open Multi-Cone Roof Tester", key="lab_tester_multi_cone", use_container_width=True):
         st.session_state.page = "tester_multi_cone"
         st.rerun()
+        
     # ---- Form Finding Lab
     st.markdown(
         '<div class="lab-tile">'
