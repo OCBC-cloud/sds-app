@@ -1,23 +1,31 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v15.
+Version v16.
 
-What is new in v15:
-  - The perimeter eave loop is now treated as a cable.
-  - The anchor corners (rib eave endpoints and the two tip points)
-    remain fully fixed.
-  - Every intermediate perimeter node is now dir_only along the
-    local eave tangent. It is free to slide along the eave, and
-    held in the two perpendicular directions.
-  - This uses the reduced-basis dir_only solver in
-    engine/form_finding_test.py.
-  - No other change. The mesh, ring placement, ring attachment,
-    member schedule, and viewer are identical to v14.
+What is new in v16:
+  - Fabric nodes inside the ring clearance band are removed before
+    triangulation. The ring polygon is the boundary. No fabric
+    candidate sits within ring_radius + 0.6 * target_len of a ring
+    centre. This kills the orphan band at source.
+  - Ring attachment welds instead of bridges. Each ring polygon
+    node attaches to the SINGLE closest fabric node within
+    1.2 * target_len. If none is close enough, no edge is added.
+  - Fabric nodes attached to a ring polygon node are RELEASED.
+    The ring is held; the fabric pulls against it. This is the
+    real tensile behaviour.
+  - Fabric nodes within 1.5 * target_len of a ring centre that
+    are NOT attached are held, to anchor the fabric around the
+    ring and keep the solver well-posed.
+  - The eave cable from v15 is retained.
+
+Carried over from v15:
+  - Perimeter eave loop is treated as a cable. Anchor corners
+    fixed, intermediate perimeter nodes dir_only along the local
+    eave tangent.
 
 Carried over from v14:
-  - Spokes and drop members are drawn back in the viewer.
-  - Every steel member (spoke, drop member, ring beam segment,
-    ring beam consolidated) is recorded by name for BQ and analysis.
+  - Spokes and drop members drawn in the viewer.
+  - Every steel member recorded by name for BQ and analysis.
   - Cone placement by a single spacing input.
   - Ring z follows the beam: z_ring = beam_z(s_ring) - clearance.
   - Refuse rule if any ring falls outside the span.
@@ -128,7 +136,7 @@ def _subdivide_polygon(anchors, subdivisions):
 
 
 def _eave_tangents(loop):
-    """Return the unit tangent at each node of a closed loop."""
+    """Unit tangent at each node of a closed loop."""
     n = loop.shape[0]
     tangents = np.zeros((n, 3), dtype=float)
     for i in range(n):
@@ -156,13 +164,6 @@ def _point_in_polygon(x, y, poly):
                 inside = not inside
         j = i
     return inside
-
-
-def _inside_any_ring(xy, rings):
-    for (cx, cy, r) in rings:
-        if (xy[0] - cx) ** 2 + (xy[1] - cy) ** 2 < r * r:
-            return True
-    return False
 
 
 def _ring_node_count(r, target_len):
@@ -213,6 +214,18 @@ def _max_spacing_for(n_cones, total):
 
 def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
                       eave_height, target_len):
+    """
+    v16 mesh builder.
+
+    Key differences from v14/v15:
+      - Interior fabric candidates inside the ring clearance band
+        (ring_radius + 0.6 * target_len) are not generated.
+      - Ring attachment: one edge per ring polygon node to the
+        single closest fabric node within 1.2 * target_len.
+      - Attached fabric nodes are RELEASED (not held).
+      - Unattached fabric nodes within 1.5 * target_len of a ring
+        centre are HELD, to anchor the fabric around the ring.
+    """
     from scipy.spatial import Delaunay
 
     poly_xy = perimeter_loop[:, :2]
@@ -228,12 +241,20 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     xs = np.arange(xmin + 0.5 * h, xmax, h)
     ys = np.arange(ymin + 0.5 * h, ymax, h)
 
+    # v16: interior candidates exclude the ring clearance band.
+    clearance_band = 0.6 * target_len
     interior_xy = []
     for x in xs:
         for y in ys:
             if not _point_in_polygon(x, y, poly_xy):
                 continue
-            if _inside_any_ring((x, y), ring_centres_radii):
+            too_close = False
+            for (cx, cy, r) in ring_centres_radii:
+                d = math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+                if d < r + clearance_band:
+                    too_close = True
+                    break
+            if too_close:
                 continue
             interior_xy.append((float(x), float(y)))
 
@@ -305,11 +326,16 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         cen = (pts_2d[a] + pts_2d[b] + pts_2d[c]) / 3.0
         if not _point_in_polygon(cen[0], cen[1], poly_xy):
             continue
-        if _inside_any_ring(cen, ring_centres_radii):
-            continue
-        if (_inside_any_ring(pts_2d[a], ring_centres_radii)
-                or _inside_any_ring(pts_2d[b], ring_centres_radii)
-                or _inside_any_ring(pts_2d[c], ring_centres_radii)):
+        # Exclude triangles with any vertex inside a ring (v14 rule).
+        bad = False
+        for (cx, cy, r) in ring_centres_radii:
+            if ((pts_2d[a, 0] - cx) ** 2 + (pts_2d[a, 1] - cy) ** 2) < r * r:
+                bad = True; break
+            if ((pts_2d[b, 0] - cx) ** 2 + (pts_2d[b, 1] - cy) ** 2) < r * r:
+                bad = True; break
+            if ((pts_2d[c, 0] - cx) ** 2 + (pts_2d[c, 1] - cy) ** 2) < r * r:
+                bad = True; break
+        if bad:
             continue
         triangles.append((a, b, c))
 
@@ -327,6 +353,7 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     for key in boundary_edge_set:
         all_edge_set.add(key)
 
+    # Ring structural edges: polygon, spokes, drop.
     for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
         centre_i = centre_indices[k]
@@ -344,10 +371,15 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         key = (centre_i, beam_i) if centre_i < beam_i else (beam_i, centre_i)
         all_edge_set.add(key)
 
-    attached_node_indices = set()
+    # v16 ring attachment: weld, don't bridge.
+    fabric_indices = list(range(fabric_start, fabric_end))
+    attach_limit = 1.2 * target_len
+    anchor_limit = 1.5 * target_len
+
+    attached_fabric_indices = set()
     ring_attach_counts = []
     ring_attach_edges_added = []
-    fabric_indices = list(range(fabric_start, fabric_end))
+    ring_attach_misses = []
 
     for k, spec in enumerate(ring_specs):
         cx = float(spec["cx"]); cy = float(spec["cy"])
@@ -355,9 +387,11 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         idx_list = ring_indices[k]
         attached_here = set()
         edges_added_here = 0
+        misses_here = 0
         for poly_node in idx_list:
             px, py, pz = all_pts[poly_node]
-            best = []
+            best_d = float("inf")
+            best_fi = -1
             for fi in fabric_indices:
                 fx, fy, fz = all_pts[fi]
                 d_plan = math.sqrt((fx - cx) ** 2 + (fy - cy) ** 2)
@@ -365,33 +399,27 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
                     continue
                 d3 = math.sqrt((fx - px) ** 2 + (fy - py) ** 2
                                 + (fz - pz) ** 2)
-                best.append((d3, fi))
-            best.sort()
-            for (d3, fi) in best[:2]:
-                key = (poly_node, fi) if poly_node < fi else (fi, poly_node)
-                if key not in all_edge_set:
-                    all_edge_set.add(key)
-                    edges_added_here += 1
-                attached_here.add(fi)
+                if d3 < best_d:
+                    best_d = d3
+                    best_fi = fi
+            if best_fi < 0 or best_d > attach_limit:
+                misses_here += 1
+                continue
+            key = (poly_node, best_fi) if poly_node < best_fi else (best_fi, poly_node)
+            if key not in all_edge_set:
+                all_edge_set.add(key)
+                edges_added_here += 1
+            attached_here.add(best_fi)
         ring_attach_counts.append(len(attached_here))
         ring_attach_edges_added.append(edges_added_here)
-        attached_node_indices.update(attached_here)
+        ring_attach_misses.append(misses_here)
+        attached_fabric_indices.update(attached_here)
 
-    for i in attached_node_indices:
-        fx, fy = all_pts[i, 0], all_pts[i, 1]
-        best_d = float("inf")
-        best_z = all_pts[i, 2]
-        for spec in ring_specs:
-            cx = float(spec["cx"]); cy = float(spec["cy"])
-            r = float(spec["r"]); cz = float(spec["cz"])
-            d = math.sqrt((fx - cx) ** 2 + (fy - cy) ** 2) - r
-            if d < best_d:
-                best_d = d
-                best_z = cz
-        all_pts[i, 2] = best_z
-
-    edges = sorted(all_edge_set)
-
+    # v16 fixed node classification:
+    #  - perimeter anchor corners: fixed
+    #  - ring polygon nodes, ring centres, beam tops: fixed
+    #  - attached fabric nodes: RELEASED (not fixed)
+    #  - unattached fabric nodes within anchor_limit of a ring: HELD
     fixed = set(int(i) for i in anchor_idx)
     for idx_list in ring_indices:
         for i in idx_list:
@@ -400,8 +428,25 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         fixed.add(int(ci))
     for bi in beam_top_indices:
         fixed.add(int(bi))
-    for i in attached_node_indices:
-        fixed.add(int(i))
+
+    fabric_anchor_indices = set()
+    for fi in fabric_indices:
+        if fi in attached_fabric_indices:
+            continue
+        fx, fy = all_pts[fi, 0], all_pts[fi, 1]
+        near_ring = False
+        for spec in ring_specs:
+            cx = float(spec["cx"]); cy = float(spec["cy"])
+            r = float(spec["r"])
+            d = math.sqrt((fx - cx) ** 2 + (fy - cy) ** 2)
+            if d < r + anchor_limit:
+                near_ring = True
+                break
+        if near_ring:
+            fabric_anchor_indices.add(fi)
+            fixed.add(int(fi))
+
+    edges = sorted(all_edge_set)
 
     return {
         "points": all_pts,
@@ -413,9 +458,11 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         "centre_indices": centre_indices,
         "beam_top_indices": beam_top_indices,
         "ring_node_counts": ring_node_counts,
-        "attached_node_indices": sorted(attached_node_indices),
+        "attached_node_indices": sorted(attached_fabric_indices),
+        "fabric_anchor_indices": sorted(fabric_anchor_indices),
         "ring_attach_counts": ring_attach_counts,
         "ring_attach_edges_added": ring_attach_edges_added,
+        "ring_attach_misses": ring_attach_misses,
         "n_perimeter": n_perimeter,
         "n_interior": len(interior_xy),
         "fabric_start": fabric_start,
@@ -538,7 +585,8 @@ def _status_line(i, status, points_initial, points_settled):
 
 def _format_all_nodes(points_initial, points_settled, anchor_idx,
                        ring_indices, centre_indices, beam_top_indices,
-                       attached_set, intermediate_perimeter_set):
+                       attached_set, intermediate_perimeter_set,
+                       fabric_anchor_set):
     n = points_initial.shape[0]
     status_of = ["free"] * n
     for i in anchor_idx:
@@ -553,7 +601,9 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
     for i in beam_top_indices:
         status_of[int(i)] = "held_beam_top"
     for i in attached_set:
-        status_of[int(i)] = "held_ring_attached"
+        status_of[int(i)] = "attached_fabric_released"
+    for i in fabric_anchor_set:
+        status_of[int(i)] = "held_fabric_anchor"
     lines = [_HEADER, "-" * len(_HEADER)]
     for i in range(n):
         lines.append(_status_line(i, status_of[i],
@@ -565,7 +615,7 @@ def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — multi-cone, steel "
-        "member schedule, eave cable.</p>",
+        "member schedule, eave cable, ring weld.</p>",
         unsafe_allow_html=True,
     )
 
@@ -704,24 +754,17 @@ def render_tester_multi_cone():
     tris = built["triangles"]
     fixed = built["fixed_indices"]
 
-    # ---- Eave cable: dir_only on intermediate perimeter nodes ----
-    # Build a set of the intermediate perimeter node indices.
-    # These are all perimeter nodes except the anchors.
+    # Eave cable dir_only from v15.
     n_perimeter = built["n_perimeter"]
     anchor_set = set(int(i) for i in anchor_idx)
     intermediate_perimeter = [
         i for i in range(n_perimeter) if i not in anchor_set
     ]
-
     tangents = _eave_tangents(perimeter_loop)
     dir_only_list = []
     for i in intermediate_perimeter:
         t = tangents[i]
         dir_only_list.append((i, (float(t[0]), float(t[1]), float(t[2]))))
-
-    # The intermediate perimeter nodes must NOT be in the fixed set,
-    # otherwise they will be held and the dir_only constraint will be
-    # ignored. Remove them from the fixed list.
     fixed = [i for i in fixed if i not in set(intermediate_perimeter)]
 
     warp_q = max(float(warp_q_input), 0.1) * 1000.0
@@ -755,7 +798,6 @@ def render_tester_multi_cone():
         solve_err = str(e)
         dof_count = 0
 
-    # --- Figure ------------------------------------------------------
     fig = go.Figure()
 
     if len(tris) > 0:
@@ -817,38 +859,24 @@ def render_tester_multi_cone():
 
     with st.expander("Steel member schedule (BQ and analysis)", expanded=False):
         st.write(f"Total members recorded: {len(members)}")
-        st.write(
-            "Counts: %d ring beam (consolidated), %d ring beam segments, "
-            "%d spokes, %d drop members."
-            % (
-                sum(1 for m in members if m["member_type"] == "ring_beam"),
-                sum(1 for m in members if m["member_type"] == "ring_beam_segment"),
-                sum(1 for m in members if m["member_type"] == "spoke"),
-                sum(1 for m in members if m["member_type"] == "drop_member"),
-            )
-        )
         st.code(_format_member_table(members), language="text")
 
-    with st.expander("Diagnostics", expanded=False):
-        st.write(f"Version: v15 (eave cable)")
+    with st.expander("Diagnostics", expanded=True):
+        st.write(f"Version: v16 (ring weld, released attachment)")
         st.write(f"Number of cones: {number_of_cones}")
-        st.write(f"Spacing (m, along beam): {ring_spacing:.3f}")
-        st.write(f"Primary arc length (m): {total_p:.3f}")
-        st.write(f"Maximum allowed spacing: {max_spacing:.3f} m")
-        st.write(f"Ring clearance below beam (m): {ring_clearance:.3f}")
-        st.write(f"Ring diameter (m): {ring_diameter:.3f}")
-        st.write("Ring arc-length positions (m): " +
-                 ", ".join(f"{v:.3f}" for v in s_rings))
-        st.write("Ring x positions (m): " +
+        st.write(f"Ring x positions (m): " +
                  ", ".join(f"{v:+.3f}" for v in x_rings))
         st.write(f"Outer anchors: {anchors.shape[0]}")
         st.write(f"Perimeter nodes: {perimeter_loop.shape[0]}")
         st.write(f"Eave cable dir_only nodes: {len(intermediate_perimeter)}")
-        st.write(f"Held perimeter anchors: {len(anchor_set)}")
         st.write(f"Total mesh nodes: {pts.shape[0]}")
         st.write(f"Mesh edges: {len(edges)}")
         st.write(f"Mesh triangles: {len(tris)}")
         st.write(f"Held nodes: {len(fixed)}")
+        st.write(f"Attached fabric (released): {len(built['attached_node_indices'])}")
+        st.write(f"Held fabric anchors: {len(built['fabric_anchor_indices'])}")
+        st.write(f"Ring attach edges added per ring: {built['ring_attach_edges_added']}")
+        st.write(f"Ring attach misses per ring (no fabric in range): {built['ring_attach_misses']}")
         st.write(f"DOF count: {dof_count}")
         st.write(f"Solve OK: {solve_ok}")
         if not solve_ok:
@@ -858,8 +886,6 @@ def render_tester_multi_cone():
         st.write(f"Target edge length: {target_len:.4f}")
         st.write("Ring node counts: " +
                  ", ".join(str(c) for c in built["ring_node_counts"]))
-        st.write("Ring fabric nodes attached: " +
-                 ", ".join(str(c) for c in built["ring_attach_counts"]))
 
     with st.expander("All nodes (full digitisation)", expanded=False):
         st.code(
@@ -870,6 +896,7 @@ def render_tester_multi_cone():
                 built["beam_top_indices"],
                 built["attached_node_indices"],
                 intermediate_perimeter,
+                built["fabric_anchor_indices"],
             ),
             language="text",
         )
