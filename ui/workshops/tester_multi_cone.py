@@ -1,47 +1,21 @@
 """Multi-Cone Roof — Lab test page.
 
-Version v21.
+Version v22.
 
-What changed from v19 (the last working-skeleton version):
+Fixes from v21:
 
-  1. Perimeter built as a parametric ellipse, once.
-     No nearest-node searches anywhere in the mesh builder.
-     Nodes are placed on the ellipse by construction.
+  1. Valley columns are now clipped to the perimeter ellipse at
+     their x.  The two ends of each valley column are exactly
+     where the vertical plane x = wall_x crosses the ellipse.
+     No more wall nodes outside the perimeter.
 
-  2. Valley cables ("wall columns") are first-class nodes:
-     - Built once, before any fan.
-     - Column of nodes at x = wall_x, y from -y_max to +y_max.
-     - Two end nodes held in xyz at the perimeter.
-     - Interior nodes dir-only along their LOCAL tangent.
-       Held perpendicular to the tangent.  This is what makes
-       the valley a cable: it can slide along itself and bow
-       in the perpendicular plane, but cannot be split by the
-       two cones pulling on it.
+  2. Wall ray clips are only accepted if the crossing point is
+     inside the ellipse.  A ray that would hit the wall plane
+     outside the perimeter is redirected to hit the perimeter
+     instead.  This is what removes the orphan nodes that caused
+     the singular matrix in v21.
 
-  3. Interior fabric nodes start flat at eave height.
-     The FDM solver finds the shape.  (Proven by the
-     single-cone test: the shape is independent of the
-     initial z.)
-
-  4. Force densities:
-     - Fabric edges:  warp q.
-     - Perimeter:     edge q.
-     - Valley cable:  valley q.  New page input.
-     - One input controls every valley.
-
-  5. Caching:
-     - @st.cache_data on the mesh builder.
-     - @st.cache_data on the FDM solve.
-     Changing the q sliders does not rebuild the mesh.
-     Changing the geometry sliders rebuilds, but identical
-     inputs hit the cache.
-
-  6. Mesh size defaults reduced to fit the free tier.
-     RAYS_PER_RING = 24, RADIAL_NODES = 4.
-
-Steel structure (primary beam, ribs, ring beams, spokes,
-drop members, ground anchors) is unchanged from prior versions.
-Member schedule gains the valley cable records.
+Everything else is unchanged from v21.
 """
 
 import math
@@ -223,21 +197,30 @@ def _cell_walls_x(x_rings):
     return walls, mids
 
 
+def _ellipse_inside(x, y, a_ell, b_ell):
+    return (x / a_ell) ** 2 + (y / b_ell) ** 2 <= 1.0
+
+
 # =============================================================================
-# MESH BUILDER (v21)
+# MESH BUILDER (v22)
 # =============================================================================
 
-def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
-                    eave_height):
+def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
+                    eave_height, span, mid_width):
     """
-    v21 mesh builder.  No nearest-node searches.  No tolerance
-    snapping.  Shared node ids for the valley columns.  Interior
-    fabric nodes start flat at eave height.
+    v22 mesh builder.
+
+    Changes from v21:
+      - Valley columns are clipped to the perimeter ellipse at
+        their x.  Ends are exactly on the ellipse.
+      - Wall ray clips are rejected if the crossing is outside
+        the ellipse.
     """
     n_perim = perimeter_loop.shape[0]
     perim_xy = perimeter_loop[:, :2]
-    ys = perimeter_loop[:, 1]
-    y_max = float(np.max(ys))
+
+    a_ell = span / 2.0
+    b_ell = mid_width / 2.0
 
     points_list = [tuple(p) for p in perimeter_loop]
     perimeter_start = 0
@@ -250,16 +233,29 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
                            if w is not None)
 
     # --- Wall columns (valley cables) --------------------------
+    # Each column runs from the ellipse top at x=wall_x down to
+    # the ellipse bottom at x=wall_x.  Ends on the ellipse.
     wall_columns = {}
+    wall_column_ends = {}  # wx -> (top_id, bottom_id)
     for wx in wall_x_values:
+        y_at_wall = _ellipse_y(wx, span, mid_width)
+        # Total interior nodes + 2 ends.
         col = []
+        top_id = None
+        bot_id = None
         for k in range(RADIAL_NODES + 2):
             f = k / float(RADIAL_NODES + 1)
-            y = -y_max + f * (2.0 * y_max)
+            # f=0 -> bottom (-y), f=1 -> top (+y).  Order: bottom to top.
+            y = -y_at_wall + f * (2.0 * y_at_wall)
             nid = len(points_list)
             points_list.append((float(wx), float(y), float(eave_height)))
             col.append(nid)
+            if k == 0:
+                bot_id = nid
+            if k == RADIAL_NODES + 1:
+                top_id = nid
         wall_columns[wx] = col
+        wall_column_ends[wx] = (top_id, bot_id)
 
     # --- Ring circles and centres ------------------------------
     ring_indices = []
@@ -294,28 +290,12 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
 
         ring_xy.append((cx, cy, r))
 
-    # --- Rays per ring, clipped at walls or perimeter ----------
-    # For each ring, cast RAYS_PER_RING rays from its centre.
-    # Each ray is clipped:
-    #   - at the strip wall on the side the ray heads, if it crosses
-    #     before the perimeter;
-    #   - at the perimeter otherwise.
-    # Each ray's outer end attaches to a specific node id:
-    #   - a wall node id if the ray hit a wall plane;
-    #   - a perimeter node id if the ray hit the perimeter.
-    # No nearest-node search.  The wall node is chosen by the y of
-    # the crossing, from the wall column's known node list.  The
-    # perimeter node is chosen by the perimeter's known node list.
+    # --- Rays per ring -----------------------------------------
     ring_radial_rows = []
     ring_outer_ids = []
     ring_outer_kinds = []
     fan_notes = []
 
-    # Precompute which perimeter node is closest to a given (x, y)
-    # WITHOUT a search:  the perimeter is walked in loop order, and
-    # the y-values are monotone in each half.  We use a simple
-    # argmin over the perimeter for the whole set of nodes at once.
-    # That is one vectorised argmin per ring, not one per ray.
     perim_xy_arr = np.asarray(perim_xy)
 
     for k, spec in enumerate(ring_specs):
@@ -334,7 +314,7 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
             dx = math.cos(theta)
             dy = math.sin(theta)
 
-            # Ray from the ring centre outward.
+            # Perimeter hit: nearest intersection along the ray.
             perim_hit = None
             t_perim = None
             n_p = perim_xy_arr.shape[0]
@@ -365,12 +345,12 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 outer_kinds.append("miss")
                 continue
 
+            hit_x = cx + t_perim * dx
+            hit_y = cy + t_perim * dy
             hit_is_wall = False
-            hit_x, hit_y = (cx + t_perim * dx, cy + t_perim * dy)
-            hit_perim_edge = perim_hit[0]
 
-            # Wall clip: does the ray cross a wall plane before
-            # hitting the perimeter?
+            # Wall clip.  Only accept if the crossing is inside the
+            # perimeter ellipse.
             for wall_x, is_right in ((right_wall, True),
                                      (left_wall, False)):
                 if wall_x is None:
@@ -382,14 +362,18 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 t_wall = (wall_x - cx) / dx
                 if t_wall < 1e-9:
                     continue
-                if t_wall < t_perim:
-                    # Wall hit.
-                    hit_x = wall_x
-                    hit_y = cy + t_wall * dy
-                    t_perim = t_wall
-                    hit_is_wall = True
+                if t_wall >= t_perim:
+                    continue
+                wall_y = cy + t_wall * dy
+                # The wall crossing must lie inside the ellipse.
+                if not _ellipse_inside(wall_x, wall_y, a_ell, b_ell):
+                    continue
+                hit_x = wall_x
+                hit_y = wall_y
+                t_perim = t_wall
+                hit_is_wall = True
 
-            # Build the row.
+            # Build the radial row.
             inner_x = cx + r * dx
             inner_y = cy + r * dy
             row = []
@@ -403,11 +387,10 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 row.append(nid)
             rows.append(row)
 
-            # Attach outer end to a specific node id.
+            # Attach outer end to a specific node.
             if hit_is_wall:
-                # Find the wall column for this wall_x.
                 col = wall_columns[hit_x]
-                # Nearest wall node by y (small linear scan, few nodes).
+                # Nearest wall node by y.
                 best = None
                 best_d = None
                 for nid in col:
@@ -419,7 +402,6 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 outer_ids.append(best)
                 outer_kinds.append("wall")
             else:
-                # Nearest perimeter node: vectorised, one argmin.
                 d2 = ((perim_xy_arr[:, 0] - hit_x) ** 2 +
                        (perim_xy_arr[:, 1] - hit_y) ** 2)
                 best = int(np.argmin(d2))
@@ -441,7 +423,6 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
     # --- Triangles --------------------------------------------
     triangles = []
 
-    # (a) Radial fan per ring.
     for k in range(len(ring_specs)):
         rows = ring_radial_rows[k]
         idx_list = ring_indices[k]
@@ -457,7 +438,6 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
             row_b = rows[jn]
             if not row_a or not row_b:
                 continue
-            # Quad strip between adjacent rays.
             for m in range(RADIAL_NODES - 1):
                 a0 = row_a[m]
                 a1 = row_a[m + 1]
@@ -491,19 +471,16 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
             if not row:
                 continue
             outer_ray_id = row[-1]
-            # Determine the second outer node: if wall, the adjacent
-            # wall node along y; if perimeter, the next perimeter node
-            # in loop order.
             kind = ring_outer_kinds[k][j]
             if kind == "wall":
-                # Find this wall column and the second node.
                 wx = float(points[outer_id, 0])
                 col = wall_columns.get(wx, [])
                 if len(col) < 2:
                     continue
                 pos = col.index(outer_id)
-                # Connect to the neighbour wall node toward the ring
-                # side (whichever is closer to the ring centre).
+                # Connect to the wall node on the side away from
+                # the ring centre (uphill or downhill along the
+                # column).
                 candidates = []
                 if pos > 0:
                     candidates.append(col[pos - 1])
@@ -511,23 +488,21 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
                     candidates.append(col[pos + 1])
                 if not candidates:
                     continue
-                # Choose the candidate closest to the ring centre.
-                best = None
-                best_d = None
+                # Choose the candidate that is closest to the ring
+                # centre?  No - we need the perpendicular one.
+                # The correct pairing: connect outer_ray_id to
+                # outer_id and to the *same-side* wall node along
+                # the direction of the row.  Since each wall column
+                # node is used by at most one wall-hit ray, we can
+                # connect to both neighbours to seal the fabric.
                 for nid in candidates:
-                    d = ((points[nid, 0] - cx) ** 2 +
-                         (points[nid, 1] - cy) ** 2)
-                    if best_d is None or d < best_d:
-                        best_d = d
-                        best = nid
-                triangles.append((outer_ray_id, outer_id, best))
+                    triangles.append((outer_ray_id, outer_id, nid))
             else:
                 n_perim_local = n_perim
                 jn = (outer_id + 1) % n_perim_local
+                jm = (outer_id - 1) % n_perim_local
                 triangles.append((outer_ray_id, outer_id, jn))
-
-    # (b) Valley column circumferential edges are shared between
-    # adjacent fans by construction.  No extra stitching needed.
+                triangles.append((outer_ray_id, jm, outer_id))
 
     triangles = [t for t in triangles if t[0] != t[1]
                  and t[1] != t[2] and t[0] != t[2]]
@@ -539,7 +514,6 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
             key = (i, j) if i < j else (j, i)
             edge_set.add(key)
 
-    # Ring beam, spoke, drop member edges.
     for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
         centre_i = int(centre_indices[k])
@@ -554,7 +528,6 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
         edge_set.add((centre_i, beam_i) if centre_i < beam_i
                      else (beam_i, centre_i))
 
-    # Perimeter edges.
     perimeter_edge_set = set()
     for i in range(n_perim):
         j = (i + 1) % n_perim
@@ -584,7 +557,8 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
         fixed_set.add(int(ci))
     for bi in beam_top_indices:
         fixed_set.add(int(bi))
-    # Valley ends held in xyz.
+
+    # Valley end nodes held.
     valley_end_ids = []
     for wx, col in wall_columns.items():
         for nid in (col[0], col[-1]):
@@ -592,8 +566,6 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
             valley_end_ids.append(int(nid))
 
     # --- Dir-only constraints ---------------------------------
-    # Perimeter cable interior: free along local tangent.
-    # Valley cable interior: free along local tangent.
     anchor_set = set(int(i) for i in perimeter_anchor_idx)
     cable_interior_indices = []
     dir_only_indices = []
@@ -665,11 +637,7 @@ def _build_mesh_v21(perimeter_loop, perimeter_anchor_idx, ring_specs,
 
 @st.cache_data(show_spinner=False)
 def _cached_build_mesh(perimeter_loop_bytes, perimeter_anchor_idx_tuple,
-                       ring_specs_tuple, eave_height):
-    """
-    Cached mesh build.  Inputs are hashable (bytes + tuples).
-    Returns the built dict.
-    """
+                       ring_specs_tuple, eave_height, span, mid_width):
     perimeter_loop = np.frombuffer(perimeter_loop_bytes,
                                     dtype=np.float64).reshape(-1, 3)
     perimeter_anchor_idx = list(perimeter_anchor_idx_tuple)
@@ -679,8 +647,8 @@ def _cached_build_mesh(perimeter_loop_bytes, perimeter_anchor_idx_tuple,
             "cx": spec_t[0], "cy": spec_t[1], "cz": spec_t[2],
             "r": spec_t[3], "beam_z": spec_t[4],
         })
-    return _build_mesh_v21(perimeter_loop, perimeter_anchor_idx,
-                           ring_specs, eave_height)
+    return _build_mesh_v22(perimeter_loop, perimeter_anchor_idx,
+                            ring_specs, eave_height, span, mid_width)
 
 
 @st.cache_data(show_spinner=False)
@@ -806,7 +774,6 @@ def _build_member_schedule(built, coords):
             "role": "perimeter edge cable segment",
         })
 
-    # Valley cables.
     wall_columns = built["wall_columns"]
     for vi, (wx, col) in enumerate(sorted(wall_columns.items())):
         valley_no = vi + 1
@@ -908,9 +875,9 @@ def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
         "Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — v21.  "
-        "Parametric perimeter, valley cable as shared node column, "
-        "cached build and solve.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — v22.  "
+        "Valley columns clipped to the ellipse, wall ray clips "
+        "rejected outside the ellipse.</p>",
         unsafe_allow_html=True,
     )
 
@@ -990,7 +957,6 @@ def render_tester_multi_cone():
             0.1, 500.0, 20.0, 1.0, key="mc_valleyq",
         )
 
-    # --- Layout ------------------------------------------------
     xp = np.linspace(-span / 2.0, span / 2.0, 200)
     zp = beam_curve(xp, span, apex, curve_type)
     s_p, total_p = arclength_parametrisation(xp, zp)
@@ -1037,7 +1003,6 @@ def render_tester_multi_cone():
     perimeter_loop, perimeter_anchor_idx = \
         _subdivide_polygon_with_anchors(anchors, subdivisions)
 
-    # --- Cached build ------------------------------------------
     ring_specs_tuple = tuple(
         (s["cx"], s["cy"], s["cz"], s["r"], s["beam_z"])
         for s in ring_specs
@@ -1047,6 +1012,8 @@ def render_tester_multi_cone():
         tuple(int(i) for i in perimeter_anchor_idx),
         ring_specs_tuple,
         float(eave_height),
+        float(span),
+        float(mid_width),
     )
 
     pts_init = built["points"]
@@ -1076,7 +1043,6 @@ def render_tester_multi_cone():
         else:
             q[k] = warp_q
 
-    # --- Cached solve ------------------------------------------
     dir_only_tuple = tuple(
         (int(nid), (float(d[0]), float(d[1]), float(d[2])))
         for nid, d in dir_only
@@ -1099,7 +1065,6 @@ def render_tester_multi_cone():
         solve_ok = False
         solve_err = str(e)
 
-    # --- Sanity checks ----------------------------------------
     anchor_move_max = 0.0
     for i in built["anchor_node_indices"]:
         d = float(np.linalg.norm(coords[i] - pts_init[i]))
@@ -1153,7 +1118,6 @@ def render_tester_multi_cone():
         name="edge cable", showlegend=False, hoverinfo="skip",
     ))
 
-    # Valley cables.
     for wx, col in sorted(valley_cols.items()):
         vp = coords[col]
         fig.add_trace(go.Scatter3d(
@@ -1227,7 +1191,6 @@ def render_tester_multi_cone():
             marker=dict(color=COL_VALLEY, size=5),
             name="valley", showlegend=False, hoverinfo="skip",
         ))
-    # Interior free nodes.
     ring_node_set = set()
     for idx_list in built["ring_indices"]:
         ring_node_set.update(int(i) for i in idx_list)
@@ -1265,7 +1228,6 @@ def render_tester_multi_cone():
     )
     st.plotly_chart(figp, use_container_width=True, key="mc_plan")
 
-    # --- Members ----------------------------------------------
     members = _build_member_schedule(built, coords)
 
     with st.expander("Member schedule", expanded=False):
