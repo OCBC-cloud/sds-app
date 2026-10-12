@@ -1,28 +1,29 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v18 (final).
+Version v18.
 
-What is new in this version:
-  - Fabric lift is a Laplace (harmonic) solve. The membrane meets
-    the eave and every ring exactly.
-  - Only structural anchors are held:
-      * the 8 outer eave corners
-      * every ring polygon node
-      * every ring centre
-      * every beam top
-  - Everything else is free:
-      * interior perimeter (eave cable) nodes -> dir_only along
-        the local eave tangent (cable behaviour)
-      * all interior fabric nodes
-      * the fabric nodes attached to the rings (released, so the
-        membrane pulls on the ring)
+What is new in v18:
+  - Ring attachment is computed BEFORE the Laplace lift. The
+    attached fabric nodes are added to the lift boundary set with
+    z equal to their target ring z. The fabric meets the ring
+    exactly. No orphan band.
+  - The perimeter cable q is used directly from the slider. The
+    "auto" formula is removed. A low cable pretension produces a
+    visible bow. A high pretension produces a stiff perimeter.
+  - Interior edges use the anisotropic warp/weft blend. The warp
+    and weft pretension sliders now change the surface.
 
-Carried over from earlier versions:
+Carried over from v17:
+  - Laplace lift for the fabric.
+  - Only structural anchors held.
+
+Carried over from v16:
   - Fabric nodes inside the ring clearance band are removed
     before triangulation.
   - Ring attachment welds, does not bridge.
+
+Carried over from v14:
   - Steel member schedule.
-  - Spokes, drop members, ring beam segments and consolidated.
   - Cone placement by a single spacing input.
   - Refuse rule if any ring falls outside the span.
 
@@ -212,7 +213,42 @@ def _max_spacing_for(n_cones, total):
 
 
 # =============================================================================
-# LAPLACE LIFT
+# ANISOTROPIC WARP / WEFT BLEND (v18)
+# =============================================================================
+
+def _blend_q_per_edge(edges, pts_2d, warp_dir, warp_q, weft_q):
+    """
+    Return a per-edge force density array. Interior edges blend
+    between warp_q and weft_q according to the angle between the
+    edge direction and warp_dir.
+    """
+    m = len(edges)
+    q = np.zeros(m, dtype=float)
+    warp_dir = np.asarray(warp_dir, dtype=float)
+    wn = float(np.linalg.norm(warp_dir))
+    if wn < 1e-12:
+        warp_dir = np.array([1.0, 0.0])
+    else:
+        warp_dir = warp_dir / wn
+    for k, (a, b) in enumerate(edges):
+        pa = pts_2d[a]
+        pb = pts_2d[b]
+        d = pb - pa
+        dn = float(np.linalg.norm(d))
+        if dn < 1e-12:
+            q[k] = float(warp_q)
+            continue
+        d = d / dn
+        cos_t = float(np.dot(d, warp_dir))
+        cos_t = max(-1.0, min(1.0, cos_t))
+        c2 = cos_t * cos_t
+        s2 = 1.0 - c2
+        q[k] = float(warp_q) * c2 + float(weft_q) * s2
+    return q
+
+
+# =============================================================================
+# LAPLACE LIFT (v18 - includes attached fabric boundary)
 # =============================================================================
 
 def _laplace_lift_fabric(all_pts, n_perimeter, boundary_z_map):
@@ -277,7 +313,7 @@ def _laplace_lift_fabric(all_pts, n_perimeter, boundary_z_map):
 
 
 # =============================================================================
-# MESH BUILDER
+# MESH BUILDER (v18)
 # =============================================================================
 
 def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
@@ -348,6 +384,44 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
 
     all_pts = np.asarray(all_pts_list, dtype=float)
 
+    # --- Compute ring attachment BEFORE the lift ---
+    fabric_indices = list(range(fabric_start, fabric_end))
+    attach_limit = 1.2 * target_len
+
+    attached_fabric_to_ring_z = {}
+    ring_attach_counts = []
+    ring_attach_misses = []
+    ring_attach_edges_added_placeholder = []
+
+    for k, spec in enumerate(ring_specs):
+        cx = float(spec["cx"]); cy = float(spec["cy"])
+        r = float(spec["r"]); cz = float(spec["cz"])
+        idx_list = ring_indices[k]
+        attached_here = set()
+        misses_here = 0
+        for poly_node in idx_list:
+            px, py, pz = all_pts[poly_node]
+            best_d = float("inf")
+            best_fi = -1
+            for fi in fabric_indices:
+                fx, fy, fz = all_pts[fi]
+                d_plan = math.sqrt((fx - cx) ** 2 + (fy - cy) ** 2)
+                if d_plan <= r:
+                    continue
+                d3 = math.sqrt((fx - px) ** 2 + (fy - py) ** 2
+                                + (fz - pz) ** 2)
+                if d3 < best_d:
+                    best_d = d3
+                    best_fi = fi
+            if best_fi < 0 or best_d > attach_limit:
+                misses_here += 1
+                continue
+            attached_fabric_to_ring_z[best_fi] = cz
+            attached_here.add(best_fi)
+        ring_attach_counts.append(len(attached_here))
+        ring_attach_misses.append(misses_here)
+
+    # --- Laplace lift with attached fabric as boundary ---
     boundary_z_map = {}
     for i in range(n_perimeter):
         boundary_z_map[i] = float(eave_height)
@@ -359,10 +433,14 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         boundary_z_map[int(ci)] = float(ring_specs[k]["cz"])
     for k, bi in enumerate(beam_top_indices):
         boundary_z_map[int(bi)] = float(ring_specs[k]["beam_z"])
+    # v18: attached fabric nodes are boundary conditions now.
+    for fi, rz in attached_fabric_to_ring_z.items():
+        boundary_z_map[int(fi)] = float(rz)
 
     z_all = _laplace_lift_fabric(all_pts, n_perimeter, boundary_z_map)
     all_pts[:, 2] = z_all
 
+    # --- Delaunay + filter ---
     pts_2d = all_pts[:, :2]
     tri = Delaunay(pts_2d[:fabric_end])
     triangles = []
@@ -414,21 +492,12 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         key = (centre_i, beam_i) if centre_i < beam_i else (beam_i, centre_i)
         all_edge_set.add(key)
 
-    fabric_indices = list(range(fabric_start, fabric_end))
-    attach_limit = 1.2 * target_len
-
-    attached_fabric_indices = set()
-    ring_attach_counts = []
-    ring_attach_edges_added = []
-    ring_attach_misses = []
-
+    # --- Ring attachment edges (now short, since fabric meets ring z) ---
+    attached_fabric_indices = set(attached_fabric_to_ring_z.keys())
     for k, spec in enumerate(ring_specs):
         cx = float(spec["cx"]); cy = float(spec["cy"])
         r = float(spec["r"])
         idx_list = ring_indices[k]
-        attached_here = set()
-        edges_added_here = 0
-        misses_here = 0
         for poly_node in idx_list:
             px, py, pz = all_pts[poly_node]
             best_d = float("inf")
@@ -444,17 +513,9 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
                     best_d = d3
                     best_fi = fi
             if best_fi < 0 or best_d > attach_limit:
-                misses_here += 1
                 continue
             key = (poly_node, best_fi) if poly_node < best_fi else (best_fi, poly_node)
-            if key not in all_edge_set:
-                all_edge_set.add(key)
-                edges_added_here += 1
-            attached_here.add(best_fi)
-        ring_attach_counts.append(len(attached_here))
-        ring_attach_edges_added.append(edges_added_here)
-        ring_attach_misses.append(misses_here)
-        attached_fabric_indices.update(attached_here)
+            all_edge_set.add(key)
 
     fixed = set(int(i) for i in anchor_idx)
     for idx_list in ring_indices:
@@ -479,7 +540,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         "ring_node_counts": ring_node_counts,
         "attached_node_indices": sorted(attached_fabric_indices),
         "ring_attach_counts": ring_attach_counts,
-        "ring_attach_edges_added": ring_attach_edges_added,
         "ring_attach_misses": ring_attach_misses,
         "n_perimeter": n_perimeter,
         "n_interior": len(interior_xy),
@@ -622,8 +682,8 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
 def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Laplace lift. Only structural "
-        "anchors held. Everything else free.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>v18 — Laplace lift with "
+        "ring-welded fabric, anisotropic warp/weft, direct cable q.</p>",
         unsafe_allow_html=True,
     )
 
@@ -692,7 +752,8 @@ def render_tester_multi_cone():
         )
 
     edge_q_input = st.number_input(
-        "Edge cable pretension (kN/m, 0 = auto)", 0.0, 500.0, 20.0, 1.0,
+        "Edge cable pretension (kN/m)",
+        0.1, 500.0, 20.0, 0.1,
         key="mc_edgeq",
     )
 
@@ -765,13 +826,14 @@ def render_tester_multi_cone():
         dir_only_list.append((i, (float(t[0]), float(t[1]), float(t[2]))))
     fixed = [i for i in fixed if i not in set(intermediate_perimeter)]
 
+    # --- v18 q assignment ---
     warp_q = max(float(warp_q_input), 0.1) * 1000.0
     weft_q = max(float(weft_q_input), 0.1) * 1000.0
-    if edge_q_input > 0.0:
-        edge_q_scalar = float(edge_q_input) * 1000.0
-    else:
-        edge_q_scalar = max(warp_q, weft_q) * target_len
-    edge_q_scalar = max(edge_q_scalar, 1.0)
+    edge_q_scalar = max(float(edge_q_input), 0.1) * 1000.0   # direct, no auto
+
+    pts_2d = pts[:, :2]
+    warp_dir = np.array([1.0, 0.0])
+    q_interior = _blend_q_per_edge(edges, pts_2d, warp_dir, warp_q, weft_q)
 
     q = np.empty(len(edges), dtype=float)
     for k, (i, j) in enumerate(edges):
@@ -779,7 +841,7 @@ def render_tester_multi_cone():
         if key in boundary_edge_set:
             q[k] = edge_q_scalar
         else:
-            q[k] = warp_q
+            q[k] = q_interior[k]
 
     try:
         fdm = solve_fdm(pts, edges, fixed, q,
@@ -860,7 +922,7 @@ def render_tester_multi_cone():
         st.code(_format_member_table(members), language="text")
 
     with st.expander("Diagnostics", expanded=True):
-        st.write(f"Version: v18 (Laplace lift, structural anchors only)")
+        st.write(f"Version: v18 (Laplace+ring weld, anisotropic q, direct cable q)")
         st.write(f"Number of cones: {number_of_cones}")
         st.write(f"Ring x positions (m): " +
                  ", ".join(f"{v:+.3f}" for v in x_rings))
@@ -873,8 +935,10 @@ def render_tester_multi_cone():
         st.write(f"Mesh edges: {len(edges)}")
         st.write(f"Mesh triangles: {len(tris)}")
         st.write(f"Held nodes (total): {len(fixed)}")
-        st.write(f"Attached fabric (released, free): {len(built['attached_node_indices'])}")
-        st.write(f"Ring attach edges per ring: {built['ring_attach_edges_added']}")
+        st.write(f"Attached fabric (released, welded to ring z): "
+                 f"{len(built['attached_node_indices'])}")
+        st.write(f"Ring attach edges per ring (targets): "
+                 f"{built['ring_attach_counts']}")
         st.write(f"Ring attach misses per ring: {built['ring_attach_misses']}")
         st.write(f"DOF count: {dof_count}")
         st.write(f"Solve OK: {solve_ok}")
@@ -882,6 +946,9 @@ def render_tester_multi_cone():
             st.write(f"Solve error: {solve_err}")
         else:
             st.write(f"Residual norm: {residual_norm:.6e}")
+        st.write(f"Warp q (N/m): {warp_q:.1f}")
+        st.write(f"Weft q (N/m): {weft_q:.1f}")
+        st.write(f"Edge cable q (N/m): {edge_q_scalar:.1f}")
         st.write(f"Target edge length: {target_len:.4f}")
         st.write("Ring node counts: " +
                  ", ".join(str(c) for c in built["ring_node_counts"]))
