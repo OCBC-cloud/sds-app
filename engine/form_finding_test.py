@@ -351,7 +351,7 @@ def _test_coupled_dir_only():
     edges = [(0, 1), (1, 2), (2, 3)]
     fixed = [0, 3]
     dir_only_list = [
-        (1, (0.00, 1.0, 0..0)),
+        (1, (0.00, 1.0, 0.0)),
         (2, (00.0, 1.0, )),
     ]
     loads = np.array([
