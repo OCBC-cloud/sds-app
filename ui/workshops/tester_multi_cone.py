@@ -1,29 +1,36 @@
-"""Multi-Cone Roof — Lab test page.
+"""Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v28.
+Version v14.
 
-Rebuilt from v26.  Nothing from v27 survives.  This file
-contains ONLY the specific, contained changes the Chief asked for,
-on top of the v26 architecture that already produced three correct
-cones with working anchors.
+What is new in this version:
+  - Spokes and drop members are drawn back in the viewer.
+  - Every steel member (spoke, drop member, ring beam segment,
+    ring beam consolidated) is recorded by name for BQ and analysis.
 
-Changes from v26:
+Members recorded per ring:
+  - Ring beam:  one consolidated member per ring, plus N
+                segment members between adjacent polygon nodes.
+                Name:  Ring_<i>_Ring_Beam  and  Ring_<i>_Beam_Seg_<k>
+  - Spokes:     one per ring polygon node.
+                Name:  Ring_<i>_Spoke_<k>
+  - Drop member: one per ring.
+                Name:  Ring_<i>_Drop_Member
 
-  1.  Anchor diamond markers removed from plan and 3D views.
-  2.  Ring centre circle markers removed from plan view.
-  3.  Ring spacing widget: 0 = solver evenly places by arc
-      length; positive = Chief override.
-  4.  WALL_NODES raised from 8 to 20.
-  5.  Valley end nodes ARE the perimeter nodes at the wall-
-      ellipse intersection.  Same node id.  No kink.
-  6.  Perimeter forced to have a node at every wall x.
-  7.  Defaults:
-      warp 10.0, weft 10.0, edge cable 1.0, valley 1.0.
-  8.  Plan view draws the whole subdivided perimeter.
-  9.  3D view draws the whole subdivided perimeter.
-  10. Valley interior nodes are z-only (held in x and y).
+Member fields:
+  member_id, member_type, ring_index, node_a, node_b,
+  length_m, section, material, role
 
-Everything else is v26.
+section and material are placeholders ("TBD") until the sizing
+engine assigns them.
+
+Carried over from v13:
+  - Cone placement by a single spacing input.
+  - Ring z follows the beam: z_ring = beam_z(s_ring) - clearance.
+  - Refuse rule if any ring falls outside the span.
+  - Per-cone widgets removed.  Three numbers control layout:
+      number of cones, spacing, clearance.
+
+No engine files are modified.
 """
 
 import math
@@ -40,26 +47,17 @@ from viewers.figures._shared import (
 )
 
 
-RIB_SEGMENTS = 60
-RING_NODES_MIN = 16
+RIB_SEGMENTS = 80
+RING_NODES_MIN = 12
 RING_NODES_MAX = 32
-WALL_NODES = 20
-RADIAL_NODES = 6
-RAYS_PER_RING = 32
 
 COL_MEMBRANE = "#4a7a9c"
-COL_PERIMETER = "#f1c40f"
 COL_RING_EDGE = "#ffd166"
 COL_PRIMARY = "#FF6B6B"
 COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
-COL_VALLEY = "#7fb3d5"
 
-
-# =============================================================================
-# GEOMETRY HELPERS
-# =============================================================================
 
 def _ellipse_y(x, span, mid_width):
     a = span / 2.0
@@ -70,8 +68,7 @@ def _ellipse_y(x, span, mid_width):
 
 def _rib_stations(n, optional_ends, span, x, s, total):
     if (not optional_ends) or n < 3:
-        fracs = np.array([k / (n + 1.0) for k in range(1, n + 1)],
-                          dtype=float)
+        fracs = np.array([k / (n + 1.0) for k in range(1, n + 1)], dtype=float)
         return np.interp(fracs * total, s, x)
     xt = span / 2.0 - 3.0
     return np.linspace(-xt, +xt, n)
@@ -121,19 +118,10 @@ def _build_eave_anchors(rib_x, rib_half_width, rib_peak_z, eave_height,
     for p in reversed(minus):
         pts.append(p)
     pts.append((-tip_x, 0.0, eave_height))
-
-    anchor_local_indices = []
-    for i in range(len(rib_x)):
-        anchor_local_indices.append(i)
-    anchor_local_indices.append(len(plus))
-    for i in range(len(rib_x)):
-        anchor_local_indices.append(len(plus) + 1 + i)
-    anchor_local_indices.append(len(pts) - 1)
-
-    return np.asarray(pts, dtype=float), sorted(set(anchor_local_indices))
+    return np.asarray(pts, dtype=float)
 
 
-def _subdivide_polygon_with_anchors(anchors, subdivisions):
+def _subdivide_polygon(anchors, subdivisions):
     n_a = anchors.shape[0]
     loop = []
     anchor_idx = []
@@ -147,44 +135,57 @@ def _subdivide_polygon_with_anchors(anchors, subdivisions):
     return np.asarray(loop, dtype=float), anchor_idx
 
 
+def _point_in_polygon(x, y, poly):
+    n = poly.shape[0]
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i, 0], poly[i, 1]
+        xj, yj = poly[j, 0], poly[j, 1]
+        if (yi > y) != (yj > y):
+            xint = (xj - xi) * (y - yi) / (yj - yi + 1e-30) + xi
+            if x < xint:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _inside_any_ring(xy, rings):
+    for (cx, cy, r) in rings:
+        if (xy[0] - cx) ** 2 + (xy[1] - cy) ** 2 < r * r:
+            return True
+    return False
+
+
 def _ring_node_count(r, target_len):
     n = int(round(2.0 * math.pi * r / max(target_len, 1e-6)))
     n = max(RING_NODES_MIN, min(RING_NODES_MAX, n))
     return n
 
 
-def _cone_arc_positions(n_cones, spacing_override, total):
+def _cone_arc_positions(n_cones, spacing, total):
     if n_cones < 1:
         raise ValueError("Number of cones must be at least 1.")
-    if spacing_override > 0.0:
-        # Chief override: symmetric about mid-span.
-        mid = total / 2.0
-        if n_cones % 2 == 1:
-            half = (n_cones - 1) // 2
-            ks = [0]
-            for i in range(1, half + 1):
-                ks.append(+i)
-                ks.append(-i)
-        else:
-            half = n_cones // 2
-            ks = []
-            for i in range(half):
-                k = i + 0.5
-                ks.append(+k)
-                ks.append(-k)
-        positions = [mid + k * spacing_override for k in ks]
+    mid = total / 2.0
+    if n_cones % 2 == 1:
+        half = (n_cones - 1) // 2
+        ks = [0]
+        for i in range(1, half + 1):
+            ks.append(+i)
+            ks.append(-i)
     else:
-        # Solver even placement along arc length.
-        if n_cones == 1:
-            positions = [total / 2.0]
-        else:
-            positions = [total * (k + 1) / (n_cones + 1)
-                         for k in range(n_cones)]
+        half = n_cones // 2
+        ks = []
+        for i in range(half):
+            k = i + 0.5
+            ks.append(+k)
+            ks.append(-k)
+    positions = [mid + k * spacing for k in ks]
     for p in positions:
         if p < 0.0 or p > total:
             raise ValueError(
                 "Ring position %.3f m falls outside the primary span "
-                "of %.3f m." % (p, total)
+                "of %.3f m.  Reduce spacing or cone count." % (p, total)
             )
     return sorted(positions)
 
@@ -192,77 +193,77 @@ def _cone_arc_positions(n_cones, spacing_override, total):
 def _max_spacing_for(n_cones, total):
     if n_cones <= 1:
         return float("inf")
+    mid = total / 2.0
     if n_cones % 2 == 1:
         k_max = (n_cones - 1) // 2
     else:
         k_max = (n_cones - 1) / 2.0
     if k_max <= 0:
         return float("inf")
-    return (total / 2.0) / k_max
+    return mid / k_max
 
 
-# =============================================================================
-# MESH BUILDER (v28)
-# =============================================================================
+def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
+                      eave_height, target_len):
+    from scipy.spatial import Delaunay
 
-def _build_mesh_v28(perimeter_loop, wall_x_list, ring_specs,
-                    eave_height, span, mid_width):
-    """
-    v28 mesh builder.  Based on v26, with:
-      - Valley end nodes are perimeter nodes at the wall
-        intersection.
-      - WALL_NODES = 20 for a smoother bow.
-      - Valley interior nodes z-only.
-    """
-    n_perim = perimeter_loop.shape[0]
-    perim_xy = perimeter_loop[:, :2]
+    poly_xy = perimeter_loop[:, :2]
+    ring_centres_radii = [(float(s["cx"]), float(s["cy"]), float(s["r"]))
+                          for s in ring_specs]
 
-    points_list = [tuple(p) for p in perimeter_loop]
-    perimeter_ids = list(range(n_perim))
+    xmin = float(np.min(perimeter_loop[:, 0]))
+    xmax = float(np.max(perimeter_loop[:, 0]))
+    ymin = float(np.min(perimeter_loop[:, 1]))
+    ymax = float(np.max(perimeter_loop[:, 1]))
 
-    n_cones = len(ring_specs)
+    h = float(target_len)
+    xs = np.arange(xmin + 0.5 * h, xmax, h)
+    ys = np.arange(ymin + 0.5 * h, ymax, h)
 
-    # --- Wall columns: ends ARE perimeter nodes at the wall-
-    #     ellipse intersection.  For each wall x, find the
-    #     perimeter node whose position matches (wx, +y_top) and
-    #     (wx, -y_top).  These are the wall end nodes.  The rest
-    #     of the wall column is filled with new nodes. ---
-    wall_columns = {}
-    wall_ends = {}
-    for wx in wall_x_list:
-        y_top = _ellipse_y(wx, span, mid_width)
-        y_bot = -y_top
-        # Nearest perimeter node to (wx, +y_top) and (wx, -y_top).
-        d_top = ((perim_xy[:, 0] - wx) ** 2 +
-                 (perim_xy[:, 1] - y_top) ** 2)
-        d_bot = ((perim_xy[:, 0] - wx) ** 2 +
-                 (perim_xy[:, 1] + y_top) ** 2)
-        top_id = int(np.argmin(d_top))
-        bot_id = int(np.argmin(d_bot))
-        # Interior nodes between the two ends.
-        n_interior = WALL_NODES - 2
-        col = [bot_id]
-        for k in range(1, n_interior + 1):
-            f = k / float(n_interior + 1)
-            y = y_bot + f * (y_top - y_bot)
-            nid = len(points_list)
-            points_list.append((float(wx), float(y), float(eave_height)))
-            col.append(nid)
-        col.append(top_id)
-        wall_columns[wx] = col
-        wall_ends[wx] = (top_id, bot_id)
+    interior_xy = []
+    for x in xs:
+        for y in ys:
+            if not _point_in_polygon(x, y, poly_xy):
+                continue
+            if _inside_any_ring((x, y), ring_centres_radii):
+                continue
+            interior_xy.append((float(x), float(y)))
 
-    # --- Ring circles ---
+    def _nearest_ring(x, y):
+        best_d = float("inf")
+        best_z = eave_height
+        for spec in ring_specs:
+            cx = float(spec["cx"]); cy = float(spec["cy"])
+            r = float(spec["r"]); cz = float(spec["cz"])
+            d = math.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
+            if d < best_d:
+                best_d = d
+                best_z = cz
+        return max(best_d, 0.0), best_z
+
+    def _z_at(x, y):
+        d_ring, rz = _nearest_ring(x, y)
+        d_perim = float(np.min(np.linalg.norm(
+            poly_xy - np.array([x, y]), axis=1
+        )))
+        denom = d_ring + d_perim
+        if denom < 1e-9:
+            return float(rz)
+        w = d_ring / denom
+        return float(rz + (eave_height - rz) * w)
+
+    all_pts_list = [tuple(p) for p in perimeter_loop]
+    n_perimeter = len(all_pts_list)
+
     ring_indices = []
     centre_indices = []
     beam_top_indices = []
     ring_node_counts = []
+
     for spec in ring_specs:
-        cx = float(spec["cx"])
-        cy = float(spec["cy"])
-        cz = float(spec["cz"])
-        r = float(spec["r"])
-        n_poly = _ring_node_count(r, r)
+        cx = float(spec["cx"]); cy = float(spec["cy"])
+        cz = float(spec["cz"]); r = float(spec["r"])
+        n_poly = _ring_node_count(r, target_len)
         ring_node_counts.append(n_poly)
         t = np.linspace(0.0, 2.0 * math.pi, n_poly, endpoint=False)
         poly = np.column_stack([
@@ -270,380 +271,167 @@ def _build_mesh_v28(perimeter_loop, wall_x_list, ring_specs,
             cy + r * np.sin(t),
             np.full(n_poly, cz, dtype=float),
         ])
-        start = len(points_list)
+        start = len(all_pts_list)
         for p in poly:
-            points_list.append(tuple(p))
+            all_pts_list.append(tuple(p))
         ring_indices.append(list(range(start, start + n_poly)))
 
-        centre_indices.append(len(points_list))
-        points_list.append((cx, cy, cz))
+        centre_indices.append(len(all_pts_list))
+        all_pts_list.append((cx, cy, cz))
 
-        beam_top_indices.append(len(points_list))
-        points_list.append((cx, cy, float(spec["beam_z"])))
+        beam_top_indices.append(len(all_pts_list))
+        all_pts_list.append((cx, cy, float(spec["beam_z"])))
 
-    # --- Boundary loop per cone and fan ---
-    fan_notes = []
-    ring_radial_rows = []
-    ring_loop_ids = []
+    fabric_start = len(all_pts_list)
+    for (x, y) in interior_xy:
+        all_pts_list.append((x, y, _z_at(x, y)))
+    fabric_end = len(all_pts_list)
 
-    for k, spec in enumerate(ring_specs):
-        cx = float(spec["cx"])
-        cy = float(spec["cy"])
-        cz = float(spec["cz"])
-        r = float(spec["r"])
+    all_pts = np.asarray(all_pts_list, dtype=float)
+    pts_2d = all_pts[:, :2]
 
-        left_wall = wall_x_list[k - 1] if k > 0 else None
-        right_wall = wall_x_list[k] if k < n_cones - 1 else None
-
-        loop_ids, wall_side_count = _build_cone_boundary_loop(
-            k, n_cones, left_wall, right_wall,
-            perimeter_ids, perimeter_loop,
-            wall_columns, wall_ends,
-            span, mid_width,
-        )
-        ring_loop_ids.append(loop_ids)
-        n_loop = len(loop_ids)
-        if n_loop < 4:
-            ring_radial_rows.append([])
-            fan_notes.append("cone %d : empty loop" % (k + 1))
-            continue
-
-        loop_xy = np.array([[points_list[nid][0], points_list[nid][1]]
-                             for nid in loop_ids])
-
-        def sample_part(xy_part, spacing):
-            if xy_part.shape[0] < 2:
-                return []
-            closed = np.vstack([xy_part, xy_part[:1]])
-            seg = np.diff(closed, axis=0)
-            seglen = np.linalg.norm(seg, axis=1)
-            total = float(np.sum(seglen))
-            if total < 1e-9:
-                return []
-            n_rays = max(2, RAYS_PER_RING // 2)
-            cum = np.concatenate([[0.0], np.cumsum(seglen)])
-            targets = np.linspace(0.0, total, n_rays, endpoint=False)
-            pts = []
-            for s in targets:
-                j = int(np.searchsorted(cum, s, side="right") - 1)
-                if j < 0:
-                    j = 0
-                if j >= xy_part.shape[0]:
-                    j = xy_part.shape[0] - 1
-                t_seg = (s - cum[j]) / max(seglen[j], 1e-12)
-                a_pt = closed[j]
-                b_pt = closed[j + 1]
-                pts.append(a_pt + t_seg * (b_pt - a_pt))
-            return pts
-
-        targets_xy = []
-        targets_xy.extend(sample_part(loop_xy[:wall_side_count], 1.5))
-        targets_xy.extend(sample_part(loop_xy[wall_side_count:], 1.5))
-
-        if not targets_xy:
-            ring_radial_rows.append([])
-            fan_notes.append("cone %d : no targets" % (k + 1))
-            continue
-
-        rows = []
-        for outer_xy in targets_xy:
-            vx = outer_xy[0] - cx
-            vy = outer_xy[1] - cy
-            vlen = math.hypot(vx, vy)
-            if vlen < 1e-9:
-                ix, iy = cx, cy
-            else:
-                ix = cx + r * vx / vlen
-                iy = cy + r * vy / vlen
-            row = []
-            for m in range(RADIAL_NODES):
-                f = (m + 1) / float(RADIAL_NODES + 1)
-                px = ix + f * (outer_xy[0] - ix)
-                py = iy + f * (outer_xy[1] - iy)
-                pz = cz + f * (eave_height - cz)
-                nid = len(points_list)
-                points_list.append((px, py, pz))
-                row.append(nid)
-            rows.append(row)
-        ring_radial_rows.append(rows)
-        fan_notes.append(
-            "cone %d : %d loop nodes, %d rays, walls L=%s R=%s"
-            % (k + 1, n_loop, len(rows),
-               "yes" if left_wall is not None else "no",
-               "yes" if right_wall is not None else "no")
-        )
-
-    points = np.asarray(points_list, dtype=float)
-
+    tri = Delaunay(pts_2d[:fabric_end])
     triangles = []
-    for k in range(n_cones):
-        rows = ring_radial_rows[k]
-        idx_list = ring_indices[k]
-        if not rows:
+    for simplex in tri.simplices:
+        a, b, c = int(simplex[0]), int(simplex[1]), int(simplex[2])
+        cen = (pts_2d[a] + pts_2d[b] + pts_2d[c]) / 3.0
+        if not _point_in_polygon(cen[0], cen[1], poly_xy):
             continue
-        n_poly = len(idx_list)
-        cx = float(ring_specs[k]["cx"])
-        cy = float(ring_specs[k]["cy"])
-        n_rows = len(rows)
+        if _inside_any_ring(cen, ring_centres_radii):
+            continue
+        if (_inside_any_ring(pts_2d[a], ring_centres_radii)
+                or _inside_any_ring(pts_2d[b], ring_centres_radii)
+                or _inside_any_ring(pts_2d[c], ring_centres_radii)):
+            continue
+        triangles.append((a, b, c))
 
-        for j in range(n_rows):
-            jn = (j + 1) % n_rows
-            row_a = rows[j]
-            row_b = rows[jn]
-            for m in range(RADIAL_NODES - 1):
-                a0 = row_a[m]
-                a1 = row_a[m + 1]
-                b0 = row_b[m]
-                b1 = row_b[m + 1]
-                triangles.append((a0, b0, b1))
-                triangles.append((a0, b1, a1))
+    boundary_edge_set = set()
+    for i in range(n_perimeter):
+        j = (i + 1) % n_perimeter
+        key = (i, j) if i < j else (j, i)
+        boundary_edge_set.add(key)
 
-        for row in rows:
-            if not row:
-                continue
-            inner_id = row[0]
-            ix = float(points[inner_id, 0])
-            iy = float(points[inner_id, 1])
-            ang = math.atan2(iy - cy, ix - cx)
-            if ang < 0.0:
-                ang += 2.0 * math.pi
-            kk = int(round(ang / (2.0 * math.pi / n_poly))) % n_poly
-            poly_id = idx_list[kk]
-            poly_next = idx_list[(kk + 1) % n_poly]
-            triangles.append((poly_id, inner_id, row[1]))
-            triangles.append((poly_id, row[1], poly_next))
-
-        loop_ids = ring_loop_ids[k]
-        n_loop = len(loop_ids)
-        for j in range(n_rows):
-            row = rows[j]
-            if not row:
-                continue
-            outer_id = row[-1]
-            px = float(points[outer_id, 0])
-            py = float(points[outer_id, 1])
-            best = None
-            best_d = None
-            for nid in loop_ids:
-                nx = float(points[nid, 0])
-                ny = float(points[nid, 1])
-                d = (nx - px) ** 2 + (ny - py) ** 2
-                if best_d is None or d < best_d:
-                    best_d = d
-                    best = nid
-            if best is None:
-                continue
-            pos = loop_ids.index(best)
-            loop_next = loop_ids[(pos + 1) % n_loop]
-            loop_prev = loop_ids[(pos - 1) % n_loop]
-            triangles.append((outer_id, best, loop_next))
-            triangles.append((outer_id, loop_prev, best))
-
-    triangles = [t for t in triangles if t[0] != t[1]
-                 and t[1] != t[2] and t[0] != t[2]]
-
-    edge_set = set()
+    all_edge_set = set()
     for (a, b, c) in triangles:
-        for (i, j) in ((a, b), (b, c), (c, a)):
-            key = (i, j) if i < j else (j, i)
-            edge_set.add(key)
+        for (p, q) in ((a, b), (b, c), (c, a)):
+            key = (p, q) if p < q else (q, p)
+            all_edge_set.add(key)
+    for key in boundary_edge_set:
+        all_edge_set.add(key)
 
-    for k in range(n_cones):
+    # --- Ring assembly edges -----------------------------------------
+    for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
-        centre_i = int(centre_indices[k])
-        beam_i = int(beam_top_indices[k])
+        centre_i = centre_indices[k]
+        beam_i = beam_top_indices[k]
         n_poly = len(idx_list)
+        # Ring beam segments
         for i in range(n_poly):
             a = idx_list[i]
             b = idx_list[(i + 1) % n_poly]
-            edge_set.add((a, b) if a < b else (b, a))
+            key = (a, b) if a < b else (b, a)
+            all_edge_set.add(key)
+            boundary_edge_set.add(key)
+        # Spokes
         for i in idx_list:
-            edge_set.add((centre_i, i) if centre_i < i else (i, centre_i))
-        edge_set.add((centre_i, beam_i) if centre_i < beam_i
-                     else (beam_i, centre_i))
+            key = (centre_i, i) if centre_i < i else (i, centre_i)
+            all_edge_set.add(key)
+        # Drop member
+        key = (centre_i, beam_i) if centre_i < beam_i else (beam_i, centre_i)
+        all_edge_set.add(key)
 
-    perimeter_edge_set = set()
-    for i in range(n_perim):
-        j = (i + 1) % n_perim
-        perimeter_edge_set.add((i, j) if i < j else (j, i))
+    # --- Fabric attachment -------------------------------------------
+    attached_node_indices = set()
+    ring_attach_counts = []
+    ring_attach_edges_added = []
+    fabric_indices = list(range(fabric_start, fabric_end))
 
-    valley_edge_set = set()
-    for wx, col in wall_columns.items():
-        for i in range(len(col) - 1):
-            a = col[i]
-            b = col[i + 1]
-            valley_edge_set.add((a, b) if a < b else (b, a))
+    for k, spec in enumerate(ring_specs):
+        cx = float(spec["cx"]); cy = float(spec["cy"])
+        r = float(spec["r"]); cz = float(spec["cz"])
+        idx_list = ring_indices[k]
+        attached_here = set()
+        edges_added_here = 0
+        for poly_node in idx_list:
+            px, py, pz = all_pts[poly_node]
+            best = []
+            for fi in fabric_indices:
+                fx, fy, fz = all_pts[fi]
+                d_plan = math.sqrt((fx - cx) ** 2 + (fy - cy) ** 2)
+                if d_plan <= r:
+                    continue
+                d3 = math.sqrt((fx - px) ** 2 + (fy - py) ** 2
+                                + (fz - pz) ** 2)
+                best.append((d3, fi))
+            best.sort()
+            for (d3, fi) in best[:2]:
+                key = (poly_node, fi) if poly_node < fi else (fi, poly_node)
+                if key not in all_edge_set:
+                    all_edge_set.add(key)
+                    edges_added_here += 1
+                attached_here.add(fi)
+        ring_attach_counts.append(len(attached_here))
+        ring_attach_edges_added.append(edges_added_here)
+        attached_node_indices.update(attached_here)
 
-    edges = sorted(edge_set)
+    for i in attached_node_indices:
+        fx, fy = all_pts[i, 0], all_pts[i, 1]
+        best_d = float("inf")
+        best_z = all_pts[i, 2]
+        for spec in ring_specs:
+            cx = float(spec["cx"]); cy = float(spec["cy"])
+            r = float(spec["r"]); cz = float(spec["cz"])
+            d = math.sqrt((fx - cx) ** 2 + (fy - cy) ** 2) - r
+            if d < best_d:
+                best_d = d
+                best_z = cz
+        all_pts[i, 2] = best_z
 
-    fixed_set = set()
-    anchor_node_indices = []
+    edges = sorted(all_edge_set)
+
+    fixed = set(int(i) for i in anchor_idx)
     for idx_list in ring_indices:
         for i in idx_list:
-            fixed_set.add(int(i))
+            fixed.add(int(i))
     for ci in centre_indices:
-        fixed_set.add(int(ci))
+        fixed.add(int(ci))
     for bi in beam_top_indices:
-        fixed_set.add(int(bi))
-
-    valley_end_ids = []
-    for wx, (top_id, bot_id) in wall_ends.items():
-        fixed_set.add(int(top_id))
-        fixed_set.add(int(bot_id))
-        valley_end_ids.append(int(top_id))
-        valley_end_ids.append(int(bot_id))
-
-    anchor_set = set(int(i) for i in valley_end_ids)
-    cable_interior_indices = []
-    dir_only_indices = []
-    for i in range(n_perim):
-        if i in anchor_set:
-            continue
-        prev_i = (i - 1) % n_perim
-        next_i = (i + 1) % n_perim
-        t = perimeter_loop[next_i] - perimeter_loop[prev_i]
-        mag = float(np.linalg.norm(t))
-        if mag < 1e-12:
-            continue
-        t = t / mag
-        cable_interior_indices.append(i)
-        dir_only_indices.append(
-            (int(i), (float(t[0]), float(t[1]), float(t[2]))))
-
-    valley_interior_ids = []
-    z_only_indices = []
-    for wx, col in wall_columns.items():
-        for idx_in_col in range(1, len(col) - 1):
-            nid = col[idx_in_col]
-            valley_interior_ids.append(int(nid))
-            z_only_indices.append(int(nid))
+        fixed.add(int(bi))
+    for i in attached_node_indices:
+        fixed.add(int(i))
 
     return {
-        "points": points,
+        "points": all_pts,
         "edges": edges,
+        "boundary_edges": boundary_edge_set,
         "triangles": triangles,
-        "fixed_indices": sorted(fixed_set),
-        "dir_only_indices": dir_only_indices,
-        "z_only_indices": z_only_indices,
-        "perimeter_start": 0,
-        "perimeter_end": n_perim,
-        "n_perimeter": n_perim,
-        "anchor_node_indices": anchor_node_indices,
-        "cable_interior_indices": cable_interior_indices,
+        "fixed_indices": sorted(fixed),
         "ring_indices": ring_indices,
         "centre_indices": centre_indices,
         "beam_top_indices": beam_top_indices,
         "ring_node_counts": ring_node_counts,
-        "perimeter_edge_set": perimeter_edge_set,
-        "valley_edge_set": valley_edge_set,
-        "valley_interior_ids": valley_interior_ids,
-        "valley_end_ids": valley_end_ids,
-        "wall_columns": wall_columns,
-        "wall_ends": wall_ends,
-        "wall_xs": wall_x_list,
-        "ring_loop_ids": ring_loop_ids,
-        "fan_notes": fan_notes,
+        "attached_node_indices": sorted(attached_node_indices),
+        "ring_attach_counts": ring_attach_counts,
+        "ring_attach_edges_added": ring_attach_edges_added,
+        "n_perimeter": n_perimeter,
+        "n_interior": len(interior_xy),
+        "fabric_start": fabric_start,
+        "fabric_end": fabric_end,
     }
 
 
-def _build_cone_boundary_loop(k, n_cones, left_wall, right_wall,
-                              perimeter_ids, perimeter_loop,
-                              wall_columns, wall_ends,
-                              span, mid_width):
-    n_perim = len(perimeter_ids)
-    perim_xy = perimeter_loop[:, :2]
+# --- Member schedule ---------------------------------------------------------
 
-    x_right = right_wall if right_wall is not None else (span / 2.0 + 1.0)
-    x_left = left_wall if left_wall is not None else (-span / 2.0 - 1.0)
+def _build_member_schedule(built, coords, ring_x_positions):
+    """Return a list of named member records for BQ and analysis.
 
-    in_strip = []
-    for pid in perimeter_ids:
-        px = float(perim_xy[pid, 0])
-        if x_left - 1e-9 <= px <= x_right + 1e-9:
-            in_strip.append(pid)
-    if not in_strip:
-        return [], 0
-
-    in_set = set(in_strip)
-    start = in_strip[0]
-    ordered = []
-    i = start
-    visited = set()
-    while i not in visited:
-        visited.add(i)
-        if i in in_set:
-            ordered.append(i)
-        i = (i + 1) % n_perim
-        if i == start:
-            break
-
-    perim_top = [pid for pid in ordered if float(perim_xy[pid, 1]) >= 0.0]
-    perim_bot = [pid for pid in ordered if float(perim_xy[pid, 1]) < 0.0]
-    perim_top = sorted(perim_top, key=lambda pid: float(perim_xy[pid, 0]))
-    perim_bot = sorted(perim_bot, key=lambda pid: -float(perim_xy[pid, 0]))
-
-    loop = []
-    wall_side_count = 0
-    if right_wall is not None:
-        col = wall_columns[right_wall]
-        for nid in reversed(col):
-            loop.append(nid)
-            wall_side_count += 1
-    for pid in perim_bot:
-        loop.append(pid)
-    if left_wall is not None:
-        col = wall_columns[left_wall]
-        for nid in col:
-            loop.append(nid)
-            wall_side_count += 1
-    for pid in perim_top:
-        loop.append(pid)
-    return loop, wall_side_count
-
-
-@st.cache_data(show_spinner=False)
-def _cached_build_mesh(perimeter_loop_bytes, wall_x_tuple,
-                       ring_specs_tuple, eave_height, span, mid_width):
-    perimeter_loop = np.frombuffer(perimeter_loop_bytes,
-                                    dtype=np.float64).reshape(-1, 3)
-    wall_x_list = list(wall_x_tuple)
-    ring_specs = []
-    for spec_t in ring_specs_tuple:
-        ring_specs.append({
-            "cx": spec_t[0], "cy": spec_t[1], "cz": spec_t[2],
-            "r": spec_t[3], "beam_z": spec_t[4],
-        })
-    return _build_mesh_v28(perimeter_loop, wall_x_list, ring_specs,
-                            eave_height, span, mid_width)
-
-
-@st.cache_data(show_spinner=False)
-def _cached_solve(points_bytes, edges_tuple, fixed_tuple,
-                  q_bytes, dir_only_tuple, z_only_tuple):
-    points = np.frombuffer(points_bytes,
-                            dtype=np.float64).reshape(-1, 3)
-    edges = list(edges_tuple)
-    fixed = list(fixed_tuple)
-    q = np.frombuffer(q_bytes, dtype=np.float64)
-    dir_only = [(int(nid), (float(d[0]), float(d[1]), float(d[2])))
-                for nid, d in dir_only_tuple]
-    z_only = list(z_only_tuple)
-    return solve_fdm(points, edges, fixed, q,
-                      z_only_indices=z_only,
-                      dir_only_indices=dir_only)
-
-
-# =============================================================================
-# MEMBER SCHEDULE
-# =============================================================================
-
-def _build_member_schedule(built, coords):
+    Fields: member_id, member_type, ring_index, node_a, node_b,
+            length_m, section, material, role
+    """
     members = []
     ring_indices = built["ring_indices"]
     centre_indices = built["centre_indices"]
     beam_top_indices = built["beam_top_indices"]
-    n_perim = built["n_perimeter"]
-    perimeter_start = built["perimeter_start"]
 
     for k in range(len(ring_indices)):
         ring_no = k + 1
@@ -652,6 +440,7 @@ def _build_member_schedule(built, coords):
         beam_i = int(beam_top_indices[k])
         n_poly = len(idx_list)
 
+        # Ring beam consolidated (one member for BQ).
         ring_length = 0.0
         for i in range(n_poly):
             a = int(idx_list[i])
@@ -664,9 +453,12 @@ def _build_member_schedule(built, coords):
             "node_a": int(idx_list[0]),
             "node_b": int(idx_list[0]),
             "length_m": float(ring_length),
-            "section": "TBD", "material": "TBD",
-            "role": "closed ring beam",
+            "section": "TBD",
+            "material": "TBD",
+            "role": "closed ring beam, one per cone",
         })
+
+        # Ring beam segments (one per polygon node).
         for i in range(n_poly):
             a = int(idx_list[i])
             b = int(idx_list[(i + 1) % n_poly])
@@ -675,10 +467,15 @@ def _build_member_schedule(built, coords):
                 "member_id": f"Ring_{ring_no}_Beam_Seg_{i+1:02d}",
                 "member_type": "ring_beam_segment",
                 "ring_index": ring_no,
-                "node_a": a, "node_b": b, "length_m": L,
-                "section": "TBD", "material": "TBD",
-                "role": "ring beam segment",
+                "node_a": a,
+                "node_b": b,
+                "length_m": L,
+                "section": "TBD",
+                "material": "TBD",
+                "role": "ring beam segment between adjacent nodes",
             })
+
+        # Spokes: one per polygon node.
         for i, node_i in enumerate(idx_list):
             node_i = int(node_i)
             L = float(np.linalg.norm(coords[node_i] - coords[centre_i]))
@@ -686,79 +483,27 @@ def _build_member_schedule(built, coords):
                 "member_id": f"Ring_{ring_no}_Spoke_{i+1:02d}",
                 "member_type": "spoke",
                 "ring_index": ring_no,
-                "node_a": centre_i, "node_b": node_i, "length_m": L,
-                "section": "TBD", "material": "TBD",
-                "role": "radial spoke",
+                "node_a": centre_i,
+                "node_b": node_i,
+                "length_m": L,
+                "section": "TBD",
+                "material": "TBD",
+                "role": "radial spoke from ring centre to ring circle",
             })
+
+        # Drop member: one per ring.
         L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
         members.append({
             "member_id": f"Ring_{ring_no}_Drop_Member",
             "member_type": "drop_member",
             "ring_index": ring_no,
-            "node_a": beam_i, "node_b": centre_i, "length_m": L,
-            "section": "TBD", "material": "TBD",
-            "role": "vertical drop member",
+            "node_a": beam_i,
+            "node_b": centre_i,
+            "length_m": L,
+            "section": "TBD",
+            "material": "TBD",
+            "role": "vertical drop member from primary beam to ring centre",
         })
-
-    perimeter_loop_ids = list(range(perimeter_start,
-                                     perimeter_start + n_perim))
-    total_length = 0.0
-    for i in range(n_perim):
-        a = perimeter_loop_ids[i]
-        b = perimeter_loop_ids[(i + 1) % n_perim]
-        total_length += float(np.linalg.norm(coords[b] - coords[a]))
-    members.append({
-        "member_id": "Edge_Cable",
-        "member_type": "edge_cable",
-        "ring_index": 0,
-        "node_a": int(perimeter_loop_ids[0]),
-        "node_b": int(perimeter_loop_ids[0]),
-        "length_m": float(total_length),
-        "section": "TBD", "material": "TBD",
-        "role": "closed perimeter edge cable",
-    })
-    for i in range(n_perim):
-        a = perimeter_loop_ids[i]
-        b = perimeter_loop_ids[(i + 1) % n_perim]
-        L = float(np.linalg.norm(coords[b] - coords[a]))
-        members.append({
-            "member_id": f"Edge_Cable_Seg_{i+1:03d}",
-            "member_type": "edge_cable_segment",
-            "ring_index": 0,
-            "node_a": int(a), "node_b": int(b), "length_m": L,
-            "section": "TBD", "material": "TBD",
-            "role": "perimeter edge cable segment",
-        })
-
-    wall_columns = built["wall_columns"]
-    for vi, (wx, col) in enumerate(sorted(wall_columns.items())):
-        valley_no = vi + 1
-        length = 0.0
-        for i in range(len(col) - 1):
-            a = int(col[i])
-            b = int(col[i + 1])
-            length += float(np.linalg.norm(coords[b] - coords[a]))
-        members.append({
-            "member_id": f"Valley_Cable_{valley_no}",
-            "member_type": "valley_cable",
-            "ring_index": 0,
-            "node_a": int(col[0]), "node_b": int(col[-1]),
-            "length_m": float(length),
-            "section": "TBD", "material": "TBD",
-            "role": "valley cable between two cones",
-        })
-        for i in range(len(col) - 1):
-            a = int(col[i])
-            b = int(col[i + 1])
-            L = float(np.linalg.norm(coords[b] - coords[a]))
-            members.append({
-                "member_id": f"Valley_Cable_{valley_no}_Seg_{i+1:02d}",
-                "member_type": "valley_cable_segment",
-                "ring_index": 0,
-                "node_a": a, "node_b": b, "length_m": L,
-                "section": "TBD", "material": "TBD",
-                "role": "valley cable segment",
-            })
 
     return members
 
@@ -766,7 +511,7 @@ def _build_member_schedule(built, coords):
 def _format_member_table(members):
     lines = []
     header = (
-        "%-30s  %-22s  %-5s  %-6s  %-6s  %-9s  %-7s  %-8s  %s"
+        "%-28s  %-18s  %-5s  %-6s  %-6s  %-9s  %-7s  %-8s  %s"
         % ("member_id", "member_type", "ring", "node_a", "node_b",
            "length_m", "section", "material", "role")
     )
@@ -774,7 +519,7 @@ def _format_member_table(members):
     lines.append("-" * len(header))
     for m in members:
         lines.append(
-            "%-30s  %-22s  %-5d  %-6d  %-6d  %-9.4f  %-7s  %-8s  %s"
+            "%-28s  %-18s  %-5d  %-6d  %-6d  %-9.4f  %-7s  %-8s  %s"
             % (m["member_id"], m["member_type"], m["ring_index"],
                m["node_a"], m["node_b"], m["length_m"],
                m["section"], m["material"], m["role"])
@@ -782,9 +527,7 @@ def _format_member_table(members):
     return "\n".join(lines)
 
 
-# =============================================================================
-# DIGITISATION
-# =============================================================================
+# --- Node digitisation -------------------------------------------------------
 
 _HEADER = (
     "%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s"
@@ -793,45 +536,46 @@ _HEADER = (
 )
 
 
-def _format_all_nodes(points_initial, points_settled, built):
+def _status_line(i, status, points_initial, points_settled):
+    xi, yi, zi = points_initial[i]
+    xs, ys, zs = points_settled[i]
+    d = float(np.linalg.norm(np.array([xs - xi, ys - yi, zs - zi])))
+    return (
+        "%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
+        % (i, xi, yi, zi, xs, ys, zs, d, status)
+    )
+
+
+def _format_all_nodes(points_initial, points_settled, anchor_idx,
+                       ring_indices, centre_indices, beam_top_indices,
+                       attached_set):
     n = points_initial.shape[0]
     status_of = ["free"] * n
-    for i in built["cable_interior_indices"]:
-        status_of[int(i)] = "cable_interior_dir_only"
-    for i in built["valley_interior_ids"]:
-        status_of[int(i)] = "valley_interior_z_only"
-    for i in built["valley_end_ids"]:
-        status_of[int(i)] = "held_valley_end"
-    for idx_list in built["ring_indices"]:
+    for i in anchor_idx:
+        status_of[int(i)] = "held_perimeter_anchor"
+    for idx_list in ring_indices:
         for i in idx_list:
             status_of[int(i)] = "held_ring_polygon"
-    for i in built["centre_indices"]:
+    for i in centre_indices:
         status_of[int(i)] = "held_ring_centre"
-    for i in built["beam_top_indices"]:
+    for i in beam_top_indices:
         status_of[int(i)] = "held_beam_top"
+    for i in attached_set:
+        status_of[int(i)] = "held_ring_attached"
     lines = [_HEADER, "-" * len(_HEADER)]
     for i in range(n):
-        xi, yi, zi = points_initial[i]
-        xs, ys, zs = points_settled[i]
-        d = float(np.linalg.norm(np.array([xs - xi, ys - yi, zs - zi])))
-        lines.append(
-            "%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
-            % (i, xi, yi, zi, xs, ys, zs, d, status_of[i])
-        )
+        lines.append(_status_line(i, status_of[i],
+                                   points_initial, points_settled))
     return "\n".join(lines)
 
 
-# =============================================================================
-# PAGE
-# =============================================================================
+# --- Page --------------------------------------------------------------------
 
 def render_tester_multi_cone():
     st.markdown(
-        "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
-        "Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — v28.  "
-        "Rebuilt from v26.  Real cable ends, smooth valley, "
-        "whole-perimeter draw.</p>",
+        "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — multi-cone, steel "
+        "member schedule.</p>",
         unsafe_allow_html=True,
     )
 
@@ -853,8 +597,8 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 0.5,
-                                         0.1, key="mc_rd")
+        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 0.5, 0.1,
+                                         key="mc_rd")
     with c2:
         curve_type = st.selectbox(
             "Curve type", ["parabolic", "circular", "catenary"],
@@ -870,18 +614,18 @@ def render_tester_multi_cone():
                                     key="mc_optends")
 
     subdivisions = int(st.number_input(
-        "Subdivisions per edge", 4, 20, 12, 1, key="mc_subdiv"
+        "Subdivisions per edge", 5, 25, 11, 1, key="mc_subdiv"
     ))
 
     c1, c2 = st.columns(2)
     with c1:
         number_of_cones = int(st.number_input(
-            "Number of cones", 1, 10, 3, 1, key="mc_ncones"
+            "Number of cones", 1, 20, 3, 1, key="mc_ncones"
         ))
     with c2:
-        ring_spacing_input = st.number_input(
-            "Spacing override (m, 0 = solver evenly places)",
-            0.0, 10.0, 0.0, 0.1, key="mc_spacing"
+        ring_spacing = st.number_input(
+            "Distance between adjacent cones (m, along beam)",
+            0.5, 10.0, 3.0, 0.1, key="mc_spacing"
         )
 
     ring_clearance = st.number_input(
@@ -892,31 +636,23 @@ def render_tester_multi_cone():
     c1, c2 = st.columns(2)
     with c1:
         warp_q_input = st.number_input(
-            "Warp pretension (kN/m)", 0.1, 100.0, 10.0, 0.1, key="mc_warp",
+            "Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp",
         )
     with c2:
         weft_q_input = st.number_input(
-            "Weft pretension (kN/m)", 0.1, 100.0, 10.0, 0.1, key="mc_weft",
+            "Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft",
         )
 
-    c1, c2 = st.columns(2)
-    with c1:
-        edge_q_input = st.number_input(
-            "Edge cable pretension (kN/m, 0 = auto)",
-            0.0, 500.0, 1.0, 0.1, key="mc_edgeq",
-        )
-    with c2:
-        valley_q_input = st.number_input(
-            "Valley cable pretension (kN/m)",
-            0.1, 500.0, 1.0, 0.1, key="mc_valleyq",
-        )
+    edge_q_input = st.number_input(
+        "Edge cable pretension (kN/m, 0 = auto)", 0.0, 500.0, 20.0, 1.0,
+        key="mc_edgeq",
+    )
 
     xp = np.linspace(-span / 2.0, span / 2.0, 200)
     zp = beam_curve(xp, span, apex, curve_type)
     s_p, total_p = arclength_parametrisation(xp, zp)
 
-    rib_x = _rib_stations(secondary_count, optional_ends, span, xp, s_p,
-                          total_p)
+    rib_x = _rib_stations(secondary_count, optional_ends, span, xp, s_p, total_p)
     rib_peak_z = np.interp(rib_x, xp, zp)
     rib_half_width = np.array(
         [_ellipse_y(float(xr), span, mid_width) for xr in rib_x], dtype=float
@@ -931,8 +667,7 @@ def render_tester_multi_cone():
 
     max_spacing = _max_spacing_for(number_of_cones, total_p)
     try:
-        s_rings = _cone_arc_positions(number_of_cones,
-                                       float(ring_spacing_input), total_p)
+        s_rings = _cone_arc_positions(number_of_cones, ring_spacing, total_p)
         for s_val in s_rings:
             x_val = float(np.interp(s_val, s_p, xp))
             bz_val = float(np.interp(s_val, s_p, zp))
@@ -941,196 +676,73 @@ def render_tester_multi_cone():
             beam_z_rings.append(bz_val)
             ring_z_rings.append(rz_val)
             ring_specs.append({
-                "cx": x_val, "cy": 0.0, "cz": rz_val,
-                "r": float(ring_diameter) / 2.0, "beam_z": bz_val,
+                "cx": x_val,
+                "cy": 0.0,
+                "cz": rz_val,
+                "r": float(ring_diameter) / 2.0,
+                "beam_z": bz_val,
             })
     except ValueError as e:
         placement_error = str(e)
 
     if placement_error:
-        st.error("Placement refused: " + placement_error)
+        st.error(
+            "Placement refused: " + placement_error + "\n\n"
+            "For %d cones on a primary of arc length %.3f m the maximum "
+            "allowed spacing is %.3f m."
+            % (number_of_cones, total_p, max_spacing)
+        )
         return
 
-    if number_of_cones >= 2:
-        min_wall_spacing = min(
-            abs(x_rings[i + 1] - x_rings[i])
-            for i in range(len(x_rings) - 1)
-        )
-        min_required = 2.0 * (float(ring_diameter) / 2.0)
-        if min_wall_spacing < min_required:
-            st.error(
-                "Placement refused: cone spacing is too small.  "
-                "Minimum spacing between ring centres is %.3f m "
-                "(2x ring radius)." % min_required
-            )
-            return
-
-    # --- Perimeter built from anchors (v26 style), with an
-    #     extra node at each wall x. ---
     tip_x = _tip_x_at_eave(span, apex, eave_height, curve_type)
-    anchors, _ = _build_eave_anchors(
+    anchors = _build_eave_anchors(
         rib_x, rib_half_width, rib_peak_z, eave_height, tip_x
     )
-    perimeter_loop, perimeter_anchor_idx = \
-        _subdivide_polygon_with_anchors(anchors, subdivisions)
+    perimeter_loop, anchor_idx = _subdivide_polygon(anchors, subdivisions)
+    bd = np.diff(np.vstack([perimeter_loop, perimeter_loop[:1]]), axis=0)
+    L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
+    target_len = max(L_avg, 1e-6)
 
-    # Wall x positions (midpoint in x between adjacent rings).
-    wall_x_list = []
-    for i in range(number_of_cones - 1):
-        wall_x_list.append(0.5 * (x_rings[i] + x_rings[i + 1]))
-
-    # Force a perimeter node at each wall x: insert into the loop
-    # at the appropriate segment.  Easier: after we build the
-    # mesh, the wall end nodes will be the nearest perimeter
-    # node, and their position will not exactly match wall_x.
-    # Fix: insert a new node into the perimeter loop at (wall_x,
-    # +y_wall) and at (wall_x, -y_wall), so that the loop has a
-    # node exactly at those points.
-
-    def _insert_wall_nodes(perimeter_loop, perimeter_anchor_idx,
-                            wall_x_list, span, mid_width):
-        """Insert perimeter nodes exactly at (wall_x, ±y_wall)."""
-        pts = [tuple(p) for p in perimeter_loop]
-        # Build a sorted list of nodes.
-        # Find the segment of the perimeter where each wall x
-        # crosses the +y side and the -y side, and insert a node
-        # there.
-        def _nearest_segment(target_xy):
-            best_i = 0
-            best_d = None
-            n = len(pts)
-            for i in range(n):
-                a = pts[i]
-                b = pts[(i + 1) % n]
-                # Distance from target to segment.
-                ax, ay = a[0], a[1]
-                bx, by = b[0], b[1]
-                ex, ey = bx - ax, by - ay
-                el = math.hypot(ex, ey)
-                if el < 1e-12:
-                    continue
-                t = ((target_xy[0] - ax) * ex +
-                     (target_xy[1] - ay) * ey) / (el * el)
-                t = max(0.0, min(1.0, t))
-                cx_ = ax + t * ex
-                cy_ = ay + t * ey
-                d = math.hypot(target_xy[0] - cx_, target_xy[1] - cy_)
-                if best_d is None or d < best_d:
-                    best_d = d
-                    best_i = i
-            return best_i
-
-        inserts = []  # (segment_index, point)
-        for wx in wall_x_list:
-            y_top = _ellipse_y(wx, span, mid_width)
-            y_bot = -y_top
-            inserts.append((_nearest_segment((wx, +y_top)),
-                            (float(wx), float(y_top), float(eave_height))))
-            inserts.append((_nearest_segment((wx, -y_top)),
-                            (float(wx), float(y_bot), float(eave_height))))
-
-        # Insert, sorted by segment index descending to keep
-        # earlier indices valid.
-        inserts.sort(key=lambda x: -x[0])
-        for seg_i, pt in inserts:
-            pts.insert(seg_i + 1, pt)
-
-        new_loop = np.asarray(pts, dtype=float)
-
-        # Recompute anchor indices: anchors are still at their
-        # original 3D positions.  Find them by exact match.
-        anchor_idxs = []
-        for ai, a in enumerate(anchors):
-            best_i = 0
-            best_d = None
-            for i in range(len(new_loop)):
-                d = ((new_loop[i, 0] - a[0]) ** 2 +
-                     (new_loop[i, 1] - a[1]) ** 2)
-                if best_d is None or d < best_d:
-                    best_d = d
-                    best_i = i
-            if best_d is not None and best_d < 1e-9:
-                anchor_idxs.append(best_i)
-
-        return new_loop, sorted(set(anchor_idxs))
-
-    perimeter_loop, perimeter_anchor_idx = _insert_wall_nodes(
-        perimeter_loop, perimeter_anchor_idx, wall_x_list, span, mid_width,
+    built = _build_cone_mesh(
+        perimeter_loop, anchor_idx, ring_specs,
+        eave_height, target_len,
     )
 
-    ring_specs_tuple = tuple(
-        (s["cx"], s["cy"], s["cz"], s["r"], s["beam_z"])
-        for s in ring_specs
-    )
-    built = _cached_build_mesh(
-        perimeter_loop.tobytes(),
-        tuple(float(w) for w in wall_x_list),
-        ring_specs_tuple,
-        float(eave_height),
-        float(span),
-        float(mid_width),
-    )
-
-    pts_init = built["points"]
+    pts = built["points"]
     edges = built["edges"]
+    boundary_edge_set = built["boundary_edges"]
     tris = built["triangles"]
     fixed = built["fixed_indices"]
-    dir_only = built["dir_only_indices"]
-    z_only = built["z_only_indices"]
 
     warp_q = max(float(warp_q_input), 0.1) * 1000.0
     weft_q = max(float(weft_q_input), 0.1) * 1000.0
     if edge_q_input > 0.0:
         edge_q_scalar = float(edge_q_input) * 1000.0
     else:
-        edge_q_scalar = max(warp_q, weft_q) * 5.0
+        edge_q_scalar = max(warp_q, weft_q) * target_len
     edge_q_scalar = max(edge_q_scalar, 1.0)
-    valley_q_scalar = max(float(valley_q_input), 0.1) * 1000.0
 
-    perim_edge_set = built["perimeter_edge_set"]
-    valley_edge_set = built["valley_edge_set"]
     q = np.empty(len(edges), dtype=float)
     for k, (i, j) in enumerate(edges):
         key = (i, j) if i < j else (j, i)
-        if key in valley_edge_set:
-            q[k] = valley_q_scalar
-        elif key in perim_edge_set:
+        if key in boundary_edge_set:
             q[k] = edge_q_scalar
         else:
             q[k] = warp_q
 
-    dir_only_tuple = tuple(
-        (int(nid), (float(d[0]), float(d[1]), float(d[2])))
-        for nid, d in dir_only
-    )
-    z_only_tuple = tuple(int(i) for i in z_only)
     try:
-        fdm = _cached_solve(
-            pts_init.tobytes(),
-            tuple((int(i), int(j)) for i, j in edges),
-            tuple(int(i) for i in fixed),
-            q.tobytes(),
-            dir_only_tuple,
-            z_only_tuple,
-        )
+        fdm = solve_fdm(pts, edges, fixed, q)
         coords = fdm["coordinates"]
         residual_norm = float(fdm["residual_norm"])
         solve_ok = True
         solve_err = ""
     except Exception as e:
-        coords = pts_init.copy()
+        coords = pts.copy()
         residual_norm = float("nan")
         solve_ok = False
         solve_err = str(e)
 
-    valley_cols = built["wall_columns"]
-    valley_z_summary = []
-    for wx, col in sorted(valley_cols.items()):
-        zs = coords[col, 2]
-        valley_z_summary.append((wx, float(np.min(zs)),
-                                 float(np.max(zs))))
-
-    # --- 3D ---
+    # --- Figure ------------------------------------------------------
     fig = go.Figure()
 
     if len(tris) > 0:
@@ -1155,27 +767,8 @@ def render_tester_multi_cone():
         )
         fig.add_trace(go.Scatter3d(
             x=rp[:, 0], y=rp[:, 1], z=rp[:, 2],
-            mode="lines", line=dict(color=COL_RIB, width=4),
-            name="rib", showlegend=False, hoverinfo="skip",
-        ))
-
-    ps = built["perimeter_start"]
-    pe = built["perimeter_end"]
-    perim_pts = coords[ps:pe]
-    perim_closed = np.vstack([perim_pts, perim_pts[:1]])
-    fig.add_trace(go.Scatter3d(
-        x=perim_closed[:, 0], y=perim_closed[:, 1],
-        z=perim_closed[:, 2],
-        mode="lines", line=dict(color=COL_PERIMETER, width=5),
-        name="edge cable", showlegend=False, hoverinfo="skip",
-    ))
-
-    for wx, col in sorted(valley_cols.items()):
-        vp = coords[col]
-        fig.add_trace(go.Scatter3d(
-            x=vp[:, 0], y=vp[:, 1], z=vp[:, 2],
-            mode="lines", line=dict(color=COL_VALLEY, width=5),
-            name="valley cable", showlegend=False, hoverinfo="skip",
+            mode="lines", line=dict(color=COL_RIB, width=5),
+            name=f"rib x={rib_x[i]:+.2f}", showlegend=False, hoverinfo="skip",
         ))
 
     for k, idx_list in enumerate(built["ring_indices"]):
@@ -1184,11 +777,12 @@ def render_tester_multi_cone():
         fig.add_trace(go.Scatter3d(
             x=closed[:, 0], y=closed[:, 1], z=closed[:, 2],
             mode="lines", line=dict(color=COL_RING_EDGE, width=5),
-            name="ring", showlegend=False, hoverinfo="skip",
+            name=f"ring {k+1}", showlegend=False, hoverinfo="skip",
         ))
         centre_i = built["centre_indices"][k]
         beam_i = built["beam_top_indices"][k]
         cx, cy, cz = coords[centre_i]
+        # Spokes drawn
         for poly_i in idx_list:
             fig.add_trace(go.Scatter3d(
                 x=[cx, coords[poly_i, 0]],
@@ -1197,6 +791,7 @@ def render_tester_multi_cone():
                 mode="lines", line=dict(color=COL_SPOKE, width=2),
                 name="spoke", showlegend=False, hoverinfo="skip",
             ))
+        # Drop member drawn
         bx, by, bz = coords[beam_i]
         fig.add_trace(go.Scatter3d(
             x=[cx, bx], y=[cy, by], z=[cz, bz],
@@ -1207,112 +802,65 @@ def render_tester_multi_cone():
     apply_common_layout(fig, apex)
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
-    # --- Plan ---
-    figp = go.Figure()
-    perim_xy = pts_init[ps:pe, :2]
-    perim_closed_xy = np.vstack([perim_xy, perim_xy[:1]])
-    figp.add_trace(go.Scatter(
-        x=perim_closed_xy[:, 0], y=perim_closed_xy[:, 1],
-        mode="lines+markers",
-        line=dict(color=COL_PERIMETER, width=3),
-        marker=dict(color=COL_PERIMETER, size=2),
-        name="perimeter", showlegend=False, hoverinfo="skip",
-    ))
-    for k, idx_list in enumerate(built["ring_indices"]):
-        pp = pts_init[idx_list]
-        closed = np.vstack([pp, pp[:1]])
-        figp.add_trace(go.Scatter(
-            x=closed[:, 0], y=closed[:, 1],
-            mode="lines", line=dict(color=COL_RING_EDGE, width=2),
-            name="ring", showlegend=False, hoverinfo="skip",
-        ))
-    for wx, col in sorted(valley_cols.items()):
-        p = pts_init[col]
-        figp.add_trace(go.Scatter(
-            x=p[:, 0], y=p[:, 1],
-            mode="lines+markers",
-            line=dict(color=COL_VALLEY, width=3),
-            marker=dict(color=COL_VALLEY, size=4),
-            name="valley", showlegend=False, hoverinfo="skip",
-        ))
-    for k, loop_ids in enumerate(built["ring_loop_ids"]):
-        if not loop_ids:
-            continue
-        lp = pts_init[loop_ids]
-        lp_closed = np.vstack([lp, lp[:1]])
-        figp.add_trace(go.Scatter(
-            x=lp_closed[:, 0], y=lp_closed[:, 1],
-            mode="lines",
-            line=dict(color="#4a90e2", width=1, dash="dot"),
-            name=f"loop {k+1}", showlegend=False, hoverinfo="skip",
-        ))
-    ring_node_set = set()
-    for idx_list in built["ring_indices"]:
-        ring_node_set.update(int(i) for i in idx_list)
-    for i in built["centre_indices"]:
-        ring_node_set.add(int(i))
-    for i in built["beam_top_indices"]:
-        ring_node_set.add(int(i))
-    valley_node_set = set()
-    for col in built["wall_columns"].values():
-        valley_node_set.update(int(i) for i in col)
-    radial_ids = [i for i in range(pts_init.shape[0])
-                  if i not in ring_node_set
-                  and i not in valley_node_set
-                  and i >= built["n_perimeter"]]
-    if radial_ids:
-        rp2 = pts_init[radial_ids]
-        figp.add_trace(go.Scatter(
-            x=rp2[:, 0], y=rp2[:, 1],
-            mode="markers",
-            marker=dict(color=COL_MEMBRANE, size=3),
-            name="radial", showlegend=False, hoverinfo="skip",
-        ))
-    figp.update_layout(
-        height=420,
-        margin=dict(l=10, r=10, t=30, b=10),
-        paper_bgcolor="#0e1621",
-        plot_bgcolor="#0e1621",
-        font=dict(color="#a8b8c8"),
-        xaxis=dict(title="X (m)", scaleanchor="y", scaleratio=1.0,
-                   gridcolor="#1e2a3a", zerolinecolor="#1e2a3a"),
-        yaxis=dict(title="Y (m)",
-                   gridcolor="#1e2a3a", zerolinecolor="#1e2a3a"),
-        title=dict(text="Plan view (initial mesh)",
-                   font=dict(color="#f39c12", size=14)),
-    )
-    st.plotly_chart(figp, use_container_width=True, key="mc_plan")
+    # --- Member schedule --------------------------------------------
+    members = _build_member_schedule(built, coords, x_rings)
 
-    members = _build_member_schedule(built, coords)
-
-    with st.expander("Member schedule", expanded=False):
-        st.write(f"Total members: {len(members)}")
+    with st.expander("Steel member schedule (BQ and analysis)", expanded=False):
+        st.write(f"Total members recorded: {len(members)}")
+        st.write(
+            "Counts: %d ring beam (consolidated), %d ring beam segments, "
+            "%d spokes, %d drop members."
+            % (
+                sum(1 for m in members if m["member_type"] == "ring_beam"),
+                sum(1 for m in members if m["member_type"] == "ring_beam_segment"),
+                sum(1 for m in members if m["member_type"] == "spoke"),
+                sum(1 for m in members if m["member_type"] == "drop_member"),
+            )
+        )
         st.code(_format_member_table(members), language="text")
 
     with st.expander("Diagnostics", expanded=False):
-        st.write(f"Cones: {number_of_cones}")
-        st.write(f"Spacing override input: {ring_spacing_input:.3f}")
-        st.write(f"Ring x: {[round(v,3) for v in x_rings]}")
-        st.write(f"Ring z: {[round(v,3) for v in ring_z_rings]}")
-        st.write(f"Wall x: "
-                 f"{[round(v,3) for v in built['wall_xs']]}")
-        st.write(f"Total nodes: {pts_init.shape[0]}")
-        st.write(f"Edges: {len(edges)}")
-        st.write(f"Triangles: {len(tris)}")
-        st.write(f"Held: {len(fixed)}")
-        st.write(f"Dir-only (perimeter cable): {len(dir_only)}")
-        st.write(f"Z-only (valley cable): {len(z_only)}")
+        st.write(f"Number of cones: {number_of_cones}")
+        st.write(f"Spacing (m, along beam): {ring_spacing:.3f}")
+        st.write(f"Primary arc length (m): {total_p:.3f}")
+        st.write(f"Maximum allowed spacing: {max_spacing:.3f} m")
+        st.write(f"Ring clearance below beam (m): {ring_clearance:.3f}")
+        st.write(f"Ring diameter (m): {ring_diameter:.3f}")
+        st.write("Ring arc-length positions (m): " +
+                 ", ".join(f"{v:.3f}" for v in s_rings))
+        st.write("Ring x positions (m): " +
+                 ", ".join(f"{v:+.3f}" for v in x_rings))
+        st.write("Beam z at ring stations (m): " +
+                 ", ".join(f"{v:.3f}" for v in beam_z_rings))
+        st.write("Ring z at ring stations (m): " +
+                 ", ".join(f"{v:.3f}" for v in ring_z_rings))
+        st.write(f"Outer anchors: {anchors.shape[0]}")
+        st.write(f"Perimeter nodes: {perimeter_loop.shape[0]}")
+        st.write(f"Total mesh nodes: {pts.shape[0]}")
+        st.write(f"Mesh edges: {len(edges)}")
+        st.write(f"Mesh triangles: {len(tris)}")
+        st.write(f"Held nodes: {len(fixed)}")
         st.write(f"Solve OK: {solve_ok}")
         if not solve_ok:
-            st.write(f"Error: {solve_err}")
+            st.write(f"Solve error: {solve_err}")
         else:
-            st.write(f"Residual: {residual_norm:.4e}")
-        st.write("Valley columns (x, z_min, z_max):")
-        for wx, zmn, zmx in valley_z_summary:
-            st.write(f"  x={wx:+.3f}  z_min={zmn:.3f}  z_max={zmx:.3f}")
-        st.write("Fan notes:")
-        for n in built["fan_notes"]:
-            st.write("  " + n)
+            st.write(f"Residual norm: {residual_norm:.6e}")
+        st.write(f"Target edge length: {target_len:.4f}")
+        st.write("Ring node counts: " +
+                 ", ".join(str(c) for c in built["ring_node_counts"]))
+        st.write("Ring fabric nodes attached: " +
+                 ", ".join(str(c) for c in built["ring_attach_counts"]))
+        st.write("Ring attachment edges added: " +
+                 ", ".join(str(c) for c in built["ring_attach_edges_added"]))
 
     with st.expander("All nodes (full digitisation)", expanded=False):
-        st.code(_format_all_nodes(pts_init, coords, built), language="text")
+        st.code(
+            _format_all_nodes(
+                pts, coords, anchor_idx,
+                built["ring_indices"],
+                built["centre_indices"],
+                built["beam_top_indices"],
+                built["attached_node_indices"],
+            ),
+            language="text",
+        )
