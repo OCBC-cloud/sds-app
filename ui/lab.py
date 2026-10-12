@@ -182,6 +182,24 @@ def render_lab():
     if st.button("Open Multi-Cone Roof Tester", key="lab_tester_multi_cone", use_container_width=True):
         st.session_state.page = "tester_multi_cone"
         st.rerun()
+    # ---- Form Finding Lab
+    st.markdown(
+        '<div class="lab-tile">'
+        '<div class="lab-tile-name">Form Finding Lab</div>'
+        '<div class="lab-tile-desc">'
+        'Visual test for the reduced-basis FDM solver. Draws a '
+        'taut cable held at both ends, with a transverse load, '
+        'and shows the bow the solver finds. Every interior node '
+        'is dir_only along Y. Used to verify the smooth cable bow '
+        'before wiring dir_only into production shapes.'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Form Finding Lab", key="lab_ffl",
+                 use_container_width=True):
+        st.session_state.page = "form_finding_lab"
+        st.rerun()
 
     # ---- Placeholder for future test pages
     st.markdown(
