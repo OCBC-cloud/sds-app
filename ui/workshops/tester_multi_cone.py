@@ -1,21 +1,16 @@
 """Multi-Cone Roof — Lab test page.
 
-Version v22.
+Version v23.
 
-Fixes from v21:
+Fix from v22: wall_x_values were not de-duplicated.  For 3 cones
+there are 2 walls (2 mids), but the flattened list produced 4
+entries: [mid_01, mid_01, mid_12, mid_12].  Each wall x appeared
+twice, and the mesh builder created two node columns at the same
+x — one held, one free — with the free one attached to nothing.
+That is what caused the singular matrix.
 
-  1. Valley columns are now clipped to the perimeter ellipse at
-     their x.  The two ends of each valley column are exactly
-     where the vertical plane x = wall_x crosses the ellipse.
-     No more wall nodes outside the perimeter.
-
-  2. Wall ray clips are only accepted if the crossing point is
-     inside the ellipse.  A ray that would hit the wall plane
-     outside the perimeter is redirected to hit the perimeter
-     instead.  This is what removes the orphan nodes that caused
-     the singular matrix in v21.
-
-Everything else is unchanged from v21.
+v23 wraps the flatten in set() so wall_x_values has 2 entries.
+All other code is identical to v22.
 """
 
 import math
@@ -202,20 +197,11 @@ def _ellipse_inside(x, y, a_ell, b_ell):
 
 
 # =============================================================================
-# MESH BUILDER (v22)
+# MESH BUILDER (v23)
 # =============================================================================
 
-def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
+def _build_mesh_v23(perimeter_loop, perimeter_anchor_idx, ring_specs,
                     eave_height, span, mid_width):
-    """
-    v22 mesh builder.
-
-    Changes from v21:
-      - Valley columns are clipped to the perimeter ellipse at
-        their x.  Ends are exactly on the ellipse.
-      - Wall ray clips are rejected if the crossing is outside
-        the ellipse.
-    """
     n_perim = perimeter_loop.shape[0]
     perim_xy = perimeter_loop[:, :2]
 
@@ -229,23 +215,21 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
 
     x_rings = [float(s["cx"]) for s in ring_specs]
     walls, mids = _cell_walls_x(x_rings)
-    wall_x_values = sorted(w for (wl, wr) in walls for w in (wl, wr)
-                           if w is not None)
 
-    # --- Wall columns (valley cables) --------------------------
-    # Each column runs from the ellipse top at x=wall_x down to
-    # the ellipse bottom at x=wall_x.  Ends on the ellipse.
+    # ---- v23 FIX: de-duplicate wall_x_values ----
+    wall_x_values = sorted(set(w for (wl, wr) in walls for w in (wl, wr)
+                                if w is not None))
+
+    # --- Wall columns ---
     wall_columns = {}
-    wall_column_ends = {}  # wx -> (top_id, bottom_id)
+    wall_column_ends = {}
     for wx in wall_x_values:
         y_at_wall = _ellipse_y(wx, span, mid_width)
-        # Total interior nodes + 2 ends.
         col = []
         top_id = None
         bot_id = None
         for k in range(RADIAL_NODES + 2):
             f = k / float(RADIAL_NODES + 1)
-            # f=0 -> bottom (-y), f=1 -> top (+y).  Order: bottom to top.
             y = -y_at_wall + f * (2.0 * y_at_wall)
             nid = len(points_list)
             points_list.append((float(wx), float(y), float(eave_height)))
@@ -257,7 +241,7 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
         wall_columns[wx] = col
         wall_column_ends[wx] = (top_id, bot_id)
 
-    # --- Ring circles and centres ------------------------------
+    # --- Ring circles and centres ---
     ring_indices = []
     centre_indices = []
     beam_top_indices = []
@@ -290,7 +274,7 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
 
         ring_xy.append((cx, cy, r))
 
-    # --- Rays per ring -----------------------------------------
+    # --- Rays per ring ---
     ring_radial_rows = []
     ring_outer_ids = []
     ring_outer_kinds = []
@@ -314,7 +298,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
             dx = math.cos(theta)
             dy = math.sin(theta)
 
-            # Perimeter hit: nearest intersection along the ray.
             perim_hit = None
             t_perim = None
             n_p = perim_xy_arr.shape[0]
@@ -349,8 +332,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
             hit_y = cy + t_perim * dy
             hit_is_wall = False
 
-            # Wall clip.  Only accept if the crossing is inside the
-            # perimeter ellipse.
             for wall_x, is_right in ((right_wall, True),
                                      (left_wall, False)):
                 if wall_x is None:
@@ -365,7 +346,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 if t_wall >= t_perim:
                     continue
                 wall_y = cy + t_wall * dy
-                # The wall crossing must lie inside the ellipse.
                 if not _ellipse_inside(wall_x, wall_y, a_ell, b_ell):
                     continue
                 hit_x = wall_x
@@ -373,7 +353,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 t_perim = t_wall
                 hit_is_wall = True
 
-            # Build the radial row.
             inner_x = cx + r * dx
             inner_y = cy + r * dy
             row = []
@@ -387,10 +366,8 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 row.append(nid)
             rows.append(row)
 
-            # Attach outer end to a specific node.
             if hit_is_wall:
                 col = wall_columns[hit_x]
-                # Nearest wall node by y.
                 best = None
                 best_d = None
                 for nid in col:
@@ -420,7 +397,7 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
 
     points = np.asarray(points_list, dtype=float)
 
-    # --- Triangles --------------------------------------------
+    # --- Triangles ---
     triangles = []
 
     for k in range(len(ring_specs)):
@@ -446,7 +423,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 triangles.append((a0, b0, b1))
                 triangles.append((a0, b1, a1))
 
-        # Ring attach.
         for row in rows:
             if not row:
                 continue
@@ -462,7 +438,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
             triangles.append((poly_id, inner_id, row[1]))
             triangles.append((poly_id, row[1], poly_next))
 
-        # Outer attach.
         for j in range(n_rows):
             outer_id = ring_outer_ids[k][j]
             if outer_id is None:
@@ -478,9 +453,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
                 if len(col) < 2:
                     continue
                 pos = col.index(outer_id)
-                # Connect to the wall node on the side away from
-                # the ring centre (uphill or downhill along the
-                # column).
                 candidates = []
                 if pos > 0:
                     candidates.append(col[pos - 1])
@@ -488,13 +460,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
                     candidates.append(col[pos + 1])
                 if not candidates:
                     continue
-                # Choose the candidate that is closest to the ring
-                # centre?  No - we need the perpendicular one.
-                # The correct pairing: connect outer_ray_id to
-                # outer_id and to the *same-side* wall node along
-                # the direction of the row.  Since each wall column
-                # node is used by at most one wall-hit ray, we can
-                # connect to both neighbours to seal the fabric.
                 for nid in candidates:
                     triangles.append((outer_ray_id, outer_id, nid))
             else:
@@ -507,7 +472,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
     triangles = [t for t in triangles if t[0] != t[1]
                  and t[1] != t[2] and t[0] != t[2]]
 
-    # --- Edges ------------------------------------------------
     edge_set = set()
     for (a, b, c) in triangles:
         for (i, j) in ((a, b), (b, c), (c, a)):
@@ -533,7 +497,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
         j = (i + 1) % n_perim
         perimeter_edge_set.add((i, j) if i < j else (j, i))
 
-    # Valley cable edges.
     valley_edge_set = set()
     for wx, col in wall_columns.items():
         for i in range(len(col) - 1):
@@ -544,7 +507,6 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
 
     edges = sorted(edge_set)
 
-    # --- Fixed nodes ------------------------------------------
     fixed_set = set()
     anchor_node_indices = []
     for i in perimeter_anchor_idx:
@@ -558,14 +520,12 @@ def _build_mesh_v22(perimeter_loop, perimeter_anchor_idx, ring_specs,
     for bi in beam_top_indices:
         fixed_set.add(int(bi))
 
-    # Valley end nodes held.
     valley_end_ids = []
     for wx, col in wall_columns.items():
         for nid in (col[0], col[-1]):
             fixed_set.add(int(nid))
             valley_end_ids.append(int(nid))
 
-    # --- Dir-only constraints ---------------------------------
     anchor_set = set(int(i) for i in perimeter_anchor_idx)
     cable_interior_indices = []
     dir_only_indices = []
@@ -647,7 +607,7 @@ def _cached_build_mesh(perimeter_loop_bytes, perimeter_anchor_idx_tuple,
             "cx": spec_t[0], "cy": spec_t[1], "cz": spec_t[2],
             "r": spec_t[3], "beam_z": spec_t[4],
         })
-    return _build_mesh_v22(perimeter_loop, perimeter_anchor_idx,
+    return _build_mesh_v23(perimeter_loop, perimeter_anchor_idx,
                             ring_specs, eave_height, span, mid_width)
 
 
@@ -875,9 +835,8 @@ def render_tester_multi_cone():
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
         "Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — v22.  "
-        "Valley columns clipped to the ellipse, wall ray clips "
-        "rejected outside the ellipse.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>Stage 3 — v23.  "
+        "Duplicate wall columns removed.</p>",
         unsafe_allow_html=True,
     )
 
@@ -1078,7 +1037,6 @@ def render_tester_multi_cone():
         valley_z_summary.append((wx, float(np.min(zs)),
                                  float(np.max(zs))))
 
-    # --- 3D view ----------------------------------------------
     fig = go.Figure()
 
     if len(tris) > 0:
@@ -1165,7 +1123,6 @@ def render_tester_multi_cone():
     apply_common_layout(fig, apex)
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
-    # --- Plan view --------------------------------------------
     figp = go.Figure()
     perim_xy = pts_init[ps:pe, :2]
     perim_closed_xy = np.vstack([perim_xy, perim_xy[:1]])
