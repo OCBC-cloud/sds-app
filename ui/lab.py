@@ -202,6 +202,24 @@ def render_lab():
         st.session_state.page = "form_finding_lab"
         st.rerun()
 
+    # ---- Mesh Z Diagnostic
+    st.markdown(
+        '<div class="lab-tile">'
+        '<div class="lab-tile-name">Mesh Z Diagnostic</div>'
+        '<div class="lab-tile-desc">'
+        'Diagnostic-only page. No solver. Reports the initial z of '
+        'every fabric node against the z of the nearest ring, and '
+        'the vertical gap. Used to find the source of the large '
+        'FDM residual in the multi-cone roof.'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Mesh Z Diagnostic", key="lab_zdiag",
+                 use_container_width=True):
+        st.session_state.page = "mesh_z_diagnostic"
+        st.rerun()
+
     # ---- Placeholder for future test pages
     st.markdown(
         '<div class="lab-tile" style="opacity: 0.5;">'
