@@ -19,6 +19,8 @@
 #   2026-10-13 - Multi-Cone Cluster registered. Points at
 #                ui.workshops.multi_cone_roof. The "Uni-Pole" comment
 #                block renamed to "Multi-Cone".
+#   2026-10-13 - Dome Multi-Cone registered. Points at
+#                ui.workshops.dome_multi_cone.
 # =============================================================================
 
 import importlib
@@ -69,6 +71,10 @@ VARIANT_REGISTRY = {
     "multi_cone_cluster": {
         "module": "ui.workshops.multi_cone_roof",
         "function": "render_multi_cone_roof",
+    },
+    "dome_multi_cone": {
+        "module": "ui.workshops.dome_multi_cone",
+        "function": "render_dome_multi_cone",
     },
     # Multi-Cone - not yet built
     "single_cone": {"module": None, "function": None},
