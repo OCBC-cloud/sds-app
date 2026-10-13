@@ -14,6 +14,11 @@
 #   - Tapping a structure type advances to Registration
 #   - Tapping Guided Design starts the wizard (placeholder for now)
 #   - Top gap trimmed to match landing page tightness
+#
+# History:
+#   2026-10-13 - Renamed Uni-Pole Tensile Roof to Multi-Cone Roof.
+#                STUDIO_SECTION_A and STUDIO_FALLBACK updated to
+#                use the new key multi_cone_roof.
 # =============================================================================
 
 import streamlit as st
@@ -28,7 +33,7 @@ from data.structures import STRUCTURE_TYPES
 STUDIO_SECTION_A = [
     "saddle_span",
     "cantilever",
-    "unipole_tensile",
+    "multi_cone_roof",
     "tensile_sails",
     "framed_tensile",
 ]
@@ -55,10 +60,10 @@ STUDIO_FALLBACK = {
         "icon": "L",
         "description": "Single column with arm and membrane",
     },
-    "unipole_tensile": {
-        "name": "Uni-Pole Tensile Roof",
-        "icon": "U",
-        "description": "Mast with radial membrane",
+    "multi_cone_roof": {
+        "name": "Multi-Cone Roof",
+        "icon": "M",
+        "description": "Ridge beam with multiple cones, cable and fabric",
     },
     "tensile_sails": {
         "name": "Tensile Sails Roof",
