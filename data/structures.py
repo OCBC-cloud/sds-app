@@ -40,6 +40,11 @@
 #                Hypar entry added to MEMBER_SCHEMA.
 #   2026-10-07 - Added cables_before_beams convention.
 #                Added Edge Cable row to Cable Supported Saddle.
+#   2026-10-13 - Renamed "Uni-Pole Tensile Roof" to "Multi-Cone Roof".
+#                Structure key changed from unipole_tensile to
+#                multi_cone_roof. Multi-Cone Cluster is now available.
+#                Single Cone and Umbrella remain hidden until built.
+#                MEMBER_SCHEMA added for multi_cone_cluster.
 # =============================================================================
 
 STRUCTURE_TYPES = {
@@ -55,10 +60,10 @@ STRUCTURE_TYPES = {
         "description": "Single column with arm and membrane",
         "category": "Tensile",
     },
-    "unipole_tensile": {
-        "name": "Uni-Pole Tensile Roof",
-        "icon": "U",
-        "description": "Mast with radial membrane",
+    "multi_cone_roof": {
+        "name": "Multi-Cone Roof",
+        "icon": "M",
+        "description": "Ridge beam with multiple cones, cable and fabric",
         "category": "Tensile",
     },
     "tensile_sails": {
@@ -133,16 +138,17 @@ STRUCTURE_VARIANTS = {
          "description": "Column with arm and sail membrane.",
          "available": False},
     ],
-    "unipole_tensile": [
-        {"key": "single_cone", "name": "Single Cone",
-         "description": "Radial symmetry. One mast with cone fabric.",
-         "available": True},
+    "multi_cone_roof": [
         {"key": "multi_cone_cluster", "name": "Multi-Cone Cluster",
-         "description": "Multiple cone units in a cluster.",
+         "description": "A ridge beam carries multiple cones. "
+                        "Fabric spans between rings.",
          "available": True},
+        {"key": "single_cone", "name": "Single Cone",
+         "description": "One mast. One cone. Radial symmetry.",
+         "available": False},
         {"key": "umbrella", "name": "Umbrella",
          "description": "Single mast with visible ribs and fabric.",
-         "available": True},
+         "available": False},
     ],
     "tensile_sails": [
         {"key": "hypar_sail_3", "name": "Hypar Sail - 3 Anchors",
@@ -310,6 +316,26 @@ MEMBER_SCHEMA = {
         "cables_last": [
             {"key": "perimeter_cable", "label": "Perimeter Cable",
              "section": "SS 6x19 --", "note": "Follows membrane edge"},
+        ],
+    },
+    ("multi_cone_roof", "multi_cone_cluster"): {
+        "membrane_first": True,
+        "cables_before_beams": [
+            {"key": "edge_cable", "label": "Edge Cable",
+             "section": "SS 6x19 --",
+             "note": "Perimeter cable, bows between anchors"},
+        ],
+        "beam_expandable": True,
+        "beam_label_single": "Primary Beam",
+        "extra_rows_before_cables": [
+            {"key": "ring_beam", "label": "Ring Beams",
+             "section": "CHS --", "note": "One closed ring per cone"},
+            {"key": "spokes", "label": "Ring Spokes",
+             "section": "CHS --", "note": "Radial spokes in each ring"},
+            {"key": "drop_member", "label": "Drop Members",
+             "section": "CHS --", "note": "Ring centre to primary beam"},
+            {"key": "ribs", "label": "Secondary Ribs",
+             "section": "CHS --", "note": "Transverse ribs under the fabric"},
         ],
     },
 }
