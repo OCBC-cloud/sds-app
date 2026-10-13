@@ -16,6 +16,9 @@
 #
 # History:
 #   2026-09-21 - Cantilever Hypar registered.
+#   2026-10-13 - Multi-Cone Cluster registered. Points at
+#                ui.workshops.multi_cone_roof. The "Uni-Pole" comment
+#                block renamed to "Multi-Cone".
 # =============================================================================
 
 import importlib
@@ -62,9 +65,13 @@ VARIANT_REGISTRY = {
     "simple_frame": {"module": None, "function": None},
     "arched_frame": {"module": None, "function": None},
     "trussed_frame": {"module": None, "function": None},
-    # Uni-Pole Tensile family - not yet built
+    # Multi-Cone family
+    "multi_cone_cluster": {
+        "module": "ui.workshops.multi_cone_roof",
+        "function": "render_multi_cone_roof",
+    },
+    # Multi-Cone - not yet built
     "single_cone": {"module": None, "function": None},
-    "multi_cone_cluster": {"module": None, "function": None},
     "umbrella": {"module": None, "function": None},
     # Cantilever family - not yet built
     "cantilever_cone": {"module": None, "function": None},
@@ -234,8 +241,3 @@ def _render_back_button():
     if st.button("Back to Registration", key="ws_back", use_container_width=True):
         st.session_state.page = "registration"
         st.rerun()
-
-
-
-
-
