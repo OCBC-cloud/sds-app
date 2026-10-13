@@ -13,11 +13,14 @@
 #   "frame_supported_saddle"   -> Beam Supported Saddle
 #   "cantilever_leaf"          -> Cantilever Leaf
 #   "cantilever_hypar"         -> Cantilever Hypar
+#   "multi_cone_cluster"       -> Multi-Cone Cluster
 #
 # Updated 2026-09-21:
 #   - Cantilever Hypar registered.
 # Updated 2026-09-21:
 #   - Annotation font size 13 -> 8, to match legend.
+# Updated 2026-10-13:
+#   - Multi-Cone Cluster registered.
 # =============================================================================
 
 import plotly.graph_objects as go
@@ -29,6 +32,7 @@ from viewers.figures.standard_saddle_mbs import build_standard_saddle
 from viewers.figures.cantilever_leaf import build_cantilever_leaf
 from viewers.figures.beam_supported_saddle import build_beam_supported_saddle
 from viewers.figures.cantilever_hypar import build_cantilever_hypar
+from viewers.figures.multi_cone_roof import build_multi_cone_roof
 
 
 # =============================================================================
@@ -40,6 +44,7 @@ FIGURE_REGISTRY = {
     "cantilever_leaf": build_cantilever_leaf,
     "frame_supported_saddle": build_beam_supported_saddle,
     "cantilever_hypar": build_cantilever_hypar,
+    "multi_cone_cluster": build_multi_cone_roof,
 }
 
 
@@ -52,6 +57,7 @@ VARIANT_PREFIX = {
     "standard_saddle": "ws_ss_",
     "frame_supported_saddle": "ws_bs_",
     "cantilever_hypar": "ws_ch_",
+    "multi_cone_cluster": "ws_mc_",
 }
 
 AMBER = "#f39c12"
@@ -120,8 +126,3 @@ def generate_results_figure(structure_key, variant_key):
         font=dict(color=AMBER, size=16),
     )
     return apply_common_layout(fig, 10.0)
-
-
-
-
-
