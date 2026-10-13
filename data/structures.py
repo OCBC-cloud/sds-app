@@ -45,6 +45,8 @@
 #                multi_cone_roof. Multi-Cone Cluster is now available.
 #                Single Cone and Umbrella remain hidden until built.
 #                MEMBER_SCHEMA added for multi_cone_cluster.
+#                Dome Multi-Cone added as second available variant.
+#                MEMBER_SCHEMA added for dome_multi_cone.
 # =============================================================================
 
 STRUCTURE_TYPES = {
@@ -119,9 +121,6 @@ STRUCTURE_VARIANTS = {
          "available": True},
 
         # ---- Hidden for now. Not shown on Registration.
-        # Available flag is False so the registration page can filter
-        # them out. They will become reachable from inside the
-        # workshop's Section 1 once that routing is built.
         {"key": "cantilever_flower", "name": "Cantilever Flower",
          "description": "Multi-leaf layered spiral.",
          "available": False},
@@ -142,6 +141,11 @@ STRUCTURE_VARIANTS = {
         {"key": "multi_cone_cluster", "name": "Multi-Cone Cluster",
          "description": "A ridge beam carries multiple cones. "
                         "Fabric spans between rings.",
+         "available": True},
+        {"key": "dome_multi_cone", "name": "Dome Multi-Cone",
+         "description": "A globe grid of meridian beams over a dome. "
+                        "Cones snap to grid crossings. "
+                        "Fabric spans the whole dome.",
          "available": True},
         {"key": "single_cone", "name": "Single Cone",
          "description": "One mast. One cone. Radial symmetry.",
@@ -336,6 +340,27 @@ MEMBER_SCHEMA = {
              "section": "CHS --", "note": "Ring centre to primary beam"},
             {"key": "ribs", "label": "Secondary Ribs",
              "section": "CHS --", "note": "Transverse ribs under the fabric"},
+        ],
+    },
+    ("multi_cone_roof", "dome_multi_cone"): {
+        "membrane_first": True,
+        "cables_before_beams": [
+            {"key": "edge_cable", "label": "Edge Cable",
+             "section": "SS 6x19 --",
+             "note": "Eave polygon cable, bows between eave anchors"},
+        ],
+        "beam_expandable": False,
+        "extra_rows_before_cables": [
+            {"key": "meridian_x", "label": "Meridians along X",
+             "section": "CHS --", "note": "Family A - globe grid lines"},
+            {"key": "meridian_y", "label": "Meridians along Y",
+             "section": "CHS --", "note": "Family B - globe grid lines"},
+            {"key": "ring_beam", "label": "Ring Beams",
+             "section": "CHS --", "note": "One closed ring per cone"},
+            {"key": "spokes", "label": "Ring Spokes",
+             "section": "CHS --", "note": "Radial spokes in each ring"},
+            {"key": "drop_member", "label": "Drop Members",
+             "section": "CHS --", "note": "Grid crossing to ring centre"},
         ],
     },
 }
