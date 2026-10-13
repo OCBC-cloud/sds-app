@@ -14,6 +14,7 @@
 #   "cantilever_leaf"          -> Cantilever Leaf
 #   "cantilever_hypar"         -> Cantilever Hypar
 #   "multi_cone_cluster"       -> Multi-Cone Cluster
+#   "dome_multi_cone"          -> Dome Multi-Cone
 #
 # Updated 2026-09-21:
 #   - Cantilever Hypar registered.
@@ -21,6 +22,8 @@
 #   - Annotation font size 13 -> 8, to match legend.
 # Updated 2026-10-13:
 #   - Multi-Cone Cluster registered.
+# Updated 2026-10-13:
+#   - Dome Multi-Cone registered.
 # =============================================================================
 
 import plotly.graph_objects as go
@@ -33,6 +36,7 @@ from viewers.figures.cantilever_leaf import build_cantilever_leaf
 from viewers.figures.beam_supported_saddle import build_beam_supported_saddle
 from viewers.figures.cantilever_hypar import build_cantilever_hypar
 from viewers.figures.multi_cone_roof import build_multi_cone_roof
+from viewers.figures.dome_multi_cone import build_dome_multi_cone
 
 
 # =============================================================================
@@ -45,6 +49,7 @@ FIGURE_REGISTRY = {
     "frame_supported_saddle": build_beam_supported_saddle,
     "cantilever_hypar": build_cantilever_hypar,
     "multi_cone_cluster": build_multi_cone_roof,
+    "dome_multi_cone": build_dome_multi_cone,
 }
 
 
@@ -58,6 +63,7 @@ VARIANT_PREFIX = {
     "frame_supported_saddle": "ws_bs_",
     "cantilever_hypar": "ws_ch_",
     "multi_cone_cluster": "ws_mc_",
+    "dome_multi_cone": "ws_dm_",
 }
 
 AMBER = "#f39c12"
