@@ -4,3 +4,4 @@ pandas
 numpy
 reportlab
 scipy
+streamlit-analytics2
