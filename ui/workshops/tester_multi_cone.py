@@ -1,19 +1,22 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v20.
+Version v21.
 
-What is new in v20:
-  - Back buttons at the top: "Back to Lab" and "Back to Landing".
-    This stops the page from idling and prevents the Streamlit
-    sleep problem.
-  - The edge cable is recorded as a member in the schedule:
-      "Edge_Cable" (consolidated, total arclength)
-      "Edge_Cable_Seg_<k>" (per segment between anchors)
-  - The membrane is recorded as panels in the schedule:
-      "Membrane_Panel_<n>" (one per fabric triangle)
-    Each panel carries its warp and weft prestress.
-  - A Q summary in Diagnostics: membrane area, cable length,
-    cable/membrane q ratio.
+What is new in v21:
+  - The perimeter is now a REAL cable. Every intermediate perimeter
+    node is fully free (3 DOF). Only the 8 outer eave corners are
+    held. The dir_only constraint has been removed.
+  - Reason: a node constrained to slide only along the local
+    tangent cannot respond to the membrane's inward pull. The
+    inward pull was being absorbed by the constraint reaction
+    instead of bowing the cable. With free nodes, the cable bows
+    the way a real cable does.
+
+Carried over from v20:
+  - Back buttons at the top.
+  - Edge cable and membrane panels recorded in the member schedule.
+  - Q summary in Diagnostics with cable/membrane q ratio.
+  - Default edge cable pretension: 20 kN/m.
 
 Carried over from v19:
   - Fabric attaches directly to ring polygon nodes.
@@ -22,10 +25,6 @@ Carried over from v18:
   - Laplace lift with ring polygon nodes as boundary conditions.
   - Anisotropic warp/weft blend on interior edges.
   - Direct edge cable q from the slider.
-
-Carried over from v14:
-  - Cone placement by a single spacing input.
-  - Refuse rule if any ring falls outside the span.
 
 No other engine files are modified.
 """
@@ -308,7 +307,7 @@ def _laplace_lift_fabric(all_pts, n_perimeter, boundary_z_map):
 
 
 # =============================================================================
-# MESH BUILDER (v20 — same as v19)
+# MESH BUILDER
 # =============================================================================
 
 def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
@@ -472,7 +471,7 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
 
 
 # =============================================================================
-# Member schedule (v20 — includes edge cable and membrane panels)
+# Member schedule
 # =============================================================================
 
 def _build_member_schedule(built, coords, ring_x_positions,
@@ -484,9 +483,7 @@ def _build_member_schedule(built, coords, ring_x_positions,
     beam_top_indices = built["beam_top_indices"]
     triangles = built["triangles"]
     n_perimeter = built["n_perimeter"]
-    boundary_edges = built["boundary_edges"]
 
-    # ---- Ring steel members ----
     for k in range(len(ring_indices)):
         ring_no = k + 1
         idx_list = ring_indices[k]
@@ -541,7 +538,6 @@ def _build_member_schedule(built, coords, ring_x_positions,
             "role": "vertical drop member from primary beam to ring centre",
         })
 
-    # ---- Edge cable member (consolidated) ----
     total_cable_length = 0.0
     for i in range(n_perimeter):
         j = (i + 1) % n_perimeter
@@ -559,10 +555,6 @@ def _build_member_schedule(built, coords, ring_x_positions,
         "prestress": edge_q_scalar,
     })
 
-    # Per-segment edge cable (one per anchor-to-anchor arc).
-    # Anchors are the corners held fully; they are the vertices of
-    # the input anchor loop. We record one segment between each
-    # pair of consecutive anchors, following the perimeter.
     anchor_positions = [int(i) for i in anchor_idx]
     n_anchors = len(anchor_positions)
     for k in range(n_anchors):
@@ -591,7 +583,6 @@ def _build_member_schedule(built, coords, ring_x_positions,
             "prestress": edge_q_scalar,
         })
 
-    # ---- Membrane panels (one per fabric triangle) ----
     panel_no = 1
     for (a, b, c) in triangles:
         pa = coords[a]
@@ -665,7 +656,7 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
     for i in anchor_idx:
         status_of[int(i)] = "held_outer_eave_corner"
     for i in intermediate_perimeter_set:
-        status_of[int(i)] = "eave_cable_dir_only"
+        status_of[int(i)] = "perimeter_cable_free"
     for idx_list in ring_indices:
         for i in idx_list:
             status_of[int(i)] = "held_ring_polygon"
@@ -685,7 +676,6 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
 # =============================================================================
 
 def render_tester_multi_cone():
-    # ---- Back buttons (v20) ----
     bcol1, bcol2, bcol3 = st.columns([1, 1, 3])
     with bcol1:
         if st.button("← Back to Lab", key="mc_back_lab",
@@ -700,8 +690,8 @@ def render_tester_multi_cone():
 
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>v20 — edge cable and "
-        "membrane recorded as members.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>v21 — perimeter is a "
+        "real cable. Only the 8 anchors are held.</p>",
         unsafe_allow_html=True,
     )
 
@@ -771,7 +761,7 @@ def render_tester_multi_cone():
 
     edge_q_input = st.number_input(
         "Edge cable pretension (kN/m)",
-        0.1, 500.0, 0.1, 0.1,
+        0.1, 500.0, 20.0, 0.1,
         key="mc_edgeq",
     )
 
@@ -837,12 +827,8 @@ def render_tester_multi_cone():
     intermediate_perimeter = [
         i for i in range(n_perimeter) if i not in anchor_set
     ]
-    tangents = _eave_tangents(perimeter_loop)
-    dir_only_list = []
-    for i in intermediate_perimeter:
-        t = tangents[i]
-        dir_only_list.append((i, (float(t[0]), float(t[1]), float(t[2]))))
-    fixed = [i for i in fixed if i not in set(intermediate_perimeter)]
+    # ---- v21: NO dir_only on the perimeter. Every intermediate
+    # perimeter node is fully free (3 DOF). Only the anchors are held.
 
     warp_q = max(float(warp_q_input), 0.1) * 1000.0
     weft_q = max(float(weft_q_input), 0.1) * 1000.0
@@ -861,8 +847,7 @@ def render_tester_multi_cone():
             q[k] = q_interior[k]
 
     try:
-        fdm = solve_fdm(pts, edges, fixed, q,
-                        dir_only_indices=dir_only_list)
+        fdm = solve_fdm(pts, edges, fixed, q)
         coords = fdm["coordinates"]
         residual_norm = float(fdm["residual_norm"])
         solve_ok = True
@@ -937,7 +922,6 @@ def render_tester_multi_cone():
         anchor_idx, edge_q_scalar, warp_q, weft_q,
     )
 
-    # ---- Member schedule summary ----
     with st.expander("Member schedule (BQ and analysis)", expanded=False):
         n_ring = sum(1 for m in members if m["member_type"] == "ring_beam")
         n_ring_seg = sum(1 for m in members
@@ -961,7 +945,7 @@ def render_tester_multi_cone():
         st.code(_format_member_table(members), language="text")
 
     with st.expander("Diagnostics", expanded=True):
-        st.write(f"Version: v20 (edge cable + membrane as members)")
+        st.write(f"Version: v21 (real perimeter cable, no dir_only)")
         st.write(f"Number of cones: {number_of_cones}")
         st.write(f"Ring x positions (m): " +
                  ", ".join(f"{v:+.3f}" for v in x_rings))
@@ -969,7 +953,7 @@ def render_tester_multi_cone():
                  ", ".join(f"{v:.3f}" for v in ring_z_rings))
         st.write(f"Outer eave corners held: {anchors.shape[0]}")
         st.write(f"Perimeter nodes: {perimeter_loop.shape[0]}")
-        st.write(f"Eave cable dir_only nodes (free): {len(intermediate_perimeter)}")
+        st.write(f"Perimeter cable nodes (free): {len(intermediate_perimeter)}")
         st.write(f"Total mesh nodes: {pts.shape[0]}")
         st.write(f"Mesh edges: {len(edges)}")
         st.write(f"Mesh triangles: {len(tris)}")
@@ -980,9 +964,8 @@ def render_tester_multi_cone():
             st.write(f"Solve error: {solve_err}")
         else:
             st.write(f"Raw force imbalance (N): {residual_norm:.6e}")
-            st.write("(This number includes constraint reactions at "
-                     "held and dir_only nodes. It is not a convergence "
-                     "failure.)")
+            st.write("(Includes constraint reactions at held nodes. "
+                     "Not a convergence failure.)")
         st.write(f"Warp q (N/m): {warp_q:.1f}")
         st.write(f"Weft q (N/m): {weft_q:.1f}")
         st.write(f"Edge cable q (N/m): {edge_q_scalar:.1f}")
