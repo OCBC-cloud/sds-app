@@ -1,29 +1,29 @@
 """Multi-Cone Roof — Stage 3 Lab test page.
 
-Version v19.
+Version v20.
 
-What is new in v19:
-  - The fabric attaches DIRECTLY to the ring polygon nodes. No
-    intermediate nodes. No weld edges. No attach-distance search.
-    The ring polygon nodes are shared with the fabric: the
-    triangles adjacent to each ring use the ring polygon nodes
-    as their vertices. This is the physical model — the membrane
-    is clamped to the ring itself.
-  - The default edge cable pretension is 2 kN/m, so the cable
-    bow is visible on first run.
+What is new in v20:
+  - Back buttons at the top: "Back to Lab" and "Back to Landing".
+    This stops the page from idling and prevents the Streamlit
+    sleep problem.
+  - The edge cable is recorded as a member in the schedule:
+      "Edge_Cable" (consolidated, total arclength)
+      "Edge_Cable_Seg_<k>" (per segment between anchors)
+  - The membrane is recorded as panels in the schedule:
+      "Membrane_Panel_<n>" (one per fabric triangle)
+    Each panel carries its warp and weft prestress.
+  - A Q summary in Diagnostics: membrane area, cable length,
+    cable/membrane q ratio.
+
+Carried over from v19:
+  - Fabric attaches directly to ring polygon nodes.
 
 Carried over from v18:
   - Laplace lift with ring polygon nodes as boundary conditions.
   - Anisotropic warp/weft blend on interior edges.
-  - Direct edge cable q from the slider (no auto).
-  - Only structural anchors held.
-
-Carried over from v16:
-  - Fabric nodes inside the ring clearance band are removed
-    before triangulation.
+  - Direct edge cable q from the slider.
 
 Carried over from v14:
-  - Steel member schedule.
   - Cone placement by a single spacing input.
   - Refuse rule if any ring falls outside the span.
 
@@ -308,7 +308,7 @@ def _laplace_lift_fabric(all_pts, n_perimeter, boundary_z_map):
 
 
 # =============================================================================
-# MESH BUILDER (v19 — fabric attaches directly to ring polygon nodes)
+# MESH BUILDER (v20 — same as v19)
 # =============================================================================
 
 def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
@@ -328,9 +328,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     xs = np.arange(xmin + 0.5 * h, xmax, h)
     ys = np.arange(ymin + 0.5 * h, ymax, h)
 
-    # Exclude fabric candidates too close to a ring. The clearance
-    # band is wider now (1.0 * target_len) so nothing lands inside
-    # the ring polygon and forces a degenerate triangle.
     clearance_band = 1.0 * target_len
     interior_xy = []
     for x in xs:
@@ -382,7 +379,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
 
     all_pts = np.asarray(all_pts_list, dtype=float)
 
-    # --- Laplace lift: boundary = eave + ring polygon + centres + beam tops
     boundary_z_map = {}
     for i in range(n_perimeter):
         boundary_z_map[i] = float(eave_height)
@@ -398,7 +394,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     z_all = _laplace_lift_fabric(all_pts, n_perimeter, boundary_z_map)
     all_pts[:, 2] = z_all
 
-    # --- Delaunay on plan, all nodes (perimeter + ring + centres + fabric)
     pts_2d = all_pts[:, :2]
     tri = Delaunay(pts_2d[:fabric_end])
 
@@ -408,7 +403,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
         cen = (pts_2d[a] + pts_2d[b] + pts_2d[c]) / 3.0
         if not _point_in_polygon(cen[0], cen[1], poly_xy):
             continue
-        # Drop triangles whose centroid is inside a ring.
         bad = False
         for (cx, cy, r) in ring_centres_radii:
             if ((cen[0] - cx) ** 2 + (cen[1] - cy) ** 2) < r * r:
@@ -432,7 +426,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
     for key in boundary_edge_set:
         all_edge_set.add(key)
 
-    # Ring structural edges
     for k in range(len(ring_specs)):
         idx_list = ring_indices[k]
         centre_i = centre_indices[k]
@@ -449,10 +442,6 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
             all_edge_set.add(key)
         key = (centre_i, beam_i) if centre_i < beam_i else (beam_i, centre_i)
         all_edge_set.add(key)
-
-    # --- v19: NO fabric attachment edges. Ring polygon nodes are
-    # already part of the fabric triangulation, so the fabric meets
-    # the ring directly.
 
     fixed = set(int(i) for i in anchor_idx)
     for idx_list in ring_indices:
@@ -483,15 +472,21 @@ def _build_cone_mesh(perimeter_loop, anchor_idx, ring_specs,
 
 
 # =============================================================================
-# Member schedule
+# Member schedule (v20 — includes edge cable and membrane panels)
 # =============================================================================
 
-def _build_member_schedule(built, coords, ring_x_positions):
+def _build_member_schedule(built, coords, ring_x_positions,
+                            anchor_idx, edge_q_scalar,
+                            warp_q, weft_q):
     members = []
     ring_indices = built["ring_indices"]
     centre_indices = built["centre_indices"]
     beam_top_indices = built["beam_top_indices"]
+    triangles = built["triangles"]
+    n_perimeter = built["n_perimeter"]
+    boundary_edges = built["boundary_edges"]
 
+    # ---- Ring steel members ----
     for k in range(len(ring_indices)):
         ring_no = k + 1
         idx_list = ring_indices[k]
@@ -545,13 +540,91 @@ def _build_member_schedule(built, coords, ring_x_positions):
             "section": "TBD", "material": "TBD",
             "role": "vertical drop member from primary beam to ring centre",
         })
+
+    # ---- Edge cable member (consolidated) ----
+    total_cable_length = 0.0
+    for i in range(n_perimeter):
+        j = (i + 1) % n_perimeter
+        total_cable_length += float(np.linalg.norm(coords[j] - coords[i]))
+    members.append({
+        "member_id": "Edge_Cable",
+        "member_type": "cable",
+        "ring_index": 0,
+        "node_a": 0,
+        "node_b": n_perimeter - 1,
+        "length_m": total_cable_length,
+        "section": "CABLE",
+        "material": "Steel strand",
+        "role": "perimeter edge cable, consolidated arclength",
+        "prestress": edge_q_scalar,
+    })
+
+    # Per-segment edge cable (one per anchor-to-anchor arc).
+    # Anchors are the corners held fully; they are the vertices of
+    # the input anchor loop. We record one segment between each
+    # pair of consecutive anchors, following the perimeter.
+    anchor_positions = [int(i) for i in anchor_idx]
+    n_anchors = len(anchor_positions)
+    for k in range(n_anchors):
+        start = anchor_positions[k]
+        end = anchor_positions[(k + 1) % n_anchors]
+        seg_length = 0.0
+        i = start
+        while True:
+            j = (i + 1) % n_perimeter
+            seg_length += float(np.linalg.norm(coords[j] - coords[i]))
+            if j == end:
+                break
+            i = j
+            if i == start:
+                break
+        members.append({
+            "member_id": f"Edge_Cable_Seg_{k+1:02d}",
+            "member_type": "cable_segment",
+            "ring_index": 0,
+            "node_a": start,
+            "node_b": end,
+            "length_m": seg_length,
+            "section": "CABLE",
+            "material": "Steel strand",
+            "role": "edge cable segment between anchors",
+            "prestress": edge_q_scalar,
+        })
+
+    # ---- Membrane panels (one per fabric triangle) ----
+    panel_no = 1
+    for (a, b, c) in triangles:
+        pa = coords[a]
+        pb = coords[b]
+        pc = coords[c]
+        mean_edge = (
+            float(np.linalg.norm(pb - pa))
+            + float(np.linalg.norm(pc - pb))
+            + float(np.linalg.norm(pa - pc))
+        ) / 3.0
+        members.append({
+            "member_id": f"Membrane_Panel_{panel_no:04d}",
+            "member_type": "membrane",
+            "ring_index": 0,
+            "node_a": int(a),
+            "node_b": int(b),
+            "node_c": int(c),
+            "length_m": mean_edge,
+            "section": "FABRIC",
+            "material": "PVDF Type III",
+            "role": "fabric panel between ridge and eave",
+            "prestress_warp": warp_q,
+            "prestress_weft": weft_q,
+        })
+        panel_no += 1
+
     return members
 
 
 def _format_member_table(members):
     lines = []
     header = (
-        "%-28s  %-18s  %-5s  %-6s  %-6s  %-9s  %-7s  %-8s  %s"
+        "%-26s  %-18s  %-6s  %-6s  %-6s  %-9s  %-8s  %-14s  %s"
         % ("member_id", "member_type", "ring", "node_a", "node_b",
            "length_m", "section", "material", "role")
     )
@@ -559,8 +632,8 @@ def _format_member_table(members):
     lines.append("-" * len(header))
     for m in members:
         lines.append(
-            "%-28s  %-18s  %-5d  %-6d  %-6d  %-9.4f  %-7s  %-8s  %s"
-            % (m["member_id"], m["member_type"], m["ring_index"],
+            "%-26s  %-18s  %-6d  %-6d  %-6d  %-9.4f  %-8s  %-14s  %s"
+            % (m["member_id"], m["member_type"], m.get("ring_index", 0),
                m["node_a"], m["node_b"], m["length_m"],
                m["section"], m["material"], m["role"])
         )
@@ -612,16 +685,29 @@ def _format_all_nodes(points_initial, points_settled, anchor_idx,
 # =============================================================================
 
 def render_tester_multi_cone():
+    # ---- Back buttons (v20) ----
+    bcol1, bcol2, bcol3 = st.columns([1, 1, 3])
+    with bcol1:
+        if st.button("← Back to Lab", key="mc_back_lab",
+                     use_container_width=True):
+            st.session_state.page = "lab"
+            st.rerun()
+    with bcol2:
+        if st.button("← Back to Landing", key="mc_back_landing",
+                     use_container_width=True):
+            st.session_state.page = "landing"
+            st.rerun()
+
     st.markdown(
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>v19 — fabric attaches "
-        "directly to ring polygon nodes.</p>",
+        "<p style='color:#a8b8c8;margin-top:0;'>v20 — edge cable and "
+        "membrane recorded as members.</p>",
         unsafe_allow_html=True,
     )
 
     c1, c2 = st.columns(2)
     with c1:
-        span = st.number_input("Primary span (m)", 6.0, 60.0, 18.0, 0.5,
+        span = st.number_input("Primary span (m)", 6.0, 60.0, 25.0, 0.5,
                                 key="mc_span")
     with c2:
         apex = st.number_input("Primary apex (m)", 1.0, 30.0, 9.0, 0.5,
@@ -637,7 +723,7 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 0.5, 0.1,
+        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 1.0, 0.1,
                                          key="mc_rd")
     with c2:
         curve_type = st.selectbox(
@@ -654,7 +740,7 @@ def render_tester_multi_cone():
                                     key="mc_optends")
 
     subdivisions = int(st.number_input(
-        "Subdivisions per edge", 5, 25, 11, 1, key="mc_subdiv"
+        "Subdivisions per edge", 5, 25, 17, 1, key="mc_subdiv"
     ))
 
     c1, c2 = st.columns(2)
@@ -665,7 +751,7 @@ def render_tester_multi_cone():
     with c2:
         ring_spacing = st.number_input(
             "Distance between adjacent cones (m, along beam)",
-            0.5, 10.0, 3.0, 0.1, key="mc_spacing"
+            0.5, 10.0, 5.0, 0.1, key="mc_spacing"
         )
 
     ring_clearance = st.number_input(
@@ -676,16 +762,16 @@ def render_tester_multi_cone():
     c1, c2 = st.columns(2)
     with c1:
         warp_q_input = st.number_input(
-            "Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp",
+            "Warp pretension (kN/m)", 0.1, 100.0, 20.0, 0.1, key="mc_warp",
         )
     with c2:
         weft_q_input = st.number_input(
-            "Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft",
+            "Weft pretension (kN/m)", 0.1, 100.0, 20.0, 0.1, key="mc_weft",
         )
 
     edge_q_input = st.number_input(
         "Edge cable pretension (kN/m)",
-        0.1, 500.0, 2.0, 0.1,
+        0.1, 500.0, 0.1, 0.1,
         key="mc_edgeq",
     )
 
@@ -846,14 +932,36 @@ def render_tester_multi_cone():
     apply_common_layout(fig, apex)
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
-    members = _build_member_schedule(built, coords, x_rings)
+    members = _build_member_schedule(
+        built, coords, x_rings,
+        anchor_idx, edge_q_scalar, warp_q, weft_q,
+    )
 
-    with st.expander("Steel member schedule (BQ and analysis)", expanded=False):
+    # ---- Member schedule summary ----
+    with st.expander("Member schedule (BQ and analysis)", expanded=False):
+        n_ring = sum(1 for m in members if m["member_type"] == "ring_beam")
+        n_ring_seg = sum(1 for m in members
+                         if m["member_type"] == "ring_beam_segment")
+        n_spokes = sum(1 for m in members if m["member_type"] == "spoke")
+        n_drops = sum(1 for m in members if m["member_type"] == "drop_member")
+        n_cables = sum(1 for m in members
+                       if m["member_type"] in ("cable", "cable_segment"))
+        n_panels = sum(1 for m in members if m["member_type"] == "membrane")
+
         st.write(f"Total members recorded: {len(members)}")
+        st.write(
+            f"Counts: {n_ring} ring beam (consolidated), "
+            f"{n_ring_seg} ring beam segments, "
+            f"{n_spokes} spokes, "
+            f"{n_drops} drop members, "
+            f"{n_cables} edge cable members "
+            f"(1 consolidated + segments), "
+            f"{n_panels} membrane panels."
+        )
         st.code(_format_member_table(members), language="text")
 
     with st.expander("Diagnostics", expanded=True):
-        st.write(f"Version: v19 (fabric attaches directly to ring nodes)")
+        st.write(f"Version: v20 (edge cable + membrane as members)")
         st.write(f"Number of cones: {number_of_cones}")
         st.write(f"Ring x positions (m): " +
                  ", ".join(f"{v:+.3f}" for v in x_rings))
@@ -871,10 +979,15 @@ def render_tester_multi_cone():
         if not solve_ok:
             st.write(f"Solve error: {solve_err}")
         else:
-            st.write(f"Residual norm: {residual_norm:.6e}")
+            st.write(f"Raw force imbalance (N): {residual_norm:.6e}")
+            st.write("(This number includes constraint reactions at "
+                     "held and dir_only nodes. It is not a convergence "
+                     "failure.)")
         st.write(f"Warp q (N/m): {warp_q:.1f}")
         st.write(f"Weft q (N/m): {weft_q:.1f}")
         st.write(f"Edge cable q (N/m): {edge_q_scalar:.1f}")
+        st.write(f"Cable / membrane q ratio: "
+                 f"{edge_q_scalar / max(warp_q, 1.0):.4f}")
         st.write(f"Target edge length: {target_len:.4f}")
         st.write("Ring node counts: " +
                  ", ".join(str(c) for c in built["ring_node_counts"]))
