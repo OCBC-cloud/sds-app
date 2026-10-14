@@ -11,6 +11,11 @@
 # History:
 #   2026-10-13 - First version. Dome geometry generator driven by
 #                meridian beams on a globe grid.
+#   2026-10-14 - Renamed the two meridian count inputs. They control
+#                how many frames are SPACED along each axis, not the
+#                direction each frame runs. Labels now say "Frames
+#                along X" and "Frames along Y" and the help text
+#                explains what each frame actually does.
 # =============================================================================
 
 DOME_MULTI_CONE_RECIPE = {
@@ -26,8 +31,8 @@ DOME_MULTI_CONE_RECIPE = {
         "ground_outline": "circle",
         "base_width_x": 18.0,
         "base_width_y": 18.0,
-        "meridians_x": 8,
-        "meridians_y": 8,
+        "meridians_x": 5,
+        "meridians_y": 5,
         "eave_height": 3.2,
         "curve_type": "parabolic",
 
@@ -70,7 +75,7 @@ DOME_MULTI_CONE_RECIPE = {
             "key": "dome_shape",
             "name": "1. Dome Shape",
             "expanded": True,
-            "help": "Footprint, height, meridian grid, eave, and beam curve.",
+            "help": "Footprint, height, frame grid, eave, and beam curve.",
             "inputs": [
                 {
                     "key": "dome_diameter",
@@ -121,23 +126,27 @@ DOME_MULTI_CONE_RECIPE = {
                 },
                 {
                     "key": "meridians_x",
-                    "label": "Meridians along X",
+                    "label": "Frames along X",
                     "type": "integer",
-                    "default": 8,
+                    "default": 5,
                     "min": 3,
                     "max": 40,
                     "step": 1,
-                    "help": "Number of grid lines running along the X axis.",
+                    "help": "Number of frames spaced along the X axis. "
+                            "Each frame runs along Y (its curve lies in "
+                            "the YZ plane).",
                 },
                 {
                     "key": "meridians_y",
-                    "label": "Meridians along Y",
+                    "label": "Frames along Y",
                     "type": "integer",
-                    "default": 8,
+                    "default": 5,
                     "min": 3,
                     "max": 40,
                     "step": 1,
-                    "help": "Number of grid lines running along the Y axis.",
+                    "help": "Number of frames spaced along the Y axis. "
+                            "Each frame runs along X (its curve lies in "
+                            "the XZ plane).",
                 },
                 {
                     "key": "eave_height",
