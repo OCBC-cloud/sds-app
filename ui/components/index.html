@@ -14,17 +14,21 @@
   }
   #wrap {
     width: 100%;
-    padding: 8px 0 4px 0;
     box-sizing: border-box;
+    padding: 8px 0 4px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
   #svg-container {
-    width: 100%;
-    display: block;
+    width: 440px;
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
   }
   svg {
     display: block;
     width: 100%;
-    height: auto;
+    height: 100%;
     background: transparent;
     touch-action: manipulation;
     user-select: none;
@@ -34,22 +38,26 @@
     fill: none;
     stroke: #2ecc71;
     stroke-width: 2;
+    vector-effect: non-scaling-stroke;
   }
   .frame-line-a {
     stroke: #FF6B6B;
     stroke-width: 1;
     stroke-dasharray: 3 3;
-    opacity: 0.5;
+    opacity: 0.45;
+    vector-effect: non-scaling-stroke;
   }
   .frame-line-b {
     stroke: #e07b39;
     stroke-width: 1;
     stroke-dasharray: 3 3;
-    opacity: 0.5;
+    opacity: 0.45;
+    vector-effect: non-scaling-stroke;
   }
   .crossing {
     cursor: pointer;
-    transition: fill 0.12s ease, r 0.12s ease;
+    transition: fill 0.12s ease;
+    vector-effect: non-scaling-stroke;
   }
   .crossing.off {
     fill: #3a4a5a;
@@ -61,19 +69,20 @@
     stroke: #fff3b0;
     stroke-width: 2;
   }
-  .crossing:hover {
-    r: 7;
-  }
   .axis-label {
     fill: #8899aa;
-    font-size: 10px;
+    font-size: 11px;
     text-anchor: middle;
     pointer-events: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 Roboto, sans-serif;
   }
   #caption {
-    padding: 6px 8px 0 8px;
+    padding: 8px 0 0 0;
     font-size: 13px;
     color: #a8b8c8;
+    text-align: center;
+    width: 100%;
   }
   #caption b {
     color: #f1c40f;
@@ -88,15 +97,10 @@
 
 <script>
 // =============================================================================
-// Streamlit component protocol
+// Streamlit component protocol (inline client)
 // =============================================================================
-// On load, we call Streamlit.setComponentReady() and Streamlit.setFrameHeight().
-// When the user toggles a crossing, we call Streamlit.setComponentValue(...).
-// On every rerun, Streamlit sends us a new args object via "render" event.
 
 var Streamlit = (function () {
-  // Minimal inline Streamlit component client. Streamlit's official
-  // client is short enough that we embed it here to avoid a second file.
   var RENDER_EVENT = "streamlit:render";
   var SET_FRAME_HEIGHT = "streamlit:setFrameHeight";
   var SET_COMPONENT_VALUE = "streamlit:setComponentValue";
@@ -105,9 +109,7 @@ var Streamlit = (function () {
 
   function sendMessage(type, data) {
     var msg = { isStreamlitMessage: true, type: type };
-    if (data) {
-      for (var k in data) { msg[k] = data[k]; }
-    }
+    if (data) { for (var k in data) { msg[k] = data[k]; } }
     window.parent.postMessage(msg, "*");
   }
 
@@ -126,9 +128,7 @@ var Streamlit = (function () {
     setComponentValue: function (value) {
       sendMessage(SET_COMPONENT_VALUE, { value: value, dataType: "json" });
     },
-    onRender: function (fn) {
-      listeners.push(fn);
-    }
+    onRender: function (fn) { listeners.push(fn); }
   };
 })();
 
@@ -140,8 +140,8 @@ var state = {
   dome_diameter: 18.0,
   n_x: 5,
   n_y: 5,
-  picked: {},        // { "i,j": true }
-  crossings: []      // [{i, j, x, y}] in metres
+  picked: {},
+  crossings: []
 };
 
 // =============================================================================
@@ -166,8 +166,7 @@ function buildCrossings() {
   var list = [];
   for (var i = 0; i < state.n_x; i++) {
     for (var j = 0; j < state.n_y; j++) {
-      var xi = ox[i];
-      var yj = oy[j];
+      var xi = ox[i], yj = oy[j];
       if (xi * xi + yj * yj <= R * R + 1e-9) {
         list.push({ i: i, j: j, x: xi, y: yj });
       }
@@ -177,7 +176,7 @@ function buildCrossings() {
 }
 
 // =============================================================================
-// Rendering
+// SVG helpers
 // =============================================================================
 
 var SVG_NS = "http://www.w3.org/2000/svg";
@@ -188,13 +187,23 @@ function el(tag, attrs) {
   return e;
 }
 
+// =============================================================================
+// Rendering
+// =============================================================================
+
+// Dot radius in SVG viewBox units. Set to ~1.5% of dome diameter.
+// This keeps the dot size constant relative to the dome, no matter
+// how many frames or how big the dome is.
+function dotRadius(R) {
+  return Math.max(0.015 * 2 * R, 0.02 * R);
+}
+
 function render() {
   var R = state.dome_diameter / 2.0;
-  var padding = 1.15 * R;
-  var size = 2 * padding;    // viewBox is square, metres
+  var padding = 1.12 * R;
+  var size = 2 * padding;
   var viewBox = (-padding) + " " + (-padding) + " " + size + " " + size;
 
-  // ---- Build the SVG skeleton ----------------------------------------
   var svg = el("svg", {
     viewBox: viewBox,
     preserveAspectRatio: "xMidYMid meet",
@@ -207,8 +216,7 @@ function render() {
     cx: 0, cy: 0, r: R, class: "ground-circle"
   }));
 
-  // ---- Frame grid lines, clipped to inside the circle ----------------
-  // Family A: vertical lines at each ox[i], spanning +/- chord.
+  // ---- Frame grid lines ---------------------------------------------
   var ox = offsets(state.n_x, R);
   var oy = offsets(state.n_y, R);
 
@@ -229,12 +237,13 @@ function render() {
     }));
   }
 
-  // ---- Crossing buttons ----------------------------------------------
+  // ---- Crossing buttons ---------------------------------------------
+  var dr = dotRadius(R);
   state.crossings.forEach(function (c) {
     var key = c.i + "," + c.j;
     var on = state.picked[key] === true;
     var dot = el("circle", {
-      cx: c.x, cy: c.y, r: 5,
+      cx: c.x, cy: c.y, r: dr,
       class: "crossing " + (on ? "on" : "off")
     });
     dot.addEventListener("click", function (evt) {
@@ -242,7 +251,6 @@ function render() {
       evt.stopPropagation();
       toggle(c.i, c.j);
     });
-    // Tap support on mobile — some browsers fire touchstart before click
     dot.addEventListener("touchend", function (evt) {
       evt.preventDefault();
       evt.stopPropagation();
@@ -251,36 +259,45 @@ function render() {
     svg.appendChild(dot);
   });
 
-  // ---- Axis labels ---------------------------------------------------
-  // i labels at the left edge; j labels at the top edge.
+  // ---- Axis labels: small, placed at the edges ----------------------
+  // Font size ~2% of dome diameter, so it scales with the plot.
+  var labelSize = 0.022 * 2 * R;
+
   ox.forEach(function (xi, i) {
-    svg.appendChild(el("text", {
-      x: xi, y: -padding + 0.25 * padding,
+    var t = el("text", {
+      x: xi, y: -padding + labelSize * 1.2,
+      "font-size": labelSize,
       class: "axis-label"
-    })).textContent = "i" + i;
+    });
+    t.textContent = "i" + i;
+    svg.appendChild(t);
   });
   oy.forEach(function (yj, j) {
-    svg.appendChild(el("text", {
-      x: -padding + 0.25 * padding, y: yj + 3,
+    var t = el("text", {
+      x: -padding + labelSize * 0.8, y: yj + labelSize * 0.35,
+      "font-size": labelSize,
       class: "axis-label",
       "text-anchor": "start"
-    })).textContent = "j" + j;
+    });
+    t.textContent = "j" + j;
+    svg.appendChild(t);
   });
 
-  // ---- Mount ---------------------------------------------------------
+  // ---- Mount --------------------------------------------------------
   var container = document.getElementById("svg-container");
   container.innerHTML = "";
   container.appendChild(svg);
 
-  // ---- Caption -------------------------------------------------------
+  // ---- Caption ------------------------------------------------------
   var n = Object.keys(state.picked).length;
   document.getElementById("caption").innerHTML =
     "Picked crossings: <b>" + n + "</b>";
 
-  // ---- Frame height --------------------------------------------------
-  var wrap = document.getElementById("wrap");
-  var h = wrap.scrollHeight;
-  Streamlit.setFrameHeight(h);
+  // ---- Report height so Streamlit doesn't clip ----------------------
+  setTimeout(function () {
+    var wrap = document.getElementById("wrap");
+    Streamlit.setFrameHeight(wrap.scrollHeight);
+  }, 30);
 }
 
 // =============================================================================
@@ -310,7 +327,7 @@ function sendValue() {
 }
 
 // =============================================================================
-// Render loop — read args from Streamlit and rebuild
+// Render loop
 // =============================================================================
 
 Streamlit.onRender(function (args) {
@@ -318,7 +335,6 @@ Streamlit.onRender(function (args) {
   state.n_x = parseInt(args.n_x || 5, 10);
   state.n_y = parseInt(args.n_y || 5, 10);
 
-  // Rebuild picked set from the args, keyed by "i,j".
   state.picked = {};
   var passedPicked = args.picked || [];
   passedPicked.forEach(function (pair) {
@@ -329,15 +345,12 @@ Streamlit.onRender(function (args) {
 
   buildCrossings();
 
-  // Drop any picked entries that are no longer valid crossings.
   var validKeys = {};
   state.crossings.forEach(function (c) {
     validKeys[c.i + "," + c.j] = true;
   });
   Object.keys(state.picked).forEach(function (k) {
-    if (!validKeys[k]) {
-      delete state.picked[k];
-    }
+    if (!validKeys[k]) { delete state.picked[k]; }
   });
 
   render();
@@ -345,7 +358,6 @@ Streamlit.onRender(function (args) {
 
 Streamlit.setComponentReady();
 
-// Also re-render on window resize so frame height stays correct.
 window.addEventListener("resize", function () {
   render();
 });
