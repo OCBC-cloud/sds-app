@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Dome Cone Picker</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 Roboto, sans-serif;
+    color: #a8b8c8;
+  }
+  #wrap {
+    width: 100%;
+    padding: 8px 0 4px 0;
+    box-sizing: border-box;
+  }
+  #svg-container {
+    width: 100%;
+    display: block;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .ground-circle {
+    fill: none;
+    stroke: #2ecc71;
+    stroke-width: 2;
+  }
+  .frame-line-a {
+    stroke: #FF6B6B;
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    opacity: 0.5;
+  }
+  .frame-line-b {
+    stroke: #e07b39;
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    opacity: 0.5;
+  }
+  .crossing {
+    cursor: pointer;
+    transition: fill 0.12s ease, r 0.12s ease;
+  }
+  .crossing.off {
+    fill: #3a4a5a;
+    stroke: #556677;
+    stroke-width: 1;
+  }
+  .crossing.on {
+    fill: #f1c40f;
+    stroke: #fff3b0;
+    stroke-width: 2;
+  }
+  .crossing:hover {
+    r: 7;
+  }
+  .axis-label {
+    fill: #8899aa;
+    font-size: 10px;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+  #caption {
+    padding: 6px 8px 0 8px;
+    font-size: 13px;
+    color: #a8b8c8;
+  }
+  #caption b {
+    color: #f1c40f;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="svg-container"></div>
+  <div id="caption"></div>
+</div>
+
+<script>
+// =============================================================================
+// Streamlit component protocol
+// =============================================================================
+// On load, we call Streamlit.setComponentReady() and Streamlit.setFrameHeight().
+// When the user toggles a crossing, we call Streamlit.setComponentValue(...).
+// On every rerun, Streamlit sends us a new args object via "render" event.
+
+var Streamlit = (function () {
+  // Minimal inline Streamlit component client. Streamlit's official
+  // client is short enough that we embed it here to avoid a second file.
+  var RENDER_EVENT = "streamlit:render";
+  var SET_FRAME_HEIGHT = "streamlit:setFrameHeight";
+  var SET_COMPONENT_VALUE = "streamlit:setComponentValue";
+  var SET_COMPONENT_READY = "streamlit:componentReady";
+  var listeners = [];
+
+  function sendMessage(type, data) {
+    var msg = { isStreamlitMessage: true, type: type };
+    if (data) {
+      for (var k in data) { msg[k] = data[k]; }
+    }
+    window.parent.postMessage(msg, "*");
+  }
+
+  window.addEventListener("message", function (event) {
+    if (!event.data || event.data.type !== RENDER_EVENT) { return; }
+    listeners.forEach(function (fn) { fn(event.data.args || {}); });
+  });
+
+  return {
+    setComponentReady: function () {
+      sendMessage(SET_COMPONENT_READY, { apiVersion: 1 });
+    },
+    setFrameHeight: function (height) {
+      sendMessage(SET_FRAME_HEIGHT, { height: height });
+    },
+    setComponentValue: function (value) {
+      sendMessage(SET_COMPONENT_VALUE, { value: value, dataType: "json" });
+    },
+    onRender: function (fn) {
+      listeners.push(fn);
+    }
+  };
+})();
+
+// =============================================================================
+// State
+// =============================================================================
+
+var state = {
+  dome_diameter: 18.0,
+  n_x: 5,
+  n_y: 5,
+  picked: {},        // { "i,j": true }
+  crossings: []      // [{i, j, x, y}] in metres
+};
+
+// =============================================================================
+// Geometry
+// =============================================================================
+
+function offsets(n, R) {
+  if (n < 1) n = 1;
+  if (n === 1) return [0.0];
+  var half = R * (n - 1) / n;
+  var out = [];
+  for (var k = 0; k < n; k++) {
+    out.push(-half + (2 * half) * k / (n - 1));
+  }
+  return out;
+}
+
+function buildCrossings() {
+  var R = state.dome_diameter / 2.0;
+  var ox = offsets(state.n_x, R);
+  var oy = offsets(state.n_y, R);
+  var list = [];
+  for (var i = 0; i < state.n_x; i++) {
+    for (var j = 0; j < state.n_y; j++) {
+      var xi = ox[i];
+      var yj = oy[j];
+      if (xi * xi + yj * yj <= R * R + 1e-9) {
+        list.push({ i: i, j: j, x: xi, y: yj });
+      }
+    }
+  }
+  state.crossings = list;
+}
+
+// =============================================================================
+// Rendering
+// =============================================================================
+
+var SVG_NS = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs) {
+  var e = document.createElementNS(SVG_NS, tag);
+  for (var k in attrs) { e.setAttribute(k, attrs[k]); }
+  return e;
+}
+
+function render() {
+  var R = state.dome_diameter / 2.0;
+  var padding = 1.15 * R;
+  var size = 2 * padding;    // viewBox is square, metres
+  var viewBox = (-padding) + " " + (-padding) + " " + size + " " + size;
+
+  // ---- Build the SVG skeleton ----------------------------------------
+  var svg = el("svg", {
+    viewBox: viewBox,
+    preserveAspectRatio: "xMidYMid meet",
+    role: "img",
+    "aria-label": "Dome cone position picker"
+  });
+
+  // ---- Ground circle -------------------------------------------------
+  svg.appendChild(el("circle", {
+    cx: 0, cy: 0, r: R, class: "ground-circle"
+  }));
+
+  // ---- Frame grid lines, clipped to inside the circle ----------------
+  // Family A: vertical lines at each ox[i], spanning +/- chord.
+  var ox = offsets(state.n_x, R);
+  var oy = offsets(state.n_y, R);
+
+  for (var i = 0; i < ox.length; i++) {
+    var xi = ox[i];
+    var chord = Math.sqrt(Math.max(0, R * R - xi * xi));
+    svg.appendChild(el("line", {
+      x1: xi, y1: -chord, x2: xi, y2: chord,
+      class: "frame-line-a"
+    }));
+  }
+  for (var j = 0; j < oy.length; j++) {
+    var yj = oy[j];
+    var chord2 = Math.sqrt(Math.max(0, R * R - yj * yj));
+    svg.appendChild(el("line", {
+      x1: -chord2, y1: yj, x2: chord2, y2: yj,
+      class: "frame-line-b"
+    }));
+  }
+
+  // ---- Crossing buttons ----------------------------------------------
+  state.crossings.forEach(function (c) {
+    var key = c.i + "," + c.j;
+    var on = state.picked[key] === true;
+    var dot = el("circle", {
+      cx: c.x, cy: c.y, r: 5,
+      class: "crossing " + (on ? "on" : "off")
+    });
+    dot.addEventListener("click", function (evt) {
+      evt.preventDefault();
+      evt.stopPropagation();
+      toggle(c.i, c.j);
+    });
+    // Tap support on mobile — some browsers fire touchstart before click
+    dot.addEventListener("touchend", function (evt) {
+      evt.preventDefault();
+      evt.stopPropagation();
+      toggle(c.i, c.j);
+    });
+    svg.appendChild(dot);
+  });
+
+  // ---- Axis labels ---------------------------------------------------
+  // i labels at the left edge; j labels at the top edge.
+  ox.forEach(function (xi, i) {
+    svg.appendChild(el("text", {
+      x: xi, y: -padding + 0.25 * padding,
+      class: "axis-label"
+    })).textContent = "i" + i;
+  });
+  oy.forEach(function (yj, j) {
+    svg.appendChild(el("text", {
+      x: -padding + 0.25 * padding, y: yj + 3,
+      class: "axis-label",
+      "text-anchor": "start"
+    })).textContent = "j" + j;
+  });
+
+  // ---- Mount ---------------------------------------------------------
+  var container = document.getElementById("svg-container");
+  container.innerHTML = "";
+  container.appendChild(svg);
+
+  // ---- Caption -------------------------------------------------------
+  var n = Object.keys(state.picked).length;
+  document.getElementById("caption").innerHTML =
+    "Picked crossings: <b>" + n + "</b>";
+
+  // ---- Frame height --------------------------------------------------
+  var wrap = document.getElementById("wrap");
+  var h = wrap.scrollHeight;
+  Streamlit.setFrameHeight(h);
+}
+
+// =============================================================================
+// Toggle
+// =============================================================================
+
+function toggle(i, j) {
+  var key = i + "," + j;
+  if (state.picked[key]) {
+    delete state.picked[key];
+  } else {
+    state.picked[key] = true;
+  }
+  sendValue();
+  render();
+}
+
+function sendValue() {
+  var pickedList = [];
+  state.crossings.forEach(function (c) {
+    var key = c.i + "," + c.j;
+    if (state.picked[key]) {
+      pickedList.push([c.i, c.j]);
+    }
+  });
+  Streamlit.setComponentValue({ picked: pickedList });
+}
+
+// =============================================================================
+// Render loop — read args from Streamlit and rebuild
+// =============================================================================
+
+Streamlit.onRender(function (args) {
+  state.dome_diameter = Number(args.dome_diameter || 18.0);
+  state.n_x = parseInt(args.n_x || 5, 10);
+  state.n_y = parseInt(args.n_y || 5, 10);
+
+  // Rebuild picked set from the args, keyed by "i,j".
+  state.picked = {};
+  var passedPicked = args.picked || [];
+  passedPicked.forEach(function (pair) {
+    if (Array.isArray(pair) && pair.length === 2) {
+      state.picked[pair[0] + "," + pair[1]] = true;
+    }
+  });
+
+  buildCrossings();
+
+  // Drop any picked entries that are no longer valid crossings.
+  var validKeys = {};
+  state.crossings.forEach(function (c) {
+    validKeys[c.i + "," + c.j] = true;
+  });
+  Object.keys(state.picked).forEach(function (k) {
+    if (!validKeys[k]) {
+      delete state.picked[k];
+    }
+  });
+
+  render();
+});
+
+Streamlit.setComponentReady();
+
+// Also re-render on window resize so frame height stays correct.
+window.addEventListener("resize", function () {
+  render();
+});
+</script>
+</body>
+</html>
