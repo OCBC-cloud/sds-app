@@ -8,14 +8,21 @@
 #   - Only the five allowed input types
 #   - No custom widgets
 #
+# Cone placement is handled by ui/dome_cone_picker.py, which the
+# workshop wrapper renders below the recipe. The picker is a pure
+# input device: it collects the user's picked crossings and writes
+# them to session state under ws_dm_picked_crossings. The viewer
+# owns all geometry and reads the picked set.
+#
 # History:
 #   2026-10-13 - First version. Dome geometry generator driven by
 #                meridian beams on a globe grid.
-#   2026-10-14 - Renamed the two meridian count inputs. They control
-#                how many frames are SPACED along each axis, not the
-#                direction each frame runs. Labels now say "Frames
-#                along X" and "Frames along Y" and the help text
-#                explains what each frame actually does.
+#   2026-10-14 - Renamed the two frame count inputs. They control
+#                how many frames are SPACED along each axis.
+#   2026-10-14 - Removed Group 2 (Cone Placement). Cone positions
+#                are now picked in the 2D picker below the recipe.
+#                Renumbered remaining groups sequentially.
+#                Reduced frame-count max to 15 for picker responsiveness.
 # =============================================================================
 
 DOME_MULTI_CONE_RECIPE = {
@@ -36,34 +43,28 @@ DOME_MULTI_CONE_RECIPE = {
         "eave_height": 3.2,
         "curve_type": "parabolic",
 
-        # Group 2 - Cone placement
-        "placement_mode": "automatic",
-        "cone_count": 4,
-        "cone_ring_radius": 0.6,
-        "cone_start_angle": 0.0,
-        "drop_length": 1.0,
-        "ring_diameter": 2.0,
-        "min_member_length": 3.6,
-        "min_ring_gap": 1.8,
-        "min_eave_clearance": 2.7,
-
-        # Group 3 - Prestress
+        # Group 2 - Prestress
         "warp_pretension": 1.0,
         "weft_pretension": 1.0,
         "edge_cable_pretension": 25.0,
         "grid_pretension": 20.0,
 
-        # Group 4 - Materials
+        # Group 3 - Materials
         "fabric_type": "PVDF",
         "fabric_grade": "Type III",
         "meridian_material": "S355",
         "ring_material": "S355",
 
-        # Group 5 - Foundation
+        # Group 4 - Foundation
         "base_condition": "pinned",
 
-        # Group 6 - Load case
+        # Group 5 - Load case
         "load_standard": "MY",
+
+        # Cone geometry (fixed for now, not user input).
+        # Values the viewer reads. The picker does not read these.
+        "drop_length": 1.0,
+        "ring_diameter": 2.0,
     },
 
     "groups": [
@@ -130,11 +131,12 @@ DOME_MULTI_CONE_RECIPE = {
                     "type": "integer",
                     "default": 5,
                     "min": 3,
-                    "max": 40,
+                    "max": 15,
                     "step": 1,
                     "help": "Number of frames spaced along the X axis. "
                             "Each frame runs along Y (its curve lies in "
-                            "the YZ plane).",
+                            "the YZ plane). Max 15 for picker "
+                            "responsiveness.",
                 },
                 {
                     "key": "meridians_y",
@@ -142,11 +144,12 @@ DOME_MULTI_CONE_RECIPE = {
                     "type": "integer",
                     "default": 5,
                     "min": 3,
-                    "max": 40,
+                    "max": 15,
                     "step": 1,
                     "help": "Number of frames spaced along the Y axis. "
                             "Each frame runs along X (its curve lies in "
-                            "the XZ plane).",
+                            "the XZ plane). Max 15 for picker "
+                            "responsiveness.",
                 },
                 {
                     "key": "eave_height",
@@ -173,111 +176,11 @@ DOME_MULTI_CONE_RECIPE = {
         },
 
         # =====================================================================
-        # GROUP 2 - CONE PLACEMENT
-        # =====================================================================
-        {
-            "key": "cone_placement",
-            "name": "2. Cone Placement",
-            "expanded": True,
-            "help": "How many cones, where they hang, and the rules "
-                    "for automatic placement.",
-            "inputs": [
-                {
-                    "key": "placement_mode",
-                    "label": "Placement mode",
-                    "type": "radio",
-                    "options": [
-                        ["automatic", "Automatic (solver chooses count)"],
-                        ["user_defined", "User-defined count"],
-                    ],
-                    "default": "automatic",
-                },
-                {
-                    "key": "cone_count",
-                    "label": "Number of cones (user-defined mode)",
-                    "type": "integer",
-                    "default": 4,
-                    "min": 1,
-                    "max": 40,
-                    "step": 1,
-                    "help": "Only used when placement mode is User-defined.",
-                },
-                {
-                    "key": "cone_ring_radius",
-                    "label": "Cone ring radius (fraction of dome radius)",
-                    "type": "number",
-                    "default": 0.6,
-                    "min": 0.1,
-                    "max": 0.95,
-                    "step": 0.05,
-                    "help": "Where cones sit relative to the crown. "
-                            "0.6 means 60% out from centre.",
-                },
-                {
-                    "key": "cone_start_angle",
-                    "label": "Start angle (deg)",
-                    "type": "number",
-                    "default": 0.0,
-                    "min": 0.0,
-                    "max": 90.0,
-                    "step": 5.0,
-                    "help": "Rotation of the symmetric cone layout.",
-                },
-                {
-                    "key": "drop_length",
-                    "label": "Drop length below crossing (m)",
-                    "type": "number",
-                    "default": 1.0,
-                    "min": 0.1,
-                    "max": 10.0,
-                    "step": 0.1,
-                },
-                {
-                    "key": "ring_diameter",
-                    "label": "Ring diameter (m)",
-                    "type": "number",
-                    "default": 2.0,
-                    "min": 0.05,
-                    "max": 10.0,
-                    "step": 0.05,
-                },
-                {
-                    "key": "min_member_length",
-                    "label": "Min member length (m, 0 = no rule)",
-                    "type": "number",
-                    "default": 3.6,
-                    "min": 0.0,
-                    "max": 20.0,
-                    "step": 0.1,
-                    "help": "In automatic mode, cones closer than this are skipped.",
-                },
-                {
-                    "key": "min_ring_gap",
-                    "label": "Min ring gap (m, 0 = no rule)",
-                    "type": "number",
-                    "default": 1.8,
-                    "min": 0.0,
-                    "max": 10.0,
-                    "step": 0.1,
-                },
-                {
-                    "key": "min_eave_clearance",
-                    "label": "Min eave clearance (m, 0 = no rule)",
-                    "type": "number",
-                    "default": 2.7,
-                    "min": 0.0,
-                    "max": 10.0,
-                    "step": 0.1,
-                },
-            ],
-        },
-
-        # =====================================================================
-        # GROUP 3 - PRESTRESS
+        # GROUP 2 - PRESTRESS
         # =====================================================================
         {
             "key": "prestress",
-            "name": "3. Prestress",
+            "name": "2. Prestress",
             "help": "Membrane warp and weft, edge cable, and grid members.",
             "inputs": [
                 {
@@ -321,11 +224,11 @@ DOME_MULTI_CONE_RECIPE = {
         },
 
         # =====================================================================
-        # GROUP 4 - MATERIALS
+        # GROUP 3 - MATERIALS
         # =====================================================================
         {
             "key": "materials",
-            "name": "4. Materials",
+            "name": "3. Materials",
             "help": "Fabric, meridian steel, ring steel.",
             "inputs": [
                 {
@@ -381,11 +284,11 @@ DOME_MULTI_CONE_RECIPE = {
         },
 
         # =====================================================================
-        # GROUP 5 - FOUNDATION
+        # GROUP 4 - FOUNDATION
         # =====================================================================
         {
             "key": "foundation",
-            "name": "5. Foundation",
+            "name": "4. Foundation",
             "help": "Base support condition.",
             "inputs": [
                 {
@@ -402,11 +305,11 @@ DOME_MULTI_CONE_RECIPE = {
         },
 
         # =====================================================================
-        # GROUP 6 - LOAD CASE
+        # GROUP 5 - LOAD CASE
         # =====================================================================
         {
             "key": "load_case",
-            "name": "6. Load case",
+            "name": "5. Load case",
             "help": "Design standard used for partial factors.",
             "inputs": [
                 {
