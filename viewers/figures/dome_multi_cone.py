@@ -6,14 +6,12 @@
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
 # PIECE 2 — FRAME + EAVE POLYGON.
-#   Builds on Piece 1.
-#   Adds the eave polygon: each frame's crossings at z = eave_height,
-#   deduped, sorted by angle around the origin, joined with straight
-#   segments. Drawn in green.
-#   No bow is drawn. The bow comes later, when the FDM solve puts
-#   real prestress on the cable.
+#   No ground circle drawn. The frames sit inside the ground edge by
+#   design, so a ground circle would be misleading.
+#   No bow on the eave line. The bow comes later, when the FDM solve
+#   puts real prestress on the cable.
 #
-# The frame, as agreed (Piece 1, verified):
+# The frame (corrected spacing):
 #   - Ground footprint: circle (base case for now).
 #   - One master frame shape (parabolic / circular / catenary).
 #   - Frame A runs along Y, footed on the ground circle at (0, +/-R).
@@ -21,10 +19,17 @@
 #   - N frames parallel to A, spaced across X. Frame A is the middle.
 #   - M frames parallel to B, spaced across Y. Frame B is the middle.
 #   - Each frame is ONE full curve: ground -> apex -> ground.
-#   - Apexes step down from the crown to the ground circle, so the
-#     set traces a smooth globe. Verified numerically.
+#   - Apexes step down from the crown to the outer edge, so the
+#     set traces a smooth globe.
 #
-# The eave polygon, as agreed (Piece 2):
+#   SPACING RULE (fixed):
+#     N frames along X are spaced from -R*(N-1)/N to +R*(N-1)/N.
+#     Same for M along Y. So "3" means exactly 3 real frames.
+#     "5" means 5. "6" means 6. No invisible frames on the ground
+#     circle, no hidden +2. Every frame has a real chord and a real
+#     apex.
+#
+# The eave polygon:
 #   - Each frame crosses z = eave_height twice (rising, falling).
 #   - Those crossings are eave anchors: points ON the beam, not
 #     frame-to-frame crossings.
@@ -40,6 +45,7 @@
 # History:
 #   2026-10-14 - Piece 1. Frame only.
 #   2026-10-14 - Piece 2. Add eave polygon.
+#   2026-10-14 - Piece 2b. Corrected spacing rule. Removed ground circle.
 # =============================================================================
 
 import math
@@ -60,8 +66,7 @@ EAVE_DEDUPE_TOL_FRAC = 0.01  # fraction of dome diameter
 
 COL_FRAME_A = "#FF6B6B"
 COL_FRAME_B = "#e07b39"
-COL_GROUND = "#2ecc71"
-COL_EAVE = "#2ecc71"  # same green family; ground circle drawn faint
+COL_EAVE = "#2ecc71"
 
 
 # =============================================================================
@@ -110,24 +115,30 @@ def _build_frame_curve(half_chord, apex_height, curve_type, n_samples):
     return s, z
 
 
+def _offsets(n, ground_radius):
+    """
+    Evenly spaced offsets for n frames along one axis.
+    Outer pair sits at +/- R * (n-1)/n, strictly inside the circle.
+    So n=3 gives 3 real frames, n=5 gives 5 real frames, etc.
+    """
+    if n < 1:
+        n = 1
+    if n == 1:
+        return [0.0]
+    half_extent = ground_radius * (n - 1.0) / n
+    return list(np.linspace(-half_extent, +half_extent, n))
+
+
 def _build_dome_frame(ground_radius, crown_height, curve_type,
-                      n_x, n_y, eave_height):
+                      n_x, n_y):
     """
     Build the dome frame. Returns frames + apex verification rows.
-    Same as Piece 1.
     """
     frames = []
     apexes = []
 
-    def _offsets(n):
-        if n < 1:
-            n = 1
-        if n == 1:
-            return [0.0]
-        return list(np.linspace(-ground_radius, +ground_radius, n))
-
-    offsets_x = _offsets(n_x)
-    offsets_y = _offsets(n_y)
+    offsets_x = _offsets(n_x, ground_radius)
+    offsets_y = _offsets(n_y, ground_radius)
 
     for offset in offsets_x:
         chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
@@ -174,8 +185,6 @@ def _frame_crossings_at_eave(frame, eave_height):
     """
     Return the (x, y, z) points where this frame's z crosses eave_height.
     At most two: one on the rising side, one on the falling side.
-    Skipped if the frame never reaches eave_height (i.e. its apex
-    is below the eave).
     """
     z = frame["z"]
     x = frame["x"]
@@ -194,10 +203,6 @@ def _frame_crossings_at_eave(frame, eave_height):
 
 
 def _dedupe_plan(points, tol):
-    """
-    Remove points that are within tol (plan distance) of an earlier point.
-    Keeps the first of each group.
-    """
     kept = []
     for p in points:
         too_close = False
@@ -211,25 +216,16 @@ def _dedupe_plan(points, tol):
 
 
 def _order_by_angle(points):
-    """
-    Sort points around the origin by atan2(y, x).
-    Returns the ordered list.
-    """
     def _angle(p):
         return math.atan2(p[1], p[0])
     return sorted(points, key=_angle)
 
 
 def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
-    """
-    Collect all eave anchors from all frames, dedupe, sort by angle,
-    return ordered list of anchor points (closed loop).
-    """
     all_anchors = []
     for f in frames:
         pts = _frame_crossings_at_eave(f, eave_height)
         all_anchors.extend(pts)
-
     tol = EAVE_DEDUPE_TOL_FRAC * dome_diameter
     deduped = _dedupe_plan(all_anchors, tol)
     ordered = _order_by_angle(deduped)
@@ -237,7 +233,7 @@ def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
 
 
 # =============================================================================
-# FRAME VERIFICATION (Piece 1)
+# FRAME VERIFICATION
 # =============================================================================
 
 def _verify_frame_against_globe(apexes, ground_radius, crown_height, curve_type):
@@ -280,7 +276,6 @@ def build_dome_multi_cone():
         curve_type=curve_type,
         n_x=n_x,
         n_y=n_y,
-        eave_height=eave_height,
     )
 
     # ---- Build the eave polygon -----------------------------------------
@@ -290,18 +285,6 @@ def build_dome_multi_cone():
 
     # ---- Draw ------------------------------------------------------------
     fig = go.Figure()
-
-    # Ground circle (faint — it's the footing line, will be removed
-    # in a later piece once cones and picker are in)
-    t = np.linspace(0.0, 2.0 * math.pi, 200)
-    fig.add_trace(go.Scatter3d(
-        x=ground_radius * np.cos(t),
-        y=ground_radius * np.sin(t),
-        z=np.zeros_like(t),
-        mode="lines",
-        line=dict(color=COL_GROUND, width=2, dash="dot"),
-        name="ground circle", showlegend=False, hoverinfo="skip",
-    ))
 
     # Frames
     for f in frames:
