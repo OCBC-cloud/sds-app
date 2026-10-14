@@ -16,13 +16,16 @@
 #
 # History:
 #   2026-10-13 - First version. Dome geometry generator driven by
-#                meridian beams on a globe grid.
+#                frame beams on a globe grid.
 #   2026-10-14 - Renamed the two frame count inputs. They control
 #                how many frames are SPACED along each axis.
 #   2026-10-14 - Removed Group 2 (Cone Placement). Cone positions
 #                are now picked in the 2D picker below the recipe.
 #                Renumbered remaining groups sequentially.
 #                Reduced frame-count max to 15 for picker responsiveness.
+#   2026-10-14 - Renamed the frame steel input. Key changed from
+#                "meridian_material" to "frame_material". The word
+#                "meridian" is no longer used anywhere in this recipe.
 # =============================================================================
 
 DOME_MULTI_CONE_RECIPE = {
@@ -52,7 +55,7 @@ DOME_MULTI_CONE_RECIPE = {
         # Group 3 - Materials
         "fabric_type": "PVDF",
         "fabric_grade": "Type III",
-        "meridian_material": "S355",
+        "frame_material": "S355",
         "ring_material": "S355",
 
         # Group 4 - Foundation
@@ -218,7 +221,7 @@ DOME_MULTI_CONE_RECIPE = {
                     "min": 0.1,
                     "max": 500.0,
                     "step": 0.5,
-                    "help": "Pretension carried by the meridian steel grid.",
+                    "help": "Pretension carried by the frame steel grid.",
                 },
             ],
         },
@@ -229,7 +232,7 @@ DOME_MULTI_CONE_RECIPE = {
         {
             "key": "materials",
             "name": "3. Materials",
-            "help": "Fabric, meridian steel, ring steel.",
+            "help": "Fabric, frame steel, ring steel.",
             "inputs": [
                 {
                     "key": "fabric_type",
@@ -255,8 +258,8 @@ DOME_MULTI_CONE_RECIPE = {
                     "default": "Type III",
                 },
                 {
-                    "key": "meridian_material",
-                    "label": "Meridian steel grade",
+                    "key": "frame_material",
+                    "label": "Frame steel grade",
                     "type": "dropdown",
                     "options": [
                         ["S235", "S235"],
