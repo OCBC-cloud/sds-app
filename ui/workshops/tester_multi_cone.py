@@ -1,41 +1,22 @@
-"""Multi-Cone Roof — Stage 3 Lab test page.
+"""Multi-Cone Roof — Lab test page.
 
-What this page does:
-  - Renders the Multi-Cone Roof tester in the Lab.
-  - Reads user inputs, builds the geometry, and calls the shared
-    engine SDSe_mesh_builder for the membrane mesh.
+Stage 3 Lab test for the multi-cone roof. Reads user inputs, builds
+the geometry, and calls engine/SDSe_mesh_builder for the membrane mesh.
 
-Wiring note (2026-10-14):
-  - The mesh builder and its helpers have moved to
-    engine/SDSe_mesh_builder.py. This page now imports them from
-    there and no longer holds local copies.
-  - The behaviour is unchanged. This is the Step 2 proof file for
-    the SDSe_mesh_builder takeover, per
-    engine/SDSe_mesh_builder_SPEC.md §6.
+The perimeter is a real cable. Every intermediate perimeter node is
+fully free (3 DOF). Only the eave anchors are held. A node constrained
+to slide only along the local tangent cannot respond to the membrane's
+inward pull; with free nodes the cable bows the way a real cable does.
 
-Carried over from v21 (physics unchanged):
-  - The perimeter is a real cable. Every intermediate perimeter
-    node is fully free (3 DOF). Only the eave anchors are held.
-    The dir_only constraint has been removed.
-  - Reason: a node constrained to slide only along the local
-    tangent cannot respond to the membrane's inward pull. With
-    free nodes, the cable bows the way a real cable does.
+Everything downstream of the geometry uses the shared engine:
+    - SDSe_mesh_rings_spine
+    - SDSe_blend_q_per_edge
+    - solve_fdm
 
-Carried over from v20:
-  - Back buttons at the top.
-  - Edge cable and membrane panels recorded in the member schedule.
-  - Q summary in Diagnostics with cable/membrane q ratio.
-  - Default edge cable pretension: 20 kN/m.
+No mesh-builder code lives in this file.
 
-Carried over from v19:
-  - Fabric attaches directly to ring polygon nodes.
-
-Carried over from v18:
-  - Laplace lift with ring polygon nodes as boundary conditions.
-  - Anisotropic warp/weft blend on interior edges.
-  - Direct edge cable q from the slider.
-
-No other engine files are modified.
+History:
+    First SDSe-only version.
 """
 
 import math
@@ -47,10 +28,7 @@ import streamlit as st
 from engine.form_finding_test import solve_fdm
 from engine.SDSe_mesh_builder import (
     SDSe_mesh_rings_spine,
-    SDSe_laplace_lift,
     SDSe_blend_q_per_edge,
-    SDSe_ring_node_count,
-    SDSe_point_in_polygon,
 )
 from viewers.figures._shared import (
     apply_common_layout,
@@ -171,22 +149,9 @@ def _cone_arc_positions(n_cones, spacing, total):
         if p < 0.0 or p > total:
             raise ValueError(
                 "Ring position %.3f m falls outside the primary span "
-                "of %.3f m.  Reduce spacing or cone count." % (p, total)
+                "of %.3f m. Reduce spacing or cone count." % (p, total)
             )
     return sorted(positions)
-
-
-def _max_spacing_for(n_cones, total):
-    if n_cones <= 1:
-        return float("inf")
-    mid = total / 2.0
-    if n_cones % 2 == 1:
-        k_max = (n_cones - 1) // 2
-    else:
-        k_max = (n_cones - 1) / 2.0
-    if k_max <= 0:
-        return float("inf")
-    return mid / k_max
 
 
 # =============================================================================
@@ -408,9 +373,10 @@ def render_tester_multi_cone():
             st.rerun()
 
     st.markdown(
-        "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2>"
-        "<p style='color:#a8b8c8;margin-top:0;'>v21 — perimeter is a "
-        "real cable. Only the 8 anchors are held.</p>",
+        "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
+        "Multi-Cone Roof — Tester</h2>"
+        "<p style='color:#a8b8c8;margin-top:0;'>"
+        "Perimeter is a real cable. Only the eave anchors are held.</p>",
         unsafe_allow_html=True,
     )
 
@@ -496,7 +462,6 @@ def render_tester_multi_cone():
 
     placement_error = ""
     ring_specs = []
-    s_rings = []
     x_rings = []
     ring_z_rings = []
 
@@ -529,9 +494,7 @@ def render_tester_multi_cone():
     L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
     target_len = max(L_avg, 1e-6)
 
-    # ---- SDSe_mesh_builder call (Step 2 proof) --------------------------
-    # The mesh builder and its helpers are now imported from
-    # engine/SDSe_mesh_builder.py. Same inputs, same behaviour.
+    # ---- SDSe engine call ------------------------------------------------
     built = SDSe_mesh_rings_spine(
         perimeter_loop=perimeter_loop,
         anchor_idx=anchor_idx,
@@ -551,9 +514,6 @@ def render_tester_multi_cone():
     intermediate_perimeter = [
         i for i in range(n_perimeter) if i not in anchor_set
     ]
-    # ---- v21 physics preserved: NO dir_only on the perimeter.
-    # Every intermediate perimeter node is fully free (3 DOF).
-    # Only the anchors are held.
 
     warp_q = max(float(warp_q_input), 0.1) * 1000.0
     weft_q = max(float(weft_q_input), 0.1) * 1000.0
@@ -670,8 +630,8 @@ def render_tester_multi_cone():
         st.code(_format_member_table(members), language="text")
 
     with st.expander("Diagnostics", expanded=True):
-        st.write(f"Mesh builder: engine/SDSe_mesh_builder.py "
-                 f"(SDSe_mesh_rings_spine)")
+        st.write("Mesh builder: engine/SDSe_mesh_builder.py "
+                 "(SDSe_mesh_rings_spine)")
         st.write(f"Number of cones: {number_of_cones}")
         st.write(f"Ring x positions (m): " +
                  ", ".join(f"{v:+.3f}" for v in x_rings))
