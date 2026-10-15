@@ -22,6 +22,24 @@
 #   5. One file at a time. Named explicitly. Shown. Signed off.
 #
 # -----------------------------------------------------------------------------
+# CONTRACT
+# -----------------------------------------------------------------------------
+# The engine is a mesh builder. It does not know what shape is being
+# meshed, what a picker is, what a cone is, or what a spine is. It
+# takes a geometry description and returns a mesh.
+#
+# The caller (a viewer file) assembles the inputs:
+#
+#     perimeter_loop    closed boundary of the membrane
+#     anchor_idx        which perimeter nodes are held
+#     ring_specs        one dict per ring hole
+#     eave_height       z of the boundary
+#     target_len        mesh density
+#
+# The engine returns points, edges, triangles, fixed set, boundary
+# edges. The caller then runs the FDM solve and draws.
+#
+# -----------------------------------------------------------------------------
 # PHYSICS — FROZEN FROM v21
 # -----------------------------------------------------------------------------
 # The core physics is a verbatim port of ui/workshops/tester_multi_cone.py
@@ -34,7 +52,7 @@
 #     _blend_q_per_edge             SDSe_blend_q_per_edge
 #     _ring_node_count              SDSe_ring_node_count
 #     _point_in_polygon             SDSe_point_in_polygon
-#     _build_cone_mesh              SDSe_mesh_rings_spine
+#     _build_cone_mesh              SDSe_mesh_rings
 #
 # v21 physics preserved verbatim:
 #   - Only structural anchors are held on the boundary.
@@ -42,20 +60,18 @@
 #   - The perimeter cable bows by FDM, not by constraint.
 #
 # -----------------------------------------------------------------------------
-# v1 SCOPE
+# DELIVERED
 # -----------------------------------------------------------------------------
-# Delivered in this file:
 #     SDSe_build_mesh              -- dispatcher
-#     SDSe_mesh_rings_spine        -- cone rings on a single primary beam
+#     SDSe_mesh_rings              -- mesh with rings and holes, any shape
 #     (shared core)                -- SDSe_laplace_lift, SDSe_blend_q_per_edge,
 #                                     SDSe_ring_node_count,
 #                                     SDSe_point_in_polygon
 #
-# Deferred to v2+ (per SPEC §5):
+# NOT YET IMPLEMENTED (deferred):
 #     SDSe_mesh_flat
 #     SDSe_mesh_kader
 #     SDSe_mesh_cable
-#     SDSe_mesh_rings_picker
 #     SDSe_mesh_rings_cable
 #
 # -----------------------------------------------------------------------------
@@ -63,6 +79,10 @@
 # -----------------------------------------------------------------------------
 #   2026-10-14 - v1. First SDSe component. Faithful port of v21
 #                _build_cone_mesh, renamed with SDSe_ prefix.
+#   2026-10-14 - Renamed SDSe_mesh_rings_spine to SDSe_mesh_rings.
+#                The function was never spine-specific — it takes a
+#                perimeter and rings, and meshes. Any shape can call it.
+#                Dispatcher key renamed from "rings_spine" to "rings".
 # =============================================================================
 
 import math
@@ -239,18 +259,19 @@ def SDSe_laplace_lift(all_pts, n_perimeter, boundary_z_map):
 
 
 # =============================================================================
-# BUILDER — cone rings on a single primary beam (the v21 case)
+# BUILDER — rings and holes, any shape
 # =============================================================================
 
-def SDSe_mesh_rings_spine(perimeter_loop, anchor_idx, ring_specs,
-                          eave_height, target_len):
+def SDSe_mesh_rings(perimeter_loop, anchor_idx, ring_specs,
+                    eave_height, target_len):
     """
-    Build the membrane mesh for the "cone rings on a spine" case.
+    Build a membrane mesh with rings and holes, given a closed
+    perimeter and a list of ring specifications.
 
-    This is the v21 builder. Given a closed perimeter loop, a set of
-    ring specifications (one per cone), and a target edge length,
-    produce the complete mesh: points, edges, triangles, fixed set,
-    and boundary edge set.
+    The function is not shape-specific. It takes a boundary and rings.
+    Any shape with a closed perimeter and cone rings can call it:
+    a spine with cones hanging off it, a dome with cones hanging off
+    a frame grid, or anything else.
 
     Inputs
     ------
@@ -262,23 +283,23 @@ def SDSe_mesh_rings_spine(perimeter_loop, anchor_idx, ring_specs,
                         cx, cy  -- ring centre in plan
                         cz      -- ring z (bottom of drop member)
                         r       -- ring radius
-                        beam_z  -- z of the beam top (attachment point)
-    eave_height       z of the boundary (eave polygon).
+                        beam_z  -- z of the attachment point
+    eave_height       z of the boundary (perimeter).
     target_len        target edge length for adaptive meshing.
 
     Outputs
     -------
     dict with:
-        points              (n, 3) all mesh nodes (boundary + rings + interior)
+        points              (n, 3) all mesh nodes
         edges               list of (i, j) unique undirected edges
-        boundary_edges      set of (i, j) sorted-tuple edges on the perimeter
-                            and on ring polygons
+        boundary_edges      set of (i, j) sorted-tuple edges on the
+                            perimeter and on ring polygons
         triangles           list of (a, b, c) Delaunay triangles after
                             filtering by polygon-in and ring-out
         fixed_indices       sorted list of held node indices
         ring_indices        list of lists, node indices per ring polygon
         centre_indices      list of node indices, ring centres
-        beam_top_indices    list of node indices, beam attachment points
+        beam_top_indices    list of node indices, attachment points
         ring_node_counts    list of node counts per ring
         n_perimeter         number of perimeter nodes
         n_interior          number of interior fabric nodes
@@ -460,25 +481,24 @@ def SDSe_build_mesh(shape, **kwargs):
     Callers specify the shape by name and pass the kwargs the
     corresponding builder needs. The dispatcher routes to the correct
     builder. Unknown shapes raise NotImplementedError with a pointer
-    to the SPEC, so future agents know where to add them.
+    to the SPEC.
 
     Recognised shapes
     -----------------
-    "rings_spine"    -> SDSe_mesh_rings_spine (v1)
-                        kwargs: perimeter_loop, anchor_idx, ring_specs,
-                                eave_height, target_len
+    "rings"    -> SDSe_mesh_rings
+                  kwargs: perimeter_loop, anchor_idx, ring_specs,
+                          eave_height, target_len
 
-    Deferred to v2+ (per SPEC §5):
+    Not yet implemented:
         "flat"           -- SDSe_mesh_flat
         "kader"          -- SDSe_mesh_kader
-        "cable"          -- SDSe_mesh_cable
-        "rings_picker"   -- SDSe_mesh_rings_picker
-        "rings_cable"    -- SDSe_mesh_rings_cable
+        "cable"          -> SDSe_mesh_cable
+        "rings_cable"    -> SDSe_mesh_rings_cable
     """
     s = str(shape).strip().lower()
 
-    if s == "rings_spine":
-        return SDSe_mesh_rings_spine(
+    if s == "rings":
+        return SDSe_mesh_rings(
             perimeter_loop=kwargs["perimeter_loop"],
             anchor_idx=kwargs["anchor_idx"],
             ring_specs=kwargs["ring_specs"],
@@ -487,9 +507,9 @@ def SDSe_build_mesh(shape, **kwargs):
         )
 
     raise NotImplementedError(
-        "SDSe_build_mesh: shape %r is not implemented in v1. "
-        "See engine/SDSe_mesh_builder_SPEC.md §5 for the v1 scope "
-        "and §4 for the planned builder family." % (shape,)
+        "SDSe_build_mesh: shape %r is not implemented. "
+        "See engine/SDSe_mesh_builder_SPEC.md for the delivered "
+        "builders." % (shape,)
     )
 
 
