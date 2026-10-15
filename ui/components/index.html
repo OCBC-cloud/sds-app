@@ -54,21 +54,36 @@
     opacity: 0.45;
     vector-effect: non-scaling-stroke;
   }
-  .crossing {
+  .pick {
     cursor: pointer;
     transition: fill 0.12s ease;
   }
-  .crossing.off {
+  .pick.off {
     fill: #3a4a5a;
     stroke: #556677;
     stroke-width: 1;
     vector-effect: non-scaling-stroke;
   }
-  .crossing.on {
+  .pick.on {
     fill: #f1c40f;
     stroke: #fff3b0;
     stroke-width: 2;
     vector-effect: non-scaling-stroke;
+  }
+  /* Slight colour variation between crossings and midpoints
+     so the user can see them at a glance when inactive. */
+  .pick.crossing.off {
+    fill: #3a4a5a;
+  }
+  .pick.midpoint.off {
+    fill: #2a3a4a;
+  }
+  .pick.crossing.on {
+    fill: #f1c40f;
+  }
+  .pick.midpoint.on {
+    fill: #e6a800;
+    stroke: #ffd980;
   }
   #caption {
     padding: 8px 0 0 0;
@@ -80,12 +95,43 @@
   #caption b {
     color: #f1c40f;
   }
+  #legend {
+    padding: 6px 0 0 0;
+    font-size: 11px;
+    color: #7a8a9a;
+    text-align: center;
+    width: 100%;
+  }
+  #legend span {
+    display: inline-block;
+    margin: 0 8px;
+  }
+  #legend .sw {
+    display: inline-block;
+    width: 10px; height: 10px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  #legend .sw-circle {
+    border-radius: 50%;
+    background: #3a4a5a;
+    border: 1px solid #556677;
+  }
+  #legend .sw-diamond {
+    background: #2a3a4a;
+    border: 1px solid #4a5a6a;
+    transform: rotate(45deg);
+  }
 </style>
 </head>
 <body>
 <div id="wrap">
   <div id="svg-container"></div>
   <div id="caption"></div>
+  <div id="legend">
+    <span><span class="sw sw-circle"></span>Crossing</span>
+    <span><span class="sw sw-diamond"></span>Midpoint</span>
+  </div>
 </div>
 
 <script>
@@ -133,8 +179,8 @@ var state = {
   dome_diameter: 18.0,
   n_x: 5,
   n_y: 5,
-  picked: {},
-  crossings: []
+  picked: {},        // keyed by "KIND_i_j"
+  positions: []      // [{kind, i, j, x, y}]
 };
 
 // =============================================================================
@@ -152,20 +198,55 @@ function offsets(n, R) {
   return out;
 }
 
-function buildCrossings() {
+function buildPositions() {
   var R = state.dome_diameter / 2.0;
   var ox = offsets(state.n_x, R);
   var oy = offsets(state.n_y, R);
-  var list = [];
+
+  var positions = [];
+  var exists = {};  // "i_j" -> true for crossings inside circle
+
+  // ---- Crossings -----------------------------------------------------
   for (var i = 0; i < state.n_x; i++) {
     for (var j = 0; j < state.n_y; j++) {
       var xi = ox[i], yj = oy[j];
       if (xi * xi + yj * yj <= R * R + 1e-9) {
-        list.push({ i: i, j: j, x: xi, y: yj });
+        positions.push({ kind: "C", i: i, j: j, x: xi, y: yj });
+        exists[i + "_" + j] = true;
       }
     }
   }
-  state.crossings = list;
+
+  // ---- Family A midpoints --------------------------------------------
+  // On frame i (A), between crossings (i, j) and (i, j+1).
+  // Plan position: (ox[i], (oy[j] + oy[j+1]) / 2).
+  for (var ia = 0; ia < state.n_x; ia++) {
+    for (var ja = 0; ja < state.n_y - 1; ja++) {
+      if (!exists[ia + "_" + ja]) continue;
+      if (!exists[ia + "_" + (ja + 1)]) continue;
+      var xa = ox[ia];
+      var ya = 0.5 * (oy[ja] + oy[ja + 1]);
+      // Enforce inside circle, to be safe.
+      if (xa * xa + ya * ya > R * R + 1e-9) continue;
+      positions.push({ kind: "Am", i: ia, j: ja, x: xa, y: ya });
+    }
+  }
+
+  // ---- Family B midpoints --------------------------------------------
+  // On frame j (B), between crossings (i, j) and (i+1, j).
+  // Plan position: ((ox[i] + ox[i+1]) / 2, oy[j]).
+  for (var ib = 0; ib < state.n_x - 1; ib++) {
+    for (var jb = 0; jb < state.n_y; jb++) {
+      if (!exists[ib + "_" + jb]) continue;
+      if (!exists[(ib + 1) + "_" + jb]) continue;
+      var xb = 0.5 * (ox[ib] + ox[ib + 1]);
+      var yb = oy[jb];
+      if (xb * xb + yb * yb > R * R + 1e-9) continue;
+      positions.push({ kind: "Bm", i: ib, j: jb, x: xb, y: yb });
+    }
+  }
+
+  state.positions = positions;
 }
 
 // =============================================================================
@@ -180,14 +261,17 @@ function el(tag, attrs) {
   return e;
 }
 
-// =============================================================================
-// Rendering
-// =============================================================================
-
-// Dot radius in SVG viewBox units. Set to ~1.5% of dome diameter.
 function dotRadius(R) {
   return Math.max(0.015 * 2 * R, 0.02 * R);
 }
+
+function keyOf(kind, i, j) {
+  return kind + "_" + i + "_" + j;
+}
+
+// =============================================================================
+// Rendering
+// =============================================================================
 
 function render() {
   var R = state.dome_diameter / 2.0;
@@ -202,12 +286,12 @@ function render() {
     "aria-label": "Dome cone position picker"
   });
 
-  // ---- Ground circle -------------------------------------------------
+  // Ground circle
   svg.appendChild(el("circle", {
     cx: 0, cy: 0, r: R, class: "ground-circle"
   }));
 
-  // ---- Frame grid lines ---------------------------------------------
+  // Frame grid lines
   var ox = offsets(state.n_x, R);
   var oy = offsets(state.n_y, R);
 
@@ -228,39 +312,57 @@ function render() {
     }));
   }
 
-  // ---- Crossing buttons ---------------------------------------------
+  // Pickable positions
   var dr = dotRadius(R);
-  state.crossings.forEach(function (c) {
-    var key = c.i + "," + c.j;
-    var on = state.picked[key] === true;
-    var dot = el("circle", {
-      cx: c.x, cy: c.y, r: dr,
-      class: "crossing " + (on ? "on" : "off")
-    });
-    dot.addEventListener("click", function (evt) {
+  state.positions.forEach(function (p) {
+    var k = keyOf(p.kind, p.i, p.j);
+    var on = state.picked[k] === true;
+    var cls = "pick ";
+    cls += (p.kind === "C") ? "crossing " : "midpoint ";
+    cls += on ? "on" : "off";
+
+    var node;
+    if (p.kind === "C") {
+      // Filled circle
+      node = el("circle", {
+        cx: p.x, cy: p.y, r: dr, class: cls
+      });
+    } else {
+      // Filled diamond (rotated square)
+      var s = dr * 1.3;
+      node = el("rect", {
+        x: p.x - s / 2,
+        y: p.y - s / 2,
+        width: s, height: s,
+        transform: "rotate(45 " + p.x + " " + p.y + ")",
+        class: cls
+      });
+    }
+
+    node.addEventListener("click", function (evt) {
       evt.preventDefault();
       evt.stopPropagation();
-      toggle(c.i, c.j);
+      toggle(p.kind, p.i, p.j);
     });
-    dot.addEventListener("touchend", function (evt) {
+    node.addEventListener("touchend", function (evt) {
       evt.preventDefault();
       evt.stopPropagation();
-      toggle(c.i, c.j);
+      toggle(p.kind, p.i, p.j);
     });
-    svg.appendChild(dot);
+    svg.appendChild(node);
   });
 
-  // ---- Mount --------------------------------------------------------
+  // Mount
   var container = document.getElementById("svg-container");
   container.innerHTML = "";
   container.appendChild(svg);
 
-  // ---- Caption ------------------------------------------------------
+  // Caption
   var n = Object.keys(state.picked).length;
   document.getElementById("caption").innerHTML =
-    "Picked crossings: <b>" + n + "</b>";
+    "Picked positions: <b>" + n + "</b>";
 
-  // ---- Report height so Streamlit doesn't clip ----------------------
+  // Height
   setTimeout(function () {
     var wrap = document.getElementById("wrap");
     Streamlit.setFrameHeight(wrap.scrollHeight);
@@ -271,26 +373,26 @@ function render() {
 // Toggle
 // =============================================================================
 
-function toggle(i, j) {
-  var key = i + "," + j;
-  if (state.picked[key]) {
-    delete state.picked[key];
+function toggle(kind, i, j) {
+  var k = keyOf(kind, i, j);
+  if (state.picked[k]) {
+    delete state.picked[k];
   } else {
-    state.picked[key] = true;
+    state.picked[k] = true;
   }
   sendValue();
   render();
 }
 
 function sendValue() {
-  var pickedList = [];
-  state.crossings.forEach(function (c) {
-    var key = c.i + "," + c.j;
-    if (state.picked[key]) {
-      pickedList.push([c.i, c.j]);
+  var out = [];
+  state.positions.forEach(function (p) {
+    var k = keyOf(p.kind, p.i, p.j);
+    if (state.picked[k]) {
+      out.push([p.kind, p.i, p.j]);
     }
   });
-  Streamlit.setComponentValue({ picked: pickedList });
+  Streamlit.setComponentValue({ picked: out });
 }
 
 // =============================================================================
@@ -304,17 +406,21 @@ Streamlit.onRender(function (args) {
 
   state.picked = {};
   var passedPicked = args.picked || [];
-  passedPicked.forEach(function (pair) {
-    if (Array.isArray(pair) && pair.length === 2) {
-      state.picked[pair[0] + "," + pair[1]] = true;
+  passedPicked.forEach(function (item) {
+    if (Array.isArray(item) && item.length === 3) {
+      var kind = String(item[0]);
+      if (kind === "C" || kind === "Am" || kind === "Bm") {
+        state.picked[keyOf(kind, item[1], item[2])] = true;
+      }
     }
   });
 
-  buildCrossings();
+  buildPositions();
 
+  // Drop any picks that are no longer valid positions.
   var validKeys = {};
-  state.crossings.forEach(function (c) {
-    validKeys[c.i + "," + c.j] = true;
+  state.positions.forEach(function (p) {
+    validKeys[keyOf(p.kind, p.i, p.j)] = true;
   });
   Object.keys(state.picked).forEach(function (k) {
     if (!validKeys[k]) { delete state.picked[k]; }
