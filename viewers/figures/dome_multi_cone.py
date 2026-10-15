@@ -5,13 +5,19 @@
 #
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
-# PIECE 2 — FRAME + EAVE POLYGON.
-#   No ground circle drawn. The frames sit inside the ground edge by
-#   design, so a ground circle would be misleading.
-#   No bow on the eave line. The bow comes later, when the FDM solve
-#   puts real prestress on the cable.
+# PIECE 3c — FRAME + EAVE POLYGON + PICKED CROSSING MARKERS.
+#   Adds: the viewer reads ws_dm_picked_crossings from session state
+#   (written by the picker component), computes the actual z on the
+#   frame at each picked crossing, drops any pick whose z is not
+#   strictly above eave height, and draws a small marker at each
+#   kept position.
 #
-# The frame (corrected spacing):
+#   No cones yet. Cones come in Piece 3d. Markers first, to prove
+#   the geometry lookup end to end.
+#
+#   Owner-tier diagnostic lists the dropped picks and why.
+#
+# The frame, as agreed (Piece 1, verified):
 #   - Ground footprint: circle (base case for now).
 #   - One master frame shape (parabolic / circular / catenary).
 #   - Frame A runs along Y, footed on the ground circle at (0, +/-R).
@@ -19,24 +25,25 @@
 #   - N frames parallel to A, spaced across X. Frame A is the middle.
 #   - M frames parallel to B, spaced across Y. Frame B is the middle.
 #   - Each frame is ONE full curve: ground -> apex -> ground.
-#   - Apexes step down from the crown to the outer edge, so the
-#     set traces a smooth globe.
-#
-#   SPACING RULE (fixed):
-#     N frames along X are spaced from -R*(N-1)/N to +R*(N-1)/N.
-#     Same for M along Y. So "3" means exactly 3 real frames.
-#     "5" means 5. "6" means 6. No invisible frames on the ground
-#     circle, no hidden +2. Every frame has a real chord and a real
-#     apex.
+#   - Apexes step down from the crown to the outer edge.
+#   - SPACING RULE: outer pair sits at +/- R*(N-1)/N, strictly
+#     inside the circle. "3" means exactly 3 real frames.
 #
 # The eave polygon:
 #   - Each frame crosses z = eave_height twice (rising, falling).
-#   - Those crossings are eave anchors: points ON the beam, not
-#     frame-to-frame crossings.
+#   - Those crossings are eave anchors.
 #   - Anchors closer than 1% of dome diameter are deduped.
-#   - Anchors sorted by angle around the origin (circle ground case).
+#   - Anchors sorted by angle around the origin.
 #   - Consecutive anchors joined by straight segments.
 #   - Closed loop. Drawn in green. No cosmetic bow.
+#
+# The picked crossing markers:
+#   - Picks are read as a set of (i, j) tuples from session state.
+#   - i is the Family A frame index, j is the Family B frame index.
+#   - The actual 3D position of the crossing is looked up on the
+#     frame curve at plan position (x_i, y_j).
+#   - Picks whose z <= eave_height are silently dropped, with an
+#     owner-tier diagnostic listing the drops.
 #
 # Signature matches the FIGURE_REGISTRY contract:
 #   - no arguments
@@ -46,6 +53,7 @@
 #   2026-10-14 - Piece 1. Frame only.
 #   2026-10-14 - Piece 2. Add eave polygon.
 #   2026-10-14 - Piece 2b. Corrected spacing rule. Removed ground circle.
+#   2026-10-14 - Piece 3c. Add picked crossing markers.
 # =============================================================================
 
 import math
@@ -67,6 +75,7 @@ EAVE_DEDUPE_TOL_FRAC = 0.01  # fraction of dome diameter
 COL_FRAME_A = "#FF6B6B"
 COL_FRAME_B = "#e07b39"
 COL_EAVE = "#2ecc71"
+COL_MARKER = "#f1c40f"
 
 
 # =============================================================================
@@ -119,7 +128,6 @@ def _offsets(n, ground_radius):
     """
     Evenly spaced offsets for n frames along one axis.
     Outer pair sits at +/- R * (n-1)/n, strictly inside the circle.
-    So n=3 gives 3 real frames, n=5 gives 5 real frames, etc.
     """
     if n < 1:
         n = 1
@@ -129,10 +137,12 @@ def _offsets(n, ground_radius):
     return list(np.linspace(-half_extent, +half_extent, n))
 
 
-def _build_dome_frame(ground_radius, crown_height, curve_type,
-                      n_x, n_y):
+def _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y):
     """
-    Build the dome frame. Returns frames + apex verification rows.
+    Build the dome frame. Returns:
+        frames   list of dicts, each with x, y, z arrays and metadata
+        apexes   list of (x, y, z, apex_h, r_plan) tuples for verification
+        offsets_x, offsets_y  lists of frame offsets for plan lookups
     """
     frames = []
     apexes = []
@@ -152,6 +162,7 @@ def _build_dome_frame(ground_radius, crown_height, curve_type,
         frames.append({
             "family": "A",
             "x": x, "y": y, "z": z,
+            "offset": offset,
             "r_plan": r_plan,
             "apex_h": apex_h,
         })
@@ -169,12 +180,13 @@ def _build_dome_frame(ground_radius, crown_height, curve_type,
         frames.append({
             "family": "B",
             "x": x, "y": y, "z": z,
+            "offset": offset,
             "r_plan": r_plan,
             "apex_h": apex_h,
         })
         apexes.append((0.0, offset, apex_h, apex_h, r_plan))
 
-    return frames, apexes
+    return frames, apexes, offsets_x, offsets_y
 
 
 # =============================================================================
@@ -182,10 +194,6 @@ def _build_dome_frame(ground_radius, crown_height, curve_type,
 # =============================================================================
 
 def _frame_crossings_at_eave(frame, eave_height):
-    """
-    Return the (x, y, z) points where this frame's z crosses eave_height.
-    At most two: one on the rising side, one on the falling side.
-    """
     z = frame["z"]
     x = frame["x"]
     y = frame["y"]
@@ -233,6 +241,104 @@ def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
 
 
 # =============================================================================
+# PICKED CROSSING LOOKUP
+# =============================================================================
+
+def _frame_z_at_plan_offset(offset, cross_axis_value, ground_radius,
+                             crown_height, curve_type):
+    """
+    Given a frame whose ground offset is `offset` on one axis and
+    `cross_axis_value` is the position ALONG the frame (i.e. the
+    other axis), return the z of the frame at that position.
+
+    For a Family A frame (runs along Y, offset on X):
+        offset       = x
+        cross_axis_value = y
+    For a Family B frame (runs along X, offset on Y):
+        offset       = y
+        cross_axis_value = x
+
+    Returns z (float) or None if the plan position is outside the frame's
+    chord (i.e. the frame doesn't reach there).
+    """
+    chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
+    if abs(cross_axis_value) > chord_half + 1e-9:
+        return None
+    r_plan = abs(offset)
+    apex_h = _dome_profile_height(
+        r_plan / ground_radius, crown_height, curve_type
+    )
+    # Along the frame, the profile depends on the normalised distance
+    # from the apex. For a frame with chord_half width, the apex is at
+    # cross_axis_value = 0, and the ends are at +/- chord_half.
+    r_frac = abs(cross_axis_value) / max(chord_half, 1e-9)
+    # r_frac in [0, 1] maps to the profile of the frame curve. But the
+    # frame's apex_h is already the globe height at r_plan. The shape
+    # along the frame is the same profile scaled so the apex is apex_h
+    # and the ends are on the ground.
+    # The frame's own curve: z(s) = profile_shape(r_frac) * apex_h, where
+    # profile_shape uses the SAME curve_type. So we evaluate the profile
+    # at r_frac with crown height apex_h.
+    z = _dome_profile_height(r_frac, apex_h, curve_type)
+    return float(z)
+
+
+def _resolve_picked_crossings(picked_set, offsets_x, offsets_y,
+                                ground_radius, crown_height, curve_type,
+                                eave_height):
+    """
+    For each picked (i, j) crossing, compute its (x, y, z).
+    Returns:
+        kept     list of {i, j, x, y, z} for picks with z > eave_height
+        dropped  list of {i, j, x, y, z, reason} for picks that were
+                 dropped (z <= eave_height or z is None)
+    """
+    kept = []
+    dropped = []
+    for (i, j) in sorted(picked_set):
+        if i < 0 or i >= len(offsets_x) or j < 0 or j >= len(offsets_y):
+            dropped.append({
+                "i": i, "j": j, "x": None, "y": None, "z": None,
+                "reason": "index out of range",
+            })
+            continue
+        xi = offsets_x[i]
+        yj = offsets_y[j]
+        # Family A frame at x = xi runs along Y. Its z at (xi, yj)
+        # is the frame's z at cross-axis position yj.
+        za = _frame_z_at_plan_offset(
+            xi, yj, ground_radius, crown_height, curve_type
+        )
+        # Family B frame at y = yj runs along X. Its z at (xi, yj)
+        # is the frame's z at cross-axis position xi.
+        zb = _frame_z_at_plan_offset(
+            yj, xi, ground_radius, crown_height, curve_type
+        )
+        if za is None or zb is None:
+            dropped.append({
+                "i": i, "j": j, "x": xi, "y": yj, "z": None,
+                "reason": "crossing outside frame chord",
+            })
+            continue
+        # Both frames pass through the same point in plan; their z
+        # values agree by construction. Use the average for numeric
+        # safety.
+        z = 0.5 * (za + zb)
+        if z > eave_height + 1e-9:
+            kept.append({
+                "i": i, "j": j, "x": float(xi), "y": float(yj),
+                "z": float(z),
+            })
+        else:
+            dropped.append({
+                "i": i, "j": j, "x": float(xi), "y": float(yj),
+                "z": float(z),
+                "reason": "at or below eave height",
+            })
+    return kept, dropped
+
+
+# =============================================================================
 # FRAME VERIFICATION
 # =============================================================================
 
@@ -269,8 +375,20 @@ def build_dome_multi_cone():
 
     ground_radius = max(dome_diameter / 2.0, 1e-6)
 
+    # ---- Read picked crossings -------------------------------------------
+    picked_raw = _get("picked_crossings", None)
+    if picked_raw is None:
+        picked_set = set()
+    else:
+        try:
+            picked_set = set(
+                (int(i), int(j)) for (i, j) in picked_raw
+            )
+        except (TypeError, ValueError):
+            picked_set = set()
+
     # ---- Build the frame -------------------------------------------------
-    frames, apexes = _build_dome_frame(
+    frames, apexes, offsets_x, offsets_y = _build_dome_frame(
         ground_radius=ground_radius,
         crown_height=crown_height,
         curve_type=curve_type,
@@ -281,6 +399,12 @@ def build_dome_multi_cone():
     # ---- Build the eave polygon -----------------------------------------
     eave_polygon = _build_eave_polygon(
         frames, eave_height, ground_radius, dome_diameter
+    )
+
+    # ---- Resolve picks ---------------------------------------------------
+    kept_picks, dropped_picks = _resolve_picked_crossings(
+        picked_set, offsets_x, offsets_y,
+        ground_radius, crown_height, curve_type, eave_height,
     )
 
     # ---- Draw ------------------------------------------------------------
@@ -307,6 +431,19 @@ def build_dome_multi_cone():
             mode="lines",
             line=dict(color=COL_EAVE, width=6),
             name="eave polygon",
+            showlegend=False, hoverinfo="skip",
+        ))
+
+    # Picked crossing markers
+    if len(kept_picks) > 0:
+        mx = [p["x"] for p in kept_picks]
+        my = [p["y"] for p in kept_picks]
+        mz = [p["z"] for p in kept_picks]
+        fig.add_trace(go.Scatter3d(
+            x=mx, y=my, z=mz,
+            mode="markers",
+            marker=dict(color=COL_MARKER, size=7, symbol="circle"),
+            name="picked crossings",
             showlegend=False, hoverinfo="skip",
         ))
 
@@ -350,6 +487,47 @@ def build_dome_multi_cone():
                 for k, p in enumerate(eave_polygon):
                     table += "  %3d   %+8.4f  %+8.4f  %8.4f\n" % (
                         k, p[0], p[1], p[2]
+                    )
+                st.code(table, language="text")
+
+        with st.expander("Picked crossings (owner tier)", expanded=False):
+            st.write(
+                "Picks are read from the picker. For each pick, the "
+                "viewer looks up the actual z on the frame at that "
+                "plan position. Picks with z **strictly above** eave "
+                "height are kept. Everything else is dropped."
+            )
+            st.write(
+                "**Total picks: %d. Kept: %d. Dropped: %d.**"
+                % (len(picked_set), len(kept_picks), len(dropped_picks))
+            )
+
+            if kept_picks:
+                st.markdown("**Kept (z above eave height):**")
+                table = (
+                    "  idx   i   j      x          y          z\n"
+                    "  ---  --  --   ---------  ---------  ---------\n"
+                )
+                for k, p in enumerate(kept_picks):
+                    table += (
+                        "  %3d  %2d  %2d   %+8.4f  %+8.4f  %8.4f\n"
+                        % (k, p["i"], p["j"], p["x"], p["y"], p["z"])
+                    )
+                st.code(table, language="text")
+
+            if dropped_picks:
+                st.markdown("**Dropped:**")
+                table = (
+                    "  idx   i   j      x          y          z        reason\n"
+                    "  ---  --  --   ---------  ---------  ---------  ------\n"
+                )
+                for k, p in enumerate(dropped_picks):
+                    x_s = ("%+8.4f" % p["x"]) if p["x"] is not None else "     ---"
+                    y_s = ("%+8.4f" % p["y"]) if p["y"] is not None else "     ---"
+                    z_s = ("%8.4f" % p["z"]) if p["z"] is not None else "     ---"
+                    table += (
+                        "  %3d  %2d  %2d   %s  %s  %s  %s\n"
+                        % (k, p["i"], p["j"], x_s, y_s, z_s, p["reason"])
                     )
                 st.code(table, language="text")
 
