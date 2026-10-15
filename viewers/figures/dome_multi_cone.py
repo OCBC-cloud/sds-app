@@ -5,46 +5,20 @@
 #
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
-# PIECE 4 — FRAME + EAVE POLYGON + CONES AT CROSSINGS AND MIDPOINTS.
-#   The picker offers three kinds of positions:
-#       ("C",  i, j)   crossing where Family A frame i meets Family B
-#                      frame j
-#       ("Am", i, j)   on Family A frame i, between crossings j and j+1
-#       ("Bm", i, j)   on Family B frame j, between crossings i and i+1
+# PIECE 5a — MEMBRANE GEOMETRY (NO SOLVE YET).
+#   Adds: the membrane mesh between the eave polygon and the cone
+#   rings. The membrane geometry is built by the shared engine
+#   SDSe_mesh_rings. Drawn unsolved (flat, as-built) to verify the
+#   geometry is correct before the FDM solve is added in 5b.
 #
-#   For each pick, the viewer computes its actual z on the frame at
-#   that plan position. Picks with z strictly above eave height are
-#   kept. Everything else is dropped.
-#
-#   Each kept pick produces one cone:
-#       drop member   straight down by drop_length
-#       ring          ring_diameter, horizontal (perpendicular to
-#                     the ground plane)
-#       spokes        radial members from ring centre to ring nodes
-#
-#   No membrane yet. The membrane comes in Piece 5.
-#
-# The frame (Piece 1, verified):
-#   - Circle ground footprint.
-#   - One master frame shape (parabolic / circular / catenary).
-#   - N frames spaced along X, M frames spaced along Y.
-#   - Each frame is ONE full curve: ground -> apex -> ground.
-#   - Apexes step down from the crown to the outer edge.
-#   - SPACING RULE: outer pair sits at +/- R*(N-1)/N.
-#
-# The eave polygon (Piece 2):
-#   - Each frame crosses z = eave_height twice.
-#   - Anchors deduped, sorted by angle, joined with straight lines.
-#   - Drawn in green. No cosmetic bow.
-#
-# The cones (Piece 3d, extended in Piece 4 to midpoints):
-#   - Drop member straight down from the pick, length = drop_length.
-#   - Ring at the bottom, radius = ring_diameter / 2.
-#   - Ring plane is HORIZONTAL. Ring axis = (0, 0, 1).
-#   - Spokes from ring centre to each ring polygon node.
-#
-# Backward compatibility: old flat (i, j) tuples in session state
-# are treated as crossings. The helper _normalise_pick does this.
+# The membrane model (agreed with the Chief):
+#   - The membrane exists between the eave height boundary and the
+#     cone rings. Nothing else.
+#   - Held nodes: eave anchors (where the beams cross eave height)
+#     and ring polygon nodes (where the fabric meets each cone ring).
+#   - Free nodes: every other membrane node, including intermediate
+#     perimeter nodes between the eave anchors.
+#   - Cable nodes: free except at the shared eave anchors.
 #
 # Signature matches the FIGURE_REGISTRY contract:
 #   - no arguments
@@ -58,6 +32,7 @@
 #   2026-10-14 - Piece 3d. Replace markers with full cones.
 #   2026-10-14 - Piece 3d fix. Ring orientation is now horizontal.
 #   2026-10-14 - Piece 4. Support midpoint picks from the new picker.
+#   2026-10-14 - Piece 5a. Membrane geometry from SDSe_mesh_rings.
 # =============================================================================
 
 import math
@@ -66,6 +41,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
+from engine.SDSe_mesh_builder import SDSe_mesh_rings
 from viewers.figures._shared import apply_common_layout
 
 
@@ -75,12 +51,12 @@ from viewers.figures._shared import apply_common_layout
 
 FRAME_SAMPLES = 200
 EAVE_DEDUPE_TOL_FRAC = 0.01
-RING_NODES_MIN = 12
-RING_NODES_MAX = 32
+EAVE_SUBDIVISIONS = 4   # subdivision nodes between adjacent eave anchors
 
 COL_FRAME_A = "#FF6B6B"
 COL_FRAME_B = "#e07b39"
 COL_EAVE = "#2ecc71"
+COL_MEMBRANE = "#4a7a9c"
 COL_RING = "#ffd166"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
@@ -229,15 +205,38 @@ def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
     return ordered
 
 
+def _subdivide_eave_polygon(anchors, subdivisions):
+    """
+    Subdivide the eave polygon into a closed loop, with a marker
+    of where the original anchors sit in the subdivided loop.
+
+    Returns (loop, anchor_indices) where:
+        loop is a list of (x, y, z) points, in order
+        anchor_indices are the indices of the original anchor points
+        within loop
+    """
+    n_a = len(anchors)
+    loop = []
+    anchor_idx = []
+    for i in range(n_a):
+        a = anchors[i]
+        b = anchors[(i + 1) % n_a]
+        anchor_idx.append(len(loop))
+        for k in range(subdivisions):
+            f = k / float(subdivisions)
+            loop.append((
+                a[0] + f * (b[0] - a[0]),
+                a[1] + f * (b[1] - a[1]),
+                a[2] + f * (b[2] - a[2]),
+            ))
+    return np.asarray(loop, dtype=float), anchor_idx
+
+
 # =============================================================================
-# PICK NORMALISATION
+# PICK NORMALISATION AND RESOLUTION
 # =============================================================================
 
 def _normalise_pick(item):
-    """
-    Accept either an old (i, j) tuple or a new (kind, i, j) tuple.
-    Returns (kind, i, j) or None if the item can't be parsed.
-    """
     try:
         if len(item) == 3:
             kind = str(item[0])
@@ -251,20 +250,8 @@ def _normalise_pick(item):
     return None
 
 
-# =============================================================================
-# PICK RESOLUTION
-# =============================================================================
-
 def _frame_z_at_plan_offset(offset, cross_axis_value, ground_radius,
                              crown_height, curve_type):
-    """
-    z of a frame at a plan position.
-    offset           = frame's ground offset on its perp axis
-    cross_axis_value = position ALONG the frame (the other axis)
-
-    For Family A: offset = x, cross_axis_value = y.
-    For Family B: offset = y, cross_axis_value = x.
-    """
     chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
     if abs(cross_axis_value) > chord_half + 1e-9:
         return None
@@ -279,10 +266,6 @@ def _frame_z_at_plan_offset(offset, cross_axis_value, ground_radius,
 
 def _resolve_pick(pick, offsets_x, offsets_y, ground_radius,
                    crown_height, curve_type, eave_height):
-    """
-    Given a normalised pick (kind, i, j), compute its (x, y, z).
-    Returns (kept_dict, dropped_dict) — exactly one of them populated.
-    """
     kind, i, j = pick
     n_x = len(offsets_x)
     n_y = len(offsets_y)
@@ -308,7 +291,6 @@ def _resolve_pick(pick, offsets_x, offsets_y, ground_radius,
         px, py = xi, yj
 
     elif kind == "Am":
-        # On Family A frame i, between crossings j and j+1.
         if i < 0 or i >= n_x:
             return None, {"kind": kind, "i": i, "j": j,
                           "x": None, "y": None, "z": None,
@@ -317,7 +299,6 @@ def _resolve_pick(pick, offsets_x, offsets_y, ground_radius,
             return None, {"kind": kind, "i": i, "j": j,
                           "x": None, "y": None, "z": None,
                           "reason": "j out of range"}
-        # Check both parent crossings exist inside the circle.
         xi = offsets_x[i]
         y0 = offsets_y[j]
         y1 = offsets_y[j + 1]
@@ -340,7 +321,6 @@ def _resolve_pick(pick, offsets_x, offsets_y, ground_radius,
                           "reason": "outside frame chord"}
 
     elif kind == "Bm":
-        # On Family B frame j, between crossings i and i+1.
         if j < 0 or j >= n_y:
             return None, {"kind": kind, "i": i, "j": j,
                           "x": None, "y": None, "z": None,
@@ -391,13 +371,10 @@ def _resolve_pick(pick, offsets_x, offsets_y, ground_radius,
 
 def _ring_node_count(radius, target_len):
     n = int(round(2.0 * math.pi * radius / max(target_len, 1e-6)))
-    return max(RING_NODES_MIN, min(RING_NODES_MAX, n))
+    return max(12, min(32, n))
 
 
 def _build_cone_geometry(pick, drop_length, ring_diameter, target_len):
-    """
-    Build one cone at a pick. Vertical drop, horizontal ring.
-    """
     cx = pick["x"]
     cy = pick["y"]
     cz = pick["z"]
@@ -469,15 +446,13 @@ def build_dome_multi_cone():
     picked_raw = _get("picked_crossings", None)
     if picked_raw is None:
         picked_raw = set()
-
-    # Normalise to (kind, i, j) triples, deduped.
     normalised_picks = set()
     for item in picked_raw:
         p = _normalise_pick(item)
         if p is not None:
             normalised_picks.add(p)
 
-    # ---- Build the frame -------------------------------------------------
+    # ---- Build frame -----------------------------------------------------
     frames, apexes, offsets_x, offsets_y = _build_dome_frame(
         ground_radius=ground_radius,
         crown_height=crown_height,
@@ -514,9 +489,65 @@ def build_dome_multi_cone():
         if cone is not None:
             cones.append(cone)
 
+    # ---- Build the membrane via the shared engine ------------------------
+    # The perimeter is the eave polygon, subdivided. The anchors are
+    # the eave anchors. The rings are the cones.
+    built = None
+    if len(eave_polygon) >= 3:
+        perimeter_loop, anchor_idx = _subdivide_eave_polygon(
+            eave_polygon, EAVE_SUBDIVISIONS
+        )
+        # Membrane target edge length: aim for a moderate density on
+        # the fabric between eave and rings.
+        membrane_target_len = max(dome_diameter / 30.0, 0.5)
+
+        # ring_specs for the engine: for each cone, provide the ring
+        # centre plan position, ring z, ring radius, and the attachment
+        # point z (the pick's z).
+        ring_specs = []
+        for cone in cones:
+            rc = cone["ring_centre"]
+            rn = cone["ring_nodes"]
+            # ring radius: recompute from the first node
+            if len(rn) >= 2:
+                rr = math.hypot(rn[0][0] - rc[0], rn[0][1] - rc[1])
+            else:
+                rr = ring_diameter / 2.0
+            ring_specs.append({
+                "cx": float(rc[0]),
+                "cy": float(rc[1]),
+                "cz": float(rc[2]),
+                "r": float(rr),
+                "beam_z": float(cone["crossing"][2]),
+            })
+
+        try:
+            built = SDSe_mesh_rings(
+                perimeter_loop=perimeter_loop,
+                anchor_idx=anchor_idx,
+                ring_specs=ring_specs,
+                eave_height=eave_height,
+                target_len=membrane_target_len,
+            )
+        except Exception as e:
+            st.warning("Membrane build failed: " + str(e))
+            built = None
+
     # ---- Draw ------------------------------------------------------------
     fig = go.Figure()
 
+    # Membrane (unsolved — as-built geometry)
+    if built is not None and len(built["triangles"]) > 0:
+        pts = built["points"]
+        tri = np.asarray(built["triangles"], dtype=int)
+        fig.add_trace(go.Mesh3d(
+            x=pts[:, 0], y=pts[:, 1], z=pts[:, 2],
+            i=tri[:, 0], j=tri[:, 1], k=tri[:, 2],
+            color=COL_MEMBRANE, opacity=0.55, flatshading=True,
+            name="membrane", showlegend=False, hoverinfo="skip",
+        ))
+
+    # Frames
     for f in frames:
         color = COL_FRAME_A if f["family"] == "A" else COL_FRAME_B
         fig.add_trace(go.Scatter3d(
@@ -527,6 +558,7 @@ def build_dome_multi_cone():
             showlegend=False, hoverinfo="skip",
         ))
 
+    # Eave polygon (the membrane boundary)
     if len(eave_polygon) >= 3:
         ex = [p[0] for p in eave_polygon] + [eave_polygon[0][0]]
         ey = [p[1] for p in eave_polygon] + [eave_polygon[0][1]]
@@ -539,6 +571,7 @@ def build_dome_multi_cone():
             showlegend=False, hoverinfo="skip",
         ))
 
+    # Cones
     for cone in cones:
         cx, cy, cz = cone["crossing"]
         rx, ry, rz = cone["ring_centre"]
@@ -645,10 +678,48 @@ def build_dome_multi_cone():
                     )
                 st.code(table, language="text")
 
+        with st.expander("Membrane geometry (owner tier)", expanded=False):
+            if built is None:
+                st.write("**Membrane not built.** "
+                         "(No eave polygon, or the engine failed.)")
+            else:
+                st.write(
+                    "Membrane mesh from SDSe_mesh_rings. Unsolved — "
+                    "flat as-built geometry."
+                )
+                st.write(
+                    "- Perimeter nodes: **%d**"
+                    % built["n_perimeter"]
+                )
+                st.write(
+                    "- Interior fabric nodes: **%d**"
+                    % built["n_interior"]
+                )
+                st.write(
+                    "- Total mesh nodes: **%d**"
+                    % built["points"].shape[0]
+                )
+                st.write(
+                    "- Mesh edges: **%d**"
+                    % len(built["edges"])
+                )
+                st.write(
+                    "- Mesh triangles: **%d**"
+                    % len(built["triangles"])
+                )
+                st.write(
+                    "- Held nodes: **%d**"
+                    % len(built["fixed_indices"])
+                )
+                st.write(
+                    "- Ring holes: **%d**"
+                    % len(built["ring_indices"])
+                )
+
         with st.expander("Cone geometry (owner tier)", expanded=False):
             st.write(
-                "One entry per built cone. Drop member is vertical. "
-                "Ring plane is horizontal."
+                "One entry per built cone. Drop member vertical. "
+                "Ring horizontal."
             )
             table = (
                 "  idx   kind  i    j      crossing (x,y,z)          "
