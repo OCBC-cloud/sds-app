@@ -9,7 +9,7 @@
 #   Inputs          read from session state
 #   Geometry        eave perimeter from rib stations, cone rings along
 #                   the primary beam by arc length
-#   Mesh            SDSe_mesh_rings_spine (perimeter + ring holes)
+#   Mesh            SDSe_mesh_rings (perimeter + ring holes)
 #   Solve           solve_fdm, with:
 #                     - only structural anchors held (eave corners
 #                       + ring polygon nodes + ring centres + beam tops)
@@ -25,6 +25,7 @@
 # History:
 #   First SDSe-only version. Mesh build delegated to
 #   engine/SDSe_mesh_builder.py.
+#   Renamed SDSe_mesh_rings_spine to SDSe_mesh_rings.
 # =============================================================================
 
 import math
@@ -35,7 +36,7 @@ import streamlit as st
 
 from engine.form_finding_test import solve_fdm
 from engine.SDSe_mesh_builder import (
-    SDSe_mesh_rings_spine,
+    SDSe_mesh_rings,
     SDSe_blend_q_per_edge,
 )
 from viewers.figures._shared import (
@@ -239,7 +240,7 @@ def build_multi_cone_roof():
     target_len = max(L_avg, 1e-6)
 
     # ---- Mesh build via the shared SDSe engine ---------------------------
-    built = SDSe_mesh_rings_spine(
+    built = SDSe_mesh_rings(
         perimeter_loop=perimeter_loop,
         anchor_idx=anchor_idx,
         ring_specs=ring_specs,
@@ -269,7 +270,6 @@ def build_multi_cone_roof():
         fdm = solve_fdm(pts, edges, fixed, q)
         coords = fdm["coordinates"]
     except Exception as e:
-        # Draw the initial geometry with a warning if the solve fails.
         coords = pts.copy()
         st.warning("Multi-Cone solver failed: " + str(e))
 
