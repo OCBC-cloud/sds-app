@@ -5,45 +5,40 @@
 #
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
-# PIECE 3c — FRAME + EAVE POLYGON + PICKED CROSSING MARKERS.
-#   Adds: the viewer reads ws_dm_picked_crossings from session state
-#   (written by the picker component), computes the actual z on the
-#   frame at each picked crossing, drops any pick whose z is not
-#   strictly above eave height, and draws a small marker at each
-#   kept position.
+# PIECE 3d — FRAME + EAVE POLYGON + CONES FROM PICKED CROSSINGS.
+#   Adds: for each kept picked crossing, build a full cone:
+#       drop member   from crossing, straight down by drop_length
+#       ring          ring_diameter, oriented perpendicular to the
+#                     average tangent of the two frames meeting at
+#                     the crossing
+#       spokes        radial members from ring centre to ring nodes
 #
-#   No cones yet. Cones come in Piece 3d. Markers first, to prove
-#   the geometry lookup end to end.
+#   No membrane yet. The membrane comes in Piece 5.
 #
-#   Owner-tier diagnostic lists the dropped picks and why.
-#
-# The frame, as agreed (Piece 1, verified):
-#   - Ground footprint: circle (base case for now).
+# The frame (Piece 1, verified):
+#   - Circle ground footprint.
 #   - One master frame shape (parabolic / circular / catenary).
-#   - Frame A runs along Y, footed on the ground circle at (0, +/-R).
-#   - Frame B runs along X, footed on the ground circle at (+/-R, 0).
-#   - N frames parallel to A, spaced across X. Frame A is the middle.
-#   - M frames parallel to B, spaced across Y. Frame B is the middle.
+#   - N frames spaced along X, M frames spaced along Y.
 #   - Each frame is ONE full curve: ground -> apex -> ground.
 #   - Apexes step down from the crown to the outer edge.
-#   - SPACING RULE: outer pair sits at +/- R*(N-1)/N, strictly
-#     inside the circle. "3" means exactly 3 real frames.
+#   - SPACING RULE: outer pair sits at +/- R*(N-1)/N. "3" means 3.
 #
-# The eave polygon:
-#   - Each frame crosses z = eave_height twice (rising, falling).
-#   - Those crossings are eave anchors.
-#   - Anchors closer than 1% of dome diameter are deduped.
-#   - Anchors sorted by angle around the origin.
-#   - Consecutive anchors joined by straight segments.
-#   - Closed loop. Drawn in green. No cosmetic bow.
+# The eave polygon (Piece 2):
+#   - Each frame crosses z = eave_height twice.
+#   - Anchors deduped, sorted by angle, joined with straight lines.
+#   - Drawn in green. No cosmetic bow.
 #
-# The picked crossing markers:
-#   - Picks are read as a set of (i, j) tuples from session state.
-#   - i is the Family A frame index, j is the Family B frame index.
-#   - The actual 3D position of the crossing is looked up on the
-#     frame curve at plan position (x_i, y_j).
-#   - Picks whose z <= eave_height are silently dropped, with an
-#     owner-tier diagnostic listing the drops.
+# The picked crossings (Piece 3c):
+#   - Read from ws_dm_picked_crossings (set of (i, j) tuples).
+#   - z looked up on the frame at each crossing.
+#   - Picks with z <= eave_height are dropped.
+#
+# The cones (Piece 3d):
+#   - Drop member straight down from crossing, length = drop_length.
+#   - Ring at the bottom, radius = ring_diameter / 2.
+#   - Ring plane perpendicular to the average of the two frames'
+#     local tangents at the crossing.
+#   - Spokes from ring centre to each ring polygon node.
 #
 # Signature matches the FIGURE_REGISTRY contract:
 #   - no arguments
@@ -54,6 +49,7 @@
 #   2026-10-14 - Piece 2. Add eave polygon.
 #   2026-10-14 - Piece 2b. Corrected spacing rule. Removed ground circle.
 #   2026-10-14 - Piece 3c. Add picked crossing markers.
+#   2026-10-14 - Piece 3d. Replace markers with full cones.
 # =============================================================================
 
 import math
@@ -70,12 +66,16 @@ from viewers.figures._shared import apply_common_layout
 # =============================================================================
 
 FRAME_SAMPLES = 200
-EAVE_DEDUPE_TOL_FRAC = 0.01  # fraction of dome diameter
+EAVE_DEDUPE_TOL_FRAC = 0.01
+RING_NODES_MIN = 12
+RING_NODES_MAX = 32
 
 COL_FRAME_A = "#FF6B6B"
 COL_FRAME_B = "#e07b39"
 COL_EAVE = "#2ecc71"
-COL_MARKER = "#f1c40f"
+COL_RING = "#ffd166"
+COL_SPOKE = "#c0c0c0"
+COL_DROP = "#a0a0a0"
 
 
 # =============================================================================
@@ -87,14 +87,10 @@ def _get(key, default=None):
 
 
 # =============================================================================
-# THE DOME PROFILE — determines the globe surface
+# THE DOME PROFILE
 # =============================================================================
 
 def _dome_profile_height(r_frac, crown_height, curve_type):
-    """
-    Height of the dome surface at normalised radius r_frac in [0, 1].
-    r_frac = 0 at crown, 1 at the ground circle.
-    """
     r_frac = float(max(0.0, min(1.0, r_frac)))
     if curve_type == "circular":
         return crown_height * math.sqrt(max(0.0, 1.0 - r_frac * r_frac))
@@ -111,10 +107,6 @@ def _dome_profile_height(r_frac, crown_height, curve_type):
 # =============================================================================
 
 def _build_frame_curve(half_chord, apex_height, curve_type, n_samples):
-    """
-    One frame in its own 2D plane (s, z). s from -half_chord to +half_chord.
-    z rises from ground at both ends to apex_height at s = 0.
-    """
     s = np.linspace(-half_chord, +half_chord, n_samples)
     r_frac = np.abs(s) / max(half_chord, 1e-9)
     z = np.array([
@@ -125,10 +117,6 @@ def _build_frame_curve(half_chord, apex_height, curve_type, n_samples):
 
 
 def _offsets(n, ground_radius):
-    """
-    Evenly spaced offsets for n frames along one axis.
-    Outer pair sits at +/- R * (n-1)/n, strictly inside the circle.
-    """
     if n < 1:
         n = 1
     if n == 1:
@@ -138,15 +126,8 @@ def _offsets(n, ground_radius):
 
 
 def _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y):
-    """
-    Build the dome frame. Returns:
-        frames   list of dicts, each with x, y, z arrays and metadata
-        apexes   list of (x, y, z, apex_h, r_plan) tuples for verification
-        offsets_x, offsets_y  lists of frame offsets for plan lookups
-    """
     frames = []
     apexes = []
-
     offsets_x = _offsets(n_x, ground_radius)
     offsets_y = _offsets(n_y, ground_radius)
 
@@ -165,6 +146,7 @@ def _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y):
             "offset": offset,
             "r_plan": r_plan,
             "apex_h": apex_h,
+            "chord_half": chord_half,
         })
         apexes.append((offset, 0.0, apex_h, apex_h, r_plan))
 
@@ -183,10 +165,75 @@ def _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y):
             "offset": offset,
             "r_plan": r_plan,
             "apex_h": apex_h,
+            "chord_half": chord_half,
         })
         apexes.append((0.0, offset, apex_h, apex_h, r_plan))
 
     return frames, apexes, offsets_x, offsets_y
+
+
+# =============================================================================
+# FRAME TANGENT AT A PLAN POSITION
+# =============================================================================
+
+def _frame_tangent_at_plan(offset, cross_axis_value, ground_radius,
+                            crown_height, curve_type):
+    """
+    Return the 3D unit tangent of a frame at a plan position.
+
+    For a Family A frame (runs along Y, offset on X):
+        offset           = x
+        cross_axis_value = y
+        The tangent is primarily along Y. We compute dz/dy from the
+        frame's local profile.
+
+    For a Family B frame (runs along X, offset on Y):
+        offset           = y
+        cross_axis_value = x
+        The tangent is primarily along X.
+
+    Returns (tx, ty, tz) as a unit vector, in the frame's own
+    orientation. The caller decides how to combine A and B tangents.
+    Returns None if the plan position is outside the frame's chord.
+    """
+    chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
+    if abs(cross_axis_value) > chord_half + 1e-9:
+        return None
+    if chord_half < 1e-9:
+        return None
+
+    r_plan = abs(offset)
+    apex_h = _dome_profile_height(
+        r_plan / ground_radius, crown_height, curve_type
+    )
+    if apex_h < 1e-9:
+        return None
+
+    # Along the frame, z = apex_h * profile_shape(r_frac), where
+    # r_frac = |s| / chord_half and s is the cross-axis coordinate.
+    # dz/ds computed numerically from the profile.
+    s_here = float(cross_axis_value)
+    ds = 1e-4 * chord_half
+    s_lo = max(-chord_half, s_here - ds)
+    s_hi = min(+chord_half, s_here + ds)
+    if s_hi - s_lo < 1e-9:
+        return None
+
+    rf_lo = abs(s_lo) / chord_half
+    rf_hi = abs(s_hi) / chord_half
+    z_lo = _dome_profile_height(rf_lo, apex_h, curve_type)
+    z_hi = _dome_profile_height(rf_hi, apex_h, curve_type)
+
+    dz_ds = (z_hi - z_lo) / (s_hi - s_lo)
+
+    # The frame's tangent direction in 3D: along the cross axis (1 unit
+    # in the direction of increasing s) plus dz_ds in z.
+    # For a Family A frame, s = y. So tangent = (0, 1, dz_ds), normalised.
+    # For a Family B frame, s = x. So tangent = (1, 0, dz_ds), normalised.
+    # We return it in the "along the frame" convention. The caller will
+    # place it into world coordinates using the family.
+    norm = math.sqrt(1.0 + dz_ds * dz_ds)
+    return (1.0 / norm, dz_ds / norm)  # (along, up)
 
 
 # =============================================================================
@@ -241,26 +288,11 @@ def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
 
 
 # =============================================================================
-# PICKED CROSSING LOOKUP
+# PICKED CROSSING RESOLUTION
 # =============================================================================
 
 def _frame_z_at_plan_offset(offset, cross_axis_value, ground_radius,
                              crown_height, curve_type):
-    """
-    Given a frame whose ground offset is `offset` on one axis and
-    `cross_axis_value` is the position ALONG the frame (i.e. the
-    other axis), return the z of the frame at that position.
-
-    For a Family A frame (runs along Y, offset on X):
-        offset       = x
-        cross_axis_value = y
-    For a Family B frame (runs along X, offset on Y):
-        offset       = y
-        cross_axis_value = x
-
-    Returns z (float) or None if the plan position is outside the frame's
-    chord (i.e. the frame doesn't reach there).
-    """
     chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
     if abs(cross_axis_value) > chord_half + 1e-9:
         return None
@@ -268,17 +300,7 @@ def _frame_z_at_plan_offset(offset, cross_axis_value, ground_radius,
     apex_h = _dome_profile_height(
         r_plan / ground_radius, crown_height, curve_type
     )
-    # Along the frame, the profile depends on the normalised distance
-    # from the apex. For a frame with chord_half width, the apex is at
-    # cross_axis_value = 0, and the ends are at +/- chord_half.
     r_frac = abs(cross_axis_value) / max(chord_half, 1e-9)
-    # r_frac in [0, 1] maps to the profile of the frame curve. But the
-    # frame's apex_h is already the globe height at r_plan. The shape
-    # along the frame is the same profile scaled so the apex is apex_h
-    # and the ends are on the ground.
-    # The frame's own curve: z(s) = profile_shape(r_frac) * apex_h, where
-    # profile_shape uses the SAME curve_type. So we evaluate the profile
-    # at r_frac with crown height apex_h.
     z = _dome_profile_height(r_frac, apex_h, curve_type)
     return float(z)
 
@@ -286,13 +308,6 @@ def _frame_z_at_plan_offset(offset, cross_axis_value, ground_radius,
 def _resolve_picked_crossings(picked_set, offsets_x, offsets_y,
                                 ground_radius, crown_height, curve_type,
                                 eave_height):
-    """
-    For each picked (i, j) crossing, compute its (x, y, z).
-    Returns:
-        kept     list of {i, j, x, y, z} for picks with z > eave_height
-        dropped  list of {i, j, x, y, z, reason} for picks that were
-                 dropped (z <= eave_height or z is None)
-    """
     kept = []
     dropped = []
     for (i, j) in sorted(picked_set):
@@ -304,13 +319,9 @@ def _resolve_picked_crossings(picked_set, offsets_x, offsets_y,
             continue
         xi = offsets_x[i]
         yj = offsets_y[j]
-        # Family A frame at x = xi runs along Y. Its z at (xi, yj)
-        # is the frame's z at cross-axis position yj.
         za = _frame_z_at_plan_offset(
             xi, yj, ground_radius, crown_height, curve_type
         )
-        # Family B frame at y = yj runs along X. Its z at (xi, yj)
-        # is the frame's z at cross-axis position xi.
         zb = _frame_z_at_plan_offset(
             yj, xi, ground_radius, crown_height, curve_type
         )
@@ -320,9 +331,6 @@ def _resolve_picked_crossings(picked_set, offsets_x, offsets_y,
                 "reason": "crossing outside frame chord",
             })
             continue
-        # Both frames pass through the same point in plan; their z
-        # values agree by construction. Use the average for numeric
-        # safety.
         z = 0.5 * (za + zb)
         if z > eave_height + 1e-9:
             kept.append({
@@ -336,6 +344,98 @@ def _resolve_picked_crossings(picked_set, offsets_x, offsets_y,
                 "reason": "at or below eave height",
             })
     return kept, dropped
+
+
+# =============================================================================
+# CONE BUILDING
+# =============================================================================
+
+def _ring_node_count(radius, target_len):
+    n = int(round(2.0 * math.pi * radius / max(target_len, 1e-6)))
+    return max(RING_NODES_MIN, min(RING_NODES_MAX, n))
+
+
+def _build_cone_geometry(crossing, offsets_x, offsets_y,
+                          ground_radius, crown_height, curve_type,
+                          drop_length, ring_diameter, target_len):
+    """
+    Build one cone at a crossing.
+
+    Returns a dict with:
+        crossing      the (x, y, z) of the attachment point
+        drop_bottom   the (x, y, z) of the ring centre
+        ring_nodes    list of (x, y, z), the ring polygon
+        ring_centre   (x, y, z) of the ring centre
+        ring_axis     (nx, ny, nz) unit normal of the ring plane
+    Returns None if the geometry can't be built.
+    """
+    cx = crossing["x"]
+    cy = crossing["y"]
+    cz = crossing["z"]
+
+    # ---- Compute the two frame tangents at the crossing ---------------
+    # Family A: runs along Y. offset = x, cross-axis = y.
+    tA = _frame_tangent_at_plan(
+        cx, cy, ground_radius, crown_height, curve_type
+    )
+    # tA is (along, up) = (dy_dir, dz). Convert to world:
+    # along is Y direction, sign = +1 (the frame exists on both sides;
+    # we just need a direction for the average). World vector:
+    # (0, tA[0], tA[1])
+    vA = np.array([0.0, tA[0], tA[1]]) if tA else None
+
+    # Family B: runs along X. offset = y, cross-axis = x.
+    tB = _frame_tangent_at_plan(
+        cy, cx, ground_radius, crown_height, curve_type
+    )
+    vB = np.array([tB[0], 0.0, tB[1]]) if tB else None
+
+    if vA is None or vB is None:
+        return None
+
+    # ---- Average the two tangents -------------------------------------
+    vAvg = vA + vB
+    n = float(np.linalg.norm(vAvg))
+    if n < 1e-9:
+        return None
+    vAvg = vAvg / n
+
+    # ---- Ring plane: perpendicular to vAvg ----------------------------
+    # Pick any vector not parallel to vAvg to build an orthogonal basis.
+    helper = np.array([0.0, 0.0, 1.0])
+    if abs(float(np.dot(helper, vAvg))) > 0.95:
+        helper = np.array([1.0, 0.0, 0.0])
+    u1 = np.cross(vAvg, helper)
+    u1 = u1 / max(float(np.linalg.norm(u1)), 1e-9)
+    u2 = np.cross(vAvg, u1)
+    u2 = u2 / max(float(np.linalg.norm(u2)), 1e-9)
+    # u1 and u2 span the plane perpendicular to vAvg.
+
+    # ---- Ring centre: drop straight down from the crossing ------------
+    ring_centre = np.array([cx, cy, cz - drop_length], dtype=float)
+
+    # ---- Ring polygon: circle of radius ring/2 in the plane -----------
+    ring_radius = ring_diameter / 2.0
+    n_nodes = _ring_node_count(ring_radius, target_len)
+    t = np.linspace(0.0, 2.0 * math.pi, n_nodes, endpoint=False)
+    ring_nodes = []
+    for tk in t:
+        p = ring_centre + ring_radius * (math.cos(tk) * u1 +
+                                          math.sin(tk) * u2)
+        ring_nodes.append((float(p[0]), float(p[1]), float(p[2])))
+
+    return {
+        "crossing": (cx, cy, cz),
+        "drop_bottom": (float(ring_centre[0]),
+                        float(ring_centre[1]),
+                        float(ring_centre[2])),
+        "ring_nodes": ring_nodes,
+        "ring_centre": (float(ring_centre[0]),
+                        float(ring_centre[1]),
+                        float(ring_centre[2])),
+        "ring_axis": (float(vAvg[0]), float(vAvg[1]), float(vAvg[2])),
+        "ring_node_count": n_nodes,
+    }
 
 
 # =============================================================================
@@ -372,6 +472,8 @@ def build_dome_multi_cone():
     n_y = int(_get("meridians_y", 5))
     eave_height = float(_get("eave_height", 3.2))
     curve_type = str(_get("curve_type", "parabolic"))
+    drop_length = float(_get("drop_length", 1.0))
+    ring_diameter = float(_get("ring_diameter", 2.0))
 
     ground_radius = max(dome_diameter / 2.0, 1e-6)
 
@@ -396,7 +498,7 @@ def build_dome_multi_cone():
         n_y=n_y,
     )
 
-    # ---- Build the eave polygon -----------------------------------------
+    # ---- Eave polygon ----------------------------------------------------
     eave_polygon = _build_eave_polygon(
         frames, eave_height, ground_radius, dome_diameter
     )
@@ -406,6 +508,19 @@ def build_dome_multi_cone():
         picked_set, offsets_x, offsets_y,
         ground_radius, crown_height, curve_type, eave_height,
     )
+
+    # ---- Build cones -----------------------------------------------------
+    # target_len for ring node spacing: aim for ~0.4 m edges.
+    target_len = max(dome_diameter / 40.0, 0.4)
+    cones = []
+    for pick in kept_picks:
+        cone = _build_cone_geometry(
+            pick, offsets_x, offsets_y,
+            ground_radius, crown_height, curve_type,
+            drop_length, ring_diameter, target_len,
+        )
+        if cone is not None:
+            cones.append(cone)
 
     # ---- Draw ------------------------------------------------------------
     fig = go.Figure()
@@ -421,7 +536,7 @@ def build_dome_multi_cone():
             showlegend=False, hoverinfo="skip",
         ))
 
-    # Eave polygon — closed loop, straight segments
+    # Eave polygon
     if len(eave_polygon) >= 3:
         ex = [p[0] for p in eave_polygon] + [eave_polygon[0][0]]
         ey = [p[1] for p in eave_polygon] + [eave_polygon[0][1]]
@@ -434,20 +549,40 @@ def build_dome_multi_cone():
             showlegend=False, hoverinfo="skip",
         ))
 
-    # Picked crossing markers
-    if len(kept_picks) > 0:
-        mx = [p["x"] for p in kept_picks]
-        my = [p["y"] for p in kept_picks]
-        mz = [p["z"] for p in kept_picks]
+    # Cones
+    for cone in cones:
+        # Drop member — crossing to ring centre
+        cx, cy, cz = cone["crossing"]
+        rx, ry, rz = cone["ring_centre"]
         fig.add_trace(go.Scatter3d(
-            x=mx, y=my, z=mz,
-            mode="markers",
-            marker=dict(color=COL_MARKER, size=7, symbol="circle"),
-            name="picked crossings",
-            showlegend=False, hoverinfo="skip",
+            x=[cx, rx], y=[cy, ry], z=[cz, rz],
+            mode="lines",
+            line=dict(color=COL_DROP, width=4),
+            name="drop", showlegend=False, hoverinfo="skip",
         ))
 
-    # ---- Verification expanders (owner tier only) ------------------------
+        # Ring polygon — closed loop
+        rn = cone["ring_nodes"]
+        rxx = [p[0] for p in rn] + [rn[0][0]]
+        ryy = [p[1] for p in rn] + [rn[0][1]]
+        rzz = [p[2] for p in rn] + [rn[0][2]]
+        fig.add_trace(go.Scatter3d(
+            x=rxx, y=ryy, z=rzz,
+            mode="lines",
+            line=dict(color=COL_RING, width=5),
+            name="ring", showlegend=False, hoverinfo="skip",
+        ))
+
+        # Spokes from ring centre to each ring node
+        for p in rn:
+            fig.add_trace(go.Scatter3d(
+                x=[rx, p[0]], y=[ry, p[1]], z=[rz, p[2]],
+                mode="lines",
+                line=dict(color=COL_SPOKE, width=2),
+                name="spoke", showlegend=False, hoverinfo="skip",
+            ))
+
+    # ---- Owner-tier expanders --------------------------------------------
     access_mode = str(st.session_state.get("access_mode", "owner")).lower()
     if access_mode == "owner":
         rows = _verify_frame_against_globe(
@@ -472,12 +607,6 @@ def build_dome_multi_cone():
             st.code(table, language="text")
 
         with st.expander("Eave polygon (owner tier)", expanded=False):
-            st.write(
-                "Eave anchors at z = eave_height, deduped and sorted "
-                "by angle around the origin. Straight segments. "
-                "No bow — the bow comes later when the FDM solve "
-                "puts real prestress on the cable."
-            )
             st.write("Total anchors after dedupe: **%d**" % len(eave_polygon))
             if len(eave_polygon) >= 3:
                 table = (
@@ -492,14 +621,10 @@ def build_dome_multi_cone():
 
         with st.expander("Picked crossings (owner tier)", expanded=False):
             st.write(
-                "Picks are read from the picker. For each pick, the "
-                "viewer looks up the actual z on the frame at that "
-                "plan position. Picks with z **strictly above** eave "
-                "height are kept. Everything else is dropped."
-            )
-            st.write(
-                "**Total picks: %d. Kept: %d. Dropped: %d.**"
-                % (len(picked_set), len(kept_picks), len(dropped_picks))
+                "**Total picks: %d. Kept: %d. Dropped: %d. "
+                "Cones built: %d.**"
+                % (len(picked_set), len(kept_picks),
+                   len(dropped_picks), len(cones))
             )
 
             if kept_picks:
@@ -530,6 +655,31 @@ def build_dome_multi_cone():
                         % (k, p["i"], p["j"], x_s, y_s, z_s, p["reason"])
                     )
                 st.code(table, language="text")
+
+        with st.expander("Cone geometry (owner tier)", expanded=False):
+            st.write(
+                "One entry per built cone. Ring axis is the average "
+                "of the two frame tangents at the crossing; the ring "
+                "plane is perpendicular to that axis."
+            )
+            table = (
+                "  idx   crossing (x,y,z)          ring centre (x,y,z)        "
+                "ring axis (x,y,z)          nodes\n"
+                "  ---   -------------------------  -------------------------  "
+                "-------------------------  -----\n"
+            )
+            for k, cone in enumerate(cones):
+                cx, cy, cz = cone["crossing"]
+                rx, ry, rz = cone["ring_centre"]
+                ax, ay, az = cone["ring_axis"]
+                table += (
+                    "  %3d   (%+7.3f,%+7.3f,%6.3f)  "
+                    "(%+7.3f,%+7.3f,%6.3f)  "
+                    "(%+6.3f,%+6.3f,%+6.3f)  %5d\n"
+                    % (k, cx, cy, cz, rx, ry, rz, ax, ay, az,
+                       cone["ring_node_count"])
+                )
+            st.code(table, language="text")
 
     return apply_common_layout(fig, crown_height)
 
