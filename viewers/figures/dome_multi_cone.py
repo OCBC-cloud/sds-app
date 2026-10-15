@@ -8,9 +8,8 @@
 # PIECE 3d — FRAME + EAVE POLYGON + CONES FROM PICKED CROSSINGS.
 #   Adds: for each kept picked crossing, build a full cone:
 #       drop member   from crossing, straight down by drop_length
-#       ring          ring_diameter, oriented perpendicular to the
-#                     average tangent of the two frames meeting at
-#                     the crossing
+#       ring          ring_diameter, HORIZONTAL (perpendicular to
+#                     the ground plane)
 #       spokes        radial members from ring centre to ring nodes
 #
 #   No membrane yet. The membrane comes in Piece 5.
@@ -36,8 +35,7 @@
 # The cones (Piece 3d):
 #   - Drop member straight down from crossing, length = drop_length.
 #   - Ring at the bottom, radius = ring_diameter / 2.
-#   - Ring plane perpendicular to the average of the two frames'
-#     local tangents at the crossing.
+#   - Ring plane is HORIZONTAL. Ring axis = (0, 0, 1).
 #   - Spokes from ring centre to each ring polygon node.
 #
 # Signature matches the FIGURE_REGISTRY contract:
@@ -50,6 +48,9 @@
 #   2026-10-14 - Piece 2b. Corrected spacing rule. Removed ground circle.
 #   2026-10-14 - Piece 3c. Add picked crossing markers.
 #   2026-10-14 - Piece 3d. Replace markers with full cones.
+#   2026-10-14 - Piece 3d fix. Ring orientation is now horizontal,
+#                not perpendicular to the frame tangent. Vertical
+#                drop, horizontal ring. Simpler and correct.
 # =============================================================================
 
 import math
@@ -146,7 +147,6 @@ def _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y):
             "offset": offset,
             "r_plan": r_plan,
             "apex_h": apex_h,
-            "chord_half": chord_half,
         })
         apexes.append((offset, 0.0, apex_h, apex_h, r_plan))
 
@@ -165,75 +165,10 @@ def _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y):
             "offset": offset,
             "r_plan": r_plan,
             "apex_h": apex_h,
-            "chord_half": chord_half,
         })
         apexes.append((0.0, offset, apex_h, apex_h, r_plan))
 
     return frames, apexes, offsets_x, offsets_y
-
-
-# =============================================================================
-# FRAME TANGENT AT A PLAN POSITION
-# =============================================================================
-
-def _frame_tangent_at_plan(offset, cross_axis_value, ground_radius,
-                            crown_height, curve_type):
-    """
-    Return the 3D unit tangent of a frame at a plan position.
-
-    For a Family A frame (runs along Y, offset on X):
-        offset           = x
-        cross_axis_value = y
-        The tangent is primarily along Y. We compute dz/dy from the
-        frame's local profile.
-
-    For a Family B frame (runs along X, offset on Y):
-        offset           = y
-        cross_axis_value = x
-        The tangent is primarily along X.
-
-    Returns (tx, ty, tz) as a unit vector, in the frame's own
-    orientation. The caller decides how to combine A and B tangents.
-    Returns None if the plan position is outside the frame's chord.
-    """
-    chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
-    if abs(cross_axis_value) > chord_half + 1e-9:
-        return None
-    if chord_half < 1e-9:
-        return None
-
-    r_plan = abs(offset)
-    apex_h = _dome_profile_height(
-        r_plan / ground_radius, crown_height, curve_type
-    )
-    if apex_h < 1e-9:
-        return None
-
-    # Along the frame, z = apex_h * profile_shape(r_frac), where
-    # r_frac = |s| / chord_half and s is the cross-axis coordinate.
-    # dz/ds computed numerically from the profile.
-    s_here = float(cross_axis_value)
-    ds = 1e-4 * chord_half
-    s_lo = max(-chord_half, s_here - ds)
-    s_hi = min(+chord_half, s_here + ds)
-    if s_hi - s_lo < 1e-9:
-        return None
-
-    rf_lo = abs(s_lo) / chord_half
-    rf_hi = abs(s_hi) / chord_half
-    z_lo = _dome_profile_height(rf_lo, apex_h, curve_type)
-    z_hi = _dome_profile_height(rf_hi, apex_h, curve_type)
-
-    dz_ds = (z_hi - z_lo) / (s_hi - s_lo)
-
-    # The frame's tangent direction in 3D: along the cross axis (1 unit
-    # in the direction of increasing s) plus dz_ds in z.
-    # For a Family A frame, s = y. So tangent = (0, 1, dz_ds), normalised.
-    # For a Family B frame, s = x. So tangent = (1, 0, dz_ds), normalised.
-    # We return it in the "along the frame" convention. The caller will
-    # place it into world coordinates using the family.
-    norm = math.sqrt(1.0 + dz_ds * dz_ds)
-    return (1.0 / norm, dz_ds / norm)  # (along, up)
 
 
 # =============================================================================
@@ -355,85 +290,44 @@ def _ring_node_count(radius, target_len):
     return max(RING_NODES_MIN, min(RING_NODES_MAX, n))
 
 
-def _build_cone_geometry(crossing, offsets_x, offsets_y,
-                          ground_radius, crown_height, curve_type,
-                          drop_length, ring_diameter, target_len):
+def _build_cone_geometry(crossing, drop_length, ring_diameter, target_len):
     """
     Build one cone at a crossing.
 
+    The drop member is straight down from the crossing.
+    The ring plane is HORIZONTAL. Ring axis = (0, 0, 1).
+
     Returns a dict with:
         crossing      the (x, y, z) of the attachment point
-        drop_bottom   the (x, y, z) of the ring centre
-        ring_nodes    list of (x, y, z), the ring polygon
         ring_centre   (x, y, z) of the ring centre
-        ring_axis     (nx, ny, nz) unit normal of the ring plane
-    Returns None if the geometry can't be built.
+        ring_nodes    list of (x, y, z), the ring polygon
+        ring_axis     (0, 0, 1)
+        ring_node_count
     """
     cx = crossing["x"]
     cy = crossing["y"]
     cz = crossing["z"]
 
-    # ---- Compute the two frame tangents at the crossing ---------------
-    # Family A: runs along Y. offset = x, cross-axis = y.
-    tA = _frame_tangent_at_plan(
-        cx, cy, ground_radius, crown_height, curve_type
-    )
-    # tA is (along, up) = (dy_dir, dz). Convert to world:
-    # along is Y direction, sign = +1 (the frame exists on both sides;
-    # we just need a direction for the average). World vector:
-    # (0, tA[0], tA[1])
-    vA = np.array([0.0, tA[0], tA[1]]) if tA else None
+    # Vertical drop.
+    ring_z = cz - drop_length
+    ring_centre = (float(cx), float(cy), float(ring_z))
 
-    # Family B: runs along X. offset = y, cross-axis = x.
-    tB = _frame_tangent_at_plan(
-        cy, cx, ground_radius, crown_height, curve_type
-    )
-    vB = np.array([tB[0], 0.0, tB[1]]) if tB else None
-
-    if vA is None or vB is None:
-        return None
-
-    # ---- Average the two tangents -------------------------------------
-    vAvg = vA + vB
-    n = float(np.linalg.norm(vAvg))
-    if n < 1e-9:
-        return None
-    vAvg = vAvg / n
-
-    # ---- Ring plane: perpendicular to vAvg ----------------------------
-    # Pick any vector not parallel to vAvg to build an orthogonal basis.
-    helper = np.array([0.0, 0.0, 1.0])
-    if abs(float(np.dot(helper, vAvg))) > 0.95:
-        helper = np.array([1.0, 0.0, 0.0])
-    u1 = np.cross(vAvg, helper)
-    u1 = u1 / max(float(np.linalg.norm(u1)), 1e-9)
-    u2 = np.cross(vAvg, u1)
-    u2 = u2 / max(float(np.linalg.norm(u2)), 1e-9)
-    # u1 and u2 span the plane perpendicular to vAvg.
-
-    # ---- Ring centre: drop straight down from the crossing ------------
-    ring_centre = np.array([cx, cy, cz - drop_length], dtype=float)
-
-    # ---- Ring polygon: circle of radius ring/2 in the plane -----------
+    # Horizontal ring: nodes at (cx + r cos t, cy + r sin t, ring_z).
     ring_radius = ring_diameter / 2.0
     n_nodes = _ring_node_count(ring_radius, target_len)
     t = np.linspace(0.0, 2.0 * math.pi, n_nodes, endpoint=False)
-    ring_nodes = []
-    for tk in t:
-        p = ring_centre + ring_radius * (math.cos(tk) * u1 +
-                                          math.sin(tk) * u2)
-        ring_nodes.append((float(p[0]), float(p[1]), float(p[2])))
+    ring_nodes = [
+        (float(cx + ring_radius * math.cos(tk)),
+         float(cy + ring_radius * math.sin(tk)),
+         float(ring_z))
+        for tk in t
+    ]
 
     return {
-        "crossing": (cx, cy, cz),
-        "drop_bottom": (float(ring_centre[0]),
-                        float(ring_centre[1]),
-                        float(ring_centre[2])),
+        "crossing": (float(cx), float(cy), float(cz)),
+        "ring_centre": ring_centre,
         "ring_nodes": ring_nodes,
-        "ring_centre": (float(ring_centre[0]),
-                        float(ring_centre[1]),
-                        float(ring_centre[2])),
-        "ring_axis": (float(vAvg[0]), float(vAvg[1]), float(vAvg[2])),
+        "ring_axis": (0.0, 0.0, 1.0),
         "ring_node_count": n_nodes,
     }
 
@@ -510,14 +404,11 @@ def build_dome_multi_cone():
     )
 
     # ---- Build cones -----------------------------------------------------
-    # target_len for ring node spacing: aim for ~0.4 m edges.
     target_len = max(dome_diameter / 40.0, 0.4)
     cones = []
     for pick in kept_picks:
         cone = _build_cone_geometry(
-            pick, offsets_x, offsets_y,
-            ground_radius, crown_height, curve_type,
-            drop_length, ring_diameter, target_len,
+            pick, drop_length, ring_diameter, target_len,
         )
         if cone is not None:
             cones.append(cone)
@@ -551,9 +442,10 @@ def build_dome_multi_cone():
 
     # Cones
     for cone in cones:
-        # Drop member — crossing to ring centre
         cx, cy, cz = cone["crossing"]
         rx, ry, rz = cone["ring_centre"]
+
+        # Drop member — crossing to ring centre, vertical
         fig.add_trace(go.Scatter3d(
             x=[cx, rx], y=[cy, ry], z=[cz, rz],
             mode="lines",
@@ -561,7 +453,7 @@ def build_dome_multi_cone():
             name="drop", showlegend=False, hoverinfo="skip",
         ))
 
-        # Ring polygon — closed loop
+        # Ring polygon — closed loop, horizontal
         rn = cone["ring_nodes"]
         rxx = [p[0] for p in rn] + [rn[0][0]]
         ryy = [p[1] for p in rn] + [rn[0][1]]
@@ -658,15 +550,14 @@ def build_dome_multi_cone():
 
         with st.expander("Cone geometry (owner tier)", expanded=False):
             st.write(
-                "One entry per built cone. Ring axis is the average "
-                "of the two frame tangents at the crossing; the ring "
-                "plane is perpendicular to that axis."
+                "One entry per built cone. Drop member is vertical. "
+                "Ring plane is horizontal (perpendicular to ground)."
             )
             table = (
                 "  idx   crossing (x,y,z)          ring centre (x,y,z)        "
-                "ring axis (x,y,z)          nodes\n"
+                "ring axis          nodes\n"
                 "  ---   -------------------------  -------------------------  "
-                "-------------------------  -----\n"
+                "-----------------  -----\n"
             )
             for k, cone in enumerate(cones):
                 cx, cy, cz = cone["crossing"]
@@ -675,7 +566,7 @@ def build_dome_multi_cone():
                 table += (
                     "  %3d   (%+7.3f,%+7.3f,%6.3f)  "
                     "(%+7.3f,%+7.3f,%6.3f)  "
-                    "(%+6.3f,%+6.3f,%+6.3f)  %5d\n"
+                    "(%+4.2f,%+4.2f,%+4.2f)  %5d\n"
                     % (k, cx, cy, cz, rx, ry, rz, ax, ay, az,
                        cone["ring_node_count"])
                 )
