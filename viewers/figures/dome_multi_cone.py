@@ -5,10 +5,20 @@
 #
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
-# PIECE 3d — FRAME + EAVE POLYGON + CONES FROM PICKED CROSSINGS.
-#   Adds: for each kept picked crossing, build a full cone:
-#       drop member   from crossing, straight down by drop_length
-#       ring          ring_diameter, HORIZONTAL (perpendicular to
+# PIECE 4 — FRAME + EAVE POLYGON + CONES AT CROSSINGS AND MIDPOINTS.
+#   The picker offers three kinds of positions:
+#       ("C",  i, j)   crossing where Family A frame i meets Family B
+#                      frame j
+#       ("Am", i, j)   on Family A frame i, between crossings j and j+1
+#       ("Bm", i, j)   on Family B frame j, between crossings i and i+1
+#
+#   For each pick, the viewer computes its actual z on the frame at
+#   that plan position. Picks with z strictly above eave height are
+#   kept. Everything else is dropped.
+#
+#   Each kept pick produces one cone:
+#       drop member   straight down by drop_length
+#       ring          ring_diameter, horizontal (perpendicular to
 #                     the ground plane)
 #       spokes        radial members from ring centre to ring nodes
 #
@@ -20,23 +30,21 @@
 #   - N frames spaced along X, M frames spaced along Y.
 #   - Each frame is ONE full curve: ground -> apex -> ground.
 #   - Apexes step down from the crown to the outer edge.
-#   - SPACING RULE: outer pair sits at +/- R*(N-1)/N. "3" means 3.
+#   - SPACING RULE: outer pair sits at +/- R*(N-1)/N.
 #
 # The eave polygon (Piece 2):
 #   - Each frame crosses z = eave_height twice.
 #   - Anchors deduped, sorted by angle, joined with straight lines.
 #   - Drawn in green. No cosmetic bow.
 #
-# The picked crossings (Piece 3c):
-#   - Read from ws_dm_picked_crossings (set of (i, j) tuples).
-#   - z looked up on the frame at each crossing.
-#   - Picks with z <= eave_height are dropped.
-#
-# The cones (Piece 3d):
-#   - Drop member straight down from crossing, length = drop_length.
+# The cones (Piece 3d, extended in Piece 4 to midpoints):
+#   - Drop member straight down from the pick, length = drop_length.
 #   - Ring at the bottom, radius = ring_diameter / 2.
 #   - Ring plane is HORIZONTAL. Ring axis = (0, 0, 1).
 #   - Spokes from ring centre to each ring polygon node.
+#
+# Backward compatibility: old flat (i, j) tuples in session state
+# are treated as crossings. The helper _normalise_pick does this.
 #
 # Signature matches the FIGURE_REGISTRY contract:
 #   - no arguments
@@ -48,9 +56,8 @@
 #   2026-10-14 - Piece 2b. Corrected spacing rule. Removed ground circle.
 #   2026-10-14 - Piece 3c. Add picked crossing markers.
 #   2026-10-14 - Piece 3d. Replace markers with full cones.
-#   2026-10-14 - Piece 3d fix. Ring orientation is now horizontal,
-#                not perpendicular to the frame tangent. Vertical
-#                drop, horizontal ring. Simpler and correct.
+#   2026-10-14 - Piece 3d fix. Ring orientation is now horizontal.
+#   2026-10-14 - Piece 4. Support midpoint picks from the new picker.
 # =============================================================================
 
 import math
@@ -223,11 +230,41 @@ def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
 
 
 # =============================================================================
-# PICKED CROSSING RESOLUTION
+# PICK NORMALISATION
+# =============================================================================
+
+def _normalise_pick(item):
+    """
+    Accept either an old (i, j) tuple or a new (kind, i, j) tuple.
+    Returns (kind, i, j) or None if the item can't be parsed.
+    """
+    try:
+        if len(item) == 3:
+            kind = str(item[0])
+            if kind not in ("C", "Am", "Bm"):
+                return None
+            return (kind, int(item[1]), int(item[2]))
+        elif len(item) == 2:
+            return ("C", int(item[0]), int(item[1]))
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+# =============================================================================
+# PICK RESOLUTION
 # =============================================================================
 
 def _frame_z_at_plan_offset(offset, cross_axis_value, ground_radius,
                              crown_height, curve_type):
+    """
+    z of a frame at a plan position.
+    offset           = frame's ground offset on its perp axis
+    cross_axis_value = position ALONG the frame (the other axis)
+
+    For Family A: offset = x, cross_axis_value = y.
+    For Family B: offset = y, cross_axis_value = x.
+    """
     chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
     if abs(cross_axis_value) > chord_half + 1e-9:
         return None
@@ -240,18 +277,21 @@ def _frame_z_at_plan_offset(offset, cross_axis_value, ground_radius,
     return float(z)
 
 
-def _resolve_picked_crossings(picked_set, offsets_x, offsets_y,
-                                ground_radius, crown_height, curve_type,
-                                eave_height):
-    kept = []
-    dropped = []
-    for (i, j) in sorted(picked_set):
-        if i < 0 or i >= len(offsets_x) or j < 0 or j >= len(offsets_y):
-            dropped.append({
-                "i": i, "j": j, "x": None, "y": None, "z": None,
-                "reason": "index out of range",
-            })
-            continue
+def _resolve_pick(pick, offsets_x, offsets_y, ground_radius,
+                   crown_height, curve_type, eave_height):
+    """
+    Given a normalised pick (kind, i, j), compute its (x, y, z).
+    Returns (kept_dict, dropped_dict) — exactly one of them populated.
+    """
+    kind, i, j = pick
+    n_x = len(offsets_x)
+    n_y = len(offsets_y)
+
+    if kind == "C":
+        if i < 0 or i >= n_x or j < 0 or j >= n_y:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": None, "y": None, "z": None,
+                          "reason": "index out of range"}
         xi = offsets_x[i]
         yj = offsets_y[j]
         za = _frame_z_at_plan_offset(
@@ -261,24 +301,88 @@ def _resolve_picked_crossings(picked_set, offsets_x, offsets_y,
             yj, xi, ground_radius, crown_height, curve_type
         )
         if za is None or zb is None:
-            dropped.append({
-                "i": i, "j": j, "x": xi, "y": yj, "z": None,
-                "reason": "crossing outside frame chord",
-            })
-            continue
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": xi, "y": yj, "z": None,
+                          "reason": "crossing outside frame chord"}
         z = 0.5 * (za + zb)
-        if z > eave_height + 1e-9:
-            kept.append({
-                "i": i, "j": j, "x": float(xi), "y": float(yj),
-                "z": float(z),
-            })
-        else:
-            dropped.append({
-                "i": i, "j": j, "x": float(xi), "y": float(yj),
-                "z": float(z),
-                "reason": "at or below eave height",
-            })
-    return kept, dropped
+        px, py = xi, yj
+
+    elif kind == "Am":
+        # On Family A frame i, between crossings j and j+1.
+        if i < 0 or i >= n_x:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": None, "y": None, "z": None,
+                          "reason": "i out of range"}
+        if j < 0 or j + 1 >= n_y:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": None, "y": None, "z": None,
+                          "reason": "j out of range"}
+        # Check both parent crossings exist inside the circle.
+        xi = offsets_x[i]
+        y0 = offsets_y[j]
+        y1 = offsets_y[j + 1]
+        if xi * xi + y0 * y0 > ground_radius ** 2 + 1e-9:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": None, "y": None, "z": None,
+                          "reason": "left crossing outside circle"}
+        if xi * xi + y1 * y1 > ground_radius ** 2 + 1e-9:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": None, "y": None, "z": None,
+                          "reason": "right crossing outside circle"}
+        px = xi
+        py = 0.5 * (y0 + y1)
+        z = _frame_z_at_plan_offset(
+            xi, py, ground_radius, crown_height, curve_type
+        )
+        if z is None:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": px, "y": py, "z": None,
+                          "reason": "outside frame chord"}
+
+    elif kind == "Bm":
+        # On Family B frame j, between crossings i and i+1.
+        if j < 0 or j >= n_y:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": None, "y": None, "z": None,
+                          "reason": "j out of range"}
+        if i < 0 or i + 1 >= n_x:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": None, "y": None, "z": None,
+                          "reason": "i out of range"}
+        yj = offsets_y[j]
+        x0 = offsets_x[i]
+        x1 = offsets_x[i + 1]
+        if x0 * x0 + yj * yj > ground_radius ** 2 + 1e-9:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": None, "y": None, "z": None,
+                          "reason": "lower crossing outside circle"}
+        if x1 * x1 + yj * yj > ground_radius ** 2 + 1e-9:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": None, "y": None, "z": None,
+                          "reason": "upper crossing outside circle"}
+        px = 0.5 * (x0 + x1)
+        py = yj
+        z = _frame_z_at_plan_offset(
+            yj, px, ground_radius, crown_height, curve_type
+        )
+        if z is None:
+            return None, {"kind": kind, "i": i, "j": j,
+                          "x": px, "y": py, "z": None,
+                          "reason": "outside frame chord"}
+
+    else:
+        return None, {"kind": kind, "i": i, "j": j,
+                      "x": None, "y": None, "z": None,
+                      "reason": "unknown pick kind"}
+
+    if z > eave_height + 1e-9:
+        return ({"kind": kind, "i": i, "j": j,
+                 "x": float(px), "y": float(py), "z": float(z)},
+                None)
+    else:
+        return None, {"kind": kind, "i": i, "j": j,
+                      "x": float(px), "y": float(py), "z": float(z),
+                      "reason": "at or below eave height"}
 
 
 # =============================================================================
@@ -290,29 +394,17 @@ def _ring_node_count(radius, target_len):
     return max(RING_NODES_MIN, min(RING_NODES_MAX, n))
 
 
-def _build_cone_geometry(crossing, drop_length, ring_diameter, target_len):
+def _build_cone_geometry(pick, drop_length, ring_diameter, target_len):
     """
-    Build one cone at a crossing.
-
-    The drop member is straight down from the crossing.
-    The ring plane is HORIZONTAL. Ring axis = (0, 0, 1).
-
-    Returns a dict with:
-        crossing      the (x, y, z) of the attachment point
-        ring_centre   (x, y, z) of the ring centre
-        ring_nodes    list of (x, y, z), the ring polygon
-        ring_axis     (0, 0, 1)
-        ring_node_count
+    Build one cone at a pick. Vertical drop, horizontal ring.
     """
-    cx = crossing["x"]
-    cy = crossing["y"]
-    cz = crossing["z"]
+    cx = pick["x"]
+    cy = pick["y"]
+    cz = pick["z"]
 
-    # Vertical drop.
     ring_z = cz - drop_length
     ring_centre = (float(cx), float(cy), float(ring_z))
 
-    # Horizontal ring: nodes at (cx + r cos t, cy + r sin t, ring_z).
     ring_radius = ring_diameter / 2.0
     n_nodes = _ring_node_count(ring_radius, target_len)
     t = np.linspace(0.0, 2.0 * math.pi, n_nodes, endpoint=False)
@@ -324,6 +416,8 @@ def _build_cone_geometry(crossing, drop_length, ring_diameter, target_len):
     ]
 
     return {
+        "pick_kind": pick["kind"],
+        "pick_ij": (pick["i"], pick["j"]),
         "crossing": (float(cx), float(cy), float(cz)),
         "ring_centre": ring_centre,
         "ring_nodes": ring_nodes,
@@ -371,17 +465,17 @@ def build_dome_multi_cone():
 
     ground_radius = max(dome_diameter / 2.0, 1e-6)
 
-    # ---- Read picked crossings -------------------------------------------
+    # ---- Read picked positions ------------------------------------------
     picked_raw = _get("picked_crossings", None)
     if picked_raw is None:
-        picked_set = set()
-    else:
-        try:
-            picked_set = set(
-                (int(i), int(j)) for (i, j) in picked_raw
-            )
-        except (TypeError, ValueError):
-            picked_set = set()
+        picked_raw = set()
+
+    # Normalise to (kind, i, j) triples, deduped.
+    normalised_picks = set()
+    for item in picked_raw:
+        p = _normalise_pick(item)
+        if p is not None:
+            normalised_picks.add(p)
 
     # ---- Build the frame -------------------------------------------------
     frames, apexes, offsets_x, offsets_y = _build_dome_frame(
@@ -398,10 +492,17 @@ def build_dome_multi_cone():
     )
 
     # ---- Resolve picks ---------------------------------------------------
-    kept_picks, dropped_picks = _resolve_picked_crossings(
-        picked_set, offsets_x, offsets_y,
-        ground_radius, crown_height, curve_type, eave_height,
-    )
+    kept_picks = []
+    dropped_picks = []
+    for pick in sorted(normalised_picks):
+        kept, dropped = _resolve_pick(
+            pick, offsets_x, offsets_y,
+            ground_radius, crown_height, curve_type, eave_height,
+        )
+        if kept is not None:
+            kept_picks.append(kept)
+        if dropped is not None:
+            dropped_picks.append(dropped)
 
     # ---- Build cones -----------------------------------------------------
     target_len = max(dome_diameter / 40.0, 0.4)
@@ -416,7 +517,6 @@ def build_dome_multi_cone():
     # ---- Draw ------------------------------------------------------------
     fig = go.Figure()
 
-    # Frames
     for f in frames:
         color = COL_FRAME_A if f["family"] == "A" else COL_FRAME_B
         fig.add_trace(go.Scatter3d(
@@ -427,7 +527,6 @@ def build_dome_multi_cone():
             showlegend=False, hoverinfo="skip",
         ))
 
-    # Eave polygon
     if len(eave_polygon) >= 3:
         ex = [p[0] for p in eave_polygon] + [eave_polygon[0][0]]
         ey = [p[1] for p in eave_polygon] + [eave_polygon[0][1]]
@@ -440,12 +539,10 @@ def build_dome_multi_cone():
             showlegend=False, hoverinfo="skip",
         ))
 
-    # Cones
     for cone in cones:
         cx, cy, cz = cone["crossing"]
         rx, ry, rz = cone["ring_centre"]
 
-        # Drop member — crossing to ring centre, vertical
         fig.add_trace(go.Scatter3d(
             x=[cx, rx], y=[cy, ry], z=[cz, rz],
             mode="lines",
@@ -453,7 +550,6 @@ def build_dome_multi_cone():
             name="drop", showlegend=False, hoverinfo="skip",
         ))
 
-        # Ring polygon — closed loop, horizontal
         rn = cone["ring_nodes"]
         rxx = [p[0] for p in rn] + [rn[0][0]]
         ryy = [p[1] for p in rn] + [rn[0][1]]
@@ -465,7 +561,6 @@ def build_dome_multi_cone():
             name="ring", showlegend=False, hoverinfo="skip",
         ))
 
-        # Spokes from ring centre to each ring node
         for p in rn:
             fig.add_trace(go.Scatter3d(
                 x=[rx, p[0]], y=[ry, p[1]], z=[rz, p[2]],
@@ -511,63 +606,66 @@ def build_dome_multi_cone():
                     )
                 st.code(table, language="text")
 
-        with st.expander("Picked crossings (owner tier)", expanded=False):
+        with st.expander("Picked positions (owner tier)", expanded=False):
             st.write(
                 "**Total picks: %d. Kept: %d. Dropped: %d. "
                 "Cones built: %d.**"
-                % (len(picked_set), len(kept_picks),
+                % (len(normalised_picks), len(kept_picks),
                    len(dropped_picks), len(cones))
             )
 
             if kept_picks:
                 st.markdown("**Kept (z above eave height):**")
                 table = (
-                    "  idx   i   j      x          y          z\n"
-                    "  ---  --  --   ---------  ---------  ---------\n"
+                    "  idx   kind  i    j      x          y          z\n"
+                    "  ---  ----  ---  ---   ---------  ---------  ---------\n"
                 )
                 for k, p in enumerate(kept_picks):
                     table += (
-                        "  %3d  %2d  %2d   %+8.4f  %+8.4f  %8.4f\n"
-                        % (k, p["i"], p["j"], p["x"], p["y"], p["z"])
+                        "  %3d  %-4s  %3d  %3d   %+8.4f  %+8.4f  %8.4f\n"
+                        % (k, p["kind"], p["i"], p["j"],
+                           p["x"], p["y"], p["z"])
                     )
                 st.code(table, language="text")
 
             if dropped_picks:
                 st.markdown("**Dropped:**")
                 table = (
-                    "  idx   i   j      x          y          z        reason\n"
-                    "  ---  --  --   ---------  ---------  ---------  ------\n"
+                    "  idx   kind  i    j      x          y          z        reason\n"
+                    "  ---  ----  ---  ---   ---------  ---------  ---------  ------\n"
                 )
                 for k, p in enumerate(dropped_picks):
                     x_s = ("%+8.4f" % p["x"]) if p["x"] is not None else "     ---"
                     y_s = ("%+8.4f" % p["y"]) if p["y"] is not None else "     ---"
                     z_s = ("%8.4f" % p["z"]) if p["z"] is not None else "     ---"
                     table += (
-                        "  %3d  %2d  %2d   %s  %s  %s  %s\n"
-                        % (k, p["i"], p["j"], x_s, y_s, z_s, p["reason"])
+                        "  %3d  %-4s  %3d  %3d   %s  %s  %s  %s\n"
+                        % (k, p["kind"], p["i"], p["j"],
+                           x_s, y_s, z_s, p["reason"])
                     )
                 st.code(table, language="text")
 
         with st.expander("Cone geometry (owner tier)", expanded=False):
             st.write(
                 "One entry per built cone. Drop member is vertical. "
-                "Ring plane is horizontal (perpendicular to ground)."
+                "Ring plane is horizontal."
             )
             table = (
-                "  idx   crossing (x,y,z)          ring centre (x,y,z)        "
-                "ring axis          nodes\n"
-                "  ---   -------------------------  -------------------------  "
-                "-----------------  -----\n"
+                "  idx   kind  i    j      crossing (x,y,z)          "
+                "ring centre (x,y,z)        nodes\n"
+                "  ---  ----  ---  ---   -------------------------  "
+                "-------------------------  -----\n"
             )
             for k, cone in enumerate(cones):
                 cx, cy, cz = cone["crossing"]
                 rx, ry, rz = cone["ring_centre"]
-                ax, ay, az = cone["ring_axis"]
+                pi, pj = cone["pick_ij"]
                 table += (
-                    "  %3d   (%+7.3f,%+7.3f,%6.3f)  "
+                    "  %3d  %-4s  %3d  %3d   "
                     "(%+7.3f,%+7.3f,%6.3f)  "
-                    "(%+4.2f,%+4.2f,%+4.2f)  %5d\n"
-                    % (k, cx, cy, cz, rx, ry, rz, ax, ay, az,
+                    "(%+7.3f,%+7.3f,%6.3f)  %5d\n"
+                    % (k, cone["pick_kind"], pi, pj,
+                       cx, cy, cz, rx, ry, rz,
                        cone["ring_node_count"])
                 )
             st.code(table, language="text")
