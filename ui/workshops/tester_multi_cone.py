@@ -9,7 +9,7 @@ to slide only along the local tangent cannot respond to the membrane's
 inward pull; with free nodes the cable bows the way a real cable does.
 
 Everything downstream of the geometry uses the shared engine:
-    - SDSe_mesh_rings_spine
+    - SDSe_mesh_rings
     - SDSe_blend_q_per_edge
     - solve_fdm
 
@@ -17,6 +17,7 @@ No mesh-builder code lives in this file.
 
 History:
     First SDSe-only version.
+    Renamed SDSe_mesh_rings_spine to SDSe_mesh_rings.
 """
 
 import math
@@ -27,7 +28,7 @@ import streamlit as st
 
 from engine.form_finding_test import solve_fdm
 from engine.SDSe_mesh_builder import (
-    SDSe_mesh_rings_spine,
+    SDSe_mesh_rings,
     SDSe_blend_q_per_edge,
 )
 from viewers.figures._shared import (
@@ -149,7 +150,7 @@ def _cone_arc_positions(n_cones, spacing, total):
         if p < 0.0 or p > total:
             raise ValueError(
                 "Ring position %.3f m falls outside the primary span "
-                "of %.3f m. Reduce spacing or cone count." % (p, total)
+                "of %.3f m.  Reduce spacing or cone count." % (p, total)
             )
     return sorted(positions)
 
@@ -495,7 +496,7 @@ def render_tester_multi_cone():
     target_len = max(L_avg, 1e-6)
 
     # ---- SDSe engine call ------------------------------------------------
-    built = SDSe_mesh_rings_spine(
+    built = SDSe_mesh_rings(
         perimeter_loop=perimeter_loop,
         anchor_idx=anchor_idx,
         ring_specs=ring_specs,
@@ -631,7 +632,7 @@ def render_tester_multi_cone():
 
     with st.expander("Diagnostics", expanded=True):
         st.write("Mesh builder: engine/SDSe_mesh_builder.py "
-                 "(SDSe_mesh_rings_spine)")
+                 "(SDSe_mesh_rings)")
         st.write(f"Number of cones: {number_of_cones}")
         st.write(f"Ring x positions (m): " +
                  ", ".join(f"{v:+.3f}" for v in x_rings))
