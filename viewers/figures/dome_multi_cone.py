@@ -70,8 +70,8 @@ EAVE_DEDUPE_TOL_FRAC = 0.01
 EAVE_SUBDIVISIONS = 4
 
 # Solver performance guards.
-SOLVE_TARGET_LEN_FRAC = 15.0   # target mesh edge = dome_diameter / this
-SOLVE_WALL_SECONDS = 15.0      # hard cap on the NFDM solve
+SOLVE_TARGET_LEN_FRAC = 30.0   # target mesh edge = dome_diameter / this
+SOLVE_WALL_SECONDS = 25.0      # hard cap on the NFDM solve
 SOLVE_MAX_ITER = 40
 SOLVE_MAX_OUTER = 6
 SOLVE_TOL = 1e-2
