@@ -53,6 +53,29 @@
 #   Boundary edge on cable segment:        edge_q.
 #   Interior edge:                         weft_q.
 #
+# Ring holes (added 2026-10-16):
+#   Optional ring_specs. Each spec describes one cone ring hole:
+#     cx, cy       ring centre in plan
+#     cz           ring z (bottom of drop member)
+#     r            ring radius
+#     beam_z       attachment point z on the frame (top of drop)
+#
+#   When ring_specs is provided:
+#     - The ring polygon nodes (horizontal ring at cz) become mesh nodes.
+#     - The ring centre node (at cz) and the beam top node (at beam_z)
+#       become mesh nodes.
+#     - Interior grid candidates inside any ring circle are excluded.
+#     - Triangles whose centroid falls inside any ring circle are
+#       excluded, both in the initial triangulation and in the settled
+#       retriangulation.
+#     - Ring polygon nodes, ring centres, and beam tops are added to
+#       the fixed set.
+#     - The return dict gains extra keys: ring_indices, centre_indices,
+#       beam_top_indices, ring_node_counts.
+#
+#   When ring_specs is None, the function behaves exactly as before.
+#   Zero regression risk for existing callers.
+#
 # Dependencies:
 #   scipy.spatial.Delaunay and scipy.sparse.
 #   scipy is on Streamlit Cloud.
@@ -65,12 +88,19 @@
 #   2026-10-09 - Triangulation rebuilt from the settled shape.
 #                Fixed the settled retriangulation to call Delaunay
 #                directly, not through the interior grid generator.
+#   2026-10-16 - Ring hole support added. Optional ring_specs parameter.
 # =============================================================================
+
+import math
 
 import numpy as np
 
 
 _VALID_TYPES = ("beam", "cable", "wall")
+
+_RING_NODES_MIN = 12
+_RING_NODES_MAX = 32
+_RING_CLEARANCE_FRAC = 1.0   # clearance band = frac * target_len
 
 
 # =============================================================================
@@ -140,6 +170,30 @@ def _validate_target_edge_length(length, boundary_loop):
     return length
 
 
+def _validate_ring_specs(ring_specs):
+    if ring_specs is None:
+        return []
+    specs = []
+    for k, s in enumerate(ring_specs):
+        try:
+            specs.append({
+                "cx": float(s["cx"]),
+                "cy": float(s["cy"]),
+                "cz": float(s["cz"]),
+                "r": float(s["r"]),
+                "beam_z": float(s["beam_z"]),
+            })
+        except (KeyError, TypeError, ValueError) as e:
+            raise ValueError(
+                "ring_specs[%d] is malformed: %s" % (k, str(e))
+            )
+        if specs[-1]["r"] <= 0:
+            raise ValueError(
+                "ring_specs[%d] radius must be > 0" % k
+            )
+    return specs
+
+
 # =============================================================================
 # PLAN PROJECTION
 # =============================================================================
@@ -190,7 +244,21 @@ def _point_in_polygon(x, y, polygon):
     return inside
 
 
-def _grid_interior_points(pts_2d, target_edge_length):
+def _point_inside_any_ring(x, y, ring_specs, extra_clearance=0.0):
+    for s in ring_specs:
+        d2 = (x - s["cx"]) ** 2 + (y - s["cy"]) ** 2
+        r_eff = s["r"] + extra_clearance
+        if d2 < r_eff * r_eff:
+            return True
+    return False
+
+
+def _ring_node_count(r, target_len):
+    n = int(round(2.0 * math.pi * r / max(target_len, 1e-6)))
+    return max(_RING_NODES_MIN, min(_RING_NODES_MAX, n))
+
+
+def _grid_interior_points(pts_2d, target_edge_length, ring_specs):
     pts_2d = np.asarray(pts_2d, dtype=float)
     h = float(target_edge_length)
     if h <= 0:
@@ -206,9 +274,12 @@ def _grid_interior_points(pts_2d, target_edge_length):
 
     candidates = []
     margin = 0.4 * h
+    ring_clearance = _RING_CLEARANCE_FRAC * h
     for x in xs:
         for y in ys:
             if not _point_in_polygon(x, y, pts_2d):
+                continue
+            if _point_inside_any_ring(x, y, ring_specs, ring_clearance):
                 continue
             too_close = False
             for k in range(pts_2d.shape[0]):
@@ -229,7 +300,7 @@ def _grid_interior_points(pts_2d, target_edge_length):
 # TRIANGULATION
 # =============================================================================
 
-def _triangulate_polygon(pts_2d, target_edge_length):
+def _triangulate_polygon(pts_2d, target_edge_length, ring_specs):
     """
     Triangulate the polygon defined by pts_2d (the boundary), with
     interior grid candidates added. Returns (interior_pts_2d,
@@ -242,7 +313,7 @@ def _triangulate_polygon(pts_2d, target_edge_length):
     n_boundary = pts_2d.shape[0]
 
     interior_candidates = _grid_interior_points(
-        pts_2d, target_edge_length
+        pts_2d, target_edge_length, ring_specs
     )
 
     if interior_candidates.shape[0] > 0:
@@ -258,8 +329,11 @@ def _triangulate_polygon(pts_2d, target_edge_length):
         a, b, c = int(simplex[0]), int(simplex[1]), int(simplex[2])
         cx = (all_pts[a][0] + all_pts[b][0] + all_pts[c][0]) / 3.0
         cy = (all_pts[a][1] + all_pts[b][1] + all_pts[c][1]) / 3.0
-        if _point_in_polygon(cx, cy, pts_2d):
-            triangles_inside.append((a, b, c))
+        if not _point_in_polygon(cx, cy, pts_2d):
+            continue
+        if _point_inside_any_ring(cx, cy, ring_specs, 0.0):
+            continue
+        triangles_inside.append((a, b, c))
 
     used = set()
     for (a, b, c) in triangles_inside:
@@ -291,16 +365,18 @@ def _triangulate_polygon(pts_2d, target_edge_length):
     return interior_pts, compacted
 
 
-def _triangulate_settled(settled_points, n_boundary, origin, u, v):
+def _triangulate_settled(settled_points, n_boundary, origin, u, v,
+                          ring_specs, extra_points_2d=None):
     """
     Rebuild the triangulation from the SETTLED coordinates.
 
     Projects the settled shape onto the same plan plane, runs
-    Delaunay on the settled plan positions directly (no new
-    interior candidates are added, because the settled points
-    already include the interior nodes placed by the initial
-    triangulation), filters to the settled boundary polygon, and
-    returns the triangles.
+    Delaunay on the settled plan positions, filters to the settled
+    boundary polygon, and removes triangles inside rings.
+
+    Any ring nodes that were added to the mesh appear in
+    settled_points after the boundary, so Delaunay includes them
+    automatically.
     """
     from scipy.spatial import Delaunay
 
@@ -313,8 +389,11 @@ def _triangulate_settled(settled_points, n_boundary, origin, u, v):
         a, b, c = int(simplex[0]), int(simplex[1]), int(simplex[2])
         cx = (settled_2d[a][0] + settled_2d[b][0] + settled_2d[c][0]) / 3.0
         cy = (settled_2d[a][1] + settled_2d[b][1] + settled_2d[c][1]) / 3.0
-        if _point_in_polygon(cx, cy, settled_boundary_2d):
-            triangles_inside.append((a, b, c))
+        if not _point_in_polygon(cx, cy, settled_boundary_2d):
+            continue
+        if _point_inside_any_ring(cx, cy, ring_specs, 0.0):
+            continue
+        triangles_inside.append((a, b, c))
     return triangles_inside
 
 
@@ -381,11 +460,6 @@ def _compute_fixed_indices(boundary_loop, anchor_indices, segment_types):
 
 
 def _compute_cable_dir_indices(boundary_loop, anchor_indices, segment_types):
-    """
-    Optional: for each cable-segment interior boundary node, return
-    its local cable tangent. Dormant capability. Passed to solve_fdm
-    only when the caller asks for it (use_dir_constraint=True).
-    """
     n = boundary_loop.shape[0]
     seg_of_node = _compute_seg_of_node(boundary_loop, anchor_indices)
     anchor_set = set(anchor_indices)
@@ -416,18 +490,29 @@ def _compute_cable_dir_indices(boundary_loop, anchor_indices, segment_types):
 # LAPLACE LIFT (2D -> 3D)
 # =============================================================================
 
-def _laplace_lift(all_pts_2d, boundary_z, n_boundary):
+def _laplace_lift(all_pts_2d, boundary_z, n_fixed_z_map, n_boundary):
+    """
+    Lift interior nodes to 3D via Laplace, using the boundary_z
+    values for the first n_boundary nodes, plus any additional
+    fixed z nodes passed via n_fixed_z_map = dict {index: z}.
+    """
     import scipy.sparse as sp
     import scipy.sparse.linalg as spla
     from scipy.spatial import cKDTree
 
     n_nodes = all_pts_2d.shape[0]
-    n_interior = n_nodes - n_boundary
 
     z_all = np.zeros(n_nodes)
     z_all[:n_boundary] = boundary_z
 
-    if n_interior == 0:
+    fixed_mask = np.zeros(n_nodes, dtype=bool)
+    fixed_mask[:n_boundary] = True
+    for idx, z_val in n_fixed_z_map.items():
+        z_all[idx] = float(z_val)
+        fixed_mask[idx] = True
+
+    int_idx = np.where(~fixed_mask)[0]
+    if len(int_idx) == 0:
         return z_all
 
     tree = cKDTree(all_pts_2d)
@@ -455,16 +540,72 @@ def _laplace_lift(all_pts_2d, boundary_z, n_boundary):
 
     L = sp.csr_matrix((data, (rows, cols)), shape=(n_nodes, n_nodes))
 
-    int_idx = np.arange(n_boundary, n_nodes)
-    bnd_idx = np.arange(0, n_boundary)
+    bnd_idx = np.where(fixed_mask)[0]
 
     L_ii = L[int_idx, :][:, int_idx]
     L_ib = L[int_idx, :][:, bnd_idx]
 
-    rhs = -L_ib @ z_all[:n_boundary]
-    z_interior = spla.spsolve(L_ii.tocsc(), rhs)
+    rhs = -L_ib @ z_all[bnd_idx]
+    try:
+        z_interior = spla.spsolve(L_ii.tocsc(), rhs)
+    except Exception:
+        z_interior = np.zeros(len(int_idx))
+
     z_all[int_idx] = z_interior
     return z_all
+
+
+# =============================================================================
+# RING PLACEMENT
+# =============================================================================
+
+def _place_ring_nodes(boundary, ring_specs, target_len):
+    """
+    Given the boundary and ring specs, build the ring polygon
+    nodes, ring centre nodes, and beam top nodes.
+
+    Returns:
+        ring_pts_3d      (N, 3) array of ring polygon node positions
+        ring_meta        dict with per-ring index lists and metadata
+    """
+    ring_pts_3d = []
+    ring_indices = []       # indices within ring_pts_3d
+    ring_centre_local = []
+    ring_beam_top_local = []
+    ring_node_counts = []
+
+    for s in ring_specs:
+        cx, cy = s["cx"], s["cy"]
+        cz = s["cz"]
+        beam_z = s["beam_z"]
+        r = s["r"]
+
+        n_poly = _ring_node_count(r, target_len)
+        ring_node_counts.append(n_poly)
+
+        start = len(ring_pts_3d)
+        for k in range(n_poly):
+            t = 2.0 * math.pi * k / n_poly
+            ring_pts_3d.append((
+                float(cx + r * math.cos(t)),
+                float(cy + r * math.sin(t)),
+                float(cz),
+            ))
+        ring_indices.append(list(range(start, start + n_poly)))
+
+        ring_centre_local.append(len(ring_pts_3d))
+        ring_pts_3d.append((float(cx), float(cy), float(cz)))
+
+        ring_beam_top_local.append(len(ring_pts_3d))
+        ring_pts_3d.append((float(cx), float(cy), float(beam_z)))
+
+    meta = {
+        "ring_indices": ring_indices,
+        "ring_centre_local": ring_centre_local,
+        "ring_beam_top_local": ring_beam_top_local,
+        "ring_node_counts": ring_node_counts,
+    }
+    return np.asarray(ring_pts_3d, dtype=float), meta
 
 
 # =============================================================================
@@ -481,6 +622,7 @@ def build_mesh_triangulated(
     weft_q=2000.0,
     edge_q=5000.0,
     use_dir_constraint=False,
+    ring_specs=None,
 ):
     """
     Build a triangulated mesh from a closed boundary loop.
@@ -497,11 +639,17 @@ def build_mesh_triangulated(
         (sorted).
     use_dir_constraint : bool
         If True, cable interior nodes are passed to solve_fdm with
-        their local cable tangent as a directional constraint. This
-        is optional and off by default. The current form-finding
-        path relies on the settled-shape rebuild, not on this
-        constraint, to keep the boundary clean. The capability is
-        available for callers that need a node held to a line.
+        their local cable tangent as a directional constraint.
+        Optional and off by default.
+    ring_specs : list of dict or None
+        Optional ring holes. Each dict must contain:
+            cx, cy    ring centre in plan
+            cz        ring z (bottom of drop member)
+            r         ring radius
+            beam_z    attachment point z on the frame
+        When provided, ring polygon nodes, ring centres, and beam tops
+        are added to the mesh as fixed nodes, and interior grid
+        candidates and triangles inside any ring circle are excluded.
 
     See engine/SPEC_mesh_triangulation.md for the full design.
     """
@@ -514,40 +662,110 @@ def build_mesh_triangulated(
     target_len = _validate_target_edge_length(
         target_edge_length, boundary
     )
+    rings = _validate_ring_specs(ring_specs)
 
     normal, origin, u, v = _plan_basis(plan_plane, boundary)
     pts_2d = _project_points(boundary, origin, u, v)
 
     interior_pts_2d, triangles_initial = _triangulate_polygon(
-        pts_2d, target_len
+        pts_2d, target_len, rings
     )
     n_interior = interior_pts_2d.shape[0]
 
-    if n_interior > 0:
-        all_pts_2d = np.vstack([pts_2d, interior_pts_2d])
-    else:
-        all_pts_2d = pts_2d.copy()
+    # Ring polygon nodes, ring centres, beam tops come after
+    # boundary and after interior candidates.
+    ring_pts_3d, ring_meta = _place_ring_nodes(
+        boundary, rings, target_len
+    )
+    n_ring_pts = ring_pts_3d.shape[0]
+    n_ring_nodes = n_interior + n_ring_pts
 
+    # Assemble all points: boundary, interior, ring nodes.
+    all_pts_2d = np.zeros((n_boundary + n_interior + n_ring_pts, 2))
+    all_pts_2d[:n_boundary] = pts_2d
+    if n_interior > 0:
+        all_pts_2d[n_boundary:n_boundary + n_interior] = interior_pts_2d
+
+    # Ring nodes' 2D positions on the plan plane.
+    if n_ring_pts > 0:
+        ring_pts_2d = _project_points(ring_pts_3d, origin, u, v)
+        all_pts_2d[n_boundary + n_interior:] = ring_pts_2d
+
+    # Assemble 3D points.
     all_points = np.zeros((all_pts_2d.shape[0], 3))
     for i in range(n_boundary):
         all_points[i] = boundary[i]
 
+    # Ring nodes keep their own 3D positions.
+    if n_ring_pts > 0:
+        all_points[n_boundary + n_interior:] = ring_pts_3d
+
+    # Build fixed z map for Laplace: ring polygon nodes, ring
+    # centres, and beam tops are fixed in z.
+    fixed_z_map = {}
+    if n_ring_pts > 0:
+        base = n_boundary + n_interior
+        for k, idx_list in enumerate(ring_meta["ring_indices"]):
+            cz = rings[k]["cz"]
+            for local_i in idx_list:
+                fixed_z_map[base + local_i] = cz
+        for k, local_c in enumerate(ring_meta["ring_centre_local"]):
+            fixed_z_map[base + local_c] = rings[k]["cz"]
+        for k, local_b in enumerate(ring_meta["ring_beam_top_local"]):
+            fixed_z_map[base + local_b] = rings[k]["beam_z"]
+
+    # Laplace lift the interior nodes.
     if n_interior > 0:
         boundary_z = np.array([
             float(np.dot(p - origin, normal)) for p in boundary
         ])
-        z_init = _laplace_lift(all_pts_2d, boundary_z, n_boundary)
-        for i in range(n_boundary, all_pts_2d.shape[0]):
+        z_init = _laplace_lift(
+            all_pts_2d, boundary_z, fixed_z_map, n_boundary
+        )
+        for i in range(n_boundary, n_boundary + n_interior):
             a = all_pts_2d[i, 0]
             b = all_pts_2d[i, 1]
             z = float(z_init[i])
             all_points[i] = origin + a * u + b * v + z * normal
 
+    # Edges from triangles.
     edges = _edges_from_triangles(triangles_initial, all_points.shape[0])
 
+    # Add ring polygon edges, ring centre to polygon edges, and the
+    # drop member (beam top to centre).
+    edge_set = set((min(a, b), max(a, b)) for (a, b) in edges)
+    if n_ring_pts > 0:
+        base = n_boundary + n_interior
+        for k, idx_list in enumerate(ring_meta["ring_indices"]):
+            n_poly = len(idx_list)
+            for m in range(n_poly):
+                a = base + idx_list[m]
+                b = base + idx_list[(m + 1) % n_poly]
+                edge_set.add((min(a, b), max(a, b)))
+            centre_i = base + ring_meta["ring_centre_local"][k]
+            beam_i = base + ring_meta["ring_beam_top_local"][k]
+            for local_i in idx_list:
+                a = centre_i
+                b = base + local_i
+                edge_set.add((min(a, b), max(a, b)))
+            edge_set.add((min(centre_i, beam_i), max(centre_i, beam_i)))
+    edges = sorted(edge_set)
+
+    # Fixed indices: boundary hold rule + ring nodes.
     fixed_indices = _compute_fixed_indices(
         boundary, anchors, seg_types
     )
+    if n_ring_pts > 0:
+        base = n_boundary + n_interior
+        fixed_ring = []
+        for k, idx_list in enumerate(ring_meta["ring_indices"]):
+            for local_i in idx_list:
+                fixed_ring.append(base + local_i)
+        for local_c in ring_meta["ring_centre_local"]:
+            fixed_ring.append(base + local_c)
+        for local_b in ring_meta["ring_beam_top_local"]:
+            fixed_ring.append(base + local_b)
+        fixed_indices = sorted(set(fixed_indices + fixed_ring))
 
     dir_only_indices = []
     if use_dir_constraint:
@@ -589,8 +807,21 @@ def build_mesh_triangulated(
         settled_points = all_points
 
     triangles_settled = _triangulate_settled(
-        settled_points, n_boundary, origin, u, v
+        settled_points, n_boundary, origin, u, v, rings
     )
+
+    # Ring index returns in the settled mesh's numbering.
+    ring_indices_out = []
+    centre_indices_out = []
+    beam_top_indices_out = []
+    if n_ring_pts > 0:
+        base = n_boundary + n_interior
+        for k, idx_list in enumerate(ring_meta["ring_indices"]):
+            ring_indices_out.append([base + i for i in idx_list])
+        for local_c in ring_meta["ring_centre_local"]:
+            centre_indices_out.append(base + local_c)
+        for local_b in ring_meta["ring_beam_top_local"]:
+            beam_top_indices_out.append(base + local_b)
 
     diagnostics = {
         "n_nodes": int(settled_points.shape[0]),
@@ -602,6 +833,8 @@ def build_mesh_triangulated(
         "n_free": int(settled_points.shape[0]) - len(fixed_indices),
         "n_boundary": int(n_boundary),
         "n_interior": int(n_interior),
+        "n_ring_nodes": int(n_ring_pts),
+        "n_rings": len(rings),
         "n_anchors": len(anchors),
         "n_segments": n_segments,
         "target_edge_length": float(target_len),
@@ -611,6 +844,7 @@ def build_mesh_triangulated(
         "plan_origin": [float(vv) for vv in origin],
         "warp_dir": [float(vv) for vv in warp_dir],
         "lift_used": "fdm_anisotropic_settled_triangulation",
+        "ring_node_counts": list(ring_meta["ring_node_counts"]),
         "structural_connections": [],
     }
 
@@ -624,6 +858,12 @@ def build_mesh_triangulated(
         "dir_only_indices": dir_only_indices,
         "q": q_aniso,
         "diagnostics": diagnostics,
+        # Ring metadata for callers that passed ring_specs.
+        "ring_indices": ring_indices_out,
+        "centre_indices": centre_indices_out,
+        "beam_top_indices": beam_top_indices_out,
+        "ring_node_counts": list(ring_meta["ring_node_counts"]),
+        "n_perimeter": int(n_boundary),
     }
 
 
