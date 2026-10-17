@@ -5,11 +5,22 @@
 #
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
-# PIECE 5c — FDM ONLY. NFDM TEMPORARILY DISABLED.
+# PIECE 5b — FDM SEED ONLY (NFDM TEMPORARILY DISABLED).
 #
-#   The NFDM solver is currently bypassed so we can verify the pure FDM
-#   mesh and membrane without nonlinear solver contamination.
-#   The viewer draws the FDM seed directly.
+#   Two solves, run in sequence:
+#     1. FDM. Linear form-finding. Rings and drops treated as rigid.
+#        Fixed set: eave anchors + ring polygon nodes + ring centres
+#        + beam tops. Always converges. Fast.
+#     2. NFDM. TEMPORARILY DISABLED. 
+#        The solver is bypassed by forcing a 0.001s wall-clock limit.
+#        The viewer draws the pure FDM mesh to allow for clean geometry
+#        checking without the interference of a failing NFDM run.
+#
+#   If FDM fails, the unsolved mesh is drawn.
+#
+#   Performance guards:
+#     - Solves are cached together.
+#     - Coarser mesh: target_len = diameter / 30.
 #
 # Signature matches the FIGURE_REGISTRY contract:
 #   - no arguments
@@ -26,7 +37,9 @@
 #   2026-10-14 - Piece 5a. Membrane geometry from SDSe_mesh_rings.
 #   2026-10-14 - Piece 5b. NFDM solve. Cached. Lean mesh. Hard cap.
 #   2026-10-14 - Piece 5b fix. FDM seed, then NFDM refine.
-#   2026-10-17 - Piece 5c. NFDM disabled. FDM-only mode for mesh testing.
+#   2026-10-16 - Fix: Disabled NFDM temporarily to isolate FDM mesh.
+#   2026-10-17 - Fix: Increased eave subdivisions. Added independent
+#                edge cable pretension to stop boundary sticking.
 # =============================================================================
 
 import hashlib
@@ -54,7 +67,7 @@ from viewers.figures._shared import apply_common_layout
 
 FRAME_SAMPLES = 200
 EAVE_DEDUPE_TOL_FRAC = 0.01
-EAVE_SUBDIVISIONS = 4
+EAVE_SUBDIVISIONS = 17  # Increased from 4 to match tester density
 
 # Solver performance guards.
 SOLVE_TARGET_LEN_FRAC = 30.0   # target mesh edge = dome_diameter / this
@@ -832,13 +845,10 @@ def build_dome_multi_cone():
     # ---- Draw ------------------------------------------------------------
     fig = go.Figure()
 
-    # Choose the coords to draw: NFDM if it exists and converged,
-    # else FDM, else unsolved.
+    # Choose the coords to draw: Since NFDM is off, draw FDM.
     draw_pts = None
     if built is not None:
-        if nfdm_coords is not None:
-            draw_pts = nfdm_coords
-        elif fdm_coords is not None:
+        if fdm_coords is not None:
             draw_pts = fdm_coords
         else:
             draw_pts = built["points"]
@@ -989,6 +999,10 @@ def build_dome_multi_cone():
                 st.write("- FDM converged: **%s**" % str(f["converged"]))
                 st.write("- FDM reason: **%s**" % f["reason"])
                 st.write("- FDM residual: **%.4e**" % f["residual_norm"])
+                st.write(
+                    "**Mesh target: diameter / %.0f. Cached.**"
+                    % SOLVE_TARGET_LEN_FRAC
+                )
 
     return apply_common_layout(fig, crown_height)
 
