@@ -79,7 +79,7 @@ DOME_MULTI_CONE_RECIPE = {
         # GROUP 1 - DOME SHAPE
         # =====================================================================
         {
-            "key": "dome":_shape",
+            "key": "dome_shape",
             "name": "1. Dome Shape",
  "            "expanded": True,
            ground "help": "Footprint, height, frame_out grid, eave, andline beam curve.",
