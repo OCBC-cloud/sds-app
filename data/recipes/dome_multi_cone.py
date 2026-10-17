@@ -22,10 +22,10 @@
 #   2026-10-14 - Removed Group 2 (Cone Placement). Cone positions
 #                are now picked in the 2D picker below the recipe.
 #                Renumbered remaining groups sequentially.
-#                Reduced frame-count max to 15 for picker responsiveness.
+#                Reduced frame-count max to 15 for picker
+#                responsiveness.
 #   2026-10-14 - Renamed the frame steel input. Key changed from
-#                "meridian_material" to "frame_material". The word
-#                "meridian" is no longer used anywhere in this recipe.
+#                "meridian_material" to "frame_material".
 #   2026-10-17 - Fix: removed dead "grid_pretension" widget.
 #                Added Cone drop length and Cone diameter inputs.
 #                Raised warp/weft defaults to 20 kN/m (matches tester).
@@ -81,10 +81,11 @@ DOME_MULTI_CONE_RECIPE = {
         {
             "key": "dome_shape",
             "name": "1. Dome Shape",
- "            "expanded": True,
-           ground "help": "Footprint, height, frame_out grid, eave, andline beam curve.",
-            "inputs",
-": [
+            "expanded": True,
+            "help": (
+                "Footprint, height, frame grid, eave, and beam curve."
+            ),
+            "inputs": [
                 {
                     "key": "dome_diameter",
                     "label": "Dome diameter (m)",
@@ -104,7 +105,8 @@ DOME_MULTI_CONE_RECIPE = {
                     "step": 0.5,
                 },
                 {
-                    "key                    "label": "Ground outline",
+                    "key": "ground_outline",
+                    "label": "Ground outline",
                     "type": "dropdown",
                     "options": [
                         ["circle", "Circle"],
@@ -139,10 +141,12 @@ DOME_MULTI_CONE_RECIPE = {
                     "min": 3,
                     "max": 15,
                     "step": 1,
-                    "help": "Number of frames spaced along the X axis. "
-                            "Each frame runs along Y (its curve lies in "
-                            "the YZ plane). Max 15 for picker "
-                            "responsiveness.",
+                    "help": (
+                        "Number of frames spaced along the X axis. "
+                        + "Each frame runs along Y (its curve lies in "
+                        + "the YZ plane). Max 15 for picker "
+                        + "responsiveness."
+                    ),
                 },
                 {
                     "key": "meridians_y",
@@ -152,10 +156,12 @@ DOME_MULTI_CONE_RECIPE = {
                     "min": 3,
                     "max": 15,
                     "step": 1,
-                    "help": "Number of frames spaced along the Y axis. "
-                            "Each frame runs along X (its curve lies in "
-                            "the XZ plane). Max 15 for picker "
-                            "responsiveness.",
+                    "help": (
+                        "Number of frames spaced along the Y axis. "
+                        + "Each frame runs along X (its curve lies in "
+                        + "the XZ plane). Max 15 for picker "
+                        + "responsiveness."
+                    ),
                 },
                 {
                     "key": "eave_height",
@@ -165,7 +171,10 @@ DOME_MULTI_CONE_RECIPE = {
                     "min": 0.5,
                     "max": 40.0,
                     "step": 0.1,
-                    "help": "Where the membrane stops. Below this, no fabric.",
+                    "help": (
+                        "Where the membrane stops. Below this, "
+                        + "no fabric."
+                    ),
                 },
                 {
                     "key": "curve_type",
@@ -187,45 +196,54 @@ DOME_MULTI_CONE_RECIPE = {
         {
             "key": "prestress",
             "name": "2. Membrane prestress",
-            "help": "Warp and weft are the fabric's own prestress "
-                    "(woven threads under tension). Edge cable is the "
-                    "perimeter cable pretension. None of these apply "
-                    "to the structural frame or rings.",
+            "help": (
+                "Warp and weft are the fabric's own prestress "
+                + "(woven threads under tension). Edge cable is the "
+                + "perimeter cable pretension. None of these apply "
+                + "to the structural frame or rings."
+            ),
             "inputs": [
                 {
                     "key": "warp_pretension",
                     "label": "Membrane warp prestress (kN/m)",
                     "type": "number",
-                    "default": 20.0,
+                    "default": 1.0,
                     "min": 0.1,
                     "max": 100.0,
                     "step": 0.1,
-                    "help": "Longitudinal fabric thread tension. "
-                            "Typical PVDF Type III: 2–6 kN/m. "
-                            "20 kN/m is high and useful for stiff form-finding.",
+                    "help": (
+                        "Longitudinal fabric thread tension. "
+                        + "Typical PVDF Type III: 2-6 kN/m. "
+                        + "20 kN/m is high and useful for stiff "
+                        + "form-finding."
+                    ),
                 },
                 {
                     "key": "weft_pretension",
                     "label": "Membrane weft prestress (kN/m)",
                     "type": "number",
-                    "default": 20.0,
+                    "default": 1.0,
                     "min": 0.1,
                     "max": 100.0,
                     "step": 0.1,
-                    "help": "Transverse fabric thread tension. "
-                            "Usually equal to or lower than warp.",
+                    "help": (
+                        "Transverse fabric thread tension. "
+                        + "Usually equal to or lower than warp."
+                    ),
                 },
                 {
                     "key": "edge_cable_pretension",
                     "label": "Edge cable pretension (kN/m)",
                     "type": "number",
-                    "default": 25.0,
+                    "default": 3.0,
                     "min": 0.1,
                     "max": 500.0,
                     "step": 0.5,
-                    "help": "Perimeter cable pretension. "
-                            "Carries the membrane's inward pull "
-                            "to the eave anchors.",
+                    "help": (
+                        "Perimeter cable pretension. "
+                        + "Carries the membrane's inward pull "
+                        + "to the eave anchors."
+                    ),
                 },
             ],
         },
@@ -236,8 +254,10 @@ DOME_MULTI_CONE_RECIPE = {
         {
             "key": "cone_geometry",
             "name": "3. Cone geometry",
-            "help": "Cone size and depth. Positions are set in the "
-                    "picker below this form.",
+            "help": (
+                "Cone size and depth. Positions are set in the "
+                + "picker below this form."
+            ),
             "inputs": [
                 {
                     "key": "ring_diameter",
@@ -247,7 +267,10 @@ DOME_MULTI_CONE_RECIPE = {
                     "min": 0.5,
                     "max": 10.0,
                     "step": 0.1,
-                    "help": "Diameter of the top opening (ring) of each cone.",
+                    "help": (
+                        "Diameter of the top opening (ring) "
+                        + "of each cone."
+                    ),
                 },
                 {
                     "key": "drop_length",
@@ -257,8 +280,10 @@ DOME_MULTI_CONE_RECIPE = {
                     "min": 0.1,
                     "max": 5.0,
                     "step": 0.1,
-                    "help": "Vertical distance from the frame crossing "
-                            "down to the ring. Longer drop = deeper cone.",
+                    "help": (
+                        "Vertical distance from the frame crossing "
+                        + "down to the ring. Longer drop = deeper cone."
+                    ),
                 },
             ],
         },
@@ -269,7 +294,9 @@ DOME_MULTI_CONE_RECIPE = {
         {
             "key": "materials",
             "name": "4. Materials",
-            "help": "Fabric, frame steel, ring steel.",
+            "help": (
+                "Fabric, frame steel, ring steel."
+            ),
             "inputs": [
                 {
                     "key": "fabric_type",
@@ -329,7 +356,9 @@ DOME_MULTI_CONE_RECIPE = {
         {
             "key": "foundation",
             "name": "5. Foundation",
-            "help": "Base support condition.",
+            "help": (
+                "Base support condition."
+            ),
             "inputs": [
                 {
                     "key": "base_condition",
@@ -350,7 +379,9 @@ DOME_MULTI_CONE_RECIPE = {
         {
             "key": "load_case",
             "name": "6. Load case",
-            "help": "Design standard used for partial factors.",
+            "help": (
+                "Design standard used for partial factors."
+            ),
             "inputs": [
                 {
                     "key": "load_standard",
