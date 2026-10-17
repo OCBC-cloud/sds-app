@@ -5,25 +5,11 @@
 #
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
-# PIECE 5b — FDM SEED + NFDM REFINE. CACHED. LEAN MESH. HARD CAP.
+# PIECE 5c — FDM ONLY. NFDM TEMPORARILY DISABLED.
 #
-#   Two solves, run in sequence:
-#     1. FDM. Linear form-finding. Rings and drops treated as rigid.
-#        Fixed set: eave anchors + ring polygon nodes + ring centres
-#        + beam tops. Always converges. Fast.
-#     2. NFDM. Nonlinear refinement, seeded from the FDM shape.
-#        Drops and rings modelled as cable chains.
-#        Fixed set: eave anchors + ring polygon nodes + beam tops.
-#        Ring centres free.
-#
-#   If NFDM converges, its coordinates are drawn.
-#   If NFDM fails, the FDM coordinates are drawn.
-#   If FDM also fails, the unsolved mesh is drawn.
-#
-#   Performance guards:
-#     - Both solves are cached together.
-#     - Coarser mesh for both: target_len = diameter / 15.
-#     - Wall-clock cap on NFDM solve: 15 seconds.
+#   The NFDM solver is currently bypassed so we can verify the pure FDM
+#   mesh and membrane without nonlinear solver contamination.
+#   The viewer draws the FDM seed directly.
 #
 # Signature matches the FIGURE_REGISTRY contract:
 #   - no arguments
@@ -40,6 +26,7 @@
 #   2026-10-14 - Piece 5a. Membrane geometry from SDSe_mesh_rings.
 #   2026-10-14 - Piece 5b. NFDM solve. Cached. Lean mesh. Hard cap.
 #   2026-10-14 - Piece 5b fix. FDM seed, then NFDM refine.
+#   2026-10-17 - Piece 5c. NFDM disabled. FDM-only mode for mesh testing.
 # =============================================================================
 
 import hashlib
@@ -816,9 +803,9 @@ def build_dome_multi_cone():
             boundary_keys_flat, dtype=np.int32
         )
 
-        # ---- Call cached solve ----------------------------------------
-        with st.spinner("Solving FDM seed + NFDM refine (first run only)..."):
-            fdm_bytes, nfdm_bytes, summary = _cached_solve(
+        # ---- Call cached solve (NFDM temporarily disabled) ------------
+        with st.spinner("Solving FDM seed..."):
+            fdm_bytes, _, summary = _cached_solve(
                 mesh_hash,
                 pts.astype(np.float64).tobytes(),
                 np.asarray(tris, dtype=np.int32).tobytes(),
@@ -834,15 +821,12 @@ def build_dome_multi_cone():
                 int(SOLVE_MAX_ITER),
                 int(SOLVE_MAX_OUTER),
                 float(SOLVE_TOL),
-                float(SOLVE_WALL_SECONDS),
+                0.001,  # 1 ms wall cap forces NFDM to abort instantly
             )
             fdm_coords = np.frombuffer(
                 fdm_bytes, dtype=np.float64
             ).reshape(-1, 3).copy()
-            if len(nfdm_bytes) > 0:
-                nfdm_coords = np.frombuffer(
-                    nfdm_bytes, dtype=np.float64
-                ).reshape(-1, 3).copy()
+            nfdm_coords = None  # Force viewer to draw FDM shape only
             solve_summary = summary
 
     # ---- Draw ------------------------------------------------------------
@@ -997,40 +981,14 @@ def build_dome_multi_cone():
                 st.write("- Ring holes: **%d**" % len(built["ring_indices"]))
 
         with st.expander("FDM + NFDM solve (owner tier)", expanded=False):
+            st.write("**NFDM temporarily disabled for pure FDM mesh testing.**")
             if solve_summary is None:
                 st.write("**Solve not run.**")
             else:
-                st.write(
-                    "**Step 1 — FDM seed.** Rigid rings. Always "
-                    "converges. Provides the starting shape for NFDM."
-                )
                 f = solve_summary["fdm"]
                 st.write("- FDM converged: **%s**" % str(f["converged"]))
                 st.write("- FDM reason: **%s**" % f["reason"])
                 st.write("- FDM residual: **%.4e**" % f["residual_norm"])
-
-                st.write(
-                    "**Step 2 — NFDM refine.** Drops and rings as "
-                    "cable chains. Ring centres free."
-                )
-                n = solve_summary["nfdm"]
-                st.write("- NFDM converged: **%s**" % str(n["converged"]))
-                st.write("- NFDM reason: **%s**" % n["reason"])
-                st.write("- Iterations: **%d**" % n["iterations"])
-                st.write("- Total steps: **%d**" % n["total_steps"])
-                st.write("- Elapsed (s): **%.2f**" % n["elapsed_seconds"])
-                st.write("- Residual norm: **%.4e**" % n["residual_norm"])
-                st.write("- Max residual: **%.4e**" % n["max_residual"])
-                st.write("- Nodes: **%d**" % n["n_nodes"])
-                st.write("- Triangles: **%d**" % n["n_triangles"])
-                st.write("- Held nodes (NFDM): **%d**" % n["n_fixed"])
-                st.write("- Cable elements: **%d**" % n["n_cables"])
-
-                st.write(
-                    "**Wall cap: %.0f s. Mesh target: diameter / %.0f. "
-                    "Cached.**"
-                    % (SOLVE_WALL_SECONDS, SOLVE_TARGET_LEN_FRAC)
-                )
 
     return apply_common_layout(fig, crown_height)
 
