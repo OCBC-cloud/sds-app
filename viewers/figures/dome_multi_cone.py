@@ -39,7 +39,8 @@
 #   2026-10-14 - Piece 5b fix. FDM seed, then NFDM refine.
 #   2026-10-16 - Fix: Disabled NFDM temporarily to isolate FDM mesh.
 #   2026-10-17 - Fix: Increased eave subdivisions. Added independent
-#                edge cable pretension to stop boundary sticking.
+#                edge cable pretension. Set ring default to 1.0.
+#                Removed visual eave polygon line.
 # =============================================================================
 
 import hashlib
@@ -611,11 +612,11 @@ def build_dome_multi_cone():
     eave_height = float(_get("eave_height", 3.2))
     curve_type = str(_get("curve_type", "parabolic"))
     drop_length = float(_get("drop_length", 1.0))
-    ring_diameter = float(_get("ring_diameter", 2.0))
+    ring_diameter = float(_get("ring_diameter", 1.0))
 
     warp_pretension = float(_get("warp_pretension", 1.0))
     weft_pretension = float(_get("weft_pretension", 1.0))
-    edge_cable_pretension = float(_get("edge_cable_pretension", 25.0))
+    edge_cable_pretension = float(_get("edge_cable_pretension", 3.0))
 
     ground_radius = max(dome_diameter / 2.0, 1e-6)
 
@@ -872,17 +873,7 @@ def build_dome_multi_cone():
             showlegend=False, hoverinfo="skip",
         ))
 
-    if len(eave_polygon) >= 3:
-        ex = [p[0] for p in eave_polygon] + [eave_polygon[0][0]]
-        ey = [p[1] for p in eave_polygon] + [eave_polygon[0][1]]
-        ez = [p[2] for p in eave_polygon] + [eave_polygon[0][2]]
-        fig.add_trace(go.Scatter3d(
-            x=ex, y=ey, z=ez,
-            mode="lines",
-            line=dict(color=COL_EAVE, width=6),
-            name="eave polygon",
-            showlegend=False, hoverinfo="skip",
-        ))
+    # EAVE POLYGON LINE REMOVED HERE AS REQUESTED
 
     # Cones: draw from solved positions if available.
     if draw_pts is not None and built is not None:
