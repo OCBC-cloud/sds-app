@@ -13,10 +13,6 @@
 #        + beam tops. Always converges. Fast.
 #     2. NFDM. TEMPORARILY DISABLED. 
 #        The solver is bypassed by forcing a 0.001s wall-clock limit.
-#        The viewer draws the pure FDM mesh to allow for clean geometry
-#        checking without the interference of a failing NFDM run.
-#
-#   If FDM fails, the unsolved mesh is drawn.
 #
 #   Performance guards:
 #     - Solves are cached together.
@@ -37,7 +33,9 @@
 #   2026-10-14 - Piece 5b. NFDM solve. Cached. Lean mesh. Hard cap.
 #   2026-10-14 - Piece 5b fix. FDM seed, then NFDM refine.
 #   2026-10-16 - Fix: Disabled NFDM temporarily to isolate FDM mesh.
-#   2026-10-17 - Fix: EAVE_SUBDIVISIONS to 5 to prevent mesh overlap.
+#   2026-10-17 - Fix: EAVE_SUBDIVISIONS to 5.
+#   2026-10-18 - Fix: Dynamic eave subdivision based on physical length.
+#                (Fixes unequal mesh division causing boundary folds).
 # =============================================================================
 
 import hashlib
@@ -65,7 +63,6 @@ from viewers.figures._shared import apply_common_layout
 
 FRAME_SAMPLES = 200
 EAVE_DEDUPE_TOL_FRAC = 0.01
-EAVE_SUBDIVISIONS = 5  # Reduced from 17 to prevent mesh overlap
 
 # Solver performance guards.
 SOLVE_TARGET_LEN_FRAC = 36.0   # target mesh edge = dome_diameter / this
@@ -220,21 +217,29 @@ def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
     return ordered
 
 
-def _subdivide_eave_polygon(anchors, subdivisions):
+def _subdivide_eave_polygon(anchors, target_len):
+    """
+    Dynamically subdivides the eave polygon based on the physical length
+    of each segment to ensure equal spacing matching the interior mesh.
+    """
     n_a = len(anchors)
     loop = []
     anchor_idx = []
     for i in range(n_a):
-        a = anchors[i]
-        b = anchors[(i + 1) % n_a]
+        a = np.array(anchors[i])
+        b = np.array(anchors[(i + 1) % n_a])
         anchor_idx.append(len(loop))
-        for k in range(subdivisions):
-            f = k / float(subdivisions)
-            loop.append((
-                a[0] + f * (b[0] - a[0]),
-                a[1] + f * (b[1] - a[1]),
-                a[2] + f * (b[2] - a[2]),
-            ))
+        
+        # Calculate distance between anchors
+        length = float(np.linalg.norm(b - a))
+        
+        # Number of subdivisions must be at least 1
+        n_sub = max(1, int(round(length / target_len)))
+        
+        for k in range(n_sub):
+            f = k / float(n_sub)
+            loop.append(tuple(a + f * (b - a)))
+            
     return np.asarray(loop, dtype=float), anchor_idx
 
 
@@ -668,8 +673,9 @@ def build_dome_multi_cone():
     built = None
     membrane_target_len = max(dome_diameter / SOLVE_TARGET_LEN_FRAC, 0.5)
     if len(eave_polygon) >= 3:
+        # DYNAMIC SUBDIVISION based on physical length
         perimeter_loop, anchor_idx = _subdivide_eave_polygon(
-            eave_polygon, EAVE_SUBDIVISIONS
+            eave_polygon, membrane_target_len
         )
         ring_specs = []
         for cone in cones:
