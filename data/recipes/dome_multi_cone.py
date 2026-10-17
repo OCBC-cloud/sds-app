@@ -26,6 +26,11 @@
 #   2026-10-14 - Renamed the frame steel input. Key changed from
 #                "meridian_material" to "frame_material". The word
 #                "meridian" is no longer used anywhere in this recipe.
+#   2026-10-17 - Fix: removed dead "grid_pretension" widget.
+#                Added Cone drop length and Cone diameter inputs.
+#                Raised warp/weft defaults to 20 kN/m (matches tester).
+#                Corrected labels: warp/weft are membrane prestress,
+#                not grid members.
 # =============================================================================
 
 DOME_MULTI_CONE_RECIPE = {
@@ -47,27 +52,25 @@ DOME_MULTI_CONE_RECIPE = {
         "curve_type": "parabolic",
 
         # Group 2 - Prestress
-        "warp_pretension": 1.0,
-        "weft_pretension": 1.0,
+        "warp_pretension": 20.0,
+        "weft_pretension": 20.0,
         "edge_cable_pretension": 25.0,
-        "grid_pretension": 20.0,
 
-        # Group 3 - Materials
+        # Group 3 - Cone geometry
+        "drop_length": 1.0,
+        "ring_diameter": 2.0,
+
+        # Group 4 - Materials
         "fabric_type": "PVDF",
         "fabric_grade": "Type III",
         "frame_material": "S355",
         "ring_material": "S355",
 
-        # Group 4 - Foundation
+        # Group 5 - Foundation
         "base_condition": "pinned",
 
-        # Group 5 - Load case
+        # Group 6 - Load case
         "load_standard": "MY",
-
-        # Cone geometry (fixed for now, not user input).
-        # Values the viewer reads. The picker does not read these.
-        "drop_length": 1.0,
-        "ring_diameter": 2.0,
     },
 
     "groups": [
@@ -76,11 +79,12 @@ DOME_MULTI_CONE_RECIPE = {
         # GROUP 1 - DOME SHAPE
         # =====================================================================
         {
-            "key": "dome_shape",
+            "key": "dome":_shape",
             "name": "1. Dome Shape",
-            "expanded": True,
-            "help": "Footprint, height, frame grid, eave, and beam curve.",
-            "inputs": [
+ "            "expanded": True,
+           ground "help": "Footprint, height, frame_out grid, eave, andline beam curve.",
+            "inputs",
+": [
                 {
                     "key": "dome_diameter",
                     "label": "Dome diameter (m)",
@@ -100,8 +104,7 @@ DOME_MULTI_CONE_RECIPE = {
                     "step": 0.5,
                 },
                 {
-                    "key": "ground_outline",
-                    "label": "Ground outline",
+                    "key                    "label": "Ground outline",
                     "type": "dropdown",
                     "options": [
                         ["circle", "Circle"],
@@ -179,30 +182,38 @@ DOME_MULTI_CONE_RECIPE = {
         },
 
         # =====================================================================
-        # GROUP 2 - PRESTRESS
+        # GROUP 2 - MEMBRANE PRESTRESS
         # =====================================================================
         {
             "key": "prestress",
-            "name": "2. Prestress",
-            "help": "Membrane warp and weft, edge cable, and grid members.",
+            "name": "2. Membrane prestress",
+            "help": "Warp and weft are the fabric's own prestress "
+                    "(woven threads under tension). Edge cable is the "
+                    "perimeter cable pretension. None of these apply "
+                    "to the structural frame or rings.",
             "inputs": [
                 {
                     "key": "warp_pretension",
-                    "label": "Warp pretension (kN/m)",
+                    "label": "Membrane warp prestress (kN/m)",
                     "type": "number",
-                    "default": 1.0,
+                    "default": 20.0,
                     "min": 0.1,
                     "max": 100.0,
                     "step": 0.1,
+                    "help": "Longitudinal fabric thread tension. "
+                            "Typical PVDF Type III: 2–6 kN/m. "
+                            "20 kN/m is high and useful for stiff form-finding.",
                 },
                 {
                     "key": "weft_pretension",
-                    "label": "Weft pretension (kN/m)",
+                    "label": "Membrane weft prestress (kN/m)",
                     "type": "number",
-                    "default": 1.0,
+                    "default": 20.0,
                     "min": 0.1,
                     "max": 100.0,
                     "step": 0.1,
+                    "help": "Transverse fabric thread tension. "
+                            "Usually equal to or lower than warp.",
                 },
                 {
                     "key": "edge_cable_pretension",
@@ -212,26 +223,52 @@ DOME_MULTI_CONE_RECIPE = {
                     "min": 0.1,
                     "max": 500.0,
                     "step": 0.5,
-                },
-                {
-                    "key": "grid_pretension",
-                    "label": "Grid member pretension (kN)",
-                    "type": "number",
-                    "default": 20.0,
-                    "min": 0.1,
-                    "max": 500.0,
-                    "step": 0.5,
-                    "help": "Pretension carried by the frame steel grid.",
+                    "help": "Perimeter cable pretension. "
+                            "Carries the membrane's inward pull "
+                            "to the eave anchors.",
                 },
             ],
         },
 
         # =====================================================================
-        # GROUP 3 - MATERIALS
+        # GROUP 3 - CONE GEOMETRY
+        # =====================================================================
+        {
+            "key": "cone_geometry",
+            "name": "3. Cone geometry",
+            "help": "Cone size and depth. Positions are set in the "
+                    "picker below this form.",
+            "inputs": [
+                {
+                    "key": "ring_diameter",
+                    "label": "Cone diameter (m)",
+                    "type": "number",
+                    "default": 2.0,
+                    "min": 0.5,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "help": "Diameter of the top opening (ring) of each cone.",
+                },
+                {
+                    "key": "drop_length",
+                    "label": "Cone drop depth (m)",
+                    "type": "number",
+                    "default": 1.0,
+                    "min": 0.1,
+                    "max": 5.0,
+                    "step": 0.1,
+                    "help": "Vertical distance from the frame crossing "
+                            "down to the ring. Longer drop = deeper cone.",
+                },
+            ],
+        },
+
+        # =====================================================================
+        # GROUP 4 - MATERIALS
         # =====================================================================
         {
             "key": "materials",
-            "name": "3. Materials",
+            "name": "4. Materials",
             "help": "Fabric, frame steel, ring steel.",
             "inputs": [
                 {
@@ -287,11 +324,11 @@ DOME_MULTI_CONE_RECIPE = {
         },
 
         # =====================================================================
-        # GROUP 4 - FOUNDATION
+        # GROUP 5 - FOUNDATION
         # =====================================================================
         {
             "key": "foundation",
-            "name": "4. Foundation",
+            "name": "5. Foundation",
             "help": "Base support condition.",
             "inputs": [
                 {
@@ -308,11 +345,11 @@ DOME_MULTI_CONE_RECIPE = {
         },
 
         # =====================================================================
-        # GROUP 5 - LOAD CASE
+        # GROUP 6 - LOAD CASE
         # =====================================================================
         {
             "key": "load_case",
-            "name": "5. Load case",
+            "name": "6. Load case",
             "help": "Design standard used for partial factors.",
             "inputs": [
                 {
