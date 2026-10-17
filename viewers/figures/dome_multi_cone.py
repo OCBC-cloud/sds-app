@@ -13,10 +13,13 @@
 #        + beam tops. Always converges. Fast.
 #     2. NFDM. TEMPORARILY DISABLED. 
 #        The solver is bypassed by forcing a 0.001s wall-clock limit.
+#        The viewer draws the pure FDM mesh to allow for clean geometry
+#        checking without the interference of a failing NFDM run.
+#
+#   If FDM fails, the unsolved mesh is drawn.
 #
 #   Performance guards:
 #     - Solves are cached together.
-#     - Coarser mesh: target_len = diameter / 30.
 #
 # Signature matches the FIGURE_REGISTRY contract:
 #   - no arguments
@@ -34,11 +37,7 @@
 #   2026-10-14 - Piece 5b. NFDM solve. Cached. Lean mesh. Hard cap.
 #   2026-10-14 - Piece 5b fix. FDM seed, then NFDM refine.
 #   2026-10-16 - Fix: Disabled NFDM temporarily to isolate FDM mesh.
-#   2026-10-17 - Fix: Increased eave subdivisions. Added independent
-#                edge cable pretension. Set ring default to 1.0.
-#                Removed visual eave polygon line.
-#                Added pure FDM node digitisation report.
-#                Added _round_eave_polygon to stop gear-teeth.
+#   2026-10-17 - Fix: EAVE_SUBDIVISIONS to 5 to prevent mesh overlap.
 # =============================================================================
 
 import hashlib
@@ -66,10 +65,10 @@ from viewers.figures._shared import apply_common_layout
 
 FRAME_SAMPLES = 200
 EAVE_DEDUPE_TOL_FRAC = 0.01
-EAVE_SUBDIVISIONS = 17  # Increased from 4 to match tester density
+EAVE_SUBDIVISIONS = 5  # Reduced from 17 to prevent mesh overlap
 
 # Solver performance guards.
-SOLVE_TARGET_LEN_FRAC = 30.0   # target mesh edge = dome_diameter / this
+SOLVE_TARGET_LEN_FRAC = 36.0   # target mesh edge = dome_diameter / this
 SOLVE_WALL_SECONDS = 25.0      # hard cap on the NFDM solve
 SOLVE_MAX_ITER = 40
 SOLVE_MAX_OUTER = 6
@@ -219,45 +218,6 @@ def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
     deduped = _dedupe_plan(all_anchors, tol)
     ordered = _order_by_angle(deduped)
     return ordered
-
-
-def _round_eave_polygon(anchors, radius):
-    """Inserts curved segments between the sharp anchors."""
-    n_a = len(anchors)
-    if n_a < 3:
-        return anchors
-    rounded = []
-    for i in range(n_a):
-        p_prev = np.array(anchors[i - 1])
-        p_curr = np.array(anchors[i])
-        p_next = np.array(anchors[(i + 1) % n_a])
-        
-        v1 = p_prev - p_curr
-        v2 = p_next - p_curr
-        len1 = np.linalg.norm(v1)
-        len2 = np.linalg.norm(v2)
-        
-        if len1 < 1e-6 or len2 < 1e-6:
-            rounded.append(tuple(p_curr))
-            continue
-            
-        v1 /= len1
-        v2 /= len2
-        angle = math.acos(np.clip(np.dot(v1, v2), -1.0, 1.0))
-        
-        if angle < 1e-3 or angle > math.pi - 1e-3:
-            rounded.append(tuple(p_curr))
-            continue
-            
-        r = min(radius, len1 / 2, len2 / 2)
-        dist = r / math.tan(angle / 2.0)
-        
-        t1 = p_curr + v1 * dist
-        t2 = p_curr + v2 * dist
-        
-        rounded.append(tuple(t1))
-        rounded.append(tuple(t2))
-    return rounded
 
 
 def _subdivide_eave_polygon(anchors, subdivisions):
@@ -651,9 +611,9 @@ def build_dome_multi_cone():
     drop_length = float(_get("drop_length", 1.0))
     ring_diameter = float(_get("ring_diameter", 1.0))
 
-    warp_pretension = float(_get("warp_pretension", 1.0))
-    weft_pretension = float(_get("weft_pretension", 1.0))
-    edge_cable_pretension = float(_get("edge_cable_pretension", 3.0))
+    warp_pretension = float(_get("warp_pretension", 20.0))
+    weft_pretension = float(_get("weft_pretension", 20.0))
+    edge_cable_pretension = float(_get("edge_cable_pretension", 45.0))
 
     ground_radius = max(dome_diameter / 2.0, 1e-6)
 
@@ -708,12 +668,8 @@ def build_dome_multi_cone():
     built = None
     membrane_target_len = max(dome_diameter / SOLVE_TARGET_LEN_FRAC, 0.5)
     if len(eave_polygon) >= 3:
-        # Round the eave polygon corners to eliminate gear-teeth
-        eave_radius = dome_diameter * 0.05
-        eave_rounded = _round_eave_polygon(eave_polygon, eave_radius)
-
         perimeter_loop, anchor_idx = _subdivide_eave_polygon(
-            eave_rounded, EAVE_SUBDIVISIONS
+            eave_polygon, EAVE_SUBDIVISIONS
         )
         ring_specs = []
         for cone in cones:
@@ -913,6 +869,8 @@ def build_dome_multi_cone():
             name="frame " + f["family"],
             showlegend=False, hoverinfo="skip",
         ))
+
+    # EAVE POLYGON LINE REMOVED HERE AS REQUESTED
 
     # Cones: draw from solved positions if available.
     if draw_pts is not None and built is not None:
