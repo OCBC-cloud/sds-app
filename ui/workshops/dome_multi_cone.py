@@ -56,7 +56,9 @@ def render_dome_multi_cone():
             )
         except (TypeError, ValueError):
             picked = set()
-
+    st.markdown("---")
+    st.markdown("### Select Cone Positions")
+    st.markdown("Click a crossing point to place or remove a cone.")
     new_picked = render_dome_cone_picker(
         dome_diameter=dome_diameter,
         n_x=n_x,
