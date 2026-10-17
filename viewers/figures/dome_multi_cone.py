@@ -41,6 +41,7 @@
 #   2026-10-17 - Fix: Increased eave subdivisions. Added independent
 #                edge cable pretension. Set ring default to 1.0.
 #                Removed visual eave polygon line.
+#                Added pure FDM node digitisation report.
 # =============================================================================
 
 import hashlib
@@ -981,8 +982,7 @@ def build_dome_multi_cone():
                          % (len(fdm_fixed) if fdm_coords is not None else 0))
                 st.write("- Ring holes: **%d**" % len(built["ring_indices"]))
 
-        with st.expander("FDM + NFDM solve (owner tier)", expanded=False):
-            st.write("**NFDM temporarily disabled for pure FDM mesh testing.**")
+        with st.expander("FDM solve (owner tier)", expanded=False):
             if solve_summary is None:
                 st.write("**Solve not run.**")
             else:
@@ -994,6 +994,48 @@ def build_dome_multi_cone():
                     "**Mesh target: diameter / %.0f. Cached.**"
                     % SOLVE_TARGET_LEN_FRAC
                 )
+
+        with st.expander("Node digitisation (FDM)", expanded=False):
+            if built is None or fdm_coords is None:
+                st.write("**No solved mesh to display.**")
+            else:
+                n_nodes = fdm_coords.shape[0]
+                status_of = ["free"] * n_nodes
+                anchor_set = set(int(i) for i in anchor_idx)
+                
+                # Mark perimeter nodes
+                for i in range(built["n_perimeter"]):
+                    if i in anchor_set:
+                        status_of[i] = "held_anchor"
+                    else:
+                        status_of[i] = "perimeter_cable_free"
+                        
+                # Mark ring nodes
+                for idx_list in built["ring_indices"]:
+                    for i in idx_list:
+                        status_of[int(i)] = "held_ring_polygon"
+                for i in built["centre_indices"]:
+                    status_of[int(i)] = "held_ring_centre"
+                for i in built["beam_top_indices"]:
+                    status_of[int(i)] = "held_beam_top"
+
+                header = (
+                    "%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s"
+                    % ("idx", "x_init", "y_init", "z_init",
+                       "x_set", "y_set", "z_set", "disp", "status")
+                )
+                lines = [header, "-" * len(header)]
+                
+                for i in range(n_nodes):
+                    xi, yi, zi = pts[i]
+                    xs, ys, zs = fdm_coords[i]
+                    d = np.linalg.norm(fdm_coords[i] - pts[i])
+                    lines.append(
+                        "%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
+                        % (i, xi, yi, zi, xs, ys, zs, d, status_of[i])
+                    )
+                
+                st.code("\n".join(lines), language="text")
 
     return apply_common_layout(fig, crown_height)
 
