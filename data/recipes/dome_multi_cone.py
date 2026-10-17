@@ -58,7 +58,7 @@ DOME_MULTI_CONE_RECIPE = {
 
         # Group 3 - Cone geometry
         "drop_length": 1.0,
-        "ring_diameter": 2.0,
+        "ring_diameter": 1.0,
 
         # Group 4 - Materials
         "fabric_type": "PVDF",
