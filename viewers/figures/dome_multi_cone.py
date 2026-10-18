@@ -6,17 +6,8 @@
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
 # PIECE 6 — ELEMENT SEEDS & DATA SCHEDULE.
-#   Generates explicit dictionary data for every element:
-#   - Beams (Frame)
-#   - Cables (Edge Cable, Spokes, Drops)
-#   - Nodes (Anchors, Ring Centres)
-#   - Membrane
-#
+#   Generates explicit dictionary data for every element.
 #   Renders a custom HTML/CSS table to manage these seeds.
-#   - Translucent colours.
-#   - Pure white text.
-#   - Row selection state saved to session.
-#
 # =============================================================================
 
 import hashlib
@@ -489,7 +480,6 @@ def _cached_solve(mesh_hash,
         boundary_edge_set.add((int(arr_b[i]), int(arr_b[i + 1])))
 
     # ---- Build q array for FDM --------------------------------------
-    # Interior q from the passed-in blend, boundary edges use scalar.
     q_fdm = np.empty(len(edges), dtype=np.float64)
     for k, (i, j) in enumerate(edges):
         key = (i, j) if i < j else (j, i)
@@ -581,7 +571,6 @@ def _render_element_table(elements):
     Renders a custom HTML table with translucent colours and white text.
     Allows row selection.
     """
-    # CSS for the table
     css = """
     <style>
     .seed-table {
@@ -637,10 +626,8 @@ def _render_element_table(elements):
     </style>
     """
 
-    # Start HTML
     html = css + '<table class="seed-table">'
     
-    # Header
     html += '<thead><tr>'
     html += '<th>Select</th>'
     html += '<th>ID</th>'
@@ -653,7 +640,6 @@ def _render_element_table(elements):
     html += '<th>Support</th>'
     html += '</tr></thead>'
     
-    # Body
     html += '<tbody>'
     active_id = st.session_state.get("ws_dm_active_element_id", None)
     
@@ -663,13 +649,9 @@ def _render_element_table(elements):
         
         html += f'<tr class="{row_class}">'
         
-        # Select Button
         if is_selected:
             html += '<td><span class="btn-selected">Active</span></td>'
         else:
-            # Note: In pure HTML inside Streamlit, we cannot easily trigger Python state changes 
-            # without components. So the table is read-only for selection via HTML. 
-            # Selection must be done via a native Streamlit selectbox outside the HTML.
             html += '<td><span class="btn-select">Select below</span></td>'
             
         html += f'<td>{el["id"]}</td>'
@@ -1096,58 +1078,53 @@ def build_dome_multi_cone():
                 ))
 
     # =========================================================================
-    # VISIBILITY LAYERS & SEED TABLE (Owner tier / UI)
+    # VISIBILITY LAYERS & SEED TABLE
     # =========================================================================
+    access_mode = str(st.session_state.get("access_mode", "owner")).lower()
+    
     # --- Everyone can see Layers and Seeds ---
-    # Visibility Toggles
     with st.expander("Drawing Layers & Visibility", expanded=False):
-            st.caption("Toggle folders and layers to manage the drawing board.")
-            
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown("**Structure**")
-                show_frame = st.checkbox("Show Frame", value=True, key="ws_dm_show_frame")
-                show_anchors = st.checkbox("Show Anchors", value=True, key="ws_dm_show_anchors")
-            with c2:
-                st.markdown("**Cables**")
-                show_edge_cable = st.checkbox("Show Edge Cable", value=True, key="ws_dm_show_edge_cable")
-                show_cones = st.checkbox("Show Cones", value=True, key="ws_dm_show_cones")
-            with c3:
-                st.markdown("**Fabric**")
-                show_membrane = st.checkbox("Show Membrane", value=True, key="ws_dm_show_membrane")
+        st.caption("Toggle folders and layers to manage the drawing board.")
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("**Structure**")
+            show_frame = st.checkbox("Show Frame", value=True, key="ws_dm_show_frame")
+            show_anchors = st.checkbox("Show Anchors", value=True, key="ws_dm_show_anchors")
+        with c2:
+            st.markdown("**Cables**")
+            show_edge_cable = st.checkbox("Show Edge Cable", value=True, key="ws_dm_show_edge_cable")
+            show_cones = st.checkbox("Show Cones", value=True, key="ws_dm_show_cones")
+        with c3:
+            st.markdown("**Fabric**")
+            show_membrane = st.checkbox("Show Membrane", value=True, key="ws_dm_show_membrane")
 
-        # Element Seed Table
-        with st.expander("Element Seed Schedule", expanded=True):
-            st.caption("Tap a row to select it for editing. Rotate phone to landscape for full view.")
-            
-            # Since HTML tables in Streamlit cannot natively feed back into Python state,
-            # we use a Streamlit selectbox to mimic row clicking.
-            element_ids = [el["id"] for el in elements]
-            selected_id = st.selectbox(
-                "Select Element to Edit", 
-                options=[""] + element_ids,
-                index=0 if "ws_dm_active_element_id" not in st.session_state else element_ids.index(st.session_state.ws_dm_active_element_id) + 1,
-                key="element_selector_box"
-            )
-            
-            if selected_id:
-                st.session_state["ws_dm_active_element_id"] = selected_id
-            
-            # Render the visual HTML table
-            st.markdown(_render_element_table(elements), unsafe_allow_html=True)
-            
-            # If an element is selected, show its full seed data here for editing
-            if selected_id:
-                st.write("---")
-                st.write(f"**Editing: {selected_id}**")
-                sel_el = next((el for el in elements if el["id"] == selected_id), None)
-                if sel_el:
-                    st.json(sel_el["seed"])
-                    st.caption("Editing functionality (saving to session) coming in next patch.")
+    with st.expander("Element Seed Schedule", expanded=False):
+        st.caption("Tap a row to select it for editing. Rotate phone to landscape for full view.")
+        
+        element_ids = [el["id"] for el in elements]
+        selected_id = st.selectbox(
+            "Select Element to Edit", 
+            options=[""] + element_ids,
+            index=0 if "ws_dm_active_element_id" not in st.session_state else element_ids.index(st.session_state.ws_dm_active_element_id) + 1,
+            key="element_selector_box"
+        )
+        
+        if selected_id:
+            st.session_state["ws_dm_active_element_id"] = selected_id
+        
+        st.markdown(_render_element_table(elements), unsafe_allow_html=True)
+        
+        if selected_id:
+            st.write("---")
+            st.write(f"**Editing: {selected_id}**")
+            sel_el = next((el for el in elements if el["id"] == selected_id), None)
+            if sel_el:
+                st.json(sel_el["seed"])
+                st.caption("Editing functionality (saving to session) coming in next patch.")
 
-        # --- Owner Tier Diagnostics ---
-        access_mode = str(st.session_state.get("access_mode", "owner")).lower()
-        if access_mode == "owner":
+    # --- Owner Tier Diagnostics ---
+    if access_mode == "owner":
         rows = _verify_frame_against_globe(
             apexes, ground_radius, crown_height, curve_type
         )
@@ -1206,7 +1183,7 @@ def build_dome_multi_cone():
                     % SOLVE_TARGET_LEN_FRAC
                 )
 
-        with st.expander("Node digitisation (FDM)", expanded=False):
+        with st.expander("Node digitisation (FDM) (owner tier)", expanded=False):
             if built is None or fdm_coords is None:
                 st.write("**No solved mesh to display.**")
             else:
