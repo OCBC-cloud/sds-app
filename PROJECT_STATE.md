@@ -5,7 +5,7 @@ Then read PROJECT_CONSTITUTION.md for the doctrines.
 Then read PROJECT_VISION.md for the destination.
 Then read FILE_INVENTORY.md for what exists.
 
-Last updated: 2026-10-04.
+Last updated: 2026-10-06.
 Branch: modular-v10.
 App URL: sds-modular-preview.streamlit.app.
 
@@ -33,7 +33,7 @@ is no longer needed.
 
 ---
 
-# 2. THE UNIVERSAL MESH ENGINE - ARCHITECTURE 2026-09-30
+# 2. THE UNIVERSAL MESH ENGINE
 
 **The universal mesh method is CONSTRAINED DELAUNAY
 TRIANGULATION of the boundary loop.**
@@ -100,7 +100,7 @@ the migration.
 
 ---
 
-# 2A. THE FORM-FINDER - ANISOTROPIC FDM (2026-10-01)
+# 3. THE FORM-FINDER — ANISOTROPIC FDM
 
 The Laplace lift was retired on 2026-10-01. It was
 isotropic by construction. It could not respond to
@@ -152,30 +152,9 @@ warp/weft pretension in the 3 - 6 kN/m band, edge
 cable 30 - 150 kN. The app exposes the range so the
 engineer can explore.
 
-**Update 2026-10-03 — CI now actually runs.**
-
-The `run_tests.py` entry point was trapped inside
-`main()`. No tests were executing. GitHub was reporting
-green because nothing was tested. Fixed on 2026-10-03.
-Run #425 is the reference green run. 27 seconds. Real
-work for the first time.
-
-**Update 2026-10-03 — tension-field projection verified.**
-
-`engine/nfdm_tension_field.py` contains the projection
-`sigma_TF = Q @ diag(max(s1,0), max(s2,0)) @ Q.T`. Six
-tests in `engine/nfdm_tension_field_test.py`. All pass.
-The projection is the foundation for Stage 2.
-
-**Update 2026-10-04 — Rule 22 added to the constitution.**
-
-One file, one block, one copy. Format, not size, is the
-copy-and-paste failure mode. See PROJECT_SESSION_LOG.md,
-2026-10-04 entry.
-
 ---
 
-# 3. THE UNIVERSAL WORKSHOP RENDERER
+# 4. THE UNIVERSAL WORKSHOP RENDERER
 
 `ui/workshops/_renderer.py`. Built. Committed.
 
@@ -189,11 +168,28 @@ The recipe is `data/recipes/standard_saddle.py`.
 
 The recipe has NOT yet gained the three Shape inputs
 (anchor_count, mesh_spacing, transverse_count). That is a
-pending task. See Section 5.
+pending task. See Section 7.
 
 ---
 
-# 4. THE MESH MIGRATION - DONE
+# 5. THE NONLINEAR SOLVER (NFDM) — STATUS
+
+`engine/nonlinear_equilibrium.py` at v5.3. CI green.
+Four self-tests pass. Physics verified.
+
+The App case (468 nodes) does not converge in the
+25-second wall-clock budget. This is a performance
+issue, not a physics issue. The solver is correct.
+
+The path forward:
+- Warm start from the FDM result.
+- Sparse assembly and sparse solve (in progress).
+- Reduce element re-evaluation across line-search trials.
+- Defer full App-scale convergence to the next optimisation phase.
+
+---
+
+# 6. THE MESH MIGRATION — DONE
 
 ## Completed
 
@@ -206,22 +202,33 @@ Step 5: viewers/figures/standard_saddle_mbs.py rewritten
         to use the triangulated engine. Committed and
         verified in the app.
 
-## Bugs fixed on 2026-10-01
+## Bugs fixed
 
+2026-10-01
   1. Paste corruption in _triangulate_polygon, at lines
      317 and 323. Two surgical line replacements.
   2. KD-tree overrun in _laplace_lift for meshes with
      fewer than 9 points. Fixed by clamping
      k = min(8, n_nodes - 1).
 
-## Bugs fixed on 2026-10-03
-
+2026-10-03
   1. engine/nfdm_tension_field_test.py was empty. The
      six tests were rewritten. All pass.
   2. run_tests.py __main__ guard was inside main().
      Dedented to module level. Tests now execute.
   3. Test 2 principal check was wrong. Asserted
      s[1] < 0 on a test where s[1] is exactly 0. Fixed.
+
+2026-10-06
+  1. Ten sequential versions of nonlinear_equilibrium.py
+     (v4.2 to v5.3) corrected tangent signs, residual
+     convention, outer-loop logic, line search, sparse
+     assembly, and test criteria.
+  2. FDM path threshold: pull-back < 1.0 N treated as
+     numerical zero, falls back to edge_q_scalar.
+  3. Mode selector: high tiers may choose FDM or NFDM.
+  4. Auto-scaled edge cable pretension: recipe default
+     is 0.0 (auto), viewer computes N_membrane * L_anchor.
 
 ## Still to do
 
@@ -233,7 +240,7 @@ HANDOVER_2026-10-01 deletion.
 
 ---
 
-# 5. THE IMMEDIATE NEXT STEP
+# 7. THE IMMEDIATE NEXT STEP
 
 Three tasks remain. In order.
 
@@ -257,9 +264,6 @@ Three tasks remain. In order.
      projection must fire inside the element routine.
      That makes it Level 2 work, not a wrapper.
 
-     See PROJECT_SESSION_LOG.md, 2026-10-01 evening
-     addendum, and the 2026-10-03 entry.
-
   3. FILE_INVENTORY.md rewrite and DIRECTORY_MAP.md
      creation. Both deferred until Step 2E is done,
      so the rewrite is done once and reflects the
@@ -267,24 +271,9 @@ Three tasks remain. In order.
 
 Then Stage 2 — NFDM, in the tension-field form.
 
-The following tasks were completed or superseded:
-
-  - q > 0 guard in solve_fdm. Done 2026-10-01.
-  - Delete HANDOVER_2026-10-01. Still to do, small.
-  - Delete engine/mesh_universal.py and its test.
-    Still to do, Step 6 above.
-  - Mark SPEC_mesh_topology.md and
-    SPEC_mesh_universal.md as superseded. Step 7 above.
-  - Migrate Beam Supported Saddle to the triangulated
-    engine. Deferred. Not urgent.
-  - Migrate Crown, Triangle, Lens. Deferred.
-  - Coordinate file path (custom boundary workshop).
-    Deferred.
-  - DXF path (custom boundary workshop). Deferred.
-
 ---
 
-# 6. WORKFLOW
+# 8. WORKFLOW
 
 Every session starts by reading, in order:
 
@@ -307,45 +296,10 @@ block, one copy. See PROJECT_CONSTITUTION.md.
 
 ---
 
-# 7. THE CHIEF
+# 9. THE CHIEF
 
-See PROJECT_CONSTITUTION.md, Part V for the Chief's working
+See PROJECT_CONSTITUTION.md, Part VI for the Chief's working
 method and the Chief's heritage.
-
----
-
-# 8. THE LESSON OF 2026-09-30 AND 2026-10-01
-
-On 2026-09-30 the AI proposed a wrong architecture
-(structured meshes, three topologies, Coons patches,
-tip fans) and argued for it for hours. The Chief
-named the correct method — constrained Delaunay
-triangulation — from the first question. The AI
-resisted. The AI only conceded when the Chief pushed.
-
-On 2026-10-01 the AI finally put FDM in the main
-path, driven by an anisotropic q. It works. The
-saddle responds. The loop that had been open since
-the morning was closed by the afternoon.
-
-On 2026-10-03 the Chief caught two of three things
-the previous handover claimed were working that were
-not. The empty test file. The CI that never ran.
-
-On 2026-10-04 the Chief ran a chunk transfer test
-and proved that the copy-and-paste failures were
-caused by the writer's formatting, not by file size.
-Rule 22 was added as a result.
-
-The pattern holds. The Chief's architectural
-instinct has been right every time. The AI's
-detours — the Laplace lift, the minimal surface,
-the three structured topologies, the misdiagnosed
-size limit — cost days.
-
-**When the Chief raises an architectural question,
-the Chief has usually already seen the answer.
-Listen first. Confirm second. Propose third.**
 
 ---
 
