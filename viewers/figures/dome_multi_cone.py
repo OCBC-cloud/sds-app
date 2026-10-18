@@ -35,7 +35,7 @@
 #   2026-10-16 - Fix: Disabled NFDM temporarily to isolate FDM mesh.
 #   2026-10-17 - Fix: EAVE_SUBDIVISIONS to 5.
 #   2026-10-18 - Fix: Dynamic eave subdivision based on physical length.
-#                (Fixes unequal mesh division causing boundary folds).
+#   2026-10-18 - Add: Folder and Layer visibility toggles.
 # =============================================================================
 
 import hashlib
@@ -846,6 +846,25 @@ def build_dome_multi_cone():
             nfdm_coords = None  # Force viewer to draw FDM shape only
             solve_summary = summary
 
+    # =========================================================================
+    # VISIBILITY LAYERS (FOLDERS)
+    # =========================================================================
+    with st.expander("Drawing Layers & Visibility", expanded=False):
+        st.caption("Toggle folders and layers to manage the drawing board.")
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("**Structure**")
+            show_frame = st.checkbox("Show Frame", value=True, key="ws_dm_show_frame")
+            show_anchors = st.checkbox("Show Anchors", value=True, key="ws_dm_show_anchors")
+        with c2:
+            st.markdown("**Cables**")
+            show_edge_cable = st.checkbox("Show Edge Cable", value=True, key="ws_dm_show_edge_cable")
+            show_cones = st.checkbox("Show Cones", value=True, key="ws_dm_show_cones")
+        with c3:
+            st.markdown("**Fabric**")
+            show_membrane = st.checkbox("Show Membrane", value=True, key="ws_dm_show_membrane")
+
     # ---- Draw ------------------------------------------------------------
     fig = go.Figure()
 
@@ -857,7 +876,7 @@ def build_dome_multi_cone():
         else:
             draw_pts = built["points"]
 
-    if built is not None and len(built["triangles"]) > 0 and draw_pts is not None:
+    if show_membrane and built is not None and len(built["triangles"]) > 0 and draw_pts is not None:
         tri = np.asarray(built["triangles"], dtype=int)
         fig.add_trace(go.Mesh3d(
             x=draw_pts[:, 0], y=draw_pts[:, 1], z=draw_pts[:, 2],
@@ -866,20 +885,31 @@ def build_dome_multi_cone():
             name="membrane", showlegend=False, hoverinfo="skip",
         ))
 
-    for f in frames:
-        color = COL_FRAME_A if f["family"] == "A" else COL_FRAME_B
+    if show_frame:
+        for f in frames:
+            color = COL_FRAME_A if f["family"] == "A" else COL_FRAME_B
+            fig.add_trace(go.Scatter3d(
+                x=f["x"], y=f["y"], z=f["z"],
+                mode="lines",
+                line=dict(color=color, width=4),
+                name="frame " + f["family"],
+                showlegend=False, hoverinfo="skip",
+            ))
+
+    if show_anchors and len(eave_polygon) >= 3:
+        # Draw anchors as small spheres/markers
+        ax = [p[0] for p in eave_polygon]
+        ay = [p[1] for p in eave_polygon]
+        az = [p[2] for p in eave_polygon]
         fig.add_trace(go.Scatter3d(
-            x=f["x"], y=f["y"], z=f["z"],
-            mode="lines",
-            line=dict(color=color, width=4),
-            name="frame " + f["family"],
+            x=ax, y=ay, z=az,
+            mode="markers",
+            marker=dict(color=COL_EAVE, size=5, symbol="circle"),
+            name="anchors",
             showlegend=False, hoverinfo="skip",
         ))
 
-    # EAVE POLYGON LINE REMOVED HERE AS REQUESTED
-
-    # Cones: draw from solved positions if available.
-    if draw_pts is not None and built is not None:
+    if show_cones and draw_pts is not None and built is not None:
         for k, idx_list in enumerate(built["ring_indices"]):
             centre_i = int(built["centre_indices"][k])
             beam_i = int(built["beam_top_indices"][k])
@@ -908,7 +938,8 @@ def build_dome_multi_cone():
                     line=dict(color=COL_SPOKE, width=2),
                     name="spoke", showlegend=False, hoverinfo="skip",
                 ))
-    else:
+    elif show_cones:
+        # Fallback to unsolved
         for cone in cones:
             cx, cy, cz = cone["crossing"]
             rx, ry, rz = cone["ring_centre"]
