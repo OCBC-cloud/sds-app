@@ -72,16 +72,16 @@ def _render_marketing_render(vk, sk):
     Each sub-step is collapsible inside.
     """
     from engine.render_prompts import (
-        SCENES, TIMES, RENDERERS, DISCLA:IMER, format_prompt,
-     )
+        SCENES, TIMES, RENDERERS, DISCLAIMER, format_prompt,
+    )
 
-    with st.expander("Marketing Render0", expanded=False):
+    with st.expander("Marketing Render", expanded=False):
 
-        #. ---- How this works
-        st82.markdown(
+        # ---- How this works
+        st.markdown(
             '<div style="background: #0d1620; border-left: 3px solid #3498db; '
             'padding: 0.7rem 0.9rem; border-radius: 4px; margin-bottom: 0.8rem; '
-            'font-sizerem; color: #c8d4e0; line-height: 1.6;">'
+            'font-size: 0.82rem; color: #c8d4e0; line-height: 1.6;">'
             '<strong>How this works</strong><br>'
             'SDSe prepares a snapshot and a prompt. You take both to '
             'Gemini. Gemini generates the marketing image. You bring '
