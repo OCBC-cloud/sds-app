@@ -1024,10 +1024,12 @@ def build_dome_multi_cone():
                 showlegend=False, hoverinfo="skip",
             ))
 
-    if show_anchors and len(eave_polygon) >= 3:
-        ax = [p[0] for p in eave_polygon]
-        ay = [p[1] for p in eave_polygon]
-        az = [p[2] for p in eave_polygon]
+    if show_anchors and draw_pts is not None and built is not None:
+        anchor_set = set(int(i) for i in anchor_idx)
+        anchor_pts = [draw_pts[i] for i in anchor_set]
+        ax = [p[0] for p in anchor_pts]
+        ay = [p[1] for p in anchor_pts]
+        az = [p[2] for p in anchor_pts]
         fig.add_trace(go.Scatter3d(
             x=ax, y=ay, z=az,
             mode="markers",
@@ -1036,15 +1038,18 @@ def build_dome_multi_cone():
             showlegend=False, hoverinfo="skip",
         ))
 
-    if show_edge_cable and len(eave_polygon) >= 3:
-        ex = [p[0] for p in eave_polygon] + [eave_polygon[0][0]]
-        ey = [p[1] for p in eave_polygon] + [eave_polygon[0][1]]
-        ez = [p[2] for p in eave_polygon] + [eave_polygon[0][2]]
+    if show_edge_cable and built is not None and draw_pts is not None:
+        n_perim = built["n_perimeter"]
+        perim_pts = draw_pts[:n_perim]
+        closed_perim = np.vstack([perim_pts, perim_pts[:1]])
+        
         fig.add_trace(go.Scatter3d(
-            x=ex, y=ey, z=ez,
+            x=closed_perim[:, 0], 
+            y=closed_perim[:, 1], 
+            z=closed_perim[:, 2],
             mode="lines",
             line=dict(color=COL_EAVE, width=6),
-            name="eave polygon",
+            name="edge cable",
             showlegend=False, hoverinfo="skip",
         ))
 
