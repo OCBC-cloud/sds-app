@@ -5,14 +5,15 @@
 #
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
+# PIECE 6 — ELEMENT SEEDS & DATA SCHEDULE.
 # PIECE 7 — CUSTOM PROFILE CURVE.
 #   When curve_type == "custom", the frame builder reads a 5-point
 #   profile from ws_dm_custom_profile and interpolates it into a
 #   smooth curve. Otherwise the parabolic / circular / catenary
 #   curves are used as before.
 #
-# PIECE 6 — ELEMENT SEEDS & DATA SCHEDULE.
-#   Element seed table with layer visibility toggles.
+# Rule 23: attached elements are drawn from settled coordinates.
+# Rule 24: markers stay silent by default.
 #
 # =============================================================================
 
@@ -42,7 +43,6 @@ from viewers.figures._shared import apply_common_layout
 FRAME_SAMPLES = 200
 EAVE_DEDUPE_TOL_FRAC = 0.01
 
-# Solver performance guards.
 SOLVE_TARGET_LEN_FRAC = 36.0
 SOLVE_WALL_SECONDS = 25.0
 SOLVE_MAX_ITER = 40
@@ -73,15 +73,9 @@ def _get(key, default=None):
 # =============================================================================
 
 def _read_custom_profile(crown_height):
-    """
-    Reads the 5-point custom profile from session state.
-    Returns a list of 5 floats. Falls back to the default parabolic
-    shape if the array is missing or malformed.
-    """
     profile = st.session_state.get("ws_dm_custom_profile", None)
     if profile is None or len(profile) != 5:
         return list(_DEFAULT_PROFILE)
-    # Clamp apex to crown_height if the user dragged it beyond.
     try:
         return [float(v) for v in profile]
     except (TypeError, ValueError):
@@ -89,38 +83,12 @@ def _read_custom_profile(crown_height):
 
 
 def _dome_profile_height(r_frac, crown_height, curve_type):
-    """
-    Returns the Z-height at a given normalized radial fraction.
-
-    For "custom", the 5-point profile is read from session state
-    and interpolated. r_frac runs from 0 (apex) to 1 (eave base),
-    so we reverse it to match the profile array order (P0 at r_frac=1,
-    P2 at r_frac=0, P4 at r_frac=1 on the other side).
-
-    Because the profile is symmetric in x (P0..P4 goes left to right),
-    we simply use abs(1 - 2*r_frac) style to mirror. But the simplest
-    correct reading: r_frac = 0 is the apex; r_frac = 1 is the base.
-    The 5-point profile is [base_L, quarter_L, apex, quarter_R, base_R].
-    So at r_frac, the corresponding profile index is |1 - 2*r_frac|*2,
-    mapped onto the array [0,1,2,3,4].
-
-    Simpler: use np.interp over an x axis. But we do not have x here,
-    only r_frac. So we build a symmetric 5-point axis in r_frac space:
-        r_frac = 1.0 -> profile[0]
-        r_frac = 0.5 -> profile[1]
-        r_frac = 0.0 -> profile[2]
-        r_frac = 0.5 -> profile[3]  (mirror of profile[1])
-        r_frac = 1.0 -> profile[4]  (mirror of profile[0])
-    """
     r_frac = float(max(0.0, min(1.0, r_frac)))
 
     if curve_type == "custom":
         profile = _read_custom_profile(crown_height)
-        # Build a monotonic r_frac axis: 1.0, 0.75, 0.5, 0.25, 0.0
-        # Mapped to profile indices: 0, 1, 2, 3, 4
         rf_axis = np.array([1.0, 0.75, 0.5, 0.25, 0.0])
         z_axis = np.array(profile, dtype=float)
-        # np.interp requires increasing x. Reverse both.
         rf_rev = rf_axis[::-1]
         z_rev = z_axis[::-1]
         return float(np.interp(r_frac, rf_rev, z_rev))
@@ -733,6 +701,10 @@ def build_dome_multi_cone():
     weft_pretension = float(_get("weft_pretension", 20.0))
     edge_cable_pretension = float(_get("edge_cable_pretension", 45.0))
 
+    access_mode = str(
+        st.session_state.get("access_mode", "owner")
+    ).lower()
+
     ground_radius = max(dome_diameter / 2.0, 1e-6)
 
     picked_raw = _get("picked_crossings", None)
@@ -1023,37 +995,64 @@ def build_dome_multi_cone():
         c1, c2, c3 = st.columns(3)
         with c1:
             st.markdown("**Structure**")
-            show_frame = st.checkbox("Show Frame", value=True, key="ws_dm_show_frame")
-            show_anchors = st.checkbox("Show Anchors", value=True, key="ws_dm_show_anchors")
+            show_frame = st.checkbox(
+                "Show Frame", value=True, key="ws_dm_show_frame"
+            )
+            show_anchor_markers = st.checkbox(
+                "Show Anchor Markers",
+                value=False,
+                key="ws_dm_show_anchor_markers",
+                help="Anchor markers are silent by default. Turn on to "
+                     "see the individual anchor points.",
+            )
         with c2:
             st.markdown("**Cables**")
-            show_edge_cable = st.checkbox("Show Edge Cable", value=True, key="ws_dm_show_edge_cable")
-            show_cones = st.checkbox("Show Cones", value=True, key="ws_dm_show_cones")
+            show_edge_cable = st.checkbox(
+                "Show Edge Cable", value=True,
+                key="ws_dm_show_edge_cable",
+            )
+            show_cones = st.checkbox(
+                "Show Cones", value=True, key="ws_dm_show_cones"
+            )
         with c3:
             st.markdown("**Fabric**")
-            show_membrane = st.checkbox("Show Membrane", value=True, key="ws_dm_show_membrane")
+            show_membrane = st.checkbox(
+                "Show Membrane", value=True,
+                key="ws_dm_show_membrane",
+            )
 
     with st.expander("Element Seed Schedule", expanded=False):
-        st.caption("Tap a row to select it for editing. Rotate phone to landscape for full view.")
+        st.caption("Tap a row to select it for editing.")
         element_ids = [el["id"] for el in elements]
         selected_id = st.selectbox(
-            "Select Element to Edit", 
+            "Select Element to Edit",
             options=[""] + element_ids,
-            index=0 if "ws_dm_active_element_id" not in st.session_state else element_ids.index(st.session_state.ws_dm_active_element_id) + 1,
-            key="element_selector_box"
+            index=0 if "ws_dm_active_element_id" not in st.session_state
+                  else element_ids.index(
+                      st.session_state.ws_dm_active_element_id) + 1,
+            key="element_selector_box",
         )
         if selected_id:
             st.session_state["ws_dm_active_element_id"] = selected_id
-        
-        st.markdown(_render_element_table(elements), unsafe_allow_html=True)
-        
+
+        st.markdown(
+            _render_element_table(elements),
+            unsafe_allow_html=True,
+        )
+
         if selected_id:
             st.write("---")
             st.write(f"**Editing: {selected_id}**")
-            sel_el = next((el for el in elements if el["id"] == selected_id), None)
+            sel_el = next(
+                (el for el in elements if el["id"] == selected_id),
+                None,
+            )
             if sel_el:
                 st.json(sel_el["seed"])
-                st.caption("Editing functionality (saving to session) coming in next patch.")
+                st.caption(
+                    "Editing functionality (saving to session) "
+                    "coming in next patch."
+                )
 
     # --- Draw ---
     fig = go.Figure()
@@ -1065,7 +1064,12 @@ def build_dome_multi_cone():
         else:
             draw_pts = built["points"]
 
-    if show_membrane and built is not None and len(built["triangles"]) > 0 and draw_pts is not None:
+    if (
+        show_membrane
+        and built is not None
+        and len(built["triangles"]) > 0
+        and draw_pts is not None
+    ):
         tri = np.asarray(built["triangles"], dtype=int)
         fig.add_trace(go.Mesh3d(
             x=draw_pts[:, 0], y=draw_pts[:, 1], z=draw_pts[:, 2],
@@ -1085,7 +1089,8 @@ def build_dome_multi_cone():
                 showlegend=False, hoverinfo="skip",
             ))
 
-    if show_anchors and draw_pts is not None and built is not None:
+    # Anchor markers: silent by default (Rule 24).
+    if show_anchor_markers and draw_pts is not None and built is not None:
         anchor_set = set(int(i) for i in anchor_idx)
         anchor_pts = [draw_pts[i] for i in anchor_set]
         ax = [p[0] for p in anchor_pts]
@@ -1103,10 +1108,9 @@ def build_dome_multi_cone():
         n_perim = built["n_perimeter"]
         perim_pts = draw_pts[:n_perim]
         closed_perim = np.vstack([perim_pts, perim_pts[:1]])
-        
         fig.add_trace(go.Scatter3d(
-            x=closed_perim[:, 0], 
-            y=closed_perim[:, 1], 
+            x=closed_perim[:, 0],
+            y=closed_perim[:, 1],
             z=closed_perim[:, 2],
             mode="lines",
             line=dict(color=COL_EAVE, width=6),
@@ -1174,7 +1178,6 @@ def build_dome_multi_cone():
     # =========================================================================
     # OWNER TIER DIAGNOSTICS
     # =========================================================================
-    access_mode = str(st.session_state.get("access_mode", "owner")).lower()
     if access_mode == "owner":
         rows = _verify_frame_against_globe(
             apexes, ground_radius, crown_height, curve_type
@@ -1234,20 +1237,21 @@ def build_dome_multi_cone():
                     % SOLVE_TARGET_LEN_FRAC
                 )
 
-        with st.expander("Node digitisation (FDM) (owner tier)", expanded=False):
+        with st.expander("Node digitisation (FDM) (owner tier)",
+                          expanded=False):
             if built is None or fdm_coords is None:
                 st.write("**No solved mesh to display.**")
             else:
                 n_nodes = fdm_coords.shape[0]
                 status_of = ["free"] * n_nodes
                 anchor_set = set(int(i) for i in anchor_idx)
-                
+
                 for i in range(built["n_perimeter"]):
                     if i in anchor_set:
                         status_of[i] = "held_anchor"
                     else:
                         status_of[i] = "perimeter_cable_free"
-                        
+
                 for idx_list in built["ring_indices"]:
                     for i in idx_list:
                         status_of[int(i)] = "held_ring_polygon"
@@ -1262,7 +1266,7 @@ def build_dome_multi_cone():
                        "x_set", "y_set", "z_set", "disp", "status")
                 )
                 lines = [header, "-" * len(header)]
-                
+
                 for i in range(n_nodes):
                     xi, yi, zi = pts[i]
                     xs, ys, zs = fdm_coords[i]
@@ -1271,7 +1275,7 @@ def build_dome_multi_cone():
                         "%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
                         % (i, xi, yi, zi, xs, ys, zs, d, status_of[i])
                     )
-                
+
                 st.code("\n".join(lines), language="text")
 
     return apply_common_layout(fig, crown_height)
