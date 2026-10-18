@@ -240,6 +240,91 @@ structural connection. These are two separate lists with
 two separate meanings and two separate lifetimes. Never
 conflate them. See Part V.
 
+## Rule 22 — One File, One Block, One Copy
+
+Every file written by the AI and carried to GitHub by the Chief is
+written as ONE complete file, in ONE outer code block, with ONE
+Copy button.
+
+1. No nested code fences inside the file. A document may not
+   contain backtick fence markers inside it. If the content is
+   code, the outer block is the only fence. If the content is a
+   document that references code, the code is written as plain
+   indented text, not as a fenced block.
+
+2. No chunking unless the Chief asks. Size is not the reason to
+   split. The 150-line chunk rule is retired for this purpose. A
+   file of 1000 lines, of 4000 lines, of any length, is delivered
+   whole. The chat room carries it.
+
+3. No prose before the block. The message is the block.
+   Instructions, if needed, come after the block, not before it.
+   The Chief taps Copy on the block, pastes into the target file,
+   and reads back the last three lines.
+
+4. The writer is responsible for the format. If the file does not
+   transfer, the fault is in the writing, not in the platform. The
+   writer fixes the format, not the size.
+
+5. Proven by test. 2026-10-04. A 1000-line text file and a
+   4067-line Python file, each in one outer code block with no
+   nested fences, both transferred whole to GitHub in one paste.
+   The failures earlier in the session were caused by nested
+   fences and split messages, not by size.
+
+6. Do not shrink to hide. If a file is broken, fix the format.
+   Do not cut it into pieces to hide the breakage. Pieces hide
+   the problem. One clean file solves it.
+
+## Rule 23 — Draw From the Settled, Not the Source
+
+Every element that is physically connected to the membrane must be
+drawn from the settled coordinates returned by the solver, never
+from the source geometry that was passed into the mesh builder.
+
+The two categories of coordinates:
+
+1. Source coordinates. The straight-line geometry the user or
+   recipe provided. These are the inputs to the mesh builder.
+   Examples: eave_polygon, perimeter_loop, cone ring_nodes,
+   cone crossing, frame curve points.
+
+2. Settled coordinates. The output of solve_fdm. This is what the
+   membrane is actually built from, and what every connected
+   element must respect. Examples: fdm_coords, draw_pts.
+
+The rule:
+
+Any trace (edge cable, anchor marker, ring, spoke, drop, or
+anything else) that represents a physical element attached to the
+membrane must be drawn from settled coordinates. It must use the
+node indices that the mesh builder returned (n_perimeter,
+anchor_idx, ring_indices, centre_indices, beam_top_indices) to
+select the correct nodes out of draw_pts.
+
+The only elements that may be drawn from source coordinates are
+the ones that do not move and do not touch the membrane. Examples:
+the steel frame beams, the ground reference, the grid, the axes,
+and decorative annotations.
+
+Why this rule exists:
+
+The membrane is not a static surface. When the FDM solver runs, the
+membrane shifts. Every node that is not held moves. The boundary
+cable bows inward. The anchors stay still. The rings stay rigid
+but their attachment to the fabric shifts.
+
+If a viewer draws the edge cable from the static eave_polygon, the
+cable appears as a straight green line floating outside the
+settled membrane, disconnected. If a viewer draws the anchors from
+the static eave_polygon, the markers appear at the wrong positions
+once the boundary has sagged.
+
+The fix is always the same: draw from the settled coordinates
+using the indices the engine returned.
+
+Applies to all viewers, present and future.
+
 ---
 
 # PART III — THE METHOD
@@ -481,50 +566,4 @@ doctrine:
 
 ---
 
-
-
-## Rule 22 — One File, One Block, One Copy
-
-Every file written by the AI and carried to GitHub by the Chief is
-written as ONE complete file, in ONE outer code block, with ONE
-Copy button.
-
-1. No nested code fences inside the file. A document may not
-   contain backtick fence markers inside it. If the content is
-   code, the outer block is the only fence. If the content is a
-   document that references code, the code is written as plain
-   indented text, not as a fenced block.
-
-2. No chunking unless the Chief asks. Size is not the reason to
-   split. The 150-line chunk rule is retired for this purpose. A
-   file of 1000 lines, of 4000 lines, of any length, is delivered
-   whole. The chat room carries it.
-
-3. No prose before the block. The message is the block.
-   Instructions, if needed, come after the block, not before it.
-   The Chief taps Copy on the block, pastes into the target file,
-   and reads back the last three lines.
-
-4. The writer is responsible for the format. If the file does not
-   transfer, the fault is in the writing, not in the platform. The
-   writer fixes the format, not the size.
-
-5. Proven by test. 2026-10-04. A 1000-line text file and a
-   4067-line Python file, each in one outer code block with no
-   nested fences, both transferred whole to GitHub in one paste.
-   The failures earlier in the session were caused by nested
-   fences and split messages, not by size.
-
-6. Do not shrink to hide. If a file is broken, fix the format.
-   Do not cut it into pieces to hide the breakage. Pieces hide
-   the problem. One clean file solves it.
-
-Note: Rule 22 above is placed at the end of this file for
-convenience. It belongs in PART II — THE RULES, after Rule 21.
-
 End of PROJECT_CONSTITUTION.md.
-
-
-
-
-
