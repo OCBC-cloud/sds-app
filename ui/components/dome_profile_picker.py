@@ -1,46 +1,34 @@
 # =============================================================================
-# SDSe - Dome Profile Picker
+# SDSe - Dome Profile Picker (Canvas Edition)
 # =============================================================================
-# A 2D elevation drawing board for the Dome Multi-Cone structure.
+# A true 2D drawing board for the Dome Multi-Cone structure.
 #
-# The user shapes the dome frame curve with five control point sliders.
-# A live preview curve draws on the plot. The curve is interpolated from
-# the five Z-heights across the dome span.
+# Built on Streamlit's custom component protocol. The board is an HTML5
+# canvas inside an iframe. The user drags five gold control points with
+# their finger. The curve updates in real time. On release, the five
+# new heights are sent back to Python via Streamlit.setComponentValue.
 #
-# The five control points are:
+# No sliders. No widgets. A real CAD-style drawing board.
+#
+# The 5-point profile represents the frame elevation curve:
 #   P0 - Left base (at -span/2)
 #   P1 - Left quarter
 #   P2 - Apex (at 0)
 #   P3 - Right quarter
 #   P4 - Right base (at +span/2)
 #
-# The Z-heights are stored in session state under
+# Heights are stored in session state under
 #   ws_dm_custom_profile   (list of 5 floats, metres)
 #
-# The viewer (viewers/figures/dome_multi_cone.py) reads this array
-# when curve_type == "custom" and interpolates it into the frame.
-#
-# This component does not build 3D geometry. It only collects the
-# five control points and shows a live preview.
-#
 # History:
-#   2026-10-18 - First version. 5-slider elevation drawer.
+#   2026-10-18 - Replaced 5-slider version with HTML5 canvas.
 # =============================================================================
 
-import math
+import json
 
-import numpy as np
-import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
-
-# =============================================================================
-# CONSTANTS
-# =============================================================================
-
-COL_PREVIEW_CURVE = "#ffd166"     # gold, matches the ring colour
-COL_PREVIEW_GRID = "#4a7a9c"      # blue, matches the membrane
-COL_REFERENCE = "#a0a0a0"         # grey, for the parabola reference
 
 PROFILE_KEY = "ws_dm_custom_profile"
 _DEFAULT_PROFILE = [0.0, 6.75, 9.0, 6.75, 0.0]
@@ -51,7 +39,6 @@ _DEFAULT_PROFILE = [0.0, 6.75, 9.0, 6.75, 0.0]
 # =============================================================================
 
 def _get_profile():
-    """Returns the current 5-point profile from session state, or the default."""
     profile = st.session_state.get(PROFILE_KEY, None)
     if profile is None or len(profile) != 5:
         profile = list(_DEFAULT_PROFILE)
@@ -60,145 +47,320 @@ def _get_profile():
 
 
 def _get_dome_inputs():
-    """Read the two parameters the profile view needs."""
     diameter = float(st.session_state.get("ws_dm_dome_diameter", 18.0))
     crown = float(st.session_state.get("ws_dm_crown_height", 9.0))
     return diameter, crown
 
 
 # =============================================================================
-# PREVIEW PLOT
+# THE CANVAS HTML
 # =============================================================================
 
-def _build_preview_figure(profile, diameter, crown):
+def _build_canvas_html(profile, diameter, crown):
     """
-    Builds the 2D preview figure.
-    
-    The plot shows:
-      - X axis: -diameter/2 to +diameter/2 (the span)
-      - Y axis: 0 to crown (the height)
-      - The current curve (from the 5 control points, interpolated)
-      - The reference parabola (faint, for comparison)
-      - The 5 control points (as markers)
+    Build the HTML + JS + CSS for the drawing board.
+    The JS:
+      - Draws the grid, reference parabola, custom curve, and 5 points.
+      - Listens for touch and mouse drag on the points.
+      - Sends the 5 heights back via Streamlit.setComponentValue.
     """
-    span = max(diameter, 1.0)
-    h_max = max(crown, 1.0)
+    span = float(max(diameter, 1.0))
+    h_max = float(max(crown, 1.0))
+    profile_json = json.dumps([float(v) for v in profile])
 
-    # X of the 5 control points: -span/2, -span/4, 0, +span/4, +span/2
-    xs = np.array([-span / 2.0, -span / 4.0, 0.0, +span / 4.0, +span / 2.0])
-    zs = np.array(profile, dtype=float)
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  html, body {{
+    margin: 0; padding: 0;
+    background: transparent;
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+  }}
+  #board {{
+    position: relative;
+    width: 100%;
+    height: 320px;
+    background: #0e1117;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    touch-action: none;
+    user-select: none;
+  }}
+  canvas {{
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: block;
+    cursor: grab;
+  }}
+  canvas.dragging {{
+    cursor: grabbing;
+  }}
+  #hint {{
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+    pointer-events: none;
+  }}
+</style>
+</head>
+<body>
+<div id="board">
+  <canvas id="cv"></canvas>
+  <div id="hint">Drag the gold points to shape the curve.</div>
+</div>
 
-    # Interpolate to 100 points for a smooth preview curve.
-    # Use np.interp for linear, or a light smoothing. Linear is honest:
-    # the user sees exactly the shape the engine will build.
-    x_dense = np.linspace(-span / 2.0, +span / 2.0, 100)
-    z_dense = np.interp(x_dense, xs, zs)
+<script>
+(function() {{
+  const board = document.getElementById("board");
+  const cv = document.getElementById("cv");
+  const ctx = cv.getContext("2d");
 
-    # Reference parabola (crown * (1 - (x/half_span)^2))
-    r_frac = np.abs(x_dense) / max(span / 2.0, 1e-9)
-    z_ref = crown * (1.0 - r_frac ** 2)
+  // ---------- Geometry constants ----------
+  const SPAN = {span};
+  const H_MAX = {h_max};
+  const PROFILE = {profile_json};
 
-    fig = go.Figure()
+  // ---------- Layout ----------
+  // Canvas padding inside the board: left, right, top, bottom
+  const PAD = {{ left: 40, right: 20, top: 20, bottom: 30 }};
 
-    # Reference parabola (faint)
-    fig.add_trace(go.Scatter(
-        x=x_dense,
-        y=z_ref,
-        mode="lines",
-        line=dict(color=COL_REFERENCE, width=2, dash="dot"),
-        name="Parabolic reference",
-        hovertemplate="x: %{x:.2f}<br>z: %{y:.2f}<extra></extra>",
-    ))
+  let cssW = 0, cssH = 0, dpr = window.devicePixelRatio || 1;
 
-    # Current custom curve
-    fig.add_trace(go.Scatter(
-        x=x_dense,
-        y=z_dense,
-        mode="lines",
-        line=dict(color=COL_PREVIEW_CURVE, width=4),
-        name="Custom curve",
-        hovertemplate="x: %{x:.2f}<br>z: %{y:.2f}<extra></extra>",
-    ))
+  function resize() {{
+    const rect = board.getBoundingClientRect();
+    cssW = rect.width;
+    cssH = rect.height;
+    cv.width = Math.floor(cssW * dpr);
+    cv.height = Math.floor(cssH * dpr);
+    cv.style.width = cssW + "px";
+    cv.style.height = cssH + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw();
+  }}
 
-    # Control points
-    fig.add_trace(go.Scatter(
-        x=xs,
-        y=zs,
-        mode="markers",
-        marker=dict(color=COL_PREVIEW_CURVE, size=10, symbol="circle"),
-        name="Control points",
-        hovertemplate=(
-            "x: %{x:.2f}<br>z: %{y:.2f}<extra></extra>"
-        ),
-    ))
+  // Convert world (x from -SPAN/2 to +SPAN/2, z from 0 to H_MAX) to
+  // canvas pixel coords.
+  function wx(x) {{
+    const innerW = cssW - PAD.left - PAD.right;
+    const u = (x + SPAN / 2) / SPAN;
+    return PAD.left + u * innerW;
+  }}
+  function wy(z) {{
+    const innerH = cssH - PAD.top - PAD.bottom;
+    const v = z / Math.max(H_MAX, 1e-9);
+    return PAD.top + (1 - v) * innerH;
+  }}
+  function px2x(px) {{
+    const innerW = cssW - PAD.left - PAD.right;
+    const u = (px - PAD.left) / innerW;
+    return u * SPAN - SPAN / 2;
+  }}
+  function py2z(py) {{
+    const innerH = cssH - PAD.top - PAD.bottom;
+    const v = (py - PAD.top) / innerH;
+    return (1 - v) * H_MAX;
+  }}
 
-    fig.update_layout(
-        margin=dict(l=10, r=10, t=30, b=10),
-        height=260,
-        plot_bgcolor="#0e1117",
-        paper_bgcolor="#0e1117",
-        font=dict(color="#ffffff", size=12),
-        xaxis=dict(
-            title=dict(text="Span (m)", font=dict(color="#ffffff")),
-            gridcolor="rgba(255,255,255,0.1)",
-            zerolinecolor="rgba(255,255,255,0.2)",
-            tickfont=dict(color="#ffffff"),
-        ),
-        yaxis=dict(
-            title=dict(text="Height (m)", font=dict(color="#ffffff")),
-            gridcolor="rgba(255,255,255,0.1)",
-            zerolinecolor="rgba(255,255,255,0.2)",
-            tickfont=dict(color="#ffffff"),
-            range=[0, h_max * 1.1],
-        ),
-        showlegend=False,
-    )
+  // ---------- Control points in world coords ----------
+  // xs are fixed; zs are the profile.
+  function makePoints(profile) {{
+    const xs = [-SPAN/2, -SPAN/4, 0, SPAN/4, SPAN/2];
+    return xs.map((x, i) => ({{ x: x, z: profile[i] }}));
+  }}
+  let pts = makePoints(PROFILE);
 
-    return fig
+  // ---------- Draw ----------
+  function draw() {{
+    ctx.clearRect(0, 0, cssW, cssH);
 
+    // Grid lines
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 1;
+    const nGrid = 6;
+    for (let i = 0; i <= nGrid; i++) {{
+      const px = PAD.left + (i / nGrid) * (cssW - PAD.left - PAD.right);
+      ctx.beginPath();
+      ctx.moveTo(px, PAD.top);
+      ctx.lineTo(px, cssH - PAD.bottom);
+      ctx.stroke();
+    }}
+    for (let i = 0; i <= nGrid; i++) {{
+      const py = PAD.top + (i / nGrid) * (cssH - PAD.top - PAD.bottom);
+      ctx.beginPath();
+      ctx.moveTo(PAD.left, py);
+      ctx.lineTo(cssW - PAD.right, py);
+      ctx.stroke();
+    }}
 
-# =============================================================================
-# SLIDERS
-# =============================================================================
+    // Reference parabola (faint)
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    const N = 100;
+    for (let i = 0; i <= N; i++) {{
+      const u = i / N;
+      const x = -SPAN/2 + u * SPAN;
+      const r = Math.abs(x) / (SPAN / 2);
+      const z = H_MAX * (1 - r * r);
+      const cx = wx(x), cy = wy(z);
+      if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+    }}
+    ctx.stroke();
+    ctx.setLineDash([]);
 
-def _render_sliders(profile, crown):
-    """
-    Renders 5 sliders, one per control point.
-    Returns the updated profile.
-    """
-    z_max = max(crown, 1.0)
+    // Custom curve
+    ctx.strokeStyle = "#ffd166";
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {{
+      const u = i / N;
+      const x = -SPAN/2 + u * SPAN;
+      const z = interp(x, pts);
+      const cx = wx(x), cy = wy(z);
+      if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+    }}
+    ctx.stroke();
 
-    st.caption(
-        "Adjust each control point. The curve redraws live. "
-        "The 3D board uses this curve when you switch to the 3D View."
-    )
+    // Control points
+    for (const p of pts) {{
+      const cx = wx(p.x), cy = wy(p.z);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 12, 0, 2 * Math.PI);
+      ctx.fillStyle = "rgba(255, 209, 102, 0.25)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = "#ffd166";
+      ctx.fill();
+      ctx.strokeStyle = "#0e1117";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }}
 
-    labels = [
-        "Left base height (m)",
-        "Left quarter height (m)",
-        "Apex height (m)",
-        "Right quarter height (m)",
-        "Right base height (m)",
-    ]
+    // Axes labels
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.font = "11px -apple-system, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText("0", PAD.left - 6, cssH - PAD.bottom);
+    ctx.fillText("H=" + H_MAX.toFixed(1), PAD.left - 6, PAD.top + 10);
+    ctx.textAlign = "center";
+    ctx.fillText("-" + (SPAN/2).toFixed(1), PAD.left, cssH - PAD.bottom + 16);
+    ctx.fillText("+" + (SPAN/2).toFixed(1), cssW - PAD.right, cssH - PAD.bottom + 16);
+    ctx.textAlign = "left";
+    ctx.fillText("Elevation (m)", PAD.left, PAD.top - 6);
+  }}
 
-    new_profile = []
-    for i, (lbl, val) in enumerate(zip(labels, profile)):
-        # Read the value from the widget using a session key.
-        widget_key = f"ws_dm_profile_slider_{i}"
-        if widget_key not in st.session_state:
-            st.session_state[widget_key] = float(val)
+  // Interpolation for drawing the curve (matches Python's np.interp
+  // behaviour, but with 5 control points).
+  function interp(x, points) {{
+    // points are ordered left to right by x.
+    if (x <= points[0].x) return points[0].z;
+    if (x >= points[points.length - 1].x) return points[points.length - 1].z;
+    for (let i = 0; i < points.length - 1; i++) {{
+      const a = points[i], b = points[i + 1];
+      if (x >= a.x && x <= b.x) {{
+        const t = (x - a.x) / (b.x - a.x || 1e-9);
+        return a.z + t * (b.z - a.z);
+      }}
+    }}
+    return 0;
+  }}
 
-        v = st.slider(
-            label=lbl,
-            min_value=0.0,
-            max_value=float(z_max * 1.2),
-            value=float(st.session_state[widget_key]),
-            step=0.05,
-            key=widget_key,
-        )
-        new_profile.append(float(v))
+  // ---------- Drag handling ----------
+  let draggingIdx = -1;
 
-    return new_profile
+  function hitTest(px, py) {{
+    for (let i = 0; i < pts.length; i++) {{
+      const cx = wx(pts[i].x), cy = wy(pts[i].z);
+      const d = Math.hypot(px - cx, py - cy);
+      if (d < 22) return i;
+    }}
+    return -1;
+  }}
+
+  function pointerPos(evt) {{
+    const rect = cv.getBoundingClientRect();
+    let cx, cy;
+    if (evt.touches && evt.touches.length > 0) {{
+      cx = evt.touches[0].clientX - rect.left;
+      cy = evt.touches[0].clientY - rect.top;
+    }} else {{
+      cx = evt.clientX - rect.left;
+      cy = evt.clientY - rect.top;
+    }}
+    return {{ px: cx, py: cy }};
+  }}
+
+  function onDown(evt) {{
+    const {{ px, py }} = pointerPos(evt);
+    const idx = hitTest(px, py);
+    if (idx >= 0) {{
+      draggingIdx = idx;
+      cv.classList.add("dragging");
+      evt.preventDefault();
+    }}
+  }}
+
+  function onMove(evt) {{
+    if (draggingIdx < 0) return;
+    const {{ px, py }} = pointerPos(evt);
+    // Convert to world z. Only the z moves; x is fixed.
+    let z = py2z(py);
+    z = Math.max(0, Math.min(H_MAX * 1.2, z));
+    pts[draggingIdx].z = z;
+    draw();
+    evt.preventDefault();
+  }}
+
+  function onUp(evt) {{
+    if (draggingIdx < 0) return;
+    cv.classList.remove("dragging");
+    draggingIdx = -1;
+    // Send the new profile to Streamlit.
+    const profile = pts.map(p => p.z);
+    sendToStreamlit(profile);
+    evt.preventDefault();
+  }}
+
+  // ---------- Streamlit component protocol ----------
+  function sendToStreamlit(profile) {{
+    if (window.Streamlit && window.Streamlit.setComponentValue) {{
+      window.Streamlit.setComponentValue({{ profile: profile }});
+    }}
+  }}
+
+  // ---------- Event listeners ----------
+  cv.addEventListener("mousedown", onDown);
+  cv.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+  cv.addEventListener("touchstart", onDown, {{ passive: false }});
+  cv.addEventListener("touchmove", onMove, {{ passive: false }});
+  window.addEventListener("touchend", onUp, {{ passive: false }});
+
+  // ---------- Init ----------
+  window.addEventListener("resize", resize);
+  resize();
+
+  // Notify Streamlit the component is ready.
+  if (window.Streamlit && window.Streamlit.setFrameHeight) {{
+    window.Streamlit.setFrameHeight(340);
+  }}
+}})();
+</script>
+</body>
+</html>
+"""
+    return html
 
 
 # =============================================================================
@@ -207,7 +369,7 @@ def _render_sliders(profile, crown):
 
 def render_dome_profile_picker():
     """
-    Render the Dome Multi-Cone Profile Picker board.
+    Render the Dome Multi-Cone Profile Picker board (canvas version).
 
     Reads:
         ws_dm_dome_diameter
@@ -222,42 +384,38 @@ def render_dome_profile_picker():
 
     st.markdown(
         "<p style='color:#a8b8c8;margin-top:0;'>"
-        "Draw the dome elevation curve. Five control points. "
+        "Draw the dome elevation curve. Drag the gold points. "
         "The 3D board rebuilds the frame from this curve."
         "</p>",
         unsafe_allow_html=True,
     )
 
-    # --- The preview plot ---
-    fig = _build_preview_figure(profile, diameter, crown)
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        key="ws_dm_profile_preview",
-        config={"displayModeBar": False},
+    html = _build_canvas_html(profile, diameter, crown)
+
+    # Render the component. The key ensures the widget is stable across
+    # reruns; a new value is only returned when the user releases a point.
+    result = components.html(
+        html,
+        height=340,
+        scrolling=False,
     )
 
-    # --- The 5 sliders ---
-    new_profile = _render_sliders(profile, crown)
-
-    # --- Commit to session state if changed ---
-    changed = any(
-        abs(float(new_profile[i]) - float(profile[i])) > 1e-9
-        for i in range(5)
-    )
-    if changed:
-        st.session_state[PROFILE_KEY] = new_profile
-        # Do NOT call st.rerun() here. The next natural rerender
-        # (triggered by the slider release) will pick up the new
-        # value and the preview will redraw.
+    # Read the value returned by the JS.
+    # components.html returns the value passed to Streamlit.setComponentValue
+    # on the last drag release, or None on a fresh render.
+    if result is not None and isinstance(result, dict):
+        new_profile = result.get("profile", None)
+        if new_profile is not None and len(new_profile) == 5:
+            try:
+                new_profile = [float(v) for v in new_profile]
+                st.session_state[PROFILE_KEY] = new_profile
+            except (TypeError, ValueError):
+                pass
 
     # --- Reset button ---
     st.markdown("---")
     if st.button("Reset to Parabolic", use_container_width=True):
         st.session_state[PROFILE_KEY] = list(_DEFAULT_PROFILE)
-        for i in range(5):
-            widget_key = f"ws_dm_profile_slider_{i}"
-            st.session_state[widget_key] = float(_DEFAULT_PROFILE[i])
         st.rerun()
 
 
