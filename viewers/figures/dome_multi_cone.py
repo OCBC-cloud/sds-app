@@ -1098,11 +1098,9 @@ def build_dome_multi_cone():
     # =========================================================================
     # VISIBILITY LAYERS & SEED TABLE (Owner tier / UI)
     # =========================================================================
-    access_mode = str(st.session_state.get("access_mode", "owner")).lower()
-    if access_mode == "owner":
-        
-        # Visibility Toggles
-        with st.expander("Drawing Layers & Visibility", expanded=False):
+    # --- Everyone can see Layers and Seeds ---
+    # Visibility Toggles
+    with st.expander("Drawing Layers & Visibility", expanded=False):
             st.caption("Toggle folders and layers to manage the drawing board.")
             
             c1, c2, c3 = st.columns(3)
@@ -1147,7 +1145,9 @@ def build_dome_multi_cone():
                     st.json(sel_el["seed"])
                     st.caption("Editing functionality (saving to session) coming in next patch.")
 
-        # --- Old diagnostic expanders ---
+        # --- Owner Tier Diagnostics ---
+        access_mode = str(st.session_state.get("access_mode", "owner")).lower()
+        if access_mode == "owner":
         rows = _verify_frame_against_globe(
             apexes, ground_radius, crown_height, curve_type
         )
