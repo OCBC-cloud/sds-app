@@ -6,8 +6,6 @@
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
 # PIECE 6 — ELEMENT SEEDS & DATA SCHEDULE.
-#   Generates explicit dictionary data for every element.
-#   Renders a custom HTML/CSS table to manage these seeds.
 # =============================================================================
 
 import hashlib
@@ -461,11 +459,6 @@ def _cached_solve(mesh_hash,
                    boundary_edge_keys_bytes, edge_q_scalar,
                    warp_prestress, weft_prestress,
                    max_iter, max_outer, tol, wall_seconds):
-    """
-    Cached FDM seed + NFDM refine. Returns:
-        fdm_coords_bytes, nfdm_coords_bytes or b"", summary
-    All numpy arrays are passed as bytes so Streamlit can hash them.
-    """
     pts = np.frombuffer(pts_bytes, dtype=np.float64).reshape(-1, 3).copy()
     tris = np.frombuffer(tris_bytes, dtype=np.int32).reshape(-1, 3).tolist()
     edges = _unpack_edges(edges_bytes)
@@ -479,7 +472,6 @@ def _cached_solve(mesh_hash,
     for i in range(0, len(arr_b), 2):
         boundary_edge_set.add((int(arr_b[i]), int(arr_b[i + 1])))
 
-    # ---- Build q array for FDM --------------------------------------
     q_fdm = np.empty(len(edges), dtype=np.float64)
     for k, (i, j) in enumerate(edges):
         key = (i, j) if i < j else (j, i)
@@ -488,7 +480,6 @@ def _cached_solve(mesh_hash,
         else:
             q_fdm[k] = q_interior[k]
 
-    # ---- FDM solve --------------------------------------------------
     fdm_summary = {"converged": False, "reason": "not run"}
     try:
         fdm_res = solve_fdm(pts.copy(), edges, fdm_fixed, q_fdm)
@@ -505,7 +496,6 @@ def _cached_solve(mesh_hash,
         fdm_summary = {"converged": False, "reason": "exception: " + str(e),
                         "residual_norm": 0.0, "n_free": 0, "n_fixed": 0}
 
-    # ---- NFDM refine, seeded from FDM -------------------------------
     material = make_membrane_material(
         E_warp_MPa=1400.0,
         E_weft_MPa=1400.0,
@@ -567,10 +557,6 @@ def _cached_solve(mesh_hash,
 # =============================================================================
 
 def _render_element_table(elements):
-    """
-    Renders a custom HTML table with translucent colours and white text.
-    Allows row selection.
-    """
     css = """
     <style>
     .seed-table {
@@ -673,7 +659,6 @@ def _render_element_table(elements):
 # =============================================================================
 
 def build_dome_multi_cone():
-    # ---- Read inputs -----------------------------------------------------
     dome_diameter = float(_get("dome_diameter", 18.0))
     crown_height = float(_get("crown_height", 9.0))
     n_x = int(_get("meridians_x", 5))
@@ -689,7 +674,6 @@ def build_dome_multi_cone():
 
     ground_radius = max(dome_diameter / 2.0, 1e-6)
 
-    # ---- Read picked positions ------------------------------------------
     picked_raw = _get("picked_crossings", None)
     if picked_raw is None:
         picked_raw = set()
@@ -699,7 +683,6 @@ def build_dome_multi_cone():
         if p is not None:
             normalised_picks.add(p)
 
-    # ---- Build frame -----------------------------------------------------
     frames, apexes, offsets_x, offsets_y = _build_dome_frame(
         ground_radius=ground_radius,
         crown_height=crown_height,
@@ -708,12 +691,10 @@ def build_dome_multi_cone():
         n_y=n_y,
     )
 
-    # ---- Eave polygon ----------------------------------------------------
     eave_polygon = _build_eave_polygon(
         frames, eave_height, ground_radius, dome_diameter
     )
 
-    # ---- Resolve picks ---------------------------------------------------
     kept_picks = []
     dropped_picks = []
     for pick in sorted(normalised_picks):
@@ -726,7 +707,6 @@ def build_dome_multi_cone():
         if dropped is not None:
             dropped_picks.append(dropped)
 
-    # ---- Build cones -----------------------------------------------------
     target_len = max(dome_diameter / 40.0, 0.4)
     cones = []
     for pick in kept_picks:
@@ -736,7 +716,6 @@ def build_dome_multi_cone():
         if cone is not None:
             cones.append(cone)
 
-    # ---- Build membrane mesh via shared engine ---------------------------
     built = None
     membrane_target_len = max(dome_diameter / SOLVE_TARGET_LEN_FRAC, 0.5)
     if len(eave_polygon) >= 3:
@@ -768,7 +747,6 @@ def build_dome_multi_cone():
             st.warning("Membrane build failed: " + str(e))
             built = None
 
-    # ---- Build q, FDM fixed, NFDM fixed, cables --------------------------
     fdm_coords = None
     nfdm_coords = None
     solve_summary = None
@@ -779,7 +757,6 @@ def build_dome_multi_cone():
         edges = built["edges"]
         boundary_edge_set = built["boundary_edges"]
 
-        # ---- Compute q_interior for the blend --------------------------
         pts_2d = pts[:, :2]
         warp_q = max(warp_pretension, 0.1) * 1000.0
         weft_q = max(weft_pretension, 0.1) * 1000.0
@@ -789,7 +766,6 @@ def build_dome_multi_cone():
         )
         edge_q_scalar = max(edge_cable_pretension, 0.1) * 1000.0
 
-        # ---- FDM fixed set: eave anchors + ring nodes + centres + tops -
         fdm_fixed_set = set()
         for i in anchor_idx:
             fdm_fixed_set.add(int(i))
@@ -802,8 +778,6 @@ def build_dome_multi_cone():
             fdm_fixed_set.add(int(bi))
         fdm_fixed = sorted(fdm_fixed_set)
 
-        # ---- NFDM fixed set: eave anchors + ring nodes + beam tops ----
-        # (ring centres free — drops can deflect)
         nfdm_fixed_set = set()
         for i in anchor_idx:
             nfdm_fixed_set.add(int(i))
@@ -814,7 +788,6 @@ def build_dome_multi_cone():
             nfdm_fixed_set.add(int(bi))
         nfdm_fixed = sorted(nfdm_fixed_set)
 
-        # ---- Cable set (NFDM only) ------------------------------------
         cables = []
         E_cable_Pa = 160.0e9
         n_a = len(anchor_idx)
@@ -869,7 +842,6 @@ def build_dome_multi_cone():
                 L0 = L_ref / (1.0 + T_ring_pre_N / EA_ring)
                 cables.append({"a": ia, "b": ib, "L0": L0, "EA": EA_ring})
 
-        # ---- Cache key -------------------------------------------------
         material_key = "PVDF_TypeIII_%.4f_%.4f" % (
             warp_pretension, weft_pretension
         )
@@ -877,7 +849,6 @@ def build_dome_multi_cone():
             pts, tris, cables, fdm_fixed, nfdm_fixed, material_key
         )
 
-        # ---- Pack boundary edge keys for the cache --------------------
         boundary_keys_flat = []
         for (a, b) in boundary_edge_set:
             boundary_keys_flat.append(int(a))
@@ -886,7 +857,6 @@ def build_dome_multi_cone():
             boundary_keys_flat, dtype=np.int32
         )
 
-        # ---- Call cached solve (NFDM temporarily disabled) ------------
         with st.spinner("Solving FDM seed..."):
             fdm_bytes, _, summary = _cached_solve(
                 mesh_hash,
@@ -904,20 +874,16 @@ def build_dome_multi_cone():
                 int(SOLVE_MAX_ITER),
                 int(SOLVE_MAX_OUTER),
                 float(SOLVE_TOL),
-                0.001,  # 1 ms wall cap forces NFDM to abort instantly
+                0.001,
             )
             fdm_coords = np.frombuffer(
                 fdm_bytes, dtype=np.float64
             ).reshape(-1, 3).copy()
-            nfdm_coords = None  # Force viewer to draw FDM shape only
+            nfdm_coords = None
             solve_summary = summary
 
-    # =========================================================================
-    # ELEMENT SEED DATA GENERATION
-    # =========================================================================
     elements = []
     
-    # 1. Beams
     for i, f in enumerate(frames):
         family = f["family"]
         role = f"Frame {family}"
@@ -934,7 +900,6 @@ def build_dome_multi_cone():
             }
         })
 
-    # 2. Cables (Edge + Cone specific)
     elements.append({
         "id": "edge_cable",
         "type": "cable",
@@ -962,7 +927,6 @@ def build_dome_multi_cone():
             }
         })
 
-    # 3. Anchors
     for i, anchor in enumerate(eave_polygon):
         elements.append({
             "id": f"anchor_{i}",
@@ -977,7 +941,6 @@ def build_dome_multi_cone():
             }
         })
 
-    # 4. Membrane
     elements.append({
         "id": "membrane_surface",
         "type": "membrane",
@@ -991,7 +954,47 @@ def build_dome_multi_cone():
         }
     })
 
-    # ---- Draw ------------------------------------------------------------
+    # =========================================================================
+    # VISIBILITY LAYERS
+    # =========================================================================
+    with st.expander("Drawing Layers & Visibility", expanded=False):
+        st.caption("Toggle folders and layers to manage the drawing board.")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("**Structure**")
+            show_frame = st.checkbox("Show Frame", value=True, key="ws_dm_show_frame")
+            show_anchors = st.checkbox("Show Anchors", value=True, key="ws_dm_show_anchors")
+        with c2:
+            st.markdown("**Cables**")
+            show_edge_cable = st.checkbox("Show Edge Cable", value=True, key="ws_dm_show_edge_cable")
+            show_cones = st.checkbox("Show Cones", value=True, key="ws_dm_show_cones")
+        with c3:
+            st.markdown("**Fabric**")
+            show_membrane = st.checkbox("Show Membrane", value=True, key="ws_dm_show_membrane")
+
+    with st.expander("Element Seed Schedule", expanded=False):
+        st.caption("Tap a row to select it for editing. Rotate phone to landscape for full view.")
+        element_ids = [el["id"] for el in elements]
+        selected_id = st.selectbox(
+            "Select Element to Edit", 
+            options=[""] + element_ids,
+            index=0 if "ws_dm_active_element_id" not in st.session_state else element_ids.index(st.session_state.ws_dm_active_element_id) + 1,
+            key="element_selector_box"
+        )
+        if selected_id:
+            st.session_state["ws_dm_active_element_id"] = selected_id
+        
+        st.markdown(_render_element_table(elements), unsafe_allow_html=True)
+        
+        if selected_id:
+            st.write("---")
+            st.write(f"**Editing: {selected_id}**")
+            sel_el = next((el for el in elements if el["id"] == selected_id), None)
+            if sel_el:
+                st.json(sel_el["seed"])
+                st.caption("Editing functionality (saving to session) coming in next patch.")
+
+    # --- Draw ---
     fig = go.Figure()
 
     draw_pts = None
@@ -1001,7 +1004,7 @@ def build_dome_multi_cone():
         else:
             draw_pts = built["points"]
 
-    if built is not None and len(built["triangles"]) > 0 and draw_pts is not None:
+    if show_membrane and built is not None and len(built["triangles"]) > 0 and draw_pts is not None:
         tri = np.asarray(built["triangles"], dtype=int)
         fig.add_trace(go.Mesh3d(
             x=draw_pts[:, 0], y=draw_pts[:, 1], z=draw_pts[:, 2],
@@ -1010,17 +1013,42 @@ def build_dome_multi_cone():
             name="membrane", showlegend=False, hoverinfo="skip",
         ))
 
-    for f in frames:
-        color = COL_FRAME_A if f["family"] == "A" else COL_FRAME_B
+    if show_frame:
+        for f in frames:
+            color = COL_FRAME_A if f["family"] == "A" else COL_FRAME_B
+            fig.add_trace(go.Scatter3d(
+                x=f["x"], y=f["y"], z=f["z"],
+                mode="lines",
+                line=dict(color=color, width=4),
+                name="frame " + f["family"],
+                showlegend=False, hoverinfo="skip",
+            ))
+
+    if show_anchors and len(eave_polygon) >= 3:
+        ax = [p[0] for p in eave_polygon]
+        ay = [p[1] for p in eave_polygon]
+        az = [p[2] for p in eave_polygon]
         fig.add_trace(go.Scatter3d(
-            x=f["x"], y=f["y"], z=f["z"],
-            mode="lines",
-            line=dict(color=color, width=4),
-            name="frame " + f["family"],
+            x=ax, y=ay, z=az,
+            mode="markers",
+            marker=dict(color=COL_EAVE, size=5, symbol="circle"),
+            name="anchors",
             showlegend=False, hoverinfo="skip",
         ))
 
-    if draw_pts is not None and built is not None:
+    if show_edge_cable and len(eave_polygon) >= 3:
+        ex = [p[0] for p in eave_polygon] + [eave_polygon[0][0]]
+        ey = [p[1] for p in eave_polygon] + [eave_polygon[0][1]]
+        ez = [p[2] for p in eave_polygon] + [eave_polygon[0][2]]
+        fig.add_trace(go.Scatter3d(
+            x=ex, y=ey, z=ez,
+            mode="lines",
+            line=dict(color=COL_EAVE, width=6),
+            name="eave polygon",
+            showlegend=False, hoverinfo="skip",
+        ))
+
+    if show_cones and draw_pts is not None and built is not None:
         for k, idx_list in enumerate(built["ring_indices"]):
             centre_i = int(built["centre_indices"][k])
             beam_i = int(built["beam_top_indices"][k])
@@ -1049,7 +1077,7 @@ def build_dome_multi_cone():
                     line=dict(color=COL_SPOKE, width=2),
                     name="spoke", showlegend=False, hoverinfo="skip",
                 ))
-    else:
+    elif show_cones:
         for cone in cones:
             cx, cy, cz = cone["crossing"]
             rx, ry, rz = cone["ring_centre"]
@@ -1078,52 +1106,9 @@ def build_dome_multi_cone():
                 ))
 
     # =========================================================================
-    # VISIBILITY LAYERS & SEED TABLE
+    # OWNER TIER DIAGNOSTICS
     # =========================================================================
     access_mode = str(st.session_state.get("access_mode", "owner")).lower()
-    
-    # --- Everyone can see Layers and Seeds ---
-    with st.expander("Drawing Layers & Visibility", expanded=False):
-        st.caption("Toggle folders and layers to manage the drawing board.")
-        
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("**Structure**")
-            show_frame = st.checkbox("Show Frame", value=True, key="ws_dm_show_frame")
-            show_anchors = st.checkbox("Show Anchors", value=True, key="ws_dm_show_anchors")
-        with c2:
-            st.markdown("**Cables**")
-            show_edge_cable = st.checkbox("Show Edge Cable", value=True, key="ws_dm_show_edge_cable")
-            show_cones = st.checkbox("Show Cones", value=True, key="ws_dm_show_cones")
-        with c3:
-            st.markdown("**Fabric**")
-            show_membrane = st.checkbox("Show Membrane", value=True, key="ws_dm_show_membrane")
-
-    with st.expander("Element Seed Schedule", expanded=False):
-        st.caption("Tap a row to select it for editing. Rotate phone to landscape for full view.")
-        
-        element_ids = [el["id"] for el in elements]
-        selected_id = st.selectbox(
-            "Select Element to Edit", 
-            options=[""] + element_ids,
-            index=0 if "ws_dm_active_element_id" not in st.session_state else element_ids.index(st.session_state.ws_dm_active_element_id) + 1,
-            key="element_selector_box"
-        )
-        
-        if selected_id:
-            st.session_state["ws_dm_active_element_id"] = selected_id
-        
-        st.markdown(_render_element_table(elements), unsafe_allow_html=True)
-        
-        if selected_id:
-            st.write("---")
-            st.write(f"**Editing: {selected_id}**")
-            sel_el = next((el for el in elements if el["id"] == selected_id), None)
-            if sel_el:
-                st.json(sel_el["seed"])
-                st.caption("Editing functionality (saving to session) coming in next patch.")
-
-    # --- Owner Tier Diagnostics ---
     if access_mode == "owner":
         rows = _verify_frame_against_globe(
             apexes, ground_radius, crown_height, curve_type
@@ -1191,14 +1176,12 @@ def build_dome_multi_cone():
                 status_of = ["free"] * n_nodes
                 anchor_set = set(int(i) for i in anchor_idx)
                 
-                # Mark perimeter nodes
                 for i in range(built["n_perimeter"]):
                     if i in anchor_set:
                         status_of[i] = "held_anchor"
                     else:
                         status_of[i] = "perimeter_cable_free"
                         
-                # Mark ring nodes
                 for idx_list in built["ring_indices"]:
                     for i in idx_list:
                         status_of[int(i)] = "held_ring_polygon"
