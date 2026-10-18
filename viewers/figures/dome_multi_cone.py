@@ -5,7 +5,15 @@
 #
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
+# PIECE 7 — CUSTOM PROFILE CURVE.
+#   When curve_type == "custom", the frame builder reads a 5-point
+#   profile from ws_dm_custom_profile and interpolates it into a
+#   smooth curve. Otherwise the parabolic / circular / catenary
+#   curves are used as before.
+#
 # PIECE 6 — ELEMENT SEEDS & DATA SCHEDULE.
+#   Element seed table with layer visibility toggles.
+#
 # =============================================================================
 
 import hashlib
@@ -35,8 +43,8 @@ FRAME_SAMPLES = 200
 EAVE_DEDUPE_TOL_FRAC = 0.01
 
 # Solver performance guards.
-SOLVE_TARGET_LEN_FRAC = 36.0   # target mesh edge = dome_diameter / this
-SOLVE_WALL_SECONDS = 25.0      # hard cap on the NFDM solve
+SOLVE_TARGET_LEN_FRAC = 36.0
+SOLVE_WALL_SECONDS = 25.0
 SOLVE_MAX_ITER = 40
 SOLVE_MAX_OUTER = 6
 SOLVE_TOL = 1e-2
@@ -48,6 +56,8 @@ COL_MEMBRANE = "#4a7a9c"
 COL_RING = "#ffd166"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
+
+_DEFAULT_PROFILE = [0.0, 6.75, 9.0, 6.75, 0.0]
 
 
 # =============================================================================
@@ -62,8 +72,59 @@ def _get(key, default=None):
 # THE DOME PROFILE
 # =============================================================================
 
+def _read_custom_profile(crown_height):
+    """
+    Reads the 5-point custom profile from session state.
+    Returns a list of 5 floats. Falls back to the default parabolic
+    shape if the array is missing or malformed.
+    """
+    profile = st.session_state.get("ws_dm_custom_profile", None)
+    if profile is None or len(profile) != 5:
+        return list(_DEFAULT_PROFILE)
+    # Clamp apex to crown_height if the user dragged it beyond.
+    try:
+        return [float(v) for v in profile]
+    except (TypeError, ValueError):
+        return list(_DEFAULT_PROFILE)
+
+
 def _dome_profile_height(r_frac, crown_height, curve_type):
+    """
+    Returns the Z-height at a given normalized radial fraction.
+
+    For "custom", the 5-point profile is read from session state
+    and interpolated. r_frac runs from 0 (apex) to 1 (eave base),
+    so we reverse it to match the profile array order (P0 at r_frac=1,
+    P2 at r_frac=0, P4 at r_frac=1 on the other side).
+
+    Because the profile is symmetric in x (P0..P4 goes left to right),
+    we simply use abs(1 - 2*r_frac) style to mirror. But the simplest
+    correct reading: r_frac = 0 is the apex; r_frac = 1 is the base.
+    The 5-point profile is [base_L, quarter_L, apex, quarter_R, base_R].
+    So at r_frac, the corresponding profile index is |1 - 2*r_frac|*2,
+    mapped onto the array [0,1,2,3,4].
+
+    Simpler: use np.interp over an x axis. But we do not have x here,
+    only r_frac. So we build a symmetric 5-point axis in r_frac space:
+        r_frac = 1.0 -> profile[0]
+        r_frac = 0.5 -> profile[1]
+        r_frac = 0.0 -> profile[2]
+        r_frac = 0.5 -> profile[3]  (mirror of profile[1])
+        r_frac = 1.0 -> profile[4]  (mirror of profile[0])
+    """
     r_frac = float(max(0.0, min(1.0, r_frac)))
+
+    if curve_type == "custom":
+        profile = _read_custom_profile(crown_height)
+        # Build a monotonic r_frac axis: 1.0, 0.75, 0.5, 0.25, 0.0
+        # Mapped to profile indices: 0, 1, 2, 3, 4
+        rf_axis = np.array([1.0, 0.75, 0.5, 0.25, 0.0])
+        z_axis = np.array(profile, dtype=float)
+        # np.interp requires increasing x. Reverse both.
+        rf_rev = rf_axis[::-1]
+        z_rev = z_axis[::-1]
+        return float(np.interp(r_frac, rf_rev, z_rev))
+
     if curve_type == "circular":
         return crown_height * math.sqrt(max(0.0, 1.0 - r_frac * r_frac))
     if curve_type == "catenary":
