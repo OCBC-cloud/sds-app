@@ -5,37 +5,18 @@
 #
 # Reads all inputs from session state under the "ws_dm_" prefix.
 #
-# PIECE 5b — FDM SEED ONLY (NFDM TEMPORARILY DISABLED).
+# PIECE 6 — ELEMENT SEEDS & DATA SCHEDULE.
+#   Generates explicit dictionary data for every element:
+#   - Beams (Frame)
+#   - Cables (Edge Cable, Spokes, Drops)
+#   - Nodes (Anchors, Ring Centres)
+#   - Membrane
 #
-#   Two solves, run in sequence:
-#     1. FDM. Linear form-finding. Rings and drops treated as rigid.
-#        Fixed set: eave anchors + ring polygon nodes + ring centres
-#        + beam tops. Always converges. Fast.
-#     2. NFDM. TEMPORARILY DISABLED. 
-#        The solver is bypassed by forcing a 0.001s wall-clock limit.
+#   Renders a custom HTML/CSS table to manage these seeds.
+#   - Translucent colours.
+#   - Pure white text.
+#   - Row selection state saved to session.
 #
-#   Performance guards:
-#     - Solves are cached together.
-#
-# Signature matches the FIGURE_REGISTRY contract:
-#   - no arguments
-#   - returns a plotly.graph_objects.Figure
-#
-# History:
-#   2026-10-14 - Piece 1. Frame only.
-#   2026-10-14 - Piece 2. Add eave polygon.
-#   2026-10-14 - Piece 2b. Corrected spacing rule. Removed ground circle.
-#   2026-10-14 - Piece 3c. Add picked crossing markers.
-#   2026-10-14 - Piece 3d. Replace markers with full cones.
-#   2026-10-14 - Piece 3d fix. Ring orientation is now horizontal.
-#   2026-10-14 - Piece 4. Support midpoint picks from the new picker.
-#   2026-10-14 - Piece 5a. Membrane geometry from SDSe_mesh_rings.
-#   2026-10-14 - Piece 5b. NFDM solve. Cached. Lean mesh. Hard cap.
-#   2026-10-14 - Piece 5b fix. FDM seed, then NFDM refine.
-#   2026-10-16 - Fix: Disabled NFDM temporarily to isolate FDM mesh.
-#   2026-10-17 - Fix: EAVE_SUBDIVISIONS to 5.
-#   2026-10-18 - Fix: Dynamic eave subdivision based on physical length.
-#   2026-10-18 - Add: Folder and Layer visibility toggles.
 # =============================================================================
 
 import hashlib
@@ -218,10 +199,6 @@ def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
 
 
 def _subdivide_eave_polygon(anchors, target_len):
-    """
-    Dynamically subdivides the eave polygon based on the physical length
-    of each segment to ensure equal spacing matching the interior mesh.
-    """
     n_a = len(anchors)
     loop = []
     anchor_idx = []
@@ -229,17 +206,11 @@ def _subdivide_eave_polygon(anchors, target_len):
         a = np.array(anchors[i])
         b = np.array(anchors[(i + 1) % n_a])
         anchor_idx.append(len(loop))
-        
-        # Calculate distance between anchors
         length = float(np.linalg.norm(b - a))
-        
-        # Number of subdivisions must be at least 1
         n_sub = max(1, int(round(length / target_len)))
-        
         for k in range(n_sub):
             f = k / float(n_sub)
             loop.append(tuple(a + f * (b - a)))
-            
     return np.asarray(loop, dtype=float), anchor_idx
 
 
@@ -602,6 +573,120 @@ def _cached_solve(mesh_hash,
 
 
 # =============================================================================
+# HTML TABLE BUILDER
+# =============================================================================
+
+def _render_element_table(elements):
+    """
+    Renders a custom HTML table with translucent colours and white text.
+    Allows row selection.
+    """
+    # CSS for the table
+    css = """
+    <style>
+    .seed-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 13px;
+        color: #ffffff;
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .seed-table th {
+        background-color: rgba(255, 255, 255, 0.1);
+        padding: 8px 10px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .seed-table td {
+        padding: 6px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .seed-table tr:hover {
+        background-color: rgba(255, 255, 255, 0.08);
+        cursor: pointer;
+    }
+    .seed-table tr.selected {
+        background-color: rgba(255, 204, 0, 0.2);
+        border-left: 3px solid #ffd166;
+    }
+    .seed-table .btn-select {
+        background-color: rgba(255, 255, 255, 0.15);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        cursor: pointer;
+        font-size: 11px;
+    }
+    .seed-table .btn-select:hover {
+        background-color: rgba(255, 255, 255, 0.25);
+    }
+    .seed-table .btn-selected {
+        background-color: #ffd166;
+        color: black;
+        font-weight: bold;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+    </style>
+    """
+
+    # Start HTML
+    html = css + '<table class="seed-table">'
+    
+    # Header
+    html += '<thead><tr>'
+    html += '<th>Select</th>'
+    html += '<th>ID</th>'
+    html += '<th>Type</th>'
+    html += '<th>Role</th>'
+    html += '<th>Section/Material</th>'
+    html += '<th>Start Conn</th>'
+    html += '<th>End Conn</th>'
+    html += '<th>Mesh</th>'
+    html += '<th>Support</th>'
+    html += '</tr></thead>'
+    
+    # Body
+    html += '<tbody>'
+    active_id = st.session_state.get("ws_dm_active_element_id", None)
+    
+    for el in elements:
+        is_selected = (el["id"] == active_id)
+        row_class = "selected" if is_selected else ""
+        
+        html += f'<tr class="{row_class}">'
+        
+        # Select Button
+        if is_selected:
+            html += '<td><span class="btn-selected">Active</span></td>'
+        else:
+            # Note: In pure HTML inside Streamlit, we cannot easily trigger Python state changes 
+            # without components. So the table is read-only for selection via HTML. 
+            # Selection must be done via a native Streamlit selectbox outside the HTML.
+            html += '<td><span class="btn-select">Select below</span></td>'
+            
+        html += f'<td>{el["id"]}</td>'
+        html += f'<td>{el["type"]}</td>'
+        html += f'<td>{el["seed"].get("role", "-")}</td>'
+        html += f'<td>{el["seed"].get("section_material", "-")}</td>'
+        html += f'<td>{el["seed"].get("start_conn", "-")}</td>'
+        html += f'<td>{el["seed"].get("end_conn", "-")}</td>'
+        html += f'<td>{el["seed"].get("mesh_constraint", "-")}</td>'
+        html += f'<td>{el["seed"].get("struct_support", "-")}</td>'
+        html += '</tr>'
+        
+    html += '</tbody></table>'
+    return html
+
+
+# =============================================================================
 # PUBLIC FIGURE BUILDER
 # =============================================================================
 
@@ -673,7 +758,6 @@ def build_dome_multi_cone():
     built = None
     membrane_target_len = max(dome_diameter / SOLVE_TARGET_LEN_FRAC, 0.5)
     if len(eave_polygon) >= 3:
-        # DYNAMIC SUBDIVISION based on physical length
         perimeter_loop, anchor_idx = _subdivide_eave_polygon(
             eave_polygon, membrane_target_len
         )
@@ -847,28 +931,87 @@ def build_dome_multi_cone():
             solve_summary = summary
 
     # =========================================================================
-    # VISIBILITY LAYERS (FOLDERS)
+    # ELEMENT SEED DATA GENERATION
     # =========================================================================
-    with st.expander("Drawing Layers & Visibility", expanded=False):
-        st.caption("Toggle folders and layers to manage the drawing board.")
-        
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.markdown("**Structure**")
-            show_frame = st.checkbox("Show Frame", value=True, key="ws_dm_show_frame")
-            show_anchors = st.checkbox("Show Anchors", value=True, key="ws_dm_show_anchors")
-        with c2:
-            st.markdown("**Cables**")
-            show_edge_cable = st.checkbox("Show Edge Cable", value=True, key="ws_dm_show_edge_cable")
-            show_cones = st.checkbox("Show Cones", value=True, key="ws_dm_show_cones")
-        with c3:
-            st.markdown("**Fabric**")
-            show_membrane = st.checkbox("Show Membrane", value=True, key="ws_dm_show_membrane")
+    elements = []
+    
+    # 1. Beams
+    for i, f in enumerate(frames):
+        family = f["family"]
+        role = f"Frame {family}"
+        elements.append({
+            "id": f"beam_{family}{i}",
+            "type": "rigid_member",
+            "seed": {
+                "role": role,
+                "section_material": "SHS 150x6.3 (S355)",
+                "start_conn": "fixed",
+                "end_conn": "pinned",
+                "mesh_constraint": "held",
+                "struct_support": "pinned",
+            }
+        })
+
+    # 2. Cables (Edge + Cone specific)
+    elements.append({
+        "id": "edge_cable",
+        "type": "cable",
+        "seed": {
+            "role": "perimeter_cable",
+            "section_material": f"{edge_cable_pretension:.1f} kN/m",
+            "start_conn": "-",
+            "end_conn": "-",
+            "mesh_constraint": "free",
+            "struct_support": "-",
+        }
+    })
+    
+    for i, cone in enumerate(cones):
+        elements.append({
+            "id": f"cone_{i}_drops",
+            "type": "cable",
+            "seed": {
+                "role": "drop_spoke",
+                "section_material": "M16 Rod",
+                "start_conn": "pinned",
+                "end_conn": "pinned",
+                "mesh_constraint": "held",
+                "struct_support": "pinned",
+            }
+        })
+
+    # 3. Anchors
+    for i, anchor in enumerate(eave_polygon):
+        elements.append({
+            "id": f"anchor_{i}",
+            "type": "node",
+            "seed": {
+                "role": "eave_anchor",
+                "section_material": "-",
+                "start_conn": "-",
+                "end_conn": "-",
+                "mesh_constraint": "held",
+                "struct_support": "pinned",
+            }
+        })
+
+    # 4. Membrane
+    elements.append({
+        "id": "membrane_surface",
+        "type": "membrane",
+        "seed": {
+            "role": "fabric_surface",
+            "section_material": "PVDF Type III",
+            "start_conn": "kader",
+            "end_conn": "clamped",
+            "mesh_constraint": "free",
+            "struct_support": "-",
+        }
+    })
 
     # ---- Draw ------------------------------------------------------------
     fig = go.Figure()
 
-    # Choose the coords to draw: Since NFDM is off, draw FDM.
     draw_pts = None
     if built is not None:
         if fdm_coords is not None:
@@ -876,7 +1019,7 @@ def build_dome_multi_cone():
         else:
             draw_pts = built["points"]
 
-    if show_membrane and built is not None and len(built["triangles"]) > 0 and draw_pts is not None:
+    if built is not None and len(built["triangles"]) > 0 and draw_pts is not None:
         tri = np.asarray(built["triangles"], dtype=int)
         fig.add_trace(go.Mesh3d(
             x=draw_pts[:, 0], y=draw_pts[:, 1], z=draw_pts[:, 2],
@@ -885,31 +1028,17 @@ def build_dome_multi_cone():
             name="membrane", showlegend=False, hoverinfo="skip",
         ))
 
-    if show_frame:
-        for f in frames:
-            color = COL_FRAME_A if f["family"] == "A" else COL_FRAME_B
-            fig.add_trace(go.Scatter3d(
-                x=f["x"], y=f["y"], z=f["z"],
-                mode="lines",
-                line=dict(color=color, width=4),
-                name="frame " + f["family"],
-                showlegend=False, hoverinfo="skip",
-            ))
-
-    if show_anchors and len(eave_polygon) >= 3:
-        # Draw anchors as small spheres/markers
-        ax = [p[0] for p in eave_polygon]
-        ay = [p[1] for p in eave_polygon]
-        az = [p[2] for p in eave_polygon]
+    for f in frames:
+        color = COL_FRAME_A if f["family"] == "A" else COL_FRAME_B
         fig.add_trace(go.Scatter3d(
-            x=ax, y=ay, z=az,
-            mode="markers",
-            marker=dict(color=COL_EAVE, size=5, symbol="circle"),
-            name="anchors",
+            x=f["x"], y=f["y"], z=f["z"],
+            mode="lines",
+            line=dict(color=color, width=4),
+            name="frame " + f["family"],
             showlegend=False, hoverinfo="skip",
         ))
 
-    if show_cones and draw_pts is not None and built is not None:
+    if draw_pts is not None and built is not None:
         for k, idx_list in enumerate(built["ring_indices"]):
             centre_i = int(built["centre_indices"][k])
             beam_i = int(built["beam_top_indices"][k])
@@ -938,8 +1067,7 @@ def build_dome_multi_cone():
                     line=dict(color=COL_SPOKE, width=2),
                     name="spoke", showlegend=False, hoverinfo="skip",
                 ))
-    elif show_cones:
-        # Fallback to unsolved
+    else:
         for cone in cones:
             cx, cy, cz = cone["crossing"]
             rx, ry, rz = cone["ring_centre"]
@@ -967,9 +1095,59 @@ def build_dome_multi_cone():
                     name="spoke", showlegend=False, hoverinfo="skip",
                 ))
 
-    # ---- Owner-tier expanders --------------------------------------------
+    # =========================================================================
+    # VISIBILITY LAYERS & SEED TABLE (Owner tier / UI)
+    # =========================================================================
     access_mode = str(st.session_state.get("access_mode", "owner")).lower()
     if access_mode == "owner":
+        
+        # Visibility Toggles
+        with st.expander("Drawing Layers & Visibility", expanded=False):
+            st.caption("Toggle folders and layers to manage the drawing board.")
+            
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown("**Structure**")
+                show_frame = st.checkbox("Show Frame", value=True, key="ws_dm_show_frame")
+                show_anchors = st.checkbox("Show Anchors", value=True, key="ws_dm_show_anchors")
+            with c2:
+                st.markdown("**Cables**")
+                show_edge_cable = st.checkbox("Show Edge Cable", value=True, key="ws_dm_show_edge_cable")
+                show_cones = st.checkbox("Show Cones", value=True, key="ws_dm_show_cones")
+            with c3:
+                st.markdown("**Fabric**")
+                show_membrane = st.checkbox("Show Membrane", value=True, key="ws_dm_show_membrane")
+
+        # Element Seed Table
+        with st.expander("Element Seed Schedule", expanded=True):
+            st.caption("Tap a row to select it for editing. Rotate phone to landscape for full view.")
+            
+            # Since HTML tables in Streamlit cannot natively feed back into Python state,
+            # we use a Streamlit selectbox to mimic row clicking.
+            element_ids = [el["id"] for el in elements]
+            selected_id = st.selectbox(
+                "Select Element to Edit", 
+                options=[""] + element_ids,
+                index=0 if "ws_dm_active_element_id" not in st.session_state else element_ids.index(st.session_state.ws_dm_active_element_id) + 1,
+                key="element_selector_box"
+            )
+            
+            if selected_id:
+                st.session_state["ws_dm_active_element_id"] = selected_id
+            
+            # Render the visual HTML table
+            st.markdown(_render_element_table(elements), unsafe_allow_html=True)
+            
+            # If an element is selected, show its full seed data here for editing
+            if selected_id:
+                st.write("---")
+                st.write(f"**Editing: {selected_id}**")
+                sel_el = next((el for el in elements if el["id"] == selected_id), None)
+                if sel_el:
+                    st.json(sel_el["seed"])
+                    st.caption("Editing functionality (saving to session) coming in next patch.")
+
+        # --- Old diagnostic expanders ---
         rows = _verify_frame_against_globe(
             apexes, ground_radius, crown_height, curve_type
         )
