@@ -4,21 +4,10 @@
 # The structure type selection page. Appears after the user taps
 # "Enter The Studio" on the landing page.
 #
-# Design (agreed 2026-09-13, tightened 2026-09-14):
-#   - 8 structure type tiles across 2 sections
-#   - "Smart Guided Design" tile at the top
-#   - Small SDSe wordmark top-left
-#   - Section header "Choose Your Structure Type"
-#   - No back button (landing is a splash screen)
-#   - Each tile: icon + name + one-line description
-#   - Tapping a structure type advances to Registration
-#   - Tapping Guided Design starts the wizard (placeholder for now)
-#   - Top gap trimmed to match landing page tightness
-#
-# History:
-#   2026-10-13 - Renamed Uni-Pole Tensile Roof to Multi-Cone Roof.
-#                STUDIO_SECTION_A and STUDIO_FALLBACK updated to
-#                use the new key multi_cone_roof.
+# Updated 2026-10-20:
+#   - Removed redundant "Select" buttons.
+#   - Made the structure description cards themselves clickable using
+#     a transparent button overlay.
 # =============================================================================
 
 import streamlit as st
@@ -155,6 +144,7 @@ STUDIO_CSS = """
         padding: 1rem 1.2rem;
         margin-bottom: 0.7rem;
         transition: all 0.25s ease;
+        position: relative;
     }
     .studio-tile:hover {
         border-color: #f39c12;
@@ -203,6 +193,7 @@ STUDIO_CSS = """
         margin-bottom: 1.4rem;
         transition: all 0.25s ease;
         border: none;
+        position: relative;
     }
     .guided-tile:hover {
         transform: translateX(4px);
@@ -238,6 +229,35 @@ STUDIO_CSS = """
         line-height: 1.35;
         opacity: 0.85;
     }
+
+    /* The trick: Invisible overlay buttons */
+    div[data-testid="stButton"] > button {
+        background-color: transparent !important;
+        border: none !important;
+        color: transparent !important;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100% !important;
+        height: 100% !important;
+        z-index: 10;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    div[data-testid="stButton"] > button:hover {
+        background-color: rgba(255, 255, 255, 0.02) !important;
+    }
+    div[data-testid="stButton"] {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100% !important;
+        height: 100% !important;
+    }
+    /* Make the columns relative so the button sits inside the card */
+    div[data-testid="column"] {
+        position: relative;
+    }
     </style>
 """
 
@@ -247,7 +267,7 @@ STUDIO_CSS = """
 # =============================================================================
 
 def _render_structure_tile(key):
-    """Render one structure tile plus its Select button."""
+    """Render one structure tile as a clickable button."""
     entry = STRUCTURE_TYPES.get(key, {})
     fallback = STUDIO_FALLBACK.get(key, {})
 
@@ -255,24 +275,30 @@ def _render_structure_tile(key):
     icon = entry.get("icon", fallback.get("icon", "?"))
     description = entry.get("description", fallback.get("description", ""))
 
-    tile_html = (
-        '<div class="studio-tile">'
-        '<div class="studio-tile-icon">' + icon + '</div>'
-        '<div class="studio-tile-body">'
-        '<div class="studio-tile-name">' + name + '</div>'
-        '<div class="studio-tile-desc">' + description + '</div>'
-        '</div>'
-        '</div>'
-    )
-    st.markdown(tile_html, unsafe_allow_html=True)
+    with st.container():
+        # Use a single column to establish the relative positioning context
+        col = st.columns(1)[0]
+        
+        with col:
+            # 1. Render the card HTML
+            tile_html = (
+                '<div class="studio-tile">'
+                f'<div class="studio-tile-icon">{icon}</div>'
+                '<div class="studio-tile-body">'
+                f'<div class="studio-tile-name">{name}</div>'
+                f'<div class="studio-tile-desc">{description}</div>'
+                '</div>'
+                '</div>'
+            )
+            st.markdown(tile_html, unsafe_allow_html=True)
 
-    if st.button("Select " + name, key="studio_select_" + key, use_container_width=True):
-        st.session_state.structure_key = key
-        st.session_state.structure_name = name
-        st.session_state.page = "registration"
-        st.rerun()
-
-    st.markdown('<div style="height: 0.2rem;"></div>', unsafe_allow_html=True)
+            # 2. The invisible clickable overlay
+            # The CSS above makes this button fill the parent column
+            if st.button(f"Select {name}", key=f"studio_select_{key}", use_container_width=True):
+                st.session_state.structure_key = key
+                st.session_state.structure_name = name
+                st.session_state.page = "registration"
+                st.rerun()
 
 
 # =============================================================================
@@ -309,22 +335,25 @@ def render_studio():
     )
 
     # ---- Guided Design tile
-    guided_html = (
-        '<div class="guided-tile">'
-        '<div class="guided-tile-icon">?</div>'
-        '<div class="guided-tile-body">'
-        '<div class="guided-tile-name">Smart Guided Design</div>'
-        '<div class="guided-tile-desc">'
-        'Answer a few questions and we will recommend the best structure for you.'
-        '</div>'
-        '</div>'
-        '</div>'
-    )
-    st.markdown(guided_html, unsafe_allow_html=True)
+    with st.container():
+        col = st.columns(1)[0]
+        with col:
+            guided_html = (
+                '<div class="guided-tile">'
+                '<div class="guided-tile-icon">?</div>'
+                '<div class="guided-tile-body">'
+                '<div class="guided-tile-name">Smart Guided Design</div>'
+                '<div class="guided-tile-desc">'
+                'Answer a few questions and we will recommend the best structure for you.'
+                '</div>'
+                '</div>'
+                '</div>'
+            )
+            st.markdown(guided_html, unsafe_allow_html=True)
 
-    if st.button("Start Guided Design", key="studio_guided", use_container_width=True, type="primary"):
-        st.session_state.page = "guided"
-        st.rerun()
+            if st.button("Start Guided Design", key="studio_guided", use_container_width=True, type="primary"):
+                st.session_state.page = "guided"
+                st.rerun()
 
     st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
 
