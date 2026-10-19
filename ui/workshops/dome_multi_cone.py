@@ -4,8 +4,7 @@
 # The new state-machine driven UI.
 #
 # Top 60%: A static board that switches views based on the "phase":
-#   "blank"   -> Shows a waiting message.
-#   "picking" -> Shows the Plan view (cone picker).
+#   "picking" -> Shows the Plan view (cone picker) - DEFAULT.
 #   "solved"  -> Shows the 3D View (the solver).
 #
 # Bottom 40%: Gliding input deck.
@@ -57,8 +56,7 @@ def _render_plan_board():
         key="dome_cone_picker_main",
     )
     
-    # If the picks changed, we update the state, but we DON'T force a rerun.
-    # The user will hit the ENTER button to solve.
+    # If the picks changed, we update the state.
     st.session_state["ws_dm_picked_crossings"] = set(new_picked)
 
 
@@ -76,7 +74,8 @@ def _render_3d_board():
 # =============================================================================
 
 def _get_phase():
-    return st.session_state.get("ws_dm_phase", "blank")
+    # Default to "picking" so the Plan board is visible immediately.
+    return st.session_state.get("ws_dm_phase", "picking")
 
 
 def _set_phase(phase):
@@ -84,11 +83,11 @@ def _set_phase(phase):
 
 
 def _clear_all():
-    """Wipes all dome session state keys and goes back to blank."""
+    """Wipes all dome session state keys and goes back to picking."""
     keys_to_delete = [k for k in st.session_state.keys() if k.startswith("ws_dm_")]
     for k in keys_to_delete:
         del st.session_state[k]
-    _set_phase("blank")
+    _set_phase("picking")
     st.rerun()
 
 
@@ -105,12 +104,8 @@ def render_dome_multi_cone():
     # =========================================================================
     # TOP 60%: THE STATIC BOARD
     # =========================================================================
-    # We wrap this in a container to visually separate it.
     with st.container():
-        if phase == "blank":
-            st.info("👋 Welcome. Adjust the inputs below and start picking cones to see the 3D model.")
-        
-        elif phase == "picking":
+        if phase == "picking":
             # Lock to Plan view
             render_multi_board(
                 key="dome",
@@ -156,7 +151,7 @@ def render_dome_multi_cone():
     st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
 
     # 2. The State Machine Controls
-    if phase == "blank" or phase == "picking":
+    if phase == "picking":
         st.markdown("### 🎯 Pick Cones & Solve")
         st.caption("Click the crossings on the Plan board above, then press Generate.")
         
@@ -183,15 +178,6 @@ def render_dome_multi_cone():
         with col2:
             if st.button("🗑️ CLEAR ALL", use_container_width=True):
                 _clear_all()
-
-    # 3. Auto-advance to picking if the user changes the grid size
-    # (This is a gentle nudge, not a forceful reset)
-    if phase == "blank":
-        n_x = int(st.session_state.get("ws_dm_meridians_x", 5))
-        n_y = int(st.session_state.get("ws_dm_meridians_y", 5))
-        if n_x > 0 and n_y > 0:
-             # We wait for the user to click "ENTER" or interact, but we don't force it.
-             pass
 
 
 # =============================================================================
