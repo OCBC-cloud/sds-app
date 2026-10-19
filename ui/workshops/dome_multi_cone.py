@@ -1,34 +1,17 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Dome Multi-Cone Workshop
 # =============================================================================
-# Renders the Dome Multi-Cone workshop page.
+# The new state-machine driven UI.
 #
-# The workshop is a universal multi-board. Currently two boards are
-# enabled:
+# Top 60%: A static board that switches views based on the "phase":
+#   "blank"   -> Shows a waiting message.
+#   "picking" -> Shows the Plan view (cone picker).
+#   "solved"  -> Shows the 3D View (the solver).
 #
-#   [ Plan ]    -> the 2D cone picker.
-#   [ 3D View ] -> the solved 3D figure.
+# Bottom 40%: Gliding input deck.
+#   The recipe inputs remain persistent here. The user can tweak values
+#   and hit ENTER again without losing their cone picks.
 #
-# The Profile board (elevation curve drawer) is retired. The canvas
-# version could not commit values back to Python through Streamlit's
-# HTML component protocol. A proper declarative component is deferred
-# to a future session. The retired file remains on disk at
-# ui/components/dome_profile_picker.py.
-#
-# The recipe still offers "Custom (Draw Profile)" in the curve dropdown,
-# so the option is preserved for the future picker. If a user selects it
-# today, the viewer falls back to the default parabolic curve, and the
-# workshop shows an explanatory note below the recipe.
-#
-# History:
-#   2026-10-13 - First version. Recipe wrapper only.
-#   2026-10-14 - Add the 2D cone picker below the recipe.
-#   2026-10-14 - Switch picker to the real SVG component in
-#                ui/components/dome_cone_picker.py.
-#   2026-10-18 - Wrap recipe + picker + viewer into the universal
-#                SDSe_multi_board component.
-#   2026-10-18 - Retire the Profile board. Canvas picker could not
-#                commit values. Keep Plan and 3D View only.
 # =============================================================================
 
 import streamlit as st
@@ -41,16 +24,12 @@ from data.recipes.dome_multi_cone import DOME_MULTI_CONE_RECIPE
 
 
 # =============================================================================
-# RENDERERS (one per board)
+# RENDERERS
 # =============================================================================
 
 def _render_plan_board():
-    """
-    Render the Plan board: the 2D cone picker.
-    """
-    dome_diameter = float(
-        st.session_state.get("ws_dm_dome_diameter", 18.0)
-    )
+    """The 2D cone picker."""
+    dome_diameter = float(st.session_state.get("ws_dm_dome_diameter", 18.0))
     n_x = int(st.session_state.get("ws_dm_meridians_x", 5))
     n_y = int(st.session_state.get("ws_dm_meridians_y", 5))
 
@@ -59,9 +38,7 @@ def _render_plan_board():
         picked = set()
     else:
         try:
-            picked = set(
-                (int(i), int(j)) for (i, j) in picked_raw
-            )
+            picked = set((int(i), int(j)) for (i, j) in picked_raw)
         except (TypeError, ValueError):
             picked = set()
 
@@ -79,66 +56,142 @@ def _render_plan_board():
         picked=picked,
         key="dome_cone_picker_main",
     )
+    
+    # If the picks changed, we update the state, but we DON'T force a rerun.
+    # The user will hit the ENTER button to solve.
     st.session_state["ws_dm_picked_crossings"] = set(new_picked)
 
 
 def _render_profile_board_stub():
-    """
-    Stub renderer for the retired Profile board.
-    This is passed to the multi-board so the component has a valid
-    renderer for its internal label mapping. The workshop never
-    actually shows this board because we only pass two labels.
-    """
-    st.info(
-        "The Profile board is temporarily unavailable. The custom "
-        "elevation picker is under construction. Use the recipe's "
-        "Parabolic / Circular / Catenary options for the beam curve."
-    )
+    st.info("The Profile board is temporarily unavailable.")
 
 
 def _render_3d_board():
-    """
-    Render the 3D View board: the solved dome figure.
-    """
+    """The solved 3D figure."""
     build_dome_multi_cone()
 
 
 # =============================================================================
-# PAGE
+# UI STATE HELPERS
+# =============================================================================
+
+def _get_phase():
+    return st.session_state.get("ws_dm_phase", "blank")
+
+
+def _set_phase(phase):
+    st.session_state["ws_dm_phase"] = phase
+
+
+def _clear_all():
+    """Wipes all dome session state keys and goes back to blank."""
+    keys_to_delete = [k for k in st.session_state.keys() if k.startswith("ws_dm_")]
+    for k in keys_to_delete:
+        del st.session_state[k]
+    _set_phase("blank")
+    st.rerun()
+
+
+# =============================================================================
+# PAGE ENTRY POINT
 # =============================================================================
 
 def render_dome_multi_cone():
     """
-    Render the Dome Multi-Cone workshop from its recipe, then hand off to
-    the universal multi-board for the drawing phase.
+    Render the Dome Multi-Cone workshop.
     """
-    # ---- Recipe-driven input groups ---------------------------------------
+    phase = _get_phase()
+
+    # =========================================================================
+    # TOP 60%: THE STATIC BOARD
+    # =========================================================================
+    # We wrap this in a container to visually separate it.
+    with st.container():
+        if phase == "blank":
+            st.info("👋 Welcome. Adjust the inputs below and start picking cones to see the 3D model.")
+        
+        elif phase == "picking":
+            # Lock to Plan view
+            render_multi_board(
+                key="dome",
+                plan_label="Plan",
+                profile_label="Profile",
+                view_3d_label="3D View",
+                plan_renderer=_render_plan_board,
+                profile_renderer=_render_profile_board_stub,
+                view_3d_renderer=_render_3d_board,
+                forced_board="plan"
+            )
+            
+        elif phase == "solved":
+            # Lock to 3D view
+            render_multi_board(
+                key="dome",
+                plan_label="Plan",
+                profile_label="Profile",
+                view_3d_label="3D View",
+                plan_renderer=_render_plan_board,
+                profile_renderer=_render_profile_board_stub,
+                view_3d_renderer=_render_3d_board,
+                forced_board="view_3d"
+            )
+
+    st.markdown("---")
+
+    # =========================================================================
+    # BOTTOM 40%: THE INPUT DECK
+    # =========================================================================
+    
+    # 1. The Recipe
     render_workshop(DOME_MULTI_CONE_RECIPE)
 
-    # ---- Explain the "custom" option if it is selected --------------------
-    curve_type = str(
-        st.session_state.get("ws_dm_curve_type", "parabolic")
-    ).lower()
+    curve_type = str(st.session_state.get("ws_dm_curve_type", "parabolic")).lower()
     if curve_type == "custom":
-        st.info(
+        st.warning(
             "You have selected **Custom (Draw Profile)**. The custom "
             "elevation picker is not yet available. The 3D view will "
-            "fall back to the default parabolic curve until the picker "
-            "is rebuilt. Choose Parabolic, Circular, or Catenary to "
-            "shape the dome today."
+            "fall back to the default parabolic curve."
         )
 
-    # ---- Universal multi-board (Plan / 3D View only) ----------------------
-    st.markdown("---")
-    render_multi_board(
-        key="dome",
-        plan_label="Plan",
-        profile_label="Profile",
-        view_3d_label="3D View",
-        plan_renderer=_render_plan_board,
-        profile_renderer=_render_profile_board_stub,
-        view_3d_renderer=_render_3d_board,
-    )
+    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+
+    # 2. The State Machine Controls
+    if phase == "blank" or phase == "picking":
+        st.markdown("### 🎯 Pick Cones & Solve")
+        st.caption("Click the crossings on the Plan board above, then press Generate.")
+        
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            if st.button("⚡ ENTER: Generate 3D Model", type="primary", use_container_width=True):
+                # If no picks were made, default to picking phase
+                if not st.session_state.get("ws_dm_picked_crossings"):
+                    st.warning("Please pick at least one cone crossing on the Plan board.")
+                else:
+                    _set_phase("solved")
+                    st.rerun()
+        with col2:
+            if st.button("🗑️ CLEAR ALL", use_container_width=True):
+                _clear_all()
+
+    elif phase == "solved":
+        st.success("✅ 3D Model Solved.")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("⬅️ Edit Inputs & Cones", use_container_width=True):
+                _set_phase("picking")
+                st.rerun()
+        with col2:
+            if st.button("🗑️ CLEAR ALL", use_container_width=True):
+                _clear_all()
+
+    # 3. Auto-advance to picking if the user changes the grid size
+    # (This is a gentle nudge, not a forceful reset)
+    if phase == "blank":
+        n_x = int(st.session_state.get("ws_dm_meridians_x", 5))
+        n_y = int(st.session_state.get("ws_dm_meridians_y", 5))
+        if n_x > 0 and n_y > 0:
+             # We wait for the user to click "ENTER" or interact, but we don't force it.
+             pass
 
 
 # =============================================================================
