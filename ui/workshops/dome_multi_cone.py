@@ -1,16 +1,13 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Dome Multi-Cone Workshop
 # =============================================================================
-# The new state-machine driven UI.
+# 60/40 Layout with the 2-Step ENTER Flow.
 #
-# Top 60%: A static board that switches views based on the "phase":
-#   "picking" -> Shows the Plan view (cone picker) - DEFAULT.
-#   "solved"  -> Shows the 3D View (the solver).
-#
-# Bottom 40%: Gliding input deck.
-#   The recipe inputs remain persistent here. The user can tweak values
-#   and hit ENTER again without losing their cone picks.
-#
+# Phase "blank":   Blank 60% board. Inputs visible below.
+# Phase "picking": 2D Plan board. User picks cones and presses ENTER #1.
+# Phase "inputs":  Plan remains visible (locked). Rest of inputs appear.
+#                  User reviews and presses ENTER #2.
+# Phase "solved":  3D Viewer board.
 # =============================================================================
 
 import streamlit as st
@@ -55,8 +52,6 @@ def _render_plan_board():
         picked=picked,
         key="dome_cone_picker_main",
     )
-    
-    # If the picks changed, we update the state.
     st.session_state["ws_dm_picked_crossings"] = set(new_picked)
 
 
@@ -70,24 +65,21 @@ def _render_3d_board():
 
 
 # =============================================================================
-# UI STATE HELPERS
+# STATE HELPERS
 # =============================================================================
 
 def _get_phase():
-    # Default to "picking" so the Plan board is visible immediately.
-    return st.session_state.get("ws_dm_phase", "picking")
-
+    """Reads the phase directly from session state."""
+    return st.session_state.get("ws_dm_phase", "blank")
 
 def _set_phase(phase):
     st.session_state["ws_dm_phase"] = phase
 
-
 def _clear_all():
-    """Wipes all dome session state keys and goes back to picking."""
     keys_to_delete = [k for k in st.session_state.keys() if k.startswith("ws_dm_")]
     for k in keys_to_delete:
         del st.session_state[k]
-    _set_phase("picking")
+    _set_phase("blank")
     st.rerun()
 
 
@@ -102,78 +94,111 @@ def render_dome_multi_cone():
     phase = _get_phase()
 
     # =========================================================================
-    # TOP 60%: THE STATIC BOARD
+    # TOP 60%: THE FIXED BOARD
     # =========================================================================
-    with st.container():
-        if phase == "picking":
-            # Lock to Plan view
+    # We use a fixed-height container. Streamlit locks this area.
+    with st.container(height=550, border=False):
+        
+        if phase == "blank":
+            st.markdown(
+                "<div style='height:500px; display:flex; align-items:center; "
+                "justify-content:center; background-color:#0e1117; "
+                "border-radius:8px; border:1px solid #333;'>"
+                "<p style='color:#555; font-family:sans-serif;'>Awaiting Geometry...</p>"
+                "</div>",
+                unsafe_allow_html=True
+            )
+        
+        elif phase == "picking" or phase == "inputs":
+            # In picking and inputs, we stay on the Plan board
             render_multi_board(
                 key="dome",
-                plan_label="Plan",
-                profile_label="Profile",
-                view_3d_label="3D View",
                 plan_renderer=_render_plan_board,
-                profile_renderer=_render_profile_board_stub,
                 view_3d_renderer=_render_3d_board,
+                profile_renderer=_render_profile_board_stub,
                 forced_board="plan"
             )
             
         elif phase == "solved":
-            # Lock to 3D view
+            # In solved, we switch to the 3D board
             render_multi_board(
                 key="dome",
-                plan_label="Plan",
-                profile_label="Profile",
-                view_3d_label="3D View",
                 plan_renderer=_render_plan_board,
-                profile_renderer=_render_profile_board_stub,
                 view_3d_renderer=_render_3d_board,
+                profile_renderer=_render_profile_board_stub,
                 forced_board="view_3d"
             )
 
     st.markdown("---")
 
     # =========================================================================
-    # BOTTOM 40%: THE INPUT DECK
+    # BOTTOM 40%: THE GLIDING INPUT DECK
     # =========================================================================
     
-    # 1. The Recipe
-    render_workshop(DOME_MULTI_CONE_RECIPE)
-
-    curve_type = str(st.session_state.get("ws_dm_curve_type", "parabolic")).lower()
-    if curve_type == "custom":
-        st.warning(
-            "You have selected **Custom (Draw Profile)**. The custom "
-            "elevation picker is not yet available. The 3D view will "
-            "fall back to the default parabolic curve."
-        )
-
-    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
-
-    # 2. The State Machine Controls
-    if phase == "picking":
-        st.markdown("### 🎯 Pick Cones & Solve")
-        st.caption("Click the crossings on the Plan board above, then press Generate.")
+    if phase == "blank":
+        st.markdown("### Step 1: Define Geometry")
+        st.caption("Set the number of meridians to begin selecting cone positions.")
         
+        # Show only the basic geometry first
+        render_workshop(DOME_MULTI_CONE_RECIPE)
+        
+        # Automatically flip to picking when meridians exist
+        n_x = int(st.session_state.get("ws_dm_meridians_x", 0))
+        n_y = int(st.session_state.get("ws_dm_meridians_y", 0))
+        if n_x > 0 and n_y > 0:
+            _set_phase("picking")
+            st.rerun()
+
+    elif phase == "picking":
+        st.markdown("### Step 1: Pick Cones")
+        st.caption("Tap the crossings on the Plan board above, then press ENTER to collect the data.")
+        
+        st.markdown("---")
         col1, col2 = st.columns([2, 1])
         with col1:
-            if st.button("⚡ ENTER: Generate 3D Model", type="primary", use_container_width=True):
-                # If no picks were made, default to picking phase
+            if st.button("⚡ ENTER: Collect Cone Data", type="primary", use_container_width=True):
                 if not st.session_state.get("ws_dm_picked_crossings"):
                     st.warning("Please pick at least one cone crossing on the Plan board.")
                 else:
-                    _set_phase("solved")
+                    _set_phase("inputs")
                     st.rerun()
         with col2:
-            if st.button("🗑️ CLEAR ALL", use_container_width=True):
+            if st.button("🗑️ CLEAR", use_container_width=True):
                 _clear_all()
+
+    elif phase == "inputs":
+        st.markdown("### Step 2: Finalize Inputs")
+        st.caption("Your cone picks are locked. Adjust the remaining inputs, then press ENTER to solve.")
+        
+        # Show the full recipe for final adjustments
+        render_workshop(DOME_MULTI_CONE_RECIPE)
+        
+        curve_type = str(st.session_state.get("ws_dm_curve_type", "parabolic")).lower()
+        if curve_type == "custom":
+            st.warning("Custom (Draw Profile) falls back to parabolic until the picker is ready.")
+
+        st.markdown("---")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            if st.button("🚀 ENTER: Generate 3D Model", type="primary", use_container_width=True):
+                _set_phase("solved")
+                st.rerun()
+        with col2:
+            if st.button("🗑️ CLEAR", use_container_width=True):
+                _clear_all()
+                
+        # Allow going back to re-pick
+        if st.button("⬅️ Re-pick Cones", use_container_width=True):
+            _set_phase("picking")
+            st.rerun()
 
     elif phase == "solved":
         st.success("✅ 3D Model Solved.")
+        st.markdown("---")
         col1, col2 = st.columns([1, 1])
         with col1:
-            if st.button("⬅️ Edit Inputs & Cones", use_container_width=True):
-                _set_phase("picking")
+            if st.button("⬅️ Edit Inputs", use_container_width=True):
+                _set_phase("inputs")
                 st.rerun()
         with col2:
             if st.button("🗑️ CLEAR ALL", use_container_width=True):
