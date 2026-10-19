@@ -7,15 +7,14 @@
 #
 # PIECE 6 — ELEMENT SEEDS & DATA SCHEDULE.
 # PIECE 7 — CUSTOM PROFILE CURVE.
+#   When curve_type == "custom", the frame builder reads a 5-point
+#   profile from ws_dm_custom_profile and interpolates it into a
+#   smooth curve. Otherwise the parabolic / circular / catenary
+#   curves are used as before.
 #
 # Rule 23: attached elements are drawn from settled coordinates.
 # Rule 24: markers stay silent by default.
 #
-# History:
-#   2026-10-19 - Extract Layers panel and Element Seed Schedule into the
-#                workshop. The viewer now only paints the figure and
-#                publishes the element list to session state. UI moved
-#                up a layer; drawing and solving untouched.
 # =============================================================================
 
 import hashlib
@@ -583,6 +582,108 @@ def _cached_solve(mesh_hash,
 
 
 # =============================================================================
+# HTML TABLE BUILDER
+# =============================================================================
+
+def _render_element_table(elements):
+    css = """
+    <style>
+    .seed-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 13px;
+        color: #ffffff;
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .seed-table th {
+        background-color: rgba(255, 255, 255, 0.1);
+        padding: 8px 10px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .seed-table td {
+        padding: 6px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .seed-table tr:hover {
+        background-color: rgba(255, 255, 255, 0.08);
+        cursor: pointer;
+    }
+    .seed-table tr.selected {
+        background-color: rgba(255, 204, 0, 0.2);
+        border-left: 3px solid #ffd166;
+    }
+    .seed-table .btn-select {
+        background-color: rgba(255, 255, 255, 0.15);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        cursor: pointer;
+        font-size: 11px;
+    }
+    .seed-table .btn-select:hover {
+        background-color: rgba(255, 255, 255, 0.25);
+    }
+    .seed-table .btn-selected {
+        background-color: #ffd166;
+        color: black;
+        font-weight: bold;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+    </style>
+    """
+
+    html = css + '<table class="seed-table">'
+    
+    html += '<thead><tr>'
+    html += '<th>Select</th>'
+    html += '<th>ID</th>'
+    html += '<th>Type</th>'
+    html += '<th>Role</th>'
+    html += '<th>Section/Material</th>'
+    html += '<th>Start Conn</th>'
+    html += '<th>End Conn</th>'
+    html += '<th>Mesh</th>'
+    html += '<th>Support</th>'
+    html += '</tr></thead>'
+    
+    html += '<tbody>'
+    active_id = st.session_state.get("ws_dm_active_element_id", None)
+    
+    for el in elements:
+        is_selected = (el["id"] == active_id)
+        row_class = "selected" if is_selected else ""
+        
+        html += f'<tr class="{row_class}">'
+        
+        if is_selected:
+            html += '<td><span class="btn-selected">Active</span></td>'
+        else:
+            html += '<td><span class="btn-select">Select below</span></td>'
+            
+        html += f'<td>{el["id"]}</td>'
+        html += f'<td>{el["type"]}</td>'
+        html += f'<td>{el["seed"].get("role", "-")}</td>'
+        html += f'<td>{el["seed"].get("section_material", "-")}</td>'
+        html += f'<td>{el["seed"].get("start_conn", "-")}</td>'
+        html += f'<td>{el["seed"].get("end_conn", "-")}</td>'
+        html += f'<td>{el["seed"].get("mesh_constraint", "-")}</td>'
+        html += f'<td>{el["seed"].get("struct_support", "-")}</td>'
+        html += '</tr>'
+        
+    html += '</tbody></table>'
+    return html
+
+
+# =============================================================================
 # PUBLIC FIGURE BUILDER
 # =============================================================================
 
@@ -680,17 +781,14 @@ def build_dome_multi_cone():
             built = None
 
     fdm_coords = None
+    nfdm_coords = None
     solve_summary = None
-    fdm_fixed = []
-    anchor_idx = []
-    pts = None
 
     if built is not None:
         pts = built["points"].copy()
         tris = built["triangles"]
         edges = built["edges"]
         boundary_edge_set = built["boundary_edges"]
-        anchor_idx = built["anchor_idx"]
 
         pts_2d = pts[:, :2]
         warp_q = max(warp_pretension, 0.1) * 1000.0
@@ -814,13 +912,11 @@ def build_dome_multi_cone():
             fdm_coords = np.frombuffer(
                 fdm_bytes, dtype=np.float64
             ).reshape(-1, 3).copy()
+            nfdm_coords = None
             solve_summary = summary
 
-    # =========================================================================
-    # PUBLISH ELEMENT LIST FOR THE WORKSHOP (Seeds panel reads this)
-    # =========================================================================
     elements = []
-
+    
     for i, f in enumerate(frames):
         family = f["family"]
         role = f"Frame {family}"
@@ -849,7 +945,7 @@ def build_dome_multi_cone():
             "struct_support": "-",
         }
     })
-
+    
     for i, cone in enumerate(cones):
         elements.append({
             "id": f"cone_{i}_drops",
@@ -891,17 +987,74 @@ def build_dome_multi_cone():
         }
     })
 
-    st.session_state["ws_dm_elements"] = elements
-
     # =========================================================================
-    # DRAW
+    # VISIBILITY LAYERS
     # =========================================================================
-    show_frame = st.session_state.get("ws_dm_show_frame", True)
-    show_anchor_markers = st.session_state.get("ws_dm_show_anchor_markers", False)
-    show_edge_cable = st.session_state.get("ws_dm_show_edge_cable", True)
-    show_cones = st.session_state.get("ws_dm_show_cones", True)
-    show_membrane = st.session_state.get("ws_dm_show_membrane", True)
+    with st.expander("Drawing Layers & Visibility", expanded=False):
+        st.caption("Toggle folders and layers to manage the drawing board.")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown("**Structure**")
+            show_frame = st.checkbox(
+                "Show Frame", value=True, key="ws_dm_show_frame"
+            )
+            show_anchor_markers = st.checkbox(
+                "Show Anchor Markers",
+                value=False,
+                key="ws_dm_show_anchor_markers",
+                help="Anchor markers are silent by default. Turn on to "
+                     "see the individual anchor points.",
+            )
+        with c2:
+            st.markdown("**Cables**")
+            show_edge_cable = st.checkbox(
+                "Show Edge Cable", value=True,
+                key="ws_dm_show_edge_cable",
+            )
+            show_cones = st.checkbox(
+                "Show Cones", value=True, key="ws_dm_show_cones"
+            )
+        with c3:
+            st.markdown("**Fabric**")
+            show_membrane = st.checkbox(
+                "Show Membrane", value=True,
+                key="ws_dm_show_membrane",
+            )
 
+    with st.expander("Element Seed Schedule", expanded=False):
+        st.caption("Tap a row to select it for editing.")
+        element_ids = [el["id"] for el in elements]
+        selected_id = st.selectbox(
+            "Select Element to Edit",
+            options=[""] + element_ids,
+            index=0 if "ws_dm_active_element_id" not in st.session_state
+                  else element_ids.index(
+                      st.session_state.ws_dm_active_element_id) + 1,
+            key="element_selector_box",
+        )
+        if selected_id:
+            st.session_state["ws_dm_active_element_id"] = selected_id
+
+        st.markdown(
+            _render_element_table(elements),
+            unsafe_allow_html=True,
+        )
+
+        if selected_id:
+            st.write("---")
+            st.write(f"**Editing: {selected_id}**")
+            sel_el = next(
+                (el for el in elements if el["id"] == selected_id),
+                None,
+            )
+            if sel_el:
+                st.json(sel_el["seed"])
+                st.caption(
+                    "Editing functionality (saving to session) "
+                    "coming in next patch."
+                )
+
+    # --- Draw ---
     fig = go.Figure()
 
     draw_pts = None
@@ -936,6 +1089,7 @@ def build_dome_multi_cone():
                 showlegend=False, hoverinfo="skip",
             ))
 
+    # Anchor markers: silent by default (Rule 24).
     if show_anchor_markers and draw_pts is not None and built is not None:
         anchor_set = set(int(i) for i in anchor_idx)
         anchor_pts = [draw_pts[i] for i in anchor_set]
