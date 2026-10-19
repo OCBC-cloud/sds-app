@@ -1,7 +1,34 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Dome Multi-Cone Workshop
 # =============================================================================
-# 60/40 Split Layout with locked top board.
+# Renders the Dome Multi-Cone workshop page.
+#
+# The workshop is a universal multi-board. Currently two boards are
+# enabled:
+#
+#   [ Plan ]    -> the 2D cone picker.
+#   [ 3D View ] -> the solved 3D figure.
+#
+# The Profile board (elevation curve drawer) is retired. The canvas
+# version could not commit values back to Python through Streamlit's
+# HTML component protocol. A proper declarative component is deferred
+# to a future session. The retired file remains on disk at
+# ui/components/dome_profile_picker.py.
+#
+# The recipe still offers "Custom (Draw Profile)" in the curve dropdown,
+# so the option is preserved for the future picker. If a user selects it
+# today, the viewer falls back to the default parabolic curve, and the
+# workshop shows an explanatory note below the recipe.
+#
+# History:
+#   2026-10-13 - First version. Recipe wrapper only.
+#   2026-10-14 - Add the 2D cone picker below the recipe.
+#   2026-10-14 - Switch picker to the real SVG component in
+#                ui/components/dome_cone_picker.py.
+#   2026-10-18 - Wrap recipe + picker + viewer into the universal
+#                SDSe_multi_board component.
+#   2026-10-18 - Retire the Profile board. Canvas picker could not
+#                commit values. Keep Plan and 3D View only.
 # =============================================================================
 
 import streamlit as st
@@ -14,53 +41,16 @@ from data.recipes.dome_multi_cone import DOME_MULTI_CONE_RECIPE
 
 
 # =============================================================================
-# CSS FOR LOCKED 60/40 LAYOUT
-# =============================================================================
-
-def _apply_layout_css():
-    st.markdown(
-        """
-        <style>
-        /* Hide the default Streamlit header to save space */
-        header {visibility: hidden;}
-        
-        /* Make the main block scrollable if needed */
-        .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 0rem !important;
-            max-height: 100vh;
-        }
-        
-        /* Fixed-height container for the top board */
-        .fixed-board-container {
-            height: 55vh;
-            min-height: 400px;
-            background-color: #0e1117;
-            border: 1px solid #333;
-            border-radius: 8px;
-            margin-bottom: 1rem;
-            overflow: hidden;
-        }
-        
-        /* Scrollable container for the bottom inputs */
-        .scrollable-inputs {
-            height: 40vh;
-            overflow-y: auto;
-            padding-right: 10px;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# =============================================================================
-# RENDERERS
+# RENDERERS (one per board)
 # =============================================================================
 
 def _render_plan_board():
-    """The 2D cone picker."""
-    dome_diameter = float(st.session_state.get("ws_dm_dome_diameter", 18.0))
+    """
+    Render the Plan board: the 2D cone picker.
+    """
+    dome_diameter = float(
+        st.session_state.get("ws_dm_dome_diameter", 18.0)
+    )
     n_x = int(st.session_state.get("ws_dm_meridians_x", 5))
     n_y = int(st.session_state.get("ws_dm_meridians_y", 5))
 
@@ -69,9 +59,18 @@ def _render_plan_board():
         picked = set()
     else:
         try:
-            picked = set((int(i), int(j)) for (i, j) in picked_raw)
+            picked = set(
+                (int(i), int(j)) for (i, j) in picked_raw
+            )
         except (TypeError, ValueError):
             picked = set()
+
+    st.markdown(
+        "<p style='color:#a8b8c8;margin-top:0;'>"
+        "Click a crossing to place or remove a cone."
+        "</p>",
+        unsafe_allow_html=True,
+    )
 
     new_picked = render_dome_cone_picker(
         dome_diameter=dome_diameter,
@@ -84,134 +83,62 @@ def _render_plan_board():
 
 
 def _render_profile_board_stub():
-    st.info("The Profile board is temporarily unavailable.")
+    """
+    Stub renderer for the retired Profile board.
+    This is passed to the multi-board so the component has a valid
+    renderer for its internal label mapping. The workshop never
+    actually shows this board because we only pass two labels.
+    """
+    st.info(
+        "The Profile board is temporarily unavailable. The custom "
+        "elevation picker is under construction. Use the recipe's "
+        "Parabolic / Circular / Catenary options for the beam curve."
+    )
 
 
 def _render_3d_board():
-    """The solved 3D figure."""
+    """
+    Render the 3D View board: the solved dome figure.
+    """
     build_dome_multi_cone()
 
 
 # =============================================================================
-# STATE HELPERS
-# =============================================================================
-
-def _get_phase():
-    return st.session_state.get("ws_dm_phase", "blank")
-
-def _set_phase(phase):
-    st.session_state["ws_dm_phase"] = phase
-
-def _clear_all():
-    keys_to_delete = [k for k in st.session_state.keys() if k.startswith("ws_dm_")]
-    for k in keys_to_delete:
-        del st.session_state[k]
-    _set_phase("blank")
-    st.rerun()
-
-
-# =============================================================================
-# PAGE ENTRY POINT
+# PAGE
 # =============================================================================
 
 def render_dome_multi_cone():
-    """Render the Dome Multi-Cone workshop."""
-    
-    _apply_layout_css()
-    phase = _get_phase()
+    """
+    Render the Dome Multi-Cone workshop from its recipe, then hand off to
+    the universal multi-board for the drawing phase.
+    """
+    # ---- Recipe-driven input groups ---------------------------------------
+    render_workshop(DOME_MULTI_CONE_RECIPE)
 
-    # =========================================================================
-    # TOP 55VH: THE FIXED BOARD
-    # =========================================================================
-    with st.container():
-        st.markdown('<div class="fixed-board-container">', unsafe_allow_html=True)
-        
-        if phase == "blank":
-            st.markdown(
-                "<div style='height:100%; display:flex; align-items:center; "
-                "justify-content:center; color:#555; font-family:sans-serif;'>"
-                "<h3>Awaiting Geometry...</h3>"
-                "</div>",
-                unsafe_allow_html=True
-            )
-        elif phase in ("picking", "inputs"):
-            render_multi_board(
-                key="dome",
-                plan_renderer=_render_plan_board,
-                view_3d_renderer=_render_3d_board,
-                profile_renderer=_render_profile_board_stub,
-                forced_board="plan"
-            )
-        elif phase == "solved":
-            render_multi_board(
-                key="dome",
-                plan_renderer=_render_plan_board,
-                view_3d_renderer=_render_3d_board,
-                profile_renderer=_render_profile_board_stub,
-                forced_board="view_3d"
-            )
-            
-        st.markdown('</div>', unsafe_allow_html=True)
+    # ---- Explain the "custom" option if it is selected --------------------
+    curve_type = str(
+        st.session_state.get("ws_dm_curve_type", "parabolic")
+    ).lower()
+    if curve_type == "custom":
+        st.info(
+            "You have selected **Custom (Draw Profile)**. The custom "
+            "elevation picker is not yet available. The 3D view will "
+            "fall back to the default parabolic curve until the picker "
+            "is rebuilt. Choose Parabolic, Circular, or Catenary to "
+            "shape the dome today."
+        )
 
-    # =========================================================================
-    # BOTTOM 40VH: THE SCROLLABLE INPUT DECK
-    # =========================================================================
-    with st.container():
-        st.markdown('<div class="scrollable-inputs">', unsafe_allow_html=True)
-        
-        if phase == "blank":
-            st.markdown("### Step 1: Activate 2D Picker")
-            st.caption("Click the button below to open the Plan board and begin picking cone positions.")
-            
-            if st.button("🎯 Activate 2D Picker", type="primary", use_container_width=True):
-                _set_phase("picking")
-                st.rerun()
-                
-            st.markdown("---")
-            render_workshop(DOME_MULTI_CONE_RECIPE)
-
-        elif phase == "picking":
-            st.markdown("### Step 2: Pick Cones")
-            st.caption("Tap the crossings on the Plan board above, then press ENTER.")
-            
-            if st.button("⚡ ENTER: Lock Cone Data", type="primary", use_container_width=True):
-                if not st.session_state.get("ws_dm_picked_crossings"):
-                    st.warning("Please pick at least one cone crossing on the Plan board.")
-                else:
-                    _set_phase("inputs")
-                    st.rerun()
-                    
-            if st.button("🗑️ CLEAR ALL", use_container_width=True):
-                _clear_all()
-
-        elif phase == "inputs":
-            st.markdown("### Step 3: Finalize Inputs")
-            st.caption("Cone picks locked. Adjust the remaining inputs, then press ENTER to solve.")
-            
-            render_workshop(DOME_MULTI_CONE_RECIPE)
-            
-            if st.button("🚀 ENTER: Generate 3D Model", type="primary", use_container_width=True):
-                _set_phase("solved")
-                st.rerun()
-                
-            if st.button("⬅️ Go Back to Re-pick Cones", use_container_width=True):
-                _set_phase("picking")
-                st.rerun()
-                
-            if st.button("🗑️ CLEAR ALL", use_container_width=True):
-                _clear_all()
-
-        elif phase == "solved":
-            st.success("✅ 3D Model Solved.")
-            
-            if st.button("⬅️ Edit Inputs", use_container_width=True):
-                _set_phase("inputs")
-                st.rerun()
-                
-            if st.button("🗑️ CLEAR ALL", use_container_width=True):
-                _clear_all()
-
-        st.markdown('</div>', unsafe_allow_html=True)
+    # ---- Universal multi-board (Plan / 3D View only) ----------------------
+    st.markdown("---")
+    render_multi_board(
+        key="dome",
+        plan_label="Plan",
+        profile_label="Profile",
+        view_3d_label="3D View",
+        plan_renderer=_render_plan_board,
+        profile_renderer=_render_profile_board_stub,
+        view_3d_renderer=_render_3d_board,
+    )
 
 
 # =============================================================================
