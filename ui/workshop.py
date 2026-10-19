@@ -3,63 +3,109 @@
 # =============================================================================
 # Dispatches to the correct variant-specific workshop module based on
 # the current variant_key in session state.
+#
+# Structure:
+#   - Each variant workshop lives in its own file under ui/workshops/
+#   - Each file exposes a render_<variant>() function
+#   - This router imports the correct file and calls its render function
+#
+# Design (agreed 2026-09-13):
+#   - One file per variant (not one giant workshop.py)
+#   - Only variants with specs get their own workshop file
+#   - Variants without a workshop show "Workshop coming soon"
+#
+# History:
+#   2026-09-21 - Cantilever Hypar registered.
+#   2026-10-13 - Multi-Cone Cluster registered. Points at
+#                ui.workshops.multi_cone_roof. The "Uni-Pole" comment
+#                block renamed to "Multi-Cone".
+#   2026-10-13 - Dome Multi-Cone registered. Points at
+#                ui.workshops.dome_multi_cone.
 # =============================================================================
 
 import importlib
+
 import streamlit as st
-import streamlit.components.v1 as components
+
 
 # =============================================================================
 # VARIANT REGISTRY
 # =============================================================================
+# Maps variant_key to the module path and function name.
+# When a new variant workshop is built, add an entry here.
+
 VARIANT_REGISTRY = {
     # Saddle Span family
-    "standard_saddle": {"module": "ui.workshops.saddle_standard", "function": "render_saddle_standard"},
-    "frame_supported_saddle": {"module": "ui.workshops.saddle_frame", "function": "render_saddle_frame"},
+    "standard_saddle": {
+        "module": "ui.workshops.saddle_standard",
+        "function": "render_saddle_standard",
+    },
+    "frame_supported_saddle": {
+        "module": "ui.workshops.saddle_frame",
+        "function": "render_saddle_frame",
+    },
     # Cantilever family
-    "cantilever_leaf": {"module": "ui.workshops.saddle_leaf", "function": "render_saddle_leaf"},
-    "cantilever_hypar": {"module": "ui.workshops.saddle_hypar", "function": "render_saddle_hypar"},
-    "cantilever_flower": {"module": None, "function": None},
-    # Tensile Sails family
+    "cantilever_leaf": {
+        "module": "ui.workshops.saddle_leaf",
+        "function": "render_saddle_leaf",
+    },
+    "cantilever_hypar": {
+        "module": "ui.workshops.saddle_hypar",
+        "function": "render_saddle_hypar",
+    },
+    # Cantilever Flower - not yet built
+    "cantilever_flower": {
+        "module": None,
+        "function": None,
+    },
+    # Tensile Sails family - not yet built
     "hypar_sail_3": {"module": None, "function": None},
     "hypar_sail_4": {"module": None, "function": None},
     "multiple_wall_sails": {"module": None, "function": None},
     "multiple_column_sails": {"module": None, "function": None},
-    # Framed Tensile family
+    # Framed Tensile family - not yet built
     "simple_frame": {"module": None, "function": None},
     "arched_frame": {"module": None, "function": None},
     "trussed_frame": {"module": None, "function": None},
     # Multi-Cone family
-    "multi_cone_cluster": {"module": "ui.workshops.multi_cone_roof", "function": "render_multi_cone_roof"},
-    "dome_multi_cone": {"module": "ui.workshops.dome_multi_cone", "function": "render_dome_multi_cone"},
-    # Multi-Cone
+    "multi_cone_cluster": {
+        "module": "ui.workshops.multi_cone_roof",
+        "function": "render_multi_cone_roof",
+    },
+    "dome_multi_cone": {
+        "module": "ui.workshops.dome_multi_cone",
+        "function": "render_dome_multi_cone",
+    },
+    # Multi-Cone - not yet built
     "single_cone": {"module": None, "function": None},
     "umbrella": {"module": None, "function": None},
-    # Cantilever
+    # Cantilever family - not yet built
     "cantilever_cone": {"module": None, "function": None},
     "cantilever_pyramid": {"module": None, "function": None},
     "cantilever_bell": {"module": None, "function": None},
     "cantilever_sail": {"module": None, "function": None},
-    # Canopy
+    # Canopy family - not yet built
     "wall_mounted_shade": {"module": None, "function": None},
     "cable_supported_shade": {"module": None, "function": None},
     "tree_canopy": {"module": None, "function": None},
-    # Frame Tent
+    # Frame Tent family - not yet built
     "pyramid_tent": {"module": None, "function": None},
     "modular_tent": {"module": None, "function": None},
     "cone_tent": {"module": None, "function": None},
     "a_frame_tent": {"module": None, "function": None},
     "arch_tent": {"module": None, "function": None},
-    # Portal Frame
+    # Portal Frame family - not yet built
     "simple_portal": {"module": None, "function": None},
     "portal_with_mezzanine": {"module": None, "function": None},
     "portal_with_crane": {"module": None, "function": None},
     "multi_bay_portal": {"module": None, "function": None},
 }
 
+
 # =============================================================================
 # CSS
 # =============================================================================
+
 WORKSHOP_ROUTER_CSS = """
     <style>
     .workshop-coming-soon {
@@ -84,9 +130,11 @@ WORKSHOP_ROUTER_CSS = """
     </style>
 """
 
+
 # =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
+
 def render_workshop():
     """
     Route to the correct variant workshop.
@@ -112,6 +160,7 @@ def render_workshop():
     # ---- Look up the variant
     if not variant_key:
         _render_missing()
+
         st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
         if st.button("Back to Registration", key="ws_back_no_key", use_container_width=True):
             st.session_state.page = "registration"
@@ -139,33 +188,22 @@ def render_workshop():
         _render_back_button()
         return
 
-    # =========================================================================
-    # SDSe TEST INJECTION
-    # If the user selects Dome Multi-Cone, we load the new UI prototype 
-    # instead of the old module to test the floating toolbar.
-    # =========================================================================
-    if variant_key == "dome_multi_cone":
-        # Import our new test UI
-        try:
-            from ui.components.SDSe_workshop_ui import render_floating_toolbar
-            render_floating_toolbar()
-            _render_back_button()
-            return # Stop here so it doesn't load the old module
-        except Exception as e:
-            st.error("Failed to load the new UI prototype: " + str(e))
-            # If it fails, it will fall through and load the old module below as a backup
-    # =========================================================================
-
-    # ---- Try to import and call the standard modules
+    # ---- Try to import and call
     try:
         mod = importlib.import_module(module_path)
         render_fn = getattr(mod, function_name)
         render_fn()
     except ImportError as e:
-        _render_coming_soon(variant_name, reason="Workshop module not yet deployed. Error: " + str(e))
+        _render_coming_soon(
+            variant_name,
+            reason="Workshop module not yet deployed. Error: " + str(e),
+        )
         _render_back_button()
     except AttributeError as e:
-        _render_coming_soon(variant_name, reason="Workshop function not found in module. Error: " + str(e))
+        _render_coming_soon(
+            variant_name,
+            reason="Workshop function not found in module. Error: " + str(e),
+        )
         _render_back_button()
     except Exception as e:
         st.error("Workshop failed to load: " + str(e))
@@ -175,25 +213,36 @@ def render_workshop():
 # =============================================================================
 # HELPERS
 # =============================================================================
+
 def _render_missing():
+    """Shown when variant_key is missing."""
     st.markdown(
         '<div class="workshop-coming-soon">'
         '<div class="title">No Variant Selected</div>'
-        '<div class="desc">Please return to Registration and select a variant to continue.</div>'
+        '<div class="desc">'
+        'Please return to Registration and select a variant to continue.'
+        '</div>'
         '</div>',
         unsafe_allow_html=True,
     )
 
+
 def _render_coming_soon(variant_name, reason=""):
+    """Shown when the variant has no workshop yet."""
     st.markdown(
         '<div class="workshop-coming-soon">'
         '<div class="title">Workshop Coming Soon</div>'
-        '<div class="desc"><strong>' + variant_name + '</strong><br><br>' + reason + '</div>'
+        '<div class="desc">'
+        '<strong>' + variant_name + '</strong><br><br>'
+        + reason +
+        '</div>'
         '</div>',
         unsafe_allow_html=True,
     )
 
+
 def _render_back_button():
+    """Back button to return to Registration."""
     st.markdown('<div style="height: 1.5rem;"></div>', unsafe_allow_html=True)
     if st.button("Back to Registration", key="ws_back", use_container_width=True):
         st.session_state.page = "registration"
