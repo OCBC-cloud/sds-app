@@ -9,17 +9,6 @@
 #   [ Plan ]    -> the 2D cone picker.
 #   [ 3D View ] -> the solved 3D figure.
 #
-# The Profile board (elevation curve drawer) is retired. The canvas
-# version could not commit values back to Python through Streamlit's
-# HTML component protocol. A proper declarative component is deferred
-# to a future session. The retired file remains on disk at
-# ui/components/dome_profile_picker.py.
-#
-# The recipe still offers "Custom (Draw Profile)" in the curve dropdown,
-# so the option is preserved for the future picker. If a user selects it
-# today, the viewer falls back to the default parabolic curve, and the
-# workshop shows an explanatory note below the recipe.
-#
 # History:
 #   2026-10-13 - First version. Recipe wrapper only.
 #   2026-10-14 - Add the 2D cone picker below the recipe.
@@ -29,6 +18,7 @@
 #                SDSe_multi_board component.
 #   2026-10-18 - Retire the Profile board. Canvas picker could not
 #                commit values. Keep Plan and 3D View only.
+#   2026-10-20 - Restored to stable version + added scroll-to-top fix.
 # =============================================================================
 
 import streamlit as st
@@ -85,9 +75,6 @@ def _render_plan_board():
 def _render_profile_board_stub():
     """
     Stub renderer for the retired Profile board.
-    This is passed to the multi-board so the component has a valid
-    renderer for its internal label mapping. The workshop never
-    actually shows this board because we only pass two labels.
     """
     st.info(
         "The Profile board is temporarily unavailable. The custom "
@@ -112,6 +99,17 @@ def render_dome_multi_cone():
     Render the Dome Multi-Cone workshop from its recipe, then hand off to
     the universal multi-board for the drawing phase.
     """
+    # ---- Force the page to start at the top when entering the workshop ----
+    st.components.v1.html(
+        """
+        <script>
+            window.parent.scrollTo(0, 0);
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
     # ---- Recipe-driven input groups ---------------------------------------
     render_workshop(DOME_MULTI_CONE_RECIPE)
 
