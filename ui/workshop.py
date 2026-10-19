@@ -147,7 +147,7 @@ def render_workshop():
     if variant_key == "dome_multi_cone":
         # Import our new test UI
         try:
-            from components.SDSe_workshop_ui import render_floating_toolbar
+            from ui.components.SDSe_workshop_ui import render_floating_toolbar
             render_floating_toolbar()
             _render_back_button()
             return # Stop here so it doesn't load the old module
