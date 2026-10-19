@@ -7,27 +7,14 @@
 #   [ Plan ] [ 3D View ]        (default, two-board mode)
 #   [ Plan ] [ Profile ] [ 3D View ]  (three-board mode)
 #
-# Only the active board is rendered. The others are skipped. This is
-# critical for performance on mobile: the 3D mesh is not rebuilt when
-# the user is on the Plan board.
-#
-# The component is universal. Any workshop calls it by passing renderer
-# functions. The component does not know what a "dome" or a "saddle" is.
-#
-# Usage:
-#
-#   from ui.components.SDSe_multi_board import render_multi_board
-#
-#   render_multi_board(
-#       key="dome",
-#       plan_renderer=lambda: render_cone_picker(...),
-#       view_3d_renderer=lambda: build_dome_multi_cone(),
-#       # profile_renderer and labels optional
-#   )
+# NEW: If `forced_board` is provided ("plan", "profile", or "view_3d"),
+# the radio toggle is hidden, and the board renders only that view.
+# This allows a parent workshop to drive the board via a state machine.
 #
 # History:
 #   2026-10-18 - First version. Universal 3-in-1 board.
 #   2026-10-18 - Add show_profile flag. Two-board mode is the default.
+#   2026-10-19 - Add forced_board parameter to allow state-driven views.
 # =============================================================================
 
 import streamlit as st
@@ -111,6 +98,7 @@ def render_multi_board(
     plan_label=None,
     profile_label=None,
     view_3d_label=None,
+    forced_board=None,  # NEW
 ):
     """
     Renders the universal multi-board.
@@ -124,6 +112,8 @@ def render_multi_board(
         plan_label          Optional label override. Default "Plan".
         profile_label       Optional label override. Default "Profile".
         view_3d_label       Optional label override. Default "3D View".
+        forced_board        Optional string. If "plan", "profile", or "view_3d",
+                            hides the toggle and locks to that board.
     """
     labels = dict(_DEFAULT_LABELS)
     if plan_label is not None:
@@ -136,14 +126,18 @@ def render_multi_board(
     show_profile = profile_renderer is not None
     valid = _VALID_BOARDS_3 if show_profile else _VALID_BOARDS_2
 
-    state_key, active = _get_board_state(key, valid)
+    # --- State Machine Override ---
+    if forced_board is not None:
+        active = forced_board
+    else:
+        state_key, active = _get_board_state(key, valid)
+        st.markdown(
+            "<div style='margin-bottom: 8px;'></div>",
+            unsafe_allow_html=True,
+        )
+        active = _render_toggle(key, active, labels, show_profile)
 
-    st.markdown(
-        "<div style='margin-bottom: 8px;'></div>",
-        unsafe_allow_html=True,
-    )
-    active = _render_toggle(key, active, labels, show_profile)
-
+    # --- Render the active board ---
     if active == "plan":
         plan_renderer()
     elif active == "profile" and show_profile:
