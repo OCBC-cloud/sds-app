@@ -690,7 +690,6 @@ def build_dome_multi_cone():
         tris = built["triangles"]
         edges = built["edges"]
         boundary_edge_set = built["boundary_edges"]
-        anchor_idx = built["anchor_idx"]
 
         pts_2d = pts[:, :2]
         warp_q = max(warp_pretension, 0.1) * 1000.0
