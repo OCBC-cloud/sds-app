@@ -1,10 +1,9 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Dome Multi-Cone Workshop
 # =============================================================================
-# Renders the Dome Multi-Cone workshop page.
-#
 # History:
-#   2026-10-20 - Restored to stable version.
+#   2026-10-20 - Moved action buttons to the bottom. Tells the renderer
+#                not to draw its built-in buttons.
 # =============================================================================
 
 import streamlit as st
@@ -15,10 +14,6 @@ from ui.components.SDSe_multi_board import render_multi_board
 from viewers.figures.dome_multi_cone import build_dome_multi_cone
 from data.recipes.dome_multi_cone import DOME_MULTI_CONE_RECIPE
 
-
-# =============================================================================
-# RENDERERS (one per board)
-# =============================================================================
 
 def _render_plan_board():
     dome_diameter = float(st.session_state.get("ws_dm_dome_diameter", 18.0))
@@ -63,16 +58,7 @@ def _render_3d_board():
     build_dome_multi_cone()
 
 
-# =============================================================================
-# PAGE
-# =============================================================================
-
 def render_dome_multi_cone():
-    """
-    Render the Dome Multi-Cone workshop from its recipe, then hand off to
-    the universal multi-board for the drawing phase.
-    """
-    # ---- Force the page to start at the top when entering the workshop ----
     st.components.v1.html(
         """
         <script>
@@ -83,10 +69,9 @@ def render_dome_multi_cone():
         width=0,
     )
 
-    # ---- Recipe-driven input groups ---------------------------------------
-    render_workshop(DOME_MULTI_CONE_RECIPE)
+    # ---- Render the recipe, but skip its built-in buttons ----
+    render_workshop(DOME_MULTI_CONE_RECIPE, show_actions=False)
 
-    # ---- Explain the "custom" option if it is selected --------------------
     curve_type = str(
         st.session_state.get("ws_dm_curve_type", "parabolic")
     ).lower()
@@ -99,7 +84,6 @@ def render_dome_multi_cone():
             "shape the dome today."
         )
 
-    # ---- Universal multi-board (Plan / 3D View only) ----------------------
     st.markdown("---")
     render_multi_board(
         key="dome",
@@ -110,3 +94,33 @@ def render_dome_multi_cone():
         profile_renderer=_render_profile_board_stub,
         view_3d_renderer=_render_3d_board,
     )
+
+    # ---- Draw the action buttons at the very bottom ----
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button(
+            "Back to Registration",
+            key="dome_back_bottom",
+            use_container_width=True,
+        ):
+            st.session_state.page = "registration"
+            st.rerun()
+            
+    with col2:
+        if st.button(
+            "Intelligent Design Computing",
+            key="dome_forward_bottom",
+            use_container_width=True,
+            type="primary",
+        ):
+            st.session_state.page = "results"
+            st.rerun()
+
+
+# =============================================================================
+# END OF ui/workshops/dome_multi_cone.py
+# =============================================================================
