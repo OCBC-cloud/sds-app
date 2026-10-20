@@ -2,9 +2,7 @@
 # SDSe Fluid Design Studio - Cantilever Leaf Workshop
 # =============================================================================
 # History:
-#   2026-10-21 - Wrapped in the standard layout. Added multi-board
-#                (forced Plan) and bottom action buttons. Engineering
-#                math and all 9 sections preserved.
+#   2026-10-21 - Fixed viewer import to use build_cantilever_leaf.
 # =============================================================================
 
 import math
@@ -15,8 +13,8 @@ from data.materials import STEEL_MATERIALS, FABRIC_PROPERTIES
 from data.constants import WIND_SPEEDS
 from ui.components.SDSe_multi_board import render_multi_board
 
-# NOTE: Change 'build_leaf' to the exact name of your viewer function.
-from viewers.figures.cantilever_leaf import build_leaf
+# ---- CORRECTED IMPORT ----
+from viewers.figures.cantilever_leaf import build_cantilever_leaf
 
 
 # =============================================================================
@@ -157,7 +155,8 @@ def _render_plan_board():
     st.info("The 2D Plan picker for the Cantilever Leaf is coming in a future update.")
 
 def _render_3d_board():
-    build_leaf()
+    # ---- CORRECTED FUNCTION CALL ----
+    build_cantilever_leaf()
 
 
 # =============================================================================
