@@ -4,10 +4,21 @@
 # Input page for the Beam Supported Saddle variant.
 # Members: membrane + main beam + purlins + secondary beams.
 #
-# History:
-#   2026-10-20 - Wrapped in the Dome Multi-Cone layout. Engineering math
-#                kept intact. Action buttons moved to the very bottom.
-#                Multi-board forced to Plan view.
+# Secondary beam rule (silent, code-compliant):
+#   Baseline 2 per beam.
+#   Middle section (0.65 x arc) divided into equal sub-sections <= 15 m
+#   (CECS158:2004 and general membrane practice).
+#   Result rounded UP to nearest EVEN number for both-axis symmetry.
+#
+# Purlin rule (silent):
+#   One at apex, then every 2.5 m outward.
+#
+# Arc length: numerical integration over 100 segments.
+#
+# Updated 2026-09-19 (evening):
+#   - _init_defaults() writes two viewer strings used by the Results
+#     page under the 3D chart.
+#   - The dimensions string is rebuilt live each render.
 # =============================================================================
 
 import math
@@ -26,11 +37,6 @@ from ui.workshops._shared import (
     preview_box,
     warning_box,
 )
-from ui.components.SDSe_multi_board import render_multi_board
-
-# NOTE: Change 'build_beam_saddle' to the exact name of your viewer function.
-# I do not have the viewer file for this structure.
-from viewers.figures.beam_saddle import build_beam_saddle
 
 
 # =============================================================================
@@ -70,6 +76,7 @@ def _init_defaults():
         "ws_bs_add_payload": 0.0,
         "ws_bs_design_standard": "MY",
         "ws_bs_attachment_type": "kader",
+        # ---- Viewer strings for the Results page (below the 3D chart)
         "ws_bs_viewer_description": "Beam Supported Saddle Span tensile membrane structure",
         "ws_bs_viewer_dimensions": "",
     }
@@ -79,10 +86,11 @@ def _init_defaults():
 
 
 # =============================================================================
-# ENGINEERING MATH
+# HELPERS
 # =============================================================================
 
 def _validate_geometry(span, apex, rise):
+    """Return list of warning messages for geometry issues."""
     warnings = []
     if span <= 0:
         warnings.append("Span must be greater than 0.")
@@ -100,6 +108,7 @@ def _validate_geometry(span, apex, rise):
 
 
 def _arc_length_parabola(span, rise):
+    """Arc length of parabolic beam by numerical integration."""
     if span <= 0:
         return 0.0
     n_seg = 100
@@ -118,29 +127,42 @@ def _arc_length_parabola(span, rise):
 
 
 def _compute_secondary_count(arc_length):
+    """
+    Return secondary beams PER BEAM as an EVEN number.
+    Code rule: max 15 m unsupported section (CECS158:2004).
+    Symmetry rule: even count required for both-axis symmetry.
+    """
     MAX_UNSUPPORTED = 15.0
     middle = 0.650 * arc_length
+
     if middle <= MAX_UNSUPPORTED:
         return 2
+
     n_subsections = int(math.ceil(middle / MAX_UNSUPPORTED))
     support_points = 1 + n_subsections
+
     if support_points % 2 != 0:
         support_points += 1
+
     if support_points < 2:
         support_points = 2
+
     return support_points
 
 
 def _compute_secondary_positions(per_beam_count):
+    """Arc-length fractions for secondary beam positions."""
     if per_beam_count < 2:
         return [0.5]
     if per_beam_count == 2:
         return [0.175, 0.825]
+
     n_middle = per_beam_count - 2
     m_start = 0.175
     m_end = 0.825
     m_span = m_end - m_start
     step = m_span / (n_middle + 1)
+
     fractions = [m_start]
     for i in range(1, n_middle + 1):
         fractions.append(m_start + i * step)
@@ -149,6 +171,7 @@ def _compute_secondary_positions(per_beam_count):
 
 
 def _compute_purlin_positions(span):
+    """Purlins every 2.5 m from centre, symmetric."""
     interval = 2.5
     half_span = span / 2.0
     positions = [0.0]
@@ -164,32 +187,11 @@ def _compute_purlin_positions(span):
 
 
 # =============================================================================
-# BOARD RENDERERS
-# =============================================================================
-
-def _render_plan_board():
-    st.info("The 2D Plan picker for the Beam Supported Saddle is coming in a future update.")
-
-
-def _render_3d_board():
-    build_beam_saddle()
-
-
-# =============================================================================
 # PUBLIC FUNCTION
 # =============================================================================
 
 def render_saddle_frame():
-    st.components.v1.html(
-        """
-        <script>
-            window.parent.scrollTo(0, 0);
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-    
+    """Render the Beam Supported Saddle workshop."""
     st.markdown(WORKSHOP_CSS, unsafe_allow_html=True)
     _init_defaults()
 
@@ -201,236 +203,518 @@ def render_saddle_frame():
     render_breadcrumb("Saddle Span", "Beam Supported Saddle")
     render_project_header(project_name, client_name, "Beam Supported Saddle")
 
-    # Section 1
+    # =========================================================================
+    # SECTION 1 - GEOMETRY
+    # =========================================================================
     with st.expander("1. Geometry", expanded=True):
-        section_header("Geometry", "Overall dimensions of the saddle span.")
+        section_header(
+            "Geometry",
+            "Overall dimensions of the saddle span."
+        )
+
         col1, col2 = st.columns(2)
         with col1:
-            span = st.number_input("Span Distance (m) *", min_value=4.0, max_value=200.0, value=float(st.session_state["ws_bs_span"]), step=0.5, key="ws_bs_span_input")
+            span = st.number_input(
+                "Span Distance (m) *",
+                min_value=4.0, max_value=200.0,
+                value=float(st.session_state["ws_bs_span"]),
+                step=0.5,
+                key="ws_bs_span_input",
+            )
             st.session_state["ws_bs_span"] = span
         with col2:
-            apex = st.number_input("Apex-to-Apex Distance (m) *", min_value=4.0, max_value=200.0, value=float(st.session_state["ws_bs_apex"]), step=0.5, key="ws_bs_apex_input")
+            apex = st.number_input(
+                "Apex-to-Apex Distance (m) *",
+                min_value=4.0, max_value=200.0,
+                value=float(st.session_state["ws_bs_apex"]),
+                step=0.5,
+                key="ws_bs_apex_input",
+            )
             st.session_state["ws_bs_apex"] = apex
+
         col3, col4 = st.columns(2)
         with col3:
-            rise = st.number_input("Rise (m) *", min_value=0.5, max_value=50.0, value=float(st.session_state["ws_bs_rise"]), step=0.1, key="ws_bs_rise_input")
+            rise = st.number_input(
+                "Rise (m) *",
+                min_value=0.5, max_value=50.0,
+                value=float(st.session_state["ws_bs_rise"]),
+                step=0.1,
+                key="ws_bs_rise_input",
+            )
             st.session_state["ws_bs_rise"] = rise
         with col4:
             curve_options = ["parabolic", "circular", "catenary"]
             curve_labels = ["Parabolic", "Circular", "Catenary"]
             curve_idx = curve_options.index(st.session_state["ws_bs_curve_type"])
-            curve_choice = st.selectbox("Beam Curve Type", curve_labels, index=curve_idx, key="ws_bs_curve_select")
+            curve_choice = st.selectbox(
+                "Beam Curve Type",
+                curve_labels,
+                index=curve_idx,
+                key="ws_bs_curve_select",
+            )
             st.session_state["ws_bs_curve_type"] = curve_options[curve_labels.index(curve_choice)]
-        for w in _validate_geometry(span, apex, rise):
+
+        warns = _validate_geometry(span, apex, rise)
+        for w in warns:
             warning_box(w)
 
-    # Section 2
+    # =========================================================================
+    # SECTION 2 - MATERIALS
+    # =========================================================================
     with st.expander("2. Materials", expanded=False):
-        section_header("Materials", "Steel grade, section family, and fabric.")
+        section_header(
+            "Materials",
+            "Steel grade, section family, and fabric."
+        )
+
         col1, col2 = st.columns(2)
         with col1:
             steel_grades = ["S235", "S275", "S355", "S420", "S460"]
             steel_idx = steel_grades.index(st.session_state["ws_bs_steel_grade"])
-            steel = st.selectbox("Steel Grade", steel_grades, index=steel_idx, key="ws_bs_steel_select")
+            steel = st.selectbox(
+                "Steel Grade",
+                steel_grades,
+                index=steel_idx,
+                key="ws_bs_steel_select",
+            )
             st.session_state["ws_bs_steel_grade"] = steel
         with col2:
             section_families = ["CHS", "SHS", "RHS", "I-Beam"]
             fam_idx = section_families.index(st.session_state["ws_bs_section_family"])
-            family = st.selectbox("Section Family", section_families, index=fam_idx, key="ws_bs_family_select")
+            family = st.selectbox(
+                "Section Family",
+                section_families,
+                index=fam_idx,
+                key="ws_bs_family_select",
+            )
             st.session_state["ws_bs_section_family"] = family
+
         col3, col4 = st.columns(2)
         with col3:
             fabric_types = list(FABRIC_PROPERTIES.keys())
             ft_idx = fabric_types.index(st.session_state["ws_bs_fabric_type"]) if st.session_state["ws_bs_fabric_type"] in fabric_types else 0
-            fabric_type = st.selectbox("Fabric Type", fabric_types, index=ft_idx, key="ws_bs_fabric_type_select")
+            fabric_type = st.selectbox(
+                "Fabric Type",
+                fabric_types,
+                index=ft_idx,
+                key="ws_bs_fabric_type_select",
+            )
             st.session_state["ws_bs_fabric_type"] = fabric_type
         with col4:
             grades = [k for k in FABRIC_PROPERTIES.get(fabric_type, {}).keys() if k != "default"]
-            if not grades: grades = ["Type III"]
+            if not grades:
+                grades = ["Type III"]
             grade_idx = grades.index(st.session_state["ws_bs_fabric_grade"]) if st.session_state["ws_bs_fabric_grade"] in grades else 0
-            grade = st.selectbox("Fabric Grade", grades, index=grade_idx, key="ws_bs_fabric_grade_select")
+            grade = st.selectbox(
+                "Fabric Grade",
+                grades,
+                index=grade_idx,
+                key="ws_bs_fabric_grade_select",
+            )
             st.session_state["ws_bs_fabric_grade"] = grade
 
-    # Section 3
+    # =========================================================================
+    # SECTION 3 - BEAM CONSTRUCTION
+    # =========================================================================
     with st.expander("3. Beam Construction", expanded=False):
-        section_header("Beam Construction", "Main curved beam. Solid section or truss.")
+        section_header(
+            "Beam Construction",
+            "Main curved beam. Solid section or truss."
+        )
+
         member_options = ["single_beam", "planar_truss", "space_truss"]
         member_labels = ["Single Beam", "Planar Truss", "Space Truss"]
         m_idx = member_options.index(st.session_state["ws_bs_member_construction"])
-        member = st.radio("Beam Type", member_labels, index=m_idx, key="ws_bs_member_radio")
+        member = st.radio(
+            "Beam Type",
+            member_labels,
+            index=m_idx,
+            key="ws_bs_member_radio",
+        )
         st.session_state["ws_bs_member_construction"] = member_options[member_labels.index(member)]
+
         preview_box("Engine will auto-select the optimal section size.")
 
-    # Section 4
+    # =========================================================================
+    # SECTION 4 - FRAME SUPPORTS
+    # =========================================================================
     with st.expander("4. Frame Supports", expanded=False):
-        section_header("Frame Supports", "Support at each ground point.")
+        section_header(
+            "Frame Supports",
+            "Support at each ground point."
+        )
+
         col1, col2 = st.columns(2)
         with col1:
             support_options = ["pinned", "rigid"]
             support_labels = ["Pinned", "Rigid"]
             s_idx = support_options.index(st.session_state["ws_bs_support_type_start"])
-            s_choice = st.radio("Support at Start", support_labels, index=s_idx, key="ws_bs_support_start_radio")
+            s_choice = st.radio(
+                "Support at Start",
+                support_labels,
+                index=s_idx,
+                key="ws_bs_support_start_radio",
+            )
             st.session_state["ws_bs_support_type_start"] = support_options[support_labels.index(s_choice)]
         with col2:
             e_idx = support_options.index(st.session_state["ws_bs_support_type_end"])
-            e_choice = st.radio("Support at End", support_labels, index=e_idx, key="ws_bs_support_end_radio")
+            e_choice = st.radio(
+                "Support at End",
+                support_labels,
+                index=e_idx,
+                key="ws_bs_support_end_radio",
+            )
             st.session_state["ws_bs_support_type_end"] = support_options[support_labels.index(e_choice)]
+
         if st.session_state["ws_bs_support_type_start"] == "rigid" or st.session_state["ws_bs_support_type_end"] == "rigid":
             warning_box("Rigid supports introduce moment into the frame.")
 
-    # Section 5 - The Engineering Math
+    # =========================================================================
+    # SECTION 5 - SECONDARY BEAMS AND PRETENSION
+    # =========================================================================
     with st.expander("5. Secondary Beams and Pretension", expanded=False):
-        section_header("Secondary Beams", "Steel members from main beam to frame.")
+        section_header(
+            "Secondary Beams",
+            "Steel members from main beam to frame."
+        )
+
         span_val = float(st.session_state.get("ws_bs_span", 10.0))
         rise_val = float(st.session_state.get("ws_bs_rise", 6.2))
         arc = _arc_length_parabola(span_val, rise_val)
         recommended = _compute_secondary_count(arc)
-        info_box("<strong>System Recommendation</strong><br>15 m max unsupported section:<br>Recommended: <strong>" + str(recommended) + "</strong> per beam")
+
+        info_box(
+            "<strong>System Recommendation</strong><br>"
+            "15 m max unsupported section:<br>"
+            "Recommended: <strong>" + str(recommended) + "</strong> per beam"
+        )
+
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
-        accept_default = st.radio("Use system recommendation?", ["Yes - accept", "No - override"], index=0 if not st.session_state.get("ws_bs_secondary_count_override", False) else 1, key="ws_bs_secondary_accept_radio")
+
+        accept_default = st.radio(
+            "Use system recommendation?",
+            ["Yes - accept", "No - override"],
+            index=0 if not st.session_state.get("ws_bs_secondary_count_override", False) else 1,
+            key="ws_bs_secondary_accept_radio",
+        )
         st.session_state["ws_bs_secondary_count_override"] = (accept_default == "No - override")
+
         if st.session_state["ws_bs_secondary_count_override"]:
             even_options = [2, 4, 6, 8, 10, 12, 16, 20]
             even_options = [n for n in even_options if n >= recommended]
-            if not even_options: even_options = [recommended]
+            if not even_options:
+                even_options = [recommended]
             current_val = int(st.session_state.get("ws_bs_secondary_count", recommended))
-            if current_val not in even_options: current_val = even_options[0]
-            choice = st.selectbox("Number of secondary beams per main beam", even_options, index=even_options.index(current_val), key="ws_bs_secondary_count_select")
+            if current_val not in even_options:
+                current_val = even_options[0]
+            choice = st.selectbox(
+                "Number of secondary beams per main beam",
+                even_options,
+                index=even_options.index(current_val),
+                key="ws_bs_secondary_count_select",
+            )
             st.session_state["ws_bs_secondary_count"] = choice
         else:
             st.session_state["ws_bs_secondary_count"] = recommended
+
         per_beam = int(st.session_state["ws_bs_secondary_count"])
         positions_list = _compute_secondary_positions(per_beam)
         positions_text = ", ".join(["%.3f" % f for f in positions_list])
-        preview_box('Secondary beams per main beam: <span class="num">' + str(per_beam) + '</span><br>Attach positions (arc-length fraction): <span class="num">' + positions_text + '</span>')
-        st.markdown('<div class="ws-section-help" style="margin-top:1rem;"><strong>Toggle Angles</strong></div>', unsafe_allow_html=True)
+        preview_box(
+            'Secondary beams per main beam: <span class="num">' + str(per_beam) + '</span><br>'
+            'Attach positions (arc-length fraction): <span class="num">' + positions_text + '</span>'
+        )
+
+        st.markdown(
+            '<div class="ws-section-help" style="margin-top:1rem;">'
+            '<strong>Toggle Angles</strong>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
         col1, col2 = st.columns(2)
         with col1:
-            uplift = st.slider("Uplift Angle (deg)", min_value=20, max_value=75, value=int(st.session_state["ws_bs_uplift_angle"]), step=1, key="ws_bs_uplift_angle_slider")
+            uplift = st.slider(
+                "Uplift Angle (deg)",
+                min_value=20, max_value=75,
+                value=int(st.session_state["ws_bs_uplift_angle"]),
+                step=1,
+                key="ws_bs_uplift_angle_slider",
+            )
             st.session_state["ws_bs_uplift_angle"] = uplift
         with col2:
-            spread = st.slider("Spread Angle (deg)", min_value=0, max_value=60, value=int(st.session_state["ws_bs_spread_angle"]), step=1, key="ws_bs_spread_angle_slider")
+            spread = st.slider(
+                "Spread Angle (deg)",
+                min_value=0, max_value=60,
+                value=int(st.session_state["ws_bs_spread_angle"]),
+                step=1,
+                key="ws_bs_spread_angle_slider",
+            )
             st.session_state["ws_bs_spread_angle"] = spread
-        st.markdown('<div style="color: #a8b8c8; font-size: 0.78rem; font-style: italic; margin-top: 0.3rem;">System recommendation. Adjust if needed.</div>', unsafe_allow_html=True)
-        st.markdown('<div class="ws-section-help" style="margin-top:1rem;"><strong>Secondary Beam Construction</strong></div>', unsafe_allow_html=True)
+
+        st.markdown(
+            '<div style="color: #a8b8c8; font-size: 0.78rem; '
+            'font-style: italic; margin-top: 0.3rem;">'
+            'System recommendation. Adjust if needed.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            '<div class="ws-section-help" style="margin-top:1rem;">'
+            '<strong>Secondary Beam Construction</strong>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
         sc_options = ["single_beam", "planar_truss", "space_truss"]
         sc_labels = ["Single Beam", "Planar Truss", "Space Truss"]
         sc_idx = sc_options.index(st.session_state["ws_bs_secondary_construction"])
-        sc_choice = st.radio("Construction Type", sc_labels, index=sc_idx, key="ws_bs_secondary_construction_radio")
+        sc_choice = st.radio(
+            "Construction Type",
+            sc_labels,
+            index=sc_idx,
+            key="ws_bs_secondary_construction_radio",
+        )
         st.session_state["ws_bs_secondary_construction"] = sc_options[sc_labels.index(sc_choice)]
+
         col3, col4 = st.columns(2)
         with col3:
             sc_families = ["CHS", "SHS", "RHS", "I-Beam"]
             sc_f_idx = sc_families.index(st.session_state["ws_bs_secondary_section_family"])
-            sc_family = st.selectbox("Section Family", sc_families, index=sc_f_idx, key="ws_bs_secondary_family_select")
+            sc_family = st.selectbox(
+                "Section Family",
+                sc_families,
+                index=sc_f_idx,
+                key="ws_bs_secondary_family_select",
+            )
             st.session_state["ws_bs_secondary_section_family"] = sc_family
         with col4:
             base_options = ["pinned", "rigid"]
             base_labels = ["Pinned", "Rigid"]
             base_idx = base_options.index(st.session_state["ws_bs_secondary_base_connection"])
-            base_choice = st.radio("Base Connection", base_labels, index=base_idx, key="ws_bs_secondary_base_radio")
+            base_choice = st.radio(
+                "Base Connection",
+                base_labels,
+                index=base_idx,
+                key="ws_bs_secondary_base_radio",
+            )
             st.session_state["ws_bs_secondary_base_connection"] = base_options[base_labels.index(base_choice)]
-        mem_pre = st.slider("Membrane Pretension (kN/m)", min_value=0.5, max_value=8.0, value=float(st.session_state["ws_bs_membrane_pretension"]), step=0.1, key="ws_bs_mem_pre_slider")
+
+        mem_pre = st.slider(
+            "Membrane Pretension (kN/m)",
+            min_value=0.5, max_value=8.0,
+            value=float(st.session_state["ws_bs_membrane_pretension"]),
+            step=0.1,
+            key="ws_bs_mem_pre_slider",
+        )
         st.session_state["ws_bs_membrane_pretension"] = mem_pre
 
-    # Section 6 - Purlins
+    # =========================================================================
+    # SECTION 6 - PURLINS
+    # =========================================================================
     with st.expander("6. Purlins", expanded=False):
-        section_header("Purlins", "Spacing set by engine to prevent ponding.")
+        section_header(
+            "Purlins",
+            "Spacing set by engine to prevent ponding."
+        )
+
         span_val = float(st.session_state.get("ws_bs_span", 10.0))
         purlin_positions = _compute_purlin_positions(span_val)
         purlin_count = len(purlin_positions)
-        info_box("<strong>Auto-Arranged by Engine</strong><br>Purlins at 2.5 m intervals from centre.")
+
+        info_box(
+            "<strong>Auto-Arranged by Engine</strong><br>"
+            "Purlins at 2.5 m intervals from centre."
+        )
+
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
+
         positions_text = ", ".join(["%.1f" % p for p in purlin_positions])
-        preview_box('Total purlins: <span class="num">' + str(purlin_count) + '</span><br>Positions: <span class="num">' + positions_text + '</span>')
+        preview_box(
+            'Total purlins: <span class="num">' + str(purlin_count) + '</span><br>'
+            'Positions: <span class="num">' + positions_text + '</span>'
+        )
+
         st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
+
         purlin_construction_options = ["single_beam", "planar_truss", "space_truss"]
         purlin_construction_labels = ["Single Beam", "Planar Truss", "Space Truss"]
         pc_idx = purlin_construction_options.index(st.session_state["ws_bs_purlin_construction"])
-        purlin_construction = st.radio("Purlin Construction Type", purlin_construction_labels, index=pc_idx, key="ws_bs_purlin_construction_radio")
+        purlin_construction = st.radio(
+            "Purlin Construction Type",
+            purlin_construction_labels,
+            index=pc_idx,
+            key="ws_bs_purlin_construction_radio",
+        )
         st.session_state["ws_bs_purlin_construction"] = purlin_construction_options[purlin_construction_labels.index(purlin_construction)]
+
         purlin_families = ["CHS", "SHS", "RHS", "I-Beam"]
         pf_idx = purlin_families.index(st.session_state["ws_bs_purlin_section_family"])
-        purlin_fam = st.selectbox("Purlin Section Family", purlin_families, index=pf_idx, key="ws_bs_purlin_family_select")
+        purlin_fam = st.selectbox(
+            "Purlin Section Family",
+            purlin_families,
+            index=pf_idx,
+            key="ws_bs_purlin_family_select",
+        )
         st.session_state["ws_bs_purlin_section_family"] = purlin_fam
 
-    # Section 7
+    # =========================================================================
+    # SECTION 7 - BASEPLATE AND PRELIMINARY FOUNDATION
+    # =========================================================================
     with st.expander("7. Baseplate and Preliminary Foundation", expanded=False):
-        section_header("Baseplate and Preliminary Foundation", "Sizing depends on soil at the site.")
-        if st.button("Default", key="ws_bs_found_default"):
+        section_header(
+            "Baseplate and Preliminary Foundation",
+            "Sizing depends on soil at the site."
+        )
+
+        if st.button(
+            "Default",
+            key="ws_bs_found_default",
+        ):
             st.session_state["ws_bs_soil_bearing"] = 150.0
             st.session_state["ws_bs_soil_type"] = "sand"
             st.session_state["ws_bs_water_table"] = 3.0
             st.session_state["ws_bs_foundation_type"] = "pad"
             st.session_state["ws_bs_found_widget_generation"] = gen + 1
             st.rerun()
+
         col1, col2 = st.columns(2)
         with col1:
-            bearing = st.number_input("Soil Bearing Capacity (kN/m2)", min_value=50.0, max_value=1000.0, value=float(st.session_state["ws_bs_soil_bearing"]), step=10.0, key="ws_bs_soil_bearing_input_" + str(gen))
+            bearing = st.number_input(
+                "Soil Bearing Capacity (kN/m2)",
+                min_value=50.0, max_value=1000.0,
+                value=float(st.session_state["ws_bs_soil_bearing"]),
+                step=10.0,
+                key="ws_bs_soil_bearing_input_" + str(gen),
+            )
             st.session_state["ws_bs_soil_bearing"] = bearing
         with col2:
-            water = st.number_input("Water Table Depth (m)", min_value=0.5, max_value=20.0, value=float(st.session_state["ws_bs_water_table"]), step=0.5, key="ws_bs_water_table_input_" + str(gen))
+            water = st.number_input(
+                "Water Table Depth (m)",
+                min_value=0.5, max_value=20.0,
+                value=float(st.session_state["ws_bs_water_table"]),
+                step=0.5,
+                key="ws_bs_water_table_input_" + str(gen),
+            )
             st.session_state["ws_bs_water_table"] = water
+
         soil_options = ["sand", "clay", "rock", "filled"]
         soil_labels = ["Sand", "Clay", "Rock", "Filled"]
         s_idx = soil_options.index(st.session_state["ws_bs_soil_type"])
-        soil_choice = st.selectbox("Soil Type", soil_labels, index=s_idx, key="ws_bs_soil_type_select_" + str(gen))
+        soil_choice = st.selectbox(
+            "Soil Type",
+            soil_labels,
+            index=s_idx,
+            key="ws_bs_soil_type_select_" + str(gen),
+        )
         st.session_state["ws_bs_soil_type"] = soil_options[soil_labels.index(soil_choice)]
+
         found_options = ["pad", "pile", "raft"]
         found_labels = ["Pad Footing", "Pile Group", "Raft"]
         f_idx = found_options.index(st.session_state["ws_bs_foundation_type"])
-        found_choice = st.selectbox("Foundation Type", found_labels, index=f_idx, key="ws_bs_found_type_select_" + str(gen))
+        found_choice = st.selectbox(
+            "Foundation Type",
+            found_labels,
+            index=f_idx,
+            key="ws_bs_found_type_select_" + str(gen),
+        )
         st.session_state["ws_bs_foundation_type"] = found_options[found_labels.index(found_choice)]
+
         warning_box("Preliminary sizing only. Geotechnical verification required.")
 
-    # Section 8
+    # =========================================================================
+    # SECTION 8 - LOADS AND STANDARD
+    # =========================================================================
     with st.expander("8. Loads and Design Standard", expanded=False):
-        section_header("Loads and Design Standard", "User-added loads. Design code for safety factors.")
-        payload = st.number_input("Add. Pay Load (kg/m)", min_value=0.0, max_value=500.0, value=float(st.session_state["ws_bs_add_payload"]), step=5.0, key="ws_bs_add_payload_input")
+        section_header(
+            "Loads and Design Standard",
+            "User-added loads. Design code for safety factors."
+        )
+
+        payload = st.number_input(
+            "Add. Pay Load (kg/m)",
+            min_value=0.0, max_value=500.0,
+            value=float(st.session_state["ws_bs_add_payload"]),
+            step=5.0,
+            key="ws_bs_add_payload_input",
+        )
         st.session_state["ws_bs_add_payload"] = payload
+
         std_options = ["EU", "MY", "UK", "CN", "US"]
         std_idx = std_options.index(st.session_state["ws_bs_design_standard"])
-        std = st.selectbox("Design Standard", std_options, index=std_idx, key="ws_bs_standard_select")
+        std = st.selectbox(
+            "Design Standard",
+            std_options,
+            index=std_idx,
+            key="ws_bs_standard_select",
+        )
         st.session_state["ws_bs_design_standard"] = std
-        preview_box('Wind speed basis: <span class="num">' + str(WIND_SPEEDS.get(std, 30.0)) + ' m/s</span>')
 
-    # Section 9
+        preview_box(
+            'Wind speed basis: <span class="num">'
+            + str(WIND_SPEEDS.get(std, 30.0))
+            + ' m/s</span>'
+        )
+
+    # =========================================================================
+    # SECTION 9 - MEMBRANE-TO-BEAM ATTACHMENT
+    # =========================================================================
     with st.expander("9. Membrane-to-Beam Attachment", expanded=False):
-        section_header("Membrane-to-Beam Attachment", "How fabric edge attaches to the curved beams.")
+        section_header(
+            "Membrane-to-Beam Attachment",
+            "How fabric edge attaches to the curved beams."
+        )
+
         attach_options = ["kader", "segmented"]
-        attach_labels = ["Kader Guider (continuous)", "Segmented Edge (discrete)"]
+        attach_labels = [
+            "Kader Guider (continuous)",
+            "Segmented Edge (discrete)",
+        ]
         at_idx = attach_options.index(st.session_state["ws_bs_attachment_type"])
-        at_choice = st.radio("Attachment Method", attach_labels, index=at_idx, key="ws_bs_attachment_radio")
+        at_choice = st.radio(
+            "Attachment Method",
+            attach_labels,
+            index=at_idx,
+            key="ws_bs_attachment_radio",
+        )
         st.session_state["ws_bs_attachment_type"] = attach_options[attach_labels.index(at_choice)]
+
         if st.session_state["ws_bs_attachment_type"] == "kader":
             preview_box("Fabric edge held in a track along the beam.")
         else:
             info_box("Segment boundaries set by the form-finding engine.")
 
-    _total_h = float(st.session_state.get("ws_bs_rise_input", st.session_state.get("ws_bs_rise", 6.2)))
-    st.session_state["ws_bs_viewer_description"] = "Beam Supported Saddle Span tensile membrane structure"
-    st.session_state["ws_bs_viewer_dimensions"] = "Total height " + ("%.2f" % _total_h) + " m"
+    # =========================================================================
+    # VIEWER STRINGS (rebuilt live, read by the Results page)
+    # =========================================================================
+    # Total height = rise (apex of the beam above the ground supports).
 
-    # ---- Multi-Board (Forced to Plan) ----
-    st.markdown("---")
-    render_multi_board(
-        key="saddle_beam",
-        plan_label="Plan",
-        view_3d_label="3D View",
-        plan_renderer=_render_plan_board,
-        view_3d_renderer=_render_3d_board,
-        forced_board="plan"
+    _total_h = float(st.session_state.get("ws_bs_rise", 6.2))
+
+    st.session_state["ws_bs_viewer_description"] = (
+        "Beam Supported Saddle Span tensile membrane structure"
+    )
+    st.session_state["ws_bs_viewer_dimensions"] = (
+        "Total height " + ("%.2f" % _total_h) + " m"
     )
 
-    # ---- Bottom Action Buttons ----
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("---")
+    # =========================================================================
+    # ACTIONS
+    # =========================================================================
+    st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
+
     col_a, col_b = st.columns(2)
     with col_a:
-        if st.button("Back to Registration", key="ws_bs_back_bottom", use_container_width=True):
+        if st.button("Back to Registration", key="ws_bs_back", use_container_width=True):
             st.session_state.page = "registration"
             st.rerun()
     with col_b:
-        if st.button("Intelligent Design Computing", key="ws_bs_run_bottom", use_container_width=True, type="primary"):
+        if st.button(
+            "Intelligent Design Computing",
+            key="ws_bs_run",
+            use_container_width=True,
+            type="primary",
+        ):
             st.session_state.page = "results"
             st.rerun()
