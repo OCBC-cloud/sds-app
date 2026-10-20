@@ -1,6 +1,12 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Landing Page
 # =============================================================================
+# The first page a user sees.
+#
+# Updated 2026-10-20:
+#   - Removed complex flexbox and fixed positioning.
+#   - Used simple vertical spacing to lock the layout on one screen.
+# =============================================================================
 
 import streamlit as st
 
@@ -16,29 +22,24 @@ LANDING_CSS = """
     
     /* Lock the main container to the viewport height, no scrolling */
     .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 0 !important;
+        padding-top: 2rem !important;
+        padding-bottom: 1rem !important;
         max-width: 420px;
         height: 100vh !important;
         max-height: 100vh !important;
         overflow: hidden !important;
         display: flex;
         flex-direction: column;
-        justify-content: center;
     }
 
-    /* Center the top content naturally */
-    .landing-top-content {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        padding: 0 0.5rem;
-        margin-top: -4rem; /* Visually balance the centered block */
+    /* Push the main content to the center-ish */
+    .landing-top-spacer {
+        height: 10vh;
     }
 
     .landing-block {
         text-align: center;
+        padding: 0 0.5rem;
     }
 
     .landing-logo {
@@ -93,18 +94,17 @@ LANDING_CSS = """
         margin: 0 0 2rem 0;
     }
 
-    /* Absolute bottom section */
-    .landing-bottom-fixed {
-        position: fixed;
-        bottom: 2rem;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 100%;
-        max-width: 420px;
+    /* The bottom section automatically takes the remaining space */
+    .landing-bottom-spacer {
+        flex-grow: 1;
+        min-height: 2rem;
+    }
+
+    .landing-bottom-content {
         display: flex;
         flex-direction: column;
         align-items: center;
-        z-index: 999;
+        padding-bottom: 1rem;
     }
 
     .landing-footer {
@@ -134,8 +134,8 @@ LANDING_CSS = """
         text-transform: uppercase;
     }
     
-    /* Ensure the fixed bottom buttons don't stretch */
-    .landing-bottom-fixed div[data-testid="stButton"] {
+    /* Ensure buttons stay exactly where they are */
+    div[data-testid="stButton"] {
         width: 100%;
         margin-bottom: 0;
     }
@@ -153,9 +153,10 @@ def render_landing():
     """
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    # ---- 1. Top Content (Centered vertically)
-    st.markdown('<div class="landing-top-content">', unsafe_allow_html=True)
+    # ---- 1. Top Spacer
+    st.markdown('<div class="landing-top-spacer"></div>', unsafe_allow_html=True)
     
+    # ---- 2. Main Content Block
     landing_html = (
         '<div class="landing-block">'
         '<div class="landing-logo">SDSe</div>'
@@ -167,7 +168,7 @@ def render_landing():
     )
     st.markdown(landing_html, unsafe_allow_html=True)
 
-    # ---- Primary button
+    # ---- 3. Primary Button
     if st.button(
         "Enter The Studio",
         key="landing_enter",
@@ -177,10 +178,11 @@ def render_landing():
         st.session_state.page = "studio"
         st.rerun()
 
-    st.markdown('</div>', unsafe_allow_html=True) 
+    # ---- 4. Bottom Spacer (Pushes the footer down)
+    st.markdown('<div class="landing-bottom-spacer"></div>', unsafe_allow_html=True)
 
-    # ---- 2. Bottom Content (Pinned to the absolute bottom of the screen)
-    st.markdown('<div class="landing-bottom-fixed">', unsafe_allow_html=True)
+    # ---- 5. Footer and Lab Content
+    st.markdown('<div class="landing-bottom-content">', unsafe_allow_html=True)
     
     st.markdown(
         '<div class="landing-footer">All Major Building Code</div>',
