@@ -1,13 +1,12 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Studio Page
 # =============================================================================
-# The structure type selection page. Appears after the user taps
-# "Enter The Studio" on the landing page.
+# The structure type selection page.
 #
 # Updated 2026-10-20:
 #   - Removed redundant "Select" buttons.
 #   - Made the structure description cards themselves clickable using
-#     a transparent button overlay.
+#     standard HTML anchor links + URL query parameters.
 # =============================================================================
 
 import streamlit as st
@@ -134,6 +133,11 @@ STUDIO_CSS = """
     }
 
     /* Structure type tiles */
+    .studio-tile-link {
+        text-decoration: none !important;
+        display: block;
+        margin-bottom: 0.7rem;
+    }
     .studio-tile {
         display: flex;
         align-items: center;
@@ -142,9 +146,7 @@ STUDIO_CSS = """
         border: 1px solid #1e2a3a;
         border-radius: 12px;
         padding: 1rem 1.2rem;
-        margin-bottom: 0.7rem;
         transition: all 0.25s ease;
-        position: relative;
     }
     .studio-tile:hover {
         border-color: #f39c12;
@@ -183,6 +185,11 @@ STUDIO_CSS = """
     }
 
     /* Guided Design tile - visually distinct */
+    .guided-tile-link {
+        text-decoration: none !important;
+        display: block;
+        margin-bottom: 1.4rem;
+    }
     .guided-tile {
         display: flex;
         align-items: center;
@@ -190,10 +197,8 @@ STUDIO_CSS = """
         background: linear-gradient(90deg, #f39c12 0%, #f1c40f 100%);
         border-radius: 12px;
         padding: 1.2rem 1.2rem;
-        margin-bottom: 1.4rem;
         transition: all 0.25s ease;
         border: none;
-        position: relative;
     }
     .guided-tile:hover {
         transform: translateX(4px);
@@ -229,35 +234,6 @@ STUDIO_CSS = """
         line-height: 1.35;
         opacity: 0.85;
     }
-
-    /* The trick: Invisible overlay buttons */
-    div[data-testid="stButton"] > button {
-        background-color: transparent !important;
-        border: none !important;
-        color: transparent !important;
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100% !important;
-        height: 100% !important;
-        z-index: 10;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    div[data-testid="stButton"] > button:hover {
-        background-color: rgba(255, 255, 255, 0.02) !important;
-    }
-    div[data-testid="stButton"] {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100% !important;
-        height: 100% !important;
-    }
-    /* Make the columns relative so the button sits inside the card */
-    div[data-testid="column"] {
-        position: relative;
-    }
     </style>
 """
 
@@ -267,7 +243,7 @@ STUDIO_CSS = """
 # =============================================================================
 
 def _render_structure_tile(key):
-    """Render one structure tile as a clickable button."""
+    """Render one structure tile as a clickable HTML link."""
     entry = STRUCTURE_TYPES.get(key, {})
     fallback = STUDIO_FALLBACK.get(key, {})
 
@@ -275,30 +251,20 @@ def _render_structure_tile(key):
     icon = entry.get("icon", fallback.get("icon", "?"))
     description = entry.get("description", fallback.get("description", ""))
 
-    with st.container():
-        # Use a single column to establish the relative positioning context
-        col = st.columns(1)[0]
-        
-        with col:
-            # 1. Render the card HTML
-            tile_html = (
-                '<div class="studio-tile">'
-                f'<div class="studio-tile-icon">{icon}</div>'
-                '<div class="studio-tile-body">'
-                f'<div class="studio-tile-name">{name}</div>'
-                f'<div class="studio-tile-desc">{description}</div>'
-                '</div>'
-                '</div>'
-            )
-            st.markdown(tile_html, unsafe_allow_html=True)
-
-            # 2. The invisible clickable overlay
-            # The CSS above makes this button fill the parent column
-            if st.button(f"Select {name}", key=f"studio_select_{key}", use_container_width=True):
-                st.session_state.structure_key = key
-                st.session_state.structure_name = name
-                st.session_state.page = "registration"
-                st.rerun()
+    # We wrap the entire card in an <a> tag. The href triggers a URL query
+    # parameter which Streamlit reads on rerun.
+    tile_html = (
+        f'<a class="studio-tile-link" href="?select={key}" target="_self">'
+        '<div class="studio-tile">'
+        f'<div class="studio-tile-icon">{icon}</div>'
+        '<div class="studio-tile-body">'
+        f'<div class="studio-tile-name">{name}</div>'
+        f'<div class="studio-tile-desc">{description}</div>'
+        '</div>'
+        '</div>'
+        '</a>'
+    )
+    st.markdown(tile_html, unsafe_allow_html=True)
 
 
 # =============================================================================
@@ -310,6 +276,26 @@ def render_studio():
     Render the Studio page.
     Called by the navigation router when the app state is 'studio'.
     """
+    
+    # 1. Check for URL-based navigation (from the HTML links)
+    query_params = st.query_params
+    if "select" in query_params:
+        selected_key = query_params["select"]
+        # Clear the query param so it doesn't trigger again
+        st.query_params.clear() 
+        
+        # Find the name to store in session state
+        entry = STRUCTURE_TYPES.get(selected_key, {})
+        fallback = STUDIO_FALLBACK.get(selected_key, {})
+        name = entry.get("name", fallback.get("name", selected_key))
+        
+        # Set state and route
+        st.session_state.structure_key = selected_key
+        st.session_state.structure_name = name
+        st.session_state.page = "registration"
+        st.rerun()
+
+    # 2. Render the UI
     st.markdown(STUDIO_CSS, unsafe_allow_html=True)
 
     # ---- Top bar with wordmark
@@ -335,25 +321,20 @@ def render_studio():
     )
 
     # ---- Guided Design tile
-    with st.container():
-        col = st.columns(1)[0]
-        with col:
-            guided_html = (
-                '<div class="guided-tile">'
-                '<div class="guided-tile-icon">?</div>'
-                '<div class="guided-tile-body">'
-                '<div class="guided-tile-name">Smart Guided Design</div>'
-                '<div class="guided-tile-desc">'
-                'Answer a few questions and we will recommend the best structure for you.'
-                '</div>'
-                '</div>'
-                '</div>'
-            )
-            st.markdown(guided_html, unsafe_allow_html=True)
-
-            if st.button("Start Guided Design", key="studio_guided", use_container_width=True, type="primary"):
-                st.session_state.page = "guided"
-                st.rerun()
+    guided_html = (
+        '<a class="guided-tile-link" href="?page=guided" target="_self">'
+        '<div class="guided-tile">'
+        '<div class="guided-tile-icon">?</div>'
+        '<div class="guided-tile-body">'
+        '<div class="guided-tile-name">Smart Guided Design</div>'
+        '<div class="guided-tile-desc">'
+        'Answer a few questions and we will recommend the best structure for you.'
+        '</div>'
+        '</div>'
+        '</div>'
+        '</a>'
+    )
+    st.markdown(guided_html, unsafe_allow_html=True)
 
     st.markdown('<div style="height: 0.5rem;"></div>', unsafe_allow_html=True)
 
