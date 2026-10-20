@@ -6,6 +6,8 @@
 # Updated 2026-10-20:
 #   - Completely removed the HTML cards and invisible overlays.
 #   - Styled native Streamlit buttons to look exactly like the cards.
+#   - Centered all text and removed the icon prefixes.
+#   - Increased font sizes by 5%.
 # =============================================================================
 
 import streamlit as st
@@ -39,42 +41,34 @@ STUDIO_SECTION_B = [
 STUDIO_FALLBACK = {
     "saddle_span": {
         "name": "Saddle Span",
-        "icon": "S",
         "description": "Curved saddle-shaped tensile structure",
     },
     "cantilever": {
         "name": "Cantilever",
-        "icon": "L",
         "description": "Single column with arm and membrane",
     },
     "multi_cone_roof": {
         "name": "Multi-Cone Roof",
-        "icon": "M",
         "description": "Ridge beam with multiple cones, cable and fabric",
     },
     "tensile_sails": {
         "name": "Tensile Sails Roof",
-        "icon": "T",
         "description": "Hypar sails spanning between anchors",
     },
     "framed_tensile": {
         "name": "Framed Tensile Roof",
-        "icon": "R",
         "description": "Fabric on rigid frame",
     },
     "canopy": {
         "name": "Canopy",
-        "icon": "C",
         "description": "Wall-mounted, cable-supported, or tree shade",
     },
     "frame_tent": {
         "name": "Frame Tent",
-        "icon": "F",
         "description": "Framed tent structure",
     },
     "portal_frame": {
         "name": "Portal Frame",
-        "icon": "P",
         "description": "Rigid steel frame structure",
     },
 }
@@ -133,46 +127,56 @@ STUDIO_CSS = """
 
     /* 
      * THE TRICK: Style the native Streamlit buttons to look like the cards.
-     * We use the key prefix "studio_select_" to target only these buttons.
      */
     div[data-testid="stButton"] button[kind="secondary"] {
         background-color: #121e2e !important;
         border: 1px solid #1e2a3a !important;
         border-radius: 12px !important;
-        padding: 1.2rem !important;
-        text-align: left !important;
+        padding: 1rem !important;
+        text-align: center !important; /* Centered */
         height: auto !important;
         min-height: 85px !important;
         transition: all 0.25s ease !important;
         display: flex !important;
-        justify-content: flex-start !important;
+        justify-content: center !important; /* Centered */
+        align-items: center !important;
     }
     
     /* Hover state */
     div[data-testid="stButton"] button[kind="secondary"]:hover {
         border-color: #f39c12 !important;
         box-shadow: 0 4px 16px rgba(243, 156, 18, 0.15) !important;
-        color: white !important;
         background-color: #121e2e !important;
     }
 
-    /* Force the button text to be white and stacked */
+    /* Target the inner markdown container */
+    div[data-testid="stButton"] button[kind="secondary"] div[data-testid="stMarkdownContainer"] {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+    }
+
+    /* Force the button text to be white and stacked, 5% larger */
     div[data-testid="stButton"] button[kind="secondary"] p {
         color: #ffffff !important;
-        font-size: 1.05rem !important;
+        font-size: 1.10rem !important; /* Increased by ~5% */
         font-weight: 600 !important;
         margin: 0 !important;
+        text-align: center !important;
     }
     
-    /* The description below the title */
+    /* The description below the title, 5% larger */
     div[data-testid="stButton"] button[kind="secondary"] span {
         color: #a8b8c8 !important;
-        font-size: 0.85rem !important;
+        font-size: 0.90rem !important; /* Increased by ~5% */
         font-weight: 400 !important;
         display: block !important;
         margin-top: 4px !important;
         white-space: normal !important;
-        text-align: left !important;
+        text-align: center !important;
+        line-height: 1.3 !important;
     }
     </style>
 """
@@ -188,15 +192,10 @@ def _render_structure_tile(key):
     fallback = STUDIO_FALLBACK.get(key, {})
 
     name = entry.get("name", fallback.get("name", key))
-    icon = entry.get("icon", fallback.get("icon", "?"))
     description = entry.get("description", fallback.get("description", ""))
 
-    # We use markdown to format the button label so it has two lines:
-    # Line 1: Name
-    # Line 2: Description (smaller)
-    # (We use the icon as a prefix in the name)
-    
-    button_label = f"**{icon} | {name}**\n\n{description}"
+    # We use HTML in the button label to separate the title and description
+    button_label = f"<div style='margin-bottom: 2px;'>{name}</div><div style='font-size: 0.9em; font-weight: 400;'>{description}</div>"
 
     if st.button(button_label, key="studio_select_" + key, use_container_width=True):
         st.session_state.structure_key = key
