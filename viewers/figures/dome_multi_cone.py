@@ -883,8 +883,9 @@ def build_dome_multi_cone():
 
     # Only generate the elements list if it doesn't already exist in state,
     # or if the mesh has changed. For now, we let the user edits persist.
-    if "ws_dm_elements" not in st.session_state:
-        st.session_state["ws_dm_elements"] = elements
+    # Force the session state to always have the latest elements.
+    # This fixes the "No elements to display" bug.
+    st.session_state["ws_dm_elements"] = elements
 
     # =========================================================================
     # UI EXPANDERS
