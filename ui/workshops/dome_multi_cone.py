@@ -2,8 +2,8 @@
 # SDSe Fluid Design Studio - Dome Multi-Cone Workshop
 # =============================================================================
 # History:
-#   2026-10-20 - Moved action buttons to the bottom. Tells the renderer
-#                not to draw its built-in buttons.
+#   2026-10-20 - Locked the multi-board to the Plan view. Removed the
+#                redundant Profile and 3D View radio buttons.
 # =============================================================================
 
 import streamlit as st
@@ -85,6 +85,8 @@ def render_dome_multi_cone():
         )
 
     st.markdown("---")
+    
+    # ---- Render the board, but force it to be the Plan view ----
     render_multi_board(
         key="dome",
         plan_label="Plan",
@@ -93,6 +95,7 @@ def render_dome_multi_cone():
         plan_renderer=_render_plan_board,
         profile_renderer=_render_profile_board_stub,
         view_3d_renderer=_render_3d_board,
+        forced_board="plan"  # <--- THIS HIDES THE RADIO BUTTONS
     )
 
     # ---- Draw the action buttons at the very bottom ----
