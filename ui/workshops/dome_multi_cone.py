@@ -4,8 +4,7 @@
 # Renders the Dome Multi-Cone workshop page.
 #
 # History:
-#   2026-10-20 - Moved "Back to Registration" and "Intelligent Design
-#                Computing" buttons to the bottom of the page.
+#   2026-10-20 - Restored to stable version.
 # =============================================================================
 
 import streamlit as st
@@ -22,12 +21,7 @@ from data.recipes.dome_multi_cone import DOME_MULTI_CONE_RECIPE
 # =============================================================================
 
 def _render_plan_board():
-    """
-    Render the Plan board: the 2D cone picker.
-    """
-    dome_diameter = float(
-        st.session_state.get("ws_dm_dome_diameter", 18.0)
-    )
+    dome_diameter = float(st.session_state.get("ws_dm_dome_diameter", 18.0))
     n_x = int(st.session_state.get("ws_dm_meridians_x", 5))
     n_y = int(st.session_state.get("ws_dm_meridians_y", 5))
 
@@ -36,9 +30,7 @@ def _render_plan_board():
         picked = set()
     else:
         try:
-            picked = set(
-                (int(i), int(j)) for (i, j) in picked_raw
-            )
+            picked = set((int(i), int(j)) for (i, j) in picked_raw)
         except (TypeError, ValueError):
             picked = set()
 
@@ -60,9 +52,6 @@ def _render_plan_board():
 
 
 def _render_profile_board_stub():
-    """
-    Stub renderer for the retired Profile board.
-    """
     st.info(
         "The Profile board is temporarily unavailable. The custom "
         "elevation picker is under construction. Use the recipe's "
@@ -71,9 +60,6 @@ def _render_profile_board_stub():
 
 
 def _render_3d_board():
-    """
-    Render the 3D View board: the solved dome figure.
-    """
     build_dome_multi_cone()
 
 
@@ -124,25 +110,3 @@ def render_dome_multi_cone():
         profile_renderer=_render_profile_board_stub,
         view_3d_renderer=_render_3d_board,
     )
-
-    # ---- Bottom Navigation Buttons ----------------------------------------
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("Back to Registration", use_container_width=True):
-            st.session_state.page = "registration"
-            st.rerun()
-            
-    with col2:
-        if st.button("Intelligent Design Computing", type="primary", use_container_width=True):
-            # This will route to the results/report page when it is built
-            st.session_state.page = "results"
-            st.rerun()
-
-
-# =============================================================================
-# END OF ui/workshops/dome_multi_cone.py
-# =============================================================================
