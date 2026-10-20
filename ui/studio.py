@@ -1,12 +1,11 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Studio Page
 # =============================================================================
-# The structure type selection page. Appears after the user taps
-# "Enter The Studio" on the landing page.
+# The structure type selection page.
 #
 # Updated 2026-10-20:
-#   - Removed redundant "Select" buttons.
-#   - Made the structure description cards themselves clickable.
+#   - Completely removed the HTML cards and invisible overlays.
+#   - Styled native Streamlit buttons to look exactly like the cards.
 # =============================================================================
 
 import streamlit as st
@@ -132,72 +131,48 @@ STUDIO_CSS = """
         padding-bottom: 0.5rem;
     }
 
-    /* Structure type tiles */
-    .studio-tile {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        background-color: #121e2e;
-        border: 1px solid #1e2a3a;
-        border-radius: 12px;
-        padding: 1rem 1.2rem;
-        margin-bottom: 0.2rem;
-        transition: all 0.25s ease;
-    }
-    .studio-tile:hover {
-        border-color: #f39c12;
-        transform: translateX(4px);
-        box-shadow: 0 4px 16px rgba(243, 156, 18, 0.15);
-    }
-    .studio-tile-icon {
-        width: 52px;
-        height: 52px;
-        min-width: 52px;
-        border-radius: 50%;
-        background-color: rgba(243, 156, 18, 0.12);
-        border: 2px solid #f39c12;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #f39c12;
-    }
-    .studio-tile-body {
-        flex: 1;
-        text-align: left;
-    }
-    .studio-tile-name {
-        font-size: 1.05rem;
-        font-weight: 600;
-        color: #ffffff;
-        margin: 0 0 0.25rem 0;
-    }
-    .studio-tile-desc {
-        font-size: 0.85rem;
-        color: #a8b8c8;
-        margin: 0;
-        line-height: 1.35;
+    /* 
+     * THE TRICK: Style the native Streamlit buttons to look like the cards.
+     * We use the key prefix "studio_select_" to target only these buttons.
+     */
+    div[data-testid="stButton"] button[kind="secondary"] {
+        background-color: #121e2e !important;
+        border: 1px solid #1e2a3a !important;
+        border-radius: 12px !important;
+        padding: 1.2rem !important;
+        text-align: left !important;
+        height: auto !important;
+        min-height: 85px !important;
+        transition: all 0.25s ease !important;
+        display: flex !important;
+        justify-content: flex-start !important;
     }
     
-    /* Make the button invisible but stretch it over the card */
-    div[data-testid="stButton"] {
-        position: relative;
-        top: -76px; /* Pulls the invisible button up over the card */
-        height: 0px;
-        z-index: 999;
+    /* Hover state */
+    div[data-testid="stButton"] button[kind="secondary"]:hover {
+        border-color: #f39c12 !important;
+        box-shadow: 0 4px 16px rgba(243, 156, 18, 0.15) !important;
+        color: white !important;
+        background-color: #121e2e !important;
     }
-    div[data-testid="stButton"] > button {
-        background-color: transparent !important;
-        border: none !important;
-        color: transparent !important;
-        width: 100% !important;
-        height: 76px !important; /* Matches card height */
+
+    /* Force the button text to be white and stacked */
+    div[data-testid="stButton"] button[kind="secondary"] p {
+        color: #ffffff !important;
+        font-size: 1.05rem !important;
+        font-weight: 600 !important;
         margin: 0 !important;
-        padding: 0 !important;
     }
-    div[data-testid="stButton"] > button:hover {
-        background-color: rgba(243, 156, 18, 0.05) !important;
+    
+    /* The description below the title */
+    div[data-testid="stButton"] button[kind="secondary"] span {
+        color: #a8b8c8 !important;
+        font-size: 0.85rem !important;
+        font-weight: 400 !important;
+        display: block !important;
+        margin-top: 4px !important;
+        white-space: normal !important;
+        text-align: left !important;
     }
     </style>
 """
@@ -208,7 +183,7 @@ STUDIO_CSS = """
 # =============================================================================
 
 def _render_structure_tile(key):
-    """Render one structure tile as a clickable card."""
+    """Render one structure tile as a styled native button."""
     entry = STRUCTURE_TYPES.get(key, {})
     fallback = STUDIO_FALLBACK.get(key, {})
 
@@ -216,21 +191,14 @@ def _render_structure_tile(key):
     icon = entry.get("icon", fallback.get("icon", "?"))
     description = entry.get("description", fallback.get("description", ""))
 
-    # 1. Draw the beautiful card
-    tile_html = (
-        '<div class="studio-tile">'
-        f'<div class="studio-tile-icon">{icon}</div>'
-        '<div class="studio-tile-body">'
-        f'<div class="studio-tile-name">{name}</div>'
-        f'<div class="studio-tile-desc">{description}</div>'
-        '</div>'
-        '</div>'
-    )
-    st.markdown(tile_html, unsafe_allow_html=True)
+    # We use markdown to format the button label so it has two lines:
+    # Line 1: Name
+    # Line 2: Description (smaller)
+    # (We use the icon as a prefix in the name)
+    
+    button_label = f"**{icon} | {name}**\n\n{description}"
 
-    # 2. The invisible button that sits on top of it
-    # The CSS above hides the button box and pulls it up so it covers the card.
-    if st.button(f"Select {name}", key="studio_select_" + key, use_container_width=True):
+    if st.button(button_label, key="studio_select_" + key, use_container_width=True):
         st.session_state.structure_key = key
         st.session_state.structure_name = name
         st.session_state.page = "registration"
@@ -244,7 +212,6 @@ def _render_structure_tile(key):
 def render_studio():
     """
     Render the Studio page.
-    Called by the navigation router when the app state is 'studio'.
     """
     st.markdown(STUDIO_CSS, unsafe_allow_html=True)
 
