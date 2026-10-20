@@ -2,32 +2,7 @@
 # SDSe - Universal Multi-Board Component
 # =============================================================================
 # A universal board component for mobile-first UI.
-#
-# Renders a single board container with a segmented toggle at the top:
-#   [ Plan ] [ 3D View ]        (default, two-board mode)
-#   [ Plan ] [ Profile ] [ 3D View ]  (three-board mode)
-#
-# Only the active board is rendered. The others are skipped. This is
-# critical for performance on mobile: the 3D mesh is not rebuilt when
-# the user is on the Plan board.
-#
-# The component is universal. Any workshop calls it by passing renderer
-# functions. The component does not know what a "dome" or a "saddle" is.
-#
-# Usage:
-#
-#   from ui.components.SDSe_multi_board import render_multi_board
-#
-#   render_multi_board(
-#       key="dome",
-#       plan_renderer=lambda: render_cone_picker(...),
-#       view_3d_renderer=lambda: build_dome_multi_cone(),
-#       # profile_renderer and labels optional
-#   )
-#
-# History:
-#   2026-10-18 - First version. Universal 3-in-1 board.
-#   2026-10-18 - Add show_profile flag. Two-board mode is the default.
+# Supports forced_board to hide the radio toggle and lock a view.
 # =============================================================================
 
 import streamlit as st
@@ -52,27 +27,17 @@ def _get_board_state(key, valid):
 
 
 def _render_toggle(key, active, labels, show_profile):
-    """
-    Renders the segmented toggle at the top of the board.
-    """
     state_key = f"ws_{key}_active_board"
 
     if show_profile:
-        options = [
-            labels["plan"],
-            labels["profile"],
-            labels["view_3d"],
-        ]
+        options = [labels["plan"], labels["profile"], labels["view_3d"]]
         mapping = {
             labels["plan"]: "plan",
             labels["profile"]: "profile",
             labels["view_3d"]: "view_3d",
         }
     else:
-        options = [
-            labels["plan"],
-            labels["view_3d"],
-        ]
+        options = [labels["plan"], labels["view_3d"]]
         mapping = {
             labels["plan"]: "plan",
             labels["view_3d"]: "view_3d",
@@ -111,19 +76,12 @@ def render_multi_board(
     plan_label=None,
     profile_label=None,
     view_3d_label=None,
+    forced_board=None,
 ):
     """
     Renders the universal multi-board.
-
-    Arguments:
-        key                 A short string that scopes this board's state.
-        plan_renderer       Callable. Renders the Plan board.
-        view_3d_renderer    Callable. Renders the 3D View.
-        profile_renderer    Optional callable. If provided, a Profile
-                            board is added as a third option.
-        plan_label          Optional label override. Default "Plan".
-        profile_label       Optional label override. Default "Profile".
-        view_3d_label       Optional label override. Default "3D View".
+    If forced_board is provided ("plan", "profile", or "view_3d"),
+    the toggle is hidden and the board is locked to that view.
     """
     labels = dict(_DEFAULT_LABELS)
     if plan_label is not None:
@@ -136,14 +94,18 @@ def render_multi_board(
     show_profile = profile_renderer is not None
     valid = _VALID_BOARDS_3 if show_profile else _VALID_BOARDS_2
 
-    state_key, active = _get_board_state(key, valid)
+    # --- State Machine Override ---
+    if forced_board is not None:
+        active = forced_board
+    else:
+        state_key, active = _get_board_state(key, valid)
+        st.markdown(
+            "<div style='margin-bottom: 8px;'></div>",
+            unsafe_allow_html=True,
+        )
+        active = _render_toggle(key, active, labels, show_profile)
 
-    st.markdown(
-        "<div style='margin-bottom: 8px;'></div>",
-        unsafe_allow_html=True,
-    )
-    active = _render_toggle(key, active, labels, show_profile)
-
+    # --- Render the active board ---
     if active == "plan":
         plan_renderer()
     elif active == "profile" and show_profile:
