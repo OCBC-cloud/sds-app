@@ -50,9 +50,13 @@ STUDIO_CSS = """
         background-color: #121e2e !important;
         border: 1px solid #1e2a3a !important;
         border-radius: 12px !important;
-        padding: 1.5rem 1rem !important;
-        height: auto !important;
-        min-height: 100px !important;
+        
+        /* Slimmer margins and FIXED height */
+        padding: 0.8rem 1rem !important;
+        height: 85px !important;
+        min-height: 85px !important;
+        max-height: 85px !important;
+        
         transition: all 0.25s ease !important;
         
         /* Force centering */
@@ -74,22 +78,29 @@ STUDIO_CSS = """
         text-align: center !important;
         width: 100% !important;
         margin: 0 !important;
+        padding: 0 !important;
     }
 
     /* The first paragraph (The Name) */
     div[data-testid="stButton"] button[kind="secondary"] p:nth-of-type(1) {
         color: #ffffff !important;
-        font-size: 1.15rem !important;
+        font-size: 1.10rem !important;
         font-weight: 600 !important;
-        margin-bottom: 6px !important;
+        margin-bottom: 2px !important;
+        line-height: 1.1 !important;
     }
     
     /* The second paragraph (The Description) */
     div[data-testid="stButton"] button[kind="secondary"] p:nth-of-type(2) {
         color: #a8b8c8 !important;
-        font-size: 0.95rem !important;
+        font-size: 0.85rem !important;
         font-weight: 400 !important;
-        line-height: 1.3 !important;
+        line-height: 1.2 !important;
+    }
+    
+    /* Tighten the vertical gaps between the buttons themselves */
+    div[data-testid="stVerticalBlock"] > div:has(div[data-testid="stButton"]) {
+        margin-bottom: -1rem !important; 
     }
     </style>
 """
@@ -100,9 +111,6 @@ def _render_structure_tile(key):
     name = entry.get("name", fallback.get("name", key))
     description = entry.get("description", fallback.get("description", ""))
 
-    # Use standard Markdown. The "\n\n" creates two separate paragraphs,
-    # which our CSS targets perfectly (p:nth-of-type(1) and (2)).
-    # We use markdown bolding for the title to ensure it renders as strong text.
     button_label = f"**{name}**\n\n{description}"
 
     if st.button(button_label, key="studio_select_" + key, use_container_width=True):
