@@ -17,23 +17,24 @@ LANDING_CSS = """
     /* Lock the main container to the viewport height, no scrolling */
     .block-container {
         padding-top: 1.5rem !important;
-        padding-bottom: 1rem !important;
+        padding-bottom: 0 !important;
         max-width: 420px;
         height: 100vh !important;
         max-height: 100vh !important;
         overflow: hidden !important;
         display: flex;
         flex-direction: column;
+        justify-content: center;
     }
 
     /* Center the top content naturally */
     .landing-top-content {
-        flex-grow: 1;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
         padding: 0 0.5rem;
+        margin-top: -4rem; /* Visually balance the centered block */
     }
 
     .landing-block {
@@ -92,13 +93,18 @@ LANDING_CSS = """
         margin: 0 0 2rem 0;
     }
 
-    /* Bottom Section */
-    .landing-bottom-content {
-        flex-shrink: 0;
+    /* Absolute bottom section */
+    .landing-bottom-fixed {
+        position: fixed;
+        bottom: 2rem;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100%;
+        max-width: 420px;
         display: flex;
         flex-direction: column;
         align-items: center;
-        width: 100%;
+        z-index: 999;
     }
 
     .landing-footer {
@@ -128,14 +134,10 @@ LANDING_CSS = """
         text-transform: uppercase;
     }
     
-    /* Tighten the Streamlit buttons so they fit perfectly */
-    div[data-testid="stButton"] {
+    /* Ensure the fixed bottom buttons don't stretch */
+    .landing-bottom-fixed div[data-testid="stButton"] {
         width: 100%;
         margin-bottom: 0;
-    }
-    div[data-testid="stButton"] button {
-        padding-top: 0.4rem !important;
-        padding-bottom: 0.4rem !important;
     }
     </style>
 """
@@ -151,7 +153,7 @@ def render_landing():
     """
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    # ---- 1. Top Content Wrapper (Grows to fill space and centers)
+    # ---- 1. Top Content (Centered vertically)
     st.markdown('<div class="landing-top-content">', unsafe_allow_html=True)
     
     landing_html = (
@@ -175,10 +177,10 @@ def render_landing():
         st.session_state.page = "studio"
         st.rerun()
 
-    st.markdown('</div>', unsafe_allow_html=True) # Close landing-top-content
+    st.markdown('</div>', unsafe_allow_html=True) 
 
-    # ---- 2. Bottom Content Wrapper (Fixed to the bottom)
-    st.markdown('<div class="landing-bottom-content">', unsafe_allow_html=True)
+    # ---- 2. Bottom Content (Pinned to the absolute bottom of the screen)
+    st.markdown('<div class="landing-bottom-fixed">', unsafe_allow_html=True)
     
     st.markdown(
         '<div class="landing-footer">All Major Building Code</div>',
@@ -200,4 +202,4 @@ def render_landing():
         st.session_state.page = "lab"
         st.rerun()
         
-    st.markdown('</div>', unsafe_allow_html=True) # Close landing-bottom-content
+    st.markdown('</div>', unsafe_allow_html=True)
