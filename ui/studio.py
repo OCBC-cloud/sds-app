@@ -1,9 +1,6 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Studio Page
 # =============================================================================
-# Updated 2026-10-20:
-#   - Compressed layout to fit on a single mobile screen without scrolling.
-# =============================================================================
 
 import streamlit as st
 
@@ -63,15 +60,11 @@ STUDIO_CSS = """
         background-color: #121e2e !important;
         border: 1px solid #1e2a3a !important;
         border-radius: 8px !important;
-        
-        /* Squeeze the padding and height */
         padding: 0.4rem 0.8rem !important;
         height: 65px !important;
         min-height: 65px !important;
         max-height: 65px !important;
-        
         transition: all 0.2s ease !important;
-        
         display: flex !important;
         flex-direction: column !important;
         justify-content: center !important;
@@ -116,6 +109,23 @@ STUDIO_CSS = """
     div[data-testid="stButton"] {
         margin-bottom: 0.3rem !important;
     }
+
+    /* Owner-only Lab section at the bottom */
+    .studio-lab-divider {
+        height: 1px;
+        background-color: #1e2a3a;
+        margin: 1.5rem auto 0.8rem auto;
+        border: none;
+        width: 100%;
+    }
+    .studio-lab-label {
+        font-size: 0.72rem;
+        color: #566073;
+        letter-spacing: 1.5px;
+        text-align: center;
+        margin-bottom: 0.4rem;
+        text-transform: uppercase;
+    }
     </style>
 """
 
@@ -125,7 +135,6 @@ def _render_structure_tile(key):
     name = entry.get("name", fallback.get("name", key))
     description = entry.get("description", fallback.get("description", ""))
 
-    # Use single newline for tighter text packing
     button_label = f"**{name}**\n{description}"
 
     if st.button(button_label, key="studio_select_" + key, use_container_width=True):
@@ -148,3 +157,15 @@ def render_studio():
     st.markdown('<div class="studio-subsection-header">Canopy and Frame</div>', unsafe_allow_html=True)
     for key in STUDIO_SECTION_B:
         _render_structure_tile(key)
+
+    # ---- Owner-Only Lab Section ----
+    access_mode = str(st.session_state.get("access_mode", "owner")).lower()
+    if access_mode == "owner":
+        st.markdown(
+            '<hr class="studio-lab-divider">'
+            '<div class="studio-lab-label">Internal</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("Lab", key="studio_lab", use_container_width=True):
+            st.session_state.page = "lab"
+            st.rerun()
