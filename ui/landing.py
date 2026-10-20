@@ -1,11 +1,6 @@
 # =============================================================================
 # SDSe Fluid Design Studio - Landing Page
 # =============================================================================
-# The first page a user sees.
-#
-# Updated 2026-10-20:
-#   - Locked page height to 100vh and disabled scrolling for a static view.
-# =============================================================================
 
 import streamlit as st
 
@@ -19,24 +14,25 @@ LANDING_CSS = """
     /* Kill Streamlit's default top gap and lock scrolling */
     .stApp > header { display: none !important; }
     
-    /* Lock the main container to the viewport height */
+    /* Lock the main container to the viewport height, no scrolling */
     .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 0 !important;
+        padding-top: 1.5rem !important;
+        padding-bottom: 1rem !important;
         max-width: 420px;
         height: 100vh !important;
         max-height: 100vh !important;
         overflow: hidden !important;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
     }
 
+    /* Center the top content naturally */
     .landing-top-content {
         flex-grow: 1;
         display: flex;
         flex-direction: column;
         justify-content: center;
+        align-items: center;
         padding: 0 0.5rem;
     }
 
@@ -96,36 +92,50 @@ LANDING_CSS = """
         margin: 0 0 2rem 0;
     }
 
+    /* Bottom Section */
+    .landing-bottom-content {
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
+    }
+
     .landing-footer {
         font-size: 0.78rem;
         color: #a8b8c8;
         letter-spacing: 1px;
         text-align: center;
         margin-top: 0;
-        margin-bottom: 1rem;
+        margin-bottom: 0.8rem;
     }
 
-    /* Quiet, small, at the very bottom. */
     .landing-lab-divider {
         height: 1px;
         background-color: #1e2a3a;
-        margin: 1rem auto 1rem auto;
+        margin: 0.5rem auto 0.8rem auto;
         border: none;
+        width: 100%;
         max-width: 220px;
     }
+    
     .landing-lab-label {
         font-size: 0.72rem;
         color: #566073;
         letter-spacing: 1.5px;
         text-align: center;
-        margin-bottom: 0.4rem;
+        margin-bottom: 0.2rem;
         text-transform: uppercase;
     }
     
-    /* Pull the button up slightly so it doesn't stretch */
+    /* Tighten the Streamlit buttons so they fit perfectly */
     div[data-testid="stButton"] {
-        margin-top: -0.5rem;
-        margin-bottom: 0.5rem;
+        width: 100%;
+        margin-bottom: 0;
+    }
+    div[data-testid="stButton"] button {
+        padding-top: 0.4rem !important;
+        padding-bottom: 0.4rem !important;
     }
     </style>
 """
@@ -138,11 +148,10 @@ LANDING_CSS = """
 def render_landing():
     """
     Render the landing page.
-    Called by the navigation router when the app state is 'landing'.
     """
     st.markdown(LANDING_CSS, unsafe_allow_html=True)
 
-    # ---- Top content wrapper (centers the logo and title)
+    # ---- 1. Top Content Wrapper (Grows to fill space and centers)
     st.markdown('<div class="landing-top-content">', unsafe_allow_html=True)
     
     landing_html = (
@@ -168,22 +177,21 @@ def render_landing():
 
     st.markdown('</div>', unsafe_allow_html=True) # Close landing-top-content
 
-    # ---- Bottom content wrapper (Footer and Lab)
-    st.markdown('<div>', unsafe_allow_html=True)
+    # ---- 2. Bottom Content Wrapper (Fixed to the bottom)
+    st.markdown('<div class="landing-bottom-content">', unsafe_allow_html=True)
     
     st.markdown(
         '<div class="landing-footer">All Major Building Code</div>',
         unsafe_allow_html=True,
     )
 
-    # ---- Lab divider and label
     st.markdown(
         '<hr class="landing-lab-divider">'
         '<div class="landing-lab-label">Internal</div>',
         unsafe_allow_html=True,
     )
 
-    # ---- Lab button (small door into the internal test pages)
+    # ---- Lab button
     if st.button(
         "Lab",
         key="landing_lab",
@@ -192,4 +200,4 @@ def render_landing():
         st.session_state.page = "lab"
         st.rerun()
         
-    st.markdown('</div>', unsafe_allow_html=True) # Close bottom wrapper
+    st.markdown('</div>', unsafe_allow_html=True) # Close landing-bottom-content
