@@ -3,22 +3,9 @@
 # =============================================================================
 # Renders the Dome Multi-Cone workshop page.
 #
-# The workshop is a universal multi-board. Currently two boards are
-# enabled:
-#
-#   [ Plan ]    -> the 2D cone picker.
-#   [ 3D View ] -> the solved 3D figure.
-#
 # History:
-#   2026-10-13 - First version. Recipe wrapper only.
-#   2026-10-14 - Add the 2D cone picker below the recipe.
-#   2026-10-14 - Switch picker to the real SVG component in
-#                ui/components/dome_cone_picker.py.
-#   2026-10-18 - Wrap recipe + picker + viewer into the universal
-#                SDSe_multi_board component.
-#   2026-10-18 - Retire the Profile board. Canvas picker could not
-#                commit values. Keep Plan and 3D View only.
-#   2026-10-20 - Restored to stable version + added scroll-to-top fix.
+#   2026-10-20 - Moved "Back to Registration" and "Intelligent Design
+#                Computing" buttons to the bottom of the page.
 # =============================================================================
 
 import streamlit as st
@@ -137,6 +124,23 @@ def render_dome_multi_cone():
         profile_renderer=_render_profile_board_stub,
         view_3d_renderer=_render_3d_board,
     )
+
+    # ---- Bottom Navigation Buttons ----------------------------------------
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("Back to Registration", use_container_width=True):
+            st.session_state.page = "registration"
+            st.rerun()
+            
+    with col2:
+        if st.button("Intelligent Design Computing", type="primary", use_container_width=True):
+            # This will route to the results/report page when it is built
+            st.session_state.page = "results"
+            st.rerun()
 
 
 # =============================================================================
