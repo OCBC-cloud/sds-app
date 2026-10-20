@@ -3,18 +3,10 @@
 # =============================================================================
 # Builds the 3D figure for the Dome Multi-Cone variant.
 #
-# Reads all inputs from session state under the "ws_dm_" prefix.
-#
-# PIECE 6 — ELEMENT SEEDS & DATA SCHEDULE.
-# PIECE 7 — CUSTOM PROFILE CURVE.
-#   When curve_type == "custom", the frame builder reads a 5-point
-#   profile from ws_dm_custom_profile and interpolates it into a
-#   smooth curve. Otherwise the parabolic / circular / catenary
-#   curves are used as before.
-#
-# Rule 23: attached elements are drawn from settled coordinates.
-# Rule 24: markers stay silent by default.
-#
+# Updated 2026-10-20:
+#   - Replaced the old HTML Seed Schedule table with the interactive
+#     SDSe_spreadsheet data editor.
+#   - Wired the spreadsheet's "Visible" column to hide/show elements.
 # =============================================================================
 
 import hashlib
@@ -34,6 +26,7 @@ from engine.nonlinear_equilibrium import (
     make_membrane_material,
 )
 from viewers.figures._shared import apply_common_layout
+from ui.components.SDSe_spreadsheet import render_element_spreadsheet
 
 
 # =============================================================================
@@ -582,108 +575,6 @@ def _cached_solve(mesh_hash,
 
 
 # =============================================================================
-# HTML TABLE BUILDER
-# =============================================================================
-
-def _render_element_table(elements):
-    css = """
-    <style>
-    .seed-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        font-size: 13px;
-        color: #ffffff;
-        background-color: rgba(255, 255, 255, 0.05);
-        border-radius: 8px;
-        overflow: hidden;
-    }
-    .seed-table th {
-        background-color: rgba(255, 255, 255, 0.1);
-        padding: 8px 10px;
-        text-align: left;
-        font-weight: 600;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .seed-table td {
-        padding: 6px 10px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    .seed-table tr:hover {
-        background-color: rgba(255, 255, 255, 0.08);
-        cursor: pointer;
-    }
-    .seed-table tr.selected {
-        background-color: rgba(255, 204, 0, 0.2);
-        border-left: 3px solid #ffd166;
-    }
-    .seed-table .btn-select {
-        background-color: rgba(255, 255, 255, 0.15);
-        color: white;
-        border: none;
-        border-radius: 4px;
-        padding: 4px 8px;
-        cursor: pointer;
-        font-size: 11px;
-    }
-    .seed-table .btn-select:hover {
-        background-color: rgba(255, 255, 255, 0.25);
-    }
-    .seed-table .btn-selected {
-        background-color: #ffd166;
-        color: black;
-        font-weight: bold;
-        border: none;
-        border-radius: 4px;
-        padding: 4px 8px;
-        font-size: 11px;
-    }
-    </style>
-    """
-
-    html = css + '<table class="seed-table">'
-    
-    html += '<thead><tr>'
-    html += '<th>Select</th>'
-    html += '<th>ID</th>'
-    html += '<th>Type</th>'
-    html += '<th>Role</th>'
-    html += '<th>Section/Material</th>'
-    html += '<th>Start Conn</th>'
-    html += '<th>End Conn</th>'
-    html += '<th>Mesh</th>'
-    html += '<th>Support</th>'
-    html += '</tr></thead>'
-    
-    html += '<tbody>'
-    active_id = st.session_state.get("ws_dm_active_element_id", None)
-    
-    for el in elements:
-        is_selected = (el["id"] == active_id)
-        row_class = "selected" if is_selected else ""
-        
-        html += f'<tr class="{row_class}">'
-        
-        if is_selected:
-            html += '<td><span class="btn-selected">Active</span></td>'
-        else:
-            html += '<td><span class="btn-select">Select below</span></td>'
-            
-        html += f'<td>{el["id"]}</td>'
-        html += f'<td>{el["type"]}</td>'
-        html += f'<td>{el["seed"].get("role", "-")}</td>'
-        html += f'<td>{el["seed"].get("section_material", "-")}</td>'
-        html += f'<td>{el["seed"].get("start_conn", "-")}</td>'
-        html += f'<td>{el["seed"].get("end_conn", "-")}</td>'
-        html += f'<td>{el["seed"].get("mesh_constraint", "-")}</td>'
-        html += f'<td>{el["seed"].get("struct_support", "-")}</td>'
-        html += '</tr>'
-        
-    html += '</tbody></table>'
-    return html
-
-
-# =============================================================================
 # PUBLIC FIGURE BUILDER
 # =============================================================================
 
@@ -781,8 +672,9 @@ def build_dome_multi_cone():
             built = None
 
     fdm_coords = None
-    nfdm_coords = None
     solve_summary = None
+    fdm_fixed = []
+    pts = None
 
     if built is not None:
         pts = built["points"].copy()
@@ -912,11 +804,13 @@ def build_dome_multi_cone():
             fdm_coords = np.frombuffer(
                 fdm_bytes, dtype=np.float64
             ).reshape(-1, 3).copy()
-            nfdm_coords = None
             solve_summary = summary
 
+    # =========================================================================
+    # PUBLISH ELEMENT LIST FOR THE WORKSHOP (Seeds panel reads this)
+    # =========================================================================
     elements = []
-    
+
     for i, f in enumerate(frames):
         family = f["family"]
         role = f"Frame {family}"
@@ -925,7 +819,7 @@ def build_dome_multi_cone():
             "type": "rigid_member",
             "seed": {
                 "role": role,
-                "section_material": "SHS 150x6.3 (S355)",
+                "section_material": "CHS", # Default family
                 "start_conn": "fixed",
                 "end_conn": "pinned",
                 "mesh_constraint": "held",
@@ -938,21 +832,21 @@ def build_dome_multi_cone():
         "type": "cable",
         "seed": {
             "role": "perimeter_cable",
-            "section_material": f"{edge_cable_pretension:.1f} kN/m",
+            "section_material": "Cable",
             "start_conn": "-",
             "end_conn": "-",
             "mesh_constraint": "free",
             "struct_support": "-",
         }
     })
-    
+
     for i, cone in enumerate(cones):
         elements.append({
             "id": f"cone_{i}_drops",
             "type": "cable",
             "seed": {
                 "role": "drop_spoke",
-                "section_material": "M16 Rod",
+                "section_material": "Cable",
                 "start_conn": "pinned",
                 "end_conn": "pinned",
                 "mesh_constraint": "held",
@@ -979,7 +873,7 @@ def build_dome_multi_cone():
         "type": "membrane",
         "seed": {
             "role": "fabric_surface",
-            "section_material": "PVDF Type III",
+            "section_material": "PVDF",
             "start_conn": "kader",
             "end_conn": "clamped",
             "mesh_constraint": "free",
@@ -987,8 +881,13 @@ def build_dome_multi_cone():
         }
     })
 
+    # Only generate the elements list if it doesn't already exist in state,
+    # or if the mesh has changed. For now, we let the user edits persist.
+    if "ws_dm_elements" not in st.session_state:
+        st.session_state["ws_dm_elements"] = elements
+
     # =========================================================================
-    # VISIBILITY LAYERS
+    # UI EXPANDERS
     # =========================================================================
     with st.expander("Drawing Layers & Visibility", expanded=False):
         st.caption("Toggle folders and layers to manage the drawing board.")
@@ -1002,8 +901,7 @@ def build_dome_multi_cone():
                 "Show Anchor Markers",
                 value=False,
                 key="ws_dm_show_anchor_markers",
-                help="Anchor markers are silent by default. Turn on to "
-                     "see the individual anchor points.",
+                help="Anchor markers are silent by default.",
             )
         with c2:
             st.markdown("**Cables**")
@@ -1022,39 +920,19 @@ def build_dome_multi_cone():
             )
 
     with st.expander("Element Seed Schedule", expanded=False):
-        st.caption("Tap a row to select it for editing.")
-        element_ids = [el["id"] for el in elements]
-        selected_id = st.selectbox(
-            "Select Element to Edit",
-            options=[""] + element_ids,
-            index=0 if "ws_dm_active_element_id" not in st.session_state
-                  else element_ids.index(
-                      st.session_state.ws_dm_active_element_id) + 1,
-            key="element_selector_box",
+        # 1. Render the interactive spreadsheet
+        updated_elements = render_element_spreadsheet(
+            st.session_state["ws_dm_elements"], 
+            key_prefix="dome"
         )
-        if selected_id:
-            st.session_state["ws_dm_active_element_id"] = selected_id
+        
+        # 2. Save the edits back to session state
+        st.session_state["ws_dm_elements"] = updated_elements
 
-        st.markdown(
-            _render_element_table(elements),
-            unsafe_allow_html=True,
-        )
 
-        if selected_id:
-            st.write("---")
-            st.write(f"**Editing: {selected_id}**")
-            sel_el = next(
-                (el for el in elements if el["id"] == selected_id),
-                None,
-            )
-            if sel_el:
-                st.json(sel_el["seed"])
-                st.caption(
-                    "Editing functionality (saving to session) "
-                    "coming in next patch."
-                )
-
-    # --- Draw ---
+    # =========================================================================
+    # DRAW
+    # =========================================================================
     fig = go.Figure()
 
     draw_pts = None
