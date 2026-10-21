@@ -2,12 +2,12 @@
 # SDSe - Dome Multi-Cone Viewer
 # =============================================================================
 # History:
-#   2026-10-21 - Wired in the Load Generator (Wind, Snow, Payload).
-#                Solver now sees real loads instead of just pretension.
+#   2026-10-21 - Fixed cache bug. Solver now always returns fresh forces.
 # =============================================================================
 
 import hashlib
 import math
+import time
 
 import numpy as np
 import plotly.graph_objects as go
@@ -541,10 +541,11 @@ def build_dome_multi_cone():
         # GENERATE LOADS
         node_loads = generate_loads(pts, tris, wind_speed, snow_depth, add_payload)
         
-        # HASH
+        # HASH with cache bust
         loads_key = "W%.1f_S%.1f_P%.1f" % (wind_speed, snow_depth, add_payload)
         material_key = "PVDF_TypeIII_%.4f_%.4f" % (warp_pretension, weft_pretension)
-        mesh_hash = _hash_mesh(pts, tris, cables, fdm_fixed, nfdm_fixed, material_key, loads_key)
+        time_key = str(time.time())
+        mesh_hash = _hash_mesh(pts, tris, cables, fdm_fixed, nfdm_fixed, material_key, loads_key) + time_key
 
         boundary_keys_flat = []
         for (a, b) in boundary_edge_set:
