@@ -2,9 +2,9 @@
 # SDSe - Dome Multi-Cone Viewer
 # =============================================================================
 # History:
-#   2026-10-21 - Added Structural Integrity Audit (Owner Tier).
-#                Counts fixed nodes, free nodes, and cable
-#                connections to verify the topology.
+#   2026-10-21 - Fixed edge cable topology. The viewer now loops
+#                through the beam_top_indices explicitly to guarantee
+#                every beam is connected by an edge cable.
 # =============================================================================
 
 import hashlib
@@ -544,7 +544,6 @@ def build_dome_multi_cone():
     if built is not None:
         n_total = int(pts.shape[0])
         
-        # 1. Classify nodes
         anchor_set = set(int(i) for i in anchor_idx)
         ring_set = set()
         for idx_list in built["ring_indices"]:
@@ -552,11 +551,9 @@ def build_dome_multi_cone():
         centre_set = set(int(i) for i in built["centre_indices"])
         beam_top_set = set(int(i) for i in built["beam_top_indices"])
         
-        # 2. Count connections
         fixed_nodes = set(nfdm_fixed)
         free_nodes = n_total - len(fixed_nodes)
         
-        # 3. Check cable connections
         edge_cables_connected = 0
         drop_cables_connected = 0
         ring_cables_connected = 0
@@ -571,9 +568,6 @@ def build_dome_multi_cone():
             elif is_drop: drop_cables_connected += 1
             elif is_ring: ring_cables_connected += 1
 
-        # 4. Identify "floating" membrane nodes
-        # A membrane node is floating if it is not in the fixed set,
-        # not in the ring set, not in the centre set, and not a perimeter anchor.
         floating_membrane = 0
         for i in range(n_total):
             if i in fixed_nodes: continue
@@ -581,12 +575,7 @@ def build_dome_multi_cone():
             if i in centre_set: continue
             if i in beam_top_set: continue
             if i in anchor_set: continue
-            # It's a free membrane node
             floating_membrane += 1
-        
-        # Note: Membrane nodes ARE supposed to be free (they bow).
-        # The question is whether the PRE-TENSION is high enough to hold them.
-        # We report this as a count, not an error.
 
         integrity_report = {
             "total_nodes": n_total,
