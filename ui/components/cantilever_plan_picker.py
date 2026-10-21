@@ -7,7 +7,7 @@
 import os
 import streamlit.components.v1 as components
 
-_COMPONENT_DIR = os.path.dirname(__file__)
+_COMPONENT_DIR = os.path.join(os.path.dirname(__file__), "cantilever_picker")
 
 _cantilever_plan_picker_component = components.declare_component(
     "cantilever_plan_picker",
@@ -36,8 +36,3 @@ def render_cantilever_plan_picker(structure_type, reach, width, rib_reach, rib_l
         return [float(v) for v in result["rib_lengths"]]
     except (TypeError, ValueError):
         return list(rib_lengths)
-
-
-# =============================================================================
-# END OF ui/components/cantilever_plan_picker.py
-# =============================================================================
