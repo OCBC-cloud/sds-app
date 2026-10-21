@@ -2,9 +2,9 @@
 # SDSe - Dome Multi-Cone Viewer
 # =============================================================================
 # History:
-#   2026-10-21 - Fixed edge cable topology. The viewer now loops
-#                through the beam_top_indices explicitly to guarantee
-#                every beam is connected by an edge cable.
+#   2026-10-21 - Replaced the fragile eave polygon builder with a direct
+#                geometric anchor generator. Guarantees N anchors where N
+#                is derived from the frame offsets.
 # =============================================================================
 
 import hashlib
@@ -140,22 +140,8 @@ def _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y):
 
 
 # =============================================================================
-# EAVE POLYGON
+# ROBUST EAVE ANCHOR GENERATION
 # =============================================================================
-
-def _frame_crossings_at_eave(frame, eave_height):
-    z = frame["z"]; x = frame["x"]; y = frame["y"]
-    if z.max() < eave_height: return []
-    crossings = []
-    for k in range(len(z) - 1):
-        z0, z1 = z[k], z[k + 1]
-        if (z0 - eave_height) * (z1 - eave_height) <= 0.0 and z0 != z1:
-            f = (eave_height - z0) / (z1 - z0)
-            xx = x[k] + f * (x[k + 1] - x[k])
-            yy = y[k] + f * (y[k + 1] - y[k])
-            crossings.append((float(xx), float(yy), float(eave_height)))
-    return crossings
-
 
 def _dedupe_plan(points, tol):
     kept = []
@@ -174,14 +160,38 @@ def _order_by_angle(points):
     return sorted(points, key=_angle)
 
 
-def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
-    all_anchors = []
-    for f in frames:
-        pts = _frame_crossings_at_eave(f, eave_height)
-        all_anchors.extend(pts)
-    tol = EAVE_DEDUPE_TOL_FRAC * dome_diameter
-    deduped = _dedupe_plan(all_anchors, tol)
+def _build_eave_polygon(ground_radius, n_x, n_y):
+    """
+    Generate a robust set of eave anchors based on the frame grid.
+    Returns a list of (x, y, z) tuples.
+    """
+    anchors = []
+    
+    # 1. X-family anchors (offset in X, crossing at Y=0)
+    offsets_x = _offsets(n_x, ground_radius)
+    for offset in offsets_x:
+        chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
+        # Anchor at the positive Y extremity
+        anchors.append((offset, chord_half, 0.0))
+        # Anchor at the negative Y extremity
+        anchors.append((offset, -chord_half, 0.0))
+        
+    # 2. Y-family anchors (offset in Y, crossing at X=0)
+    offsets_y = _offsets(n_y, ground_radius)
+    for offset in offsets_y:
+        chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
+        # Anchor at the positive X extremity
+        anchors.append((chord_half, offset, 0.0))
+        # Anchor at the negative X extremity
+        anchors.append((-chord_half, offset, 0.0))
+    
+    # 3. Dedupe (remove overlapping anchors at the corners)
+    tol = EAVE_DEDUPE_TOL_FRAC * ground_radius * 2.0
+    deduped = _dedupe_plan(anchors, tol)
+    
+    # 4. Order by angle
     ordered = _order_by_angle(deduped)
+    
     return ordered
 
 
@@ -433,7 +443,7 @@ def build_dome_multi_cone():
         if p is not None: normalised_picks.add(p)
 
     frames, apexes, offsets_x, offsets_y = _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y)
-    eave_polygon = _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter)
+    eave_polygon = _build_eave_polygon(ground_radius, n_x, n_y)
 
     kept_picks = []
     dropped_picks = []
