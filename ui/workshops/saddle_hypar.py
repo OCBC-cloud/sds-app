@@ -13,7 +13,7 @@ import streamlit as st
 
 from data.materials import STEEL_MATERIALS, FABRIC_PROPERTIES
 from data.constants import WIND_SPEEDS
-from ui.components.SDSe_multi_board import render_multi_board
+
 
 # -----------------------------------------------------------------------------
 # IMPORTANT: 
@@ -357,16 +357,7 @@ def render_saddle_hypar():
     st.session_state["ws_ch_viewer_description"] = "Cantilever Hypar tensile membrane structure"
     st.session_state["ws_ch_viewer_dimensions"] = "Total height " + ("%.2f" % _total_h) + " m"
 
-    # ---- Multi-Board (Forced to Plan) ----
-    st.markdown("---")
-    render_multi_board(
-        key="saddle_hypar",
-        plan_label="Plan",
-        view_3d_label="3D View",
-        plan_renderer=_render_plan_board,
-        view_3d_renderer=_render_3d_board,
-        forced_board="plan"
-    )
+    
 
     # ---- Bottom Action Buttons ----
     st.markdown("<br><br>", unsafe_allow_html=True)
