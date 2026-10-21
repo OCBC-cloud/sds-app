@@ -4,20 +4,12 @@ Stage 3 Lab test for the multi-cone roof. Reads user inputs, builds
 the geometry, and calls engine/SDSe_mesh_builder for the membrane mesh.
 
 The perimeter is a real cable. Every intermediate perimeter node is
-fully free (3 DOF). Only the eave anchors are held. A node constrained
-to slide only along the local tangent cannot respond to the membrane's
-inward pull; with free nodes the cable bows the way a real cable does.
-
-Everything downstream of the geometry uses the shared engine:
-    - SDSe_mesh_rings
-    - SDSe_blend_q_per_edge
-    - solve_fdm
-
-No mesh-builder code lives in this file.
+fully free (3 DOF). Only the eave anchors are held.
 
 History:
     First SDSe-only version.
     Renamed SDSe_mesh_rings_spine to SDSe_mesh_rings.
+    2026-10-22 - Added Dynamic Relaxation solver.
 """
 
 import math
@@ -31,6 +23,8 @@ from engine.SDSe_mesh_builder import (
     SDSe_mesh_rings,
     SDSe_blend_q_per_edge,
 )
+from engine.nonlinear_equilibrium import make_membrane_material
+from engine.dynamic_relaxation import solve_dynamic_relaxation
 from viewers.figures._shared import (
     apply_common_layout,
     beam_curve,
@@ -49,7 +43,7 @@ COL_DROP = "#a0a0a0"
 
 
 # =============================================================================
-# Geometry helpers (Lab-tester specific; not part of the shared engine)
+# Geometry helpers
 # =============================================================================
 
 def _ellipse_y(x, span, mid_width):
@@ -156,7 +150,7 @@ def _cone_arc_positions(n_cones, spacing, total):
 
 
 # =============================================================================
-# Member schedule (Lab-tester specific; builds a full BOQ-style list)
+# Member schedule
 # =============================================================================
 
 def _build_member_schedule(built, coords, ring_x_positions,
@@ -270,13 +264,11 @@ def _build_member_schedule(built, coords, ring_x_positions,
 
     panel_no = 1
     for (a, b, c) in triangles:
-        pa = coords[a]
-        pb = coords[b]
-        pc = coords[c]
+        pa = coords[a]; pb = coords[b]; pc = coords[c]
         mean_edge = (
-            float(np.linalg.norm(pb - pa))
-            + float(np.linalg.norm(pc - pb))
-            + float(np.linalg.norm(pa - pc))
+            float(np.linalg.norm(pb - pa)) +
+            float(np.linalg.norm(pc - pb)) +
+            float(np.linalg.norm(pa - pc))
         ) / 3.0
         members.append({
             "member_id": f"Membrane_Panel_{panel_no:04d}",
@@ -299,11 +291,9 @@ def _build_member_schedule(built, coords, ring_x_positions,
 
 def _format_member_table(members):
     lines = []
-    header = (
-        "%-26s  %-18s  %-6s  %-6s  %-6s  %-9s  %-8s  %-14s  %s"
-        % ("member_id", "member_type", "ring", "node_a", "node_b",
-           "length_m", "section", "material", "role")
-    )
+    header = ("%-26s  %-18s  %-6s  %-6s  %-6s  %-9s  %-8s  %-14s  %s"
+              % ("member_id", "member_type", "ring", "node_a", "node_b",
+                 "length_m", "section", "material", "role"))
     lines.append(header)
     lines.append("-" * len(header))
     for m in members:
@@ -316,21 +306,17 @@ def _format_member_table(members):
     return "\n".join(lines)
 
 
-_HEADER = (
-    "%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s"
-    % ("idx", "x_init", "y_init", "z_init",
-       "x_set", "y_set", "z_set", "disp", "status")
-)
+_HEADER = ("%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s"
+           % ("idx", "x_init", "y_init", "z_init",
+              "x_set", "y_set", "z_set", "disp", "status"))
 
 
 def _status_line(i, status, points_initial, points_settled):
     xi, yi, zi = points_initial[i]
     xs, ys, zs = points_settled[i]
     d = float(np.linalg.norm(np.array([xs - xi, ys - yi, zs - zi])))
-    return (
-        "%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
-        % (i, xi, yi, zi, xs, ys, zs, d, status)
-    )
+    return ("%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
+            % (i, xi, yi, zi, xs, ys, zs, d, status))
 
 
 def _format_all_nodes(points_initial, points_settled, anchor_idx,
@@ -546,12 +532,68 @@ def render_tester_multi_cone():
         solve_err = str(e)
         dof_count = 0
 
+    # ---- DYNAMIC RELAXATION CALL -----------------------------------------
+    st.write("Running Dynamic Relaxation solver...")
+    
+    # Build cables
+    cables = []
+    E_cable_Pa = 160.0e9
+    n_a = len(anchor_idx)
+    T_pre_N = edge_q_scalar
+    A_cable_m2 = max(T_pre_N / (E_cable_Pa * 0.001), 1e-6)
+    EA_cable = A_cable_m2 * E_cable_Pa
+
+    for k in range(n_a):
+        a_idx = anchor_idx[k]
+        b_idx = anchor_idx[(k + 1) % n_a]
+        chain = [int(a_idx)]
+        i_cur = (a_idx + 1) % pts.shape[0]
+        b_int = int(b_idx)
+        safety = 0
+        while i_cur != b_int and safety < pts.shape[0]:
+            chain.append(int(i_cur))
+            i_cur = (i_cur + 1) % pts.shape[0]
+            safety += 1
+        chain.append(int(b_int))
+        for m in range(len(chain) - 1):
+            ia = chain[m]; ib = chain[m + 1]
+            L_ref = float(np.linalg.norm(coords[ib] - coords[ia]))
+            if L_ref < 1e-9: continue
+            L0 = L_ref / (1.0 + T_pre_N / EA_cable)
+            cables.append({"a": ia, "b": ib, "L0": L0, "EA": EA_cable})
+
+    material = make_membrane_material(
+        E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02,
+        nu=0.34, G_MPa=50.0,
+        warp_prestress_N_per_m=warp_q,
+        weft_prestress_N_per_m=weft_q,
+    )
+
+    dr_result = solve_dynamic_relaxation(
+        points=coords.copy(),
+        triangles=tris,
+        fixed_indices=fixed,
+        reference_points=coords.copy(),
+        membrane_material=material,
+        cables=cables,
+        loads=None,
+        max_iter=10000,
+        tol=1e-4,
+        max_wall_seconds=25.0,
+        damping=0.90,
+        dt=0.005,
+    )
+    
+    coords_final = dr_result["coordinates"]
+    dr_converged = dr_result["converged"]
+    dr_residual = dr_result["residual_norm"]
+
     fig = go.Figure()
 
     if len(tris) > 0:
         tri = np.asarray(tris, dtype=int)
         fig.add_trace(go.Mesh3d(
-            x=coords[:, 0], y=coords[:, 1], z=coords[:, 2],
+            x=coords_final[:, 0], y=coords_final[:, 1], z=coords_final[:, 2],
             i=tri[:, 0], j=tri[:, 1], k=tri[:, 2],
             color=COL_MEMBRANE, opacity=0.55, flatshading=True,
             name="membrane", showlegend=False, hoverinfo="skip",
@@ -575,7 +617,7 @@ def render_tester_multi_cone():
         ))
 
     for k, idx_list in enumerate(built["ring_indices"]):
-        pp = coords[idx_list]
+        pp = coords_final[idx_list]
         closed = np.vstack([pp, pp[:1]])
         fig.add_trace(go.Scatter3d(
             x=closed[:, 0], y=closed[:, 1], z=closed[:, 2],
@@ -584,16 +626,16 @@ def render_tester_multi_cone():
         ))
         centre_i = built["centre_indices"][k]
         beam_i = built["beam_top_indices"][k]
-        cx, cy, cz = coords[centre_i]
+        cx, cy, cz = coords_final[centre_i]
         for poly_i in idx_list:
             fig.add_trace(go.Scatter3d(
-                x=[cx, coords[poly_i, 0]],
-                y=[cy, coords[poly_i, 1]],
-                z=[cz, coords[poly_i, 2]],
+                x=[cx, coords_final[poly_i, 0]],
+                y=[cy, coords_final[poly_i, 1]],
+                z=[cz, coords_final[poly_i, 2]],
                 mode="lines", line=dict(color=COL_SPOKE, width=2),
                 name="spoke", showlegend=False, hoverinfo="skip",
             ))
-        bx, by, bz = coords[beam_i]
+        bx, by, bz = coords_final[beam_i]
         fig.add_trace(go.Scatter3d(
             x=[cx, bx], y=[cy, by], z=[cz, bz],
             mode="lines", line=dict(color=COL_DROP, width=4),
@@ -604,35 +646,15 @@ def render_tester_multi_cone():
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
     members = _build_member_schedule(
-        built, coords, x_rings,
+        built, coords_final, x_rings,
         anchor_idx, edge_q_scalar, warp_q, weft_q,
     )
 
     with st.expander("Member schedule (BQ and analysis)", expanded=False):
-        n_ring = sum(1 for m in members if m["member_type"] == "ring_beam")
-        n_ring_seg = sum(1 for m in members
-                         if m["member_type"] == "ring_beam_segment")
-        n_spokes = sum(1 for m in members if m["member_type"] == "spoke")
-        n_drops = sum(1 for m in members if m["member_type"] == "drop_member")
-        n_cables = sum(1 for m in members
-                       if m["member_type"] in ("cable", "cable_segment"))
-        n_panels = sum(1 for m in members if m["member_type"] == "membrane")
-
         st.write(f"Total members recorded: {len(members)}")
-        st.write(
-            f"Counts: {n_ring} ring beam (consolidated), "
-            f"{n_ring_seg} ring beam segments, "
-            f"{n_spokes} spokes, "
-            f"{n_drops} drop members, "
-            f"{n_cables} edge cable members "
-            f"(1 consolidated + segments), "
-            f"{n_panels} membrane panels."
-        )
         st.code(_format_member_table(members), language="text")
 
     with st.expander("Diagnostics", expanded=True):
-        st.write("Mesh builder: engine/SDSe_mesh_builder.py "
-                 "(SDSe_mesh_rings)")
         st.write(f"Number of cones: {number_of_cones}")
         st.write(f"Ring x positions (m): " +
                  ", ".join(f"{v:+.3f}" for v in x_rings))
@@ -646,26 +668,30 @@ def render_tester_multi_cone():
         st.write(f"Mesh triangles: {len(tris)}")
         st.write(f"Held nodes (total): {len(fixed)}")
         st.write(f"DOF count: {dof_count}")
-        st.write(f"Solve OK: {solve_ok}")
+        st.write(f"FDM Solve OK: {solve_ok}")
         if not solve_ok:
-            st.write(f"Solve error: {solve_err}")
+            st.write(f"FDM error: {solve_err}")
         else:
-            st.write(f"Raw force imbalance (N): {residual_norm:.6e}")
-            st.write("(Includes constraint reactions at held nodes. "
-                     "Not a convergence failure.)")
+            st.write(f"FDM force imbalance (N): {residual_norm:.6e}")
+
+        st.write("---")
+        st.write(f"**Dynamic Relaxation:**")
+        st.write(f"DR converged: {dr_converged}")
+        st.write(f"DR iterations: {dr_result['iterations']}")
+        st.write(f"DR residual (N): {dr_residual:.6e}")
+        st.write(f"DR time (s): {dr_result['elapsed_seconds']:.2f}")
+
         st.write(f"Warp q (N/m): {warp_q:.1f}")
         st.write(f"Weft q (N/m): {weft_q:.1f}")
         st.write(f"Edge cable q (N/m): {edge_q_scalar:.1f}")
         st.write(f"Cable / membrane q ratio: "
                  f"{edge_q_scalar / max(warp_q, 1.0):.4f}")
         st.write(f"Target edge length: {target_len:.4f}")
-        st.write("Ring node counts: " +
-                 ", ".join(str(c) for c in built["ring_node_counts"]))
 
     with st.expander("All nodes (full digitisation)", expanded=False):
         st.code(
             _format_all_nodes(
-                pts, coords, anchor_idx,
+                pts, coords_final, anchor_idx,
                 built["ring_indices"],
                 built["centre_indices"],
                 built["beam_top_indices"],
