@@ -2,9 +2,7 @@
 # SDSe - Dome Multi-Cone Viewer
 # =============================================================================
 # History:
-#   2026-10-21 - Replaced the fragile eave polygon builder with a direct
-#                geometric anchor generator. Guarantees N anchors where N
-#                is derived from the frame offsets.
+#   2026-10-20 - Restored stable version before structural audit.
 # =============================================================================
 
 import hashlib
@@ -140,8 +138,22 @@ def _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y):
 
 
 # =============================================================================
-# ROBUST EAVE ANCHOR GENERATION
+# EAVE POLYGON
 # =============================================================================
+
+def _frame_crossings_at_eave(frame, eave_height):
+    z = frame["z"]; x = frame["x"]; y = frame["y"]
+    if z.max() < eave_height: return []
+    crossings = []
+    for k in range(len(z) - 1):
+        z0, z1 = z[k], z[k + 1]
+        if (z0 - eave_height) * (z1 - eave_height) <= 0.0 and z0 != z1:
+            f = (eave_height - z0) / (z1 - z0)
+            xx = x[k] + f * (x[k + 1] - x[k])
+            yy = y[k] + f * (y[k + 1] - y[k])
+            crossings.append((float(xx), float(yy), float(eave_height)))
+    return crossings
+
 
 def _dedupe_plan(points, tol):
     kept = []
@@ -160,38 +172,14 @@ def _order_by_angle(points):
     return sorted(points, key=_angle)
 
 
-def _build_eave_polygon(ground_radius, n_x, n_y):
-    """
-    Generate a robust set of eave anchors based on the frame grid.
-    Returns a list of (x, y, z) tuples.
-    """
-    anchors = []
-    
-    # 1. X-family anchors (offset in X, crossing at Y=0)
-    offsets_x = _offsets(n_x, ground_radius)
-    for offset in offsets_x:
-        chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
-        # Anchor at the positive Y extremity
-        anchors.append((offset, chord_half, 0.0))
-        # Anchor at the negative Y extremity
-        anchors.append((offset, -chord_half, 0.0))
-        
-    # 2. Y-family anchors (offset in Y, crossing at X=0)
-    offsets_y = _offsets(n_y, ground_radius)
-    for offset in offsets_y:
-        chord_half = math.sqrt(max(0.0, ground_radius ** 2 - offset ** 2))
-        # Anchor at the positive X extremity
-        anchors.append((chord_half, offset, 0.0))
-        # Anchor at the negative X extremity
-        anchors.append((-chord_half, offset, 0.0))
-    
-    # 3. Dedupe (remove overlapping anchors at the corners)
-    tol = EAVE_DEDUPE_TOL_FRAC * ground_radius * 2.0
-    deduped = _dedupe_plan(anchors, tol)
-    
-    # 4. Order by angle
+def _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter):
+    all_anchors = []
+    for f in frames:
+        pts = _frame_crossings_at_eave(f, eave_height)
+        all_anchors.extend(pts)
+    tol = EAVE_DEDUPE_TOL_FRAC * dome_diameter
+    deduped = _dedupe_plan(all_anchors, tol)
     ordered = _order_by_angle(deduped)
-    
     return ordered
 
 
@@ -443,7 +431,7 @@ def build_dome_multi_cone():
         if p is not None: normalised_picks.add(p)
 
     frames, apexes, offsets_x, offsets_y = _build_dome_frame(ground_radius, crown_height, curve_type, n_x, n_y)
-    eave_polygon = _build_eave_polygon(ground_radius, n_x, n_y)
+    eave_polygon = _build_eave_polygon(frames, eave_height, ground_radius, dome_diameter)
 
     kept_picks = []
     dropped_picks = []
@@ -548,60 +536,6 @@ def build_dome_multi_cone():
             solve_summary = summary
 
     # =========================================================================
-    # STRUCTURAL INTEGRITY AUDIT (Owner Tier)
-    # =========================================================================
-    integrity_report = {}
-    if built is not None:
-        n_total = int(pts.shape[0])
-        
-        anchor_set = set(int(i) for i in anchor_idx)
-        ring_set = set()
-        for idx_list in built["ring_indices"]:
-            for i in idx_list: ring_set.add(int(i))
-        centre_set = set(int(i) for i in built["centre_indices"])
-        beam_top_set = set(int(i) for i in built["beam_top_indices"])
-        
-        fixed_nodes = set(nfdm_fixed)
-        free_nodes = n_total - len(fixed_nodes)
-        
-        edge_cables_connected = 0
-        drop_cables_connected = 0
-        ring_cables_connected = 0
-        
-        for cb in cables:
-            a = int(cb["a"]); b = int(cb["b"])
-            is_edge = (a in anchor_set) and (b in anchor_set)
-            is_drop = (a in beam_top_set) and (b in centre_set)
-            is_ring = (a in ring_set) and (b in ring_set)
-            
-            if is_edge: edge_cables_connected += 1
-            elif is_drop: drop_cables_connected += 1
-            elif is_ring: ring_cables_connected += 1
-
-        floating_membrane = 0
-        for i in range(n_total):
-            if i in fixed_nodes: continue
-            if i in ring_set: continue
-            if i in centre_set: continue
-            if i in beam_top_set: continue
-            if i in anchor_set: continue
-            floating_membrane += 1
-
-        integrity_report = {
-            "total_nodes": n_total,
-            "fixed_nodes": len(fixed_nodes),
-            "free_nodes": free_nodes,
-            "anchor_nodes": len(anchor_set),
-            "ring_nodes": len(ring_set),
-            "centre_nodes": len(centre_set),
-            "beam_top_nodes": len(beam_top_set),
-            "free_membrane_nodes": floating_membrane,
-            "edge_cables": edge_cables_connected,
-            "drop_cables": drop_cables_connected,
-            "ring_cables": ring_cables_connected,
-        }
-
-    # =========================================================================
     # PUBLISH ELEMENT LIST FOR THE WORKSHOP
     # =========================================================================
     elements = []
@@ -702,8 +636,62 @@ def build_dome_multi_cone():
     # OWNER TIER DIAGNOSTICS
     # =========================================================================
     if access_mode == "owner":
-        with st.expander("Structural Integrity (owner tier)", expanded=True):
-            st.json(integrity_report)
+        with st.expander("Frame verification (owner tier)", expanded=False):
+            rows = _verify_frame_against_globe(apexes, ground_radius, crown_height, curve_type)
+            all_ok = all(r["ok"] for r in rows)
+            st.write("Overall: **" + ("OK" if all_ok else "FAIL") + "**")
+            table = "  idx   x          y          r_plan     apex_h     ref_h      diff       ok\n  ---   ---------  ---------  ---------  ---------  ---------  ---------  ------\n"
+            for k, r in enumerate(rows):
+                table += "  %3d   %+8.4f  %+8.4f  %8.4f  %8.4f  %8.4f  %9.2e  %s\n" % (k, r["x"], r["y"], r["r_plan"], r["apex_h"], r["ref_h"], r["diff"], "ok" if r["ok"] else "FAIL")
+            st.code(table, language="text")
+
+        with st.expander("Eave polygon (owner tier)", expanded=False):
+            st.write("Total anchors after dedupe: **%d**" % len(eave_polygon))
+
+        with st.expander("Picked positions (owner tier)", expanded=False):
+            st.write("**Total picks: %d. Kept: %d. Dropped: %d. Cones: %d.**" % (len(normalised_picks), len(kept_picks), len(dropped_picks), len(cones)))
+
+        with st.expander("Membrane geometry (owner tier)", expanded=False):
+            if built is None: st.write("**Membrane not built.**")
+            else:
+                st.write("- Perimeter nodes: **%d**" % built["n_perimeter"])
+                st.write("- Interior fabric nodes: **%d**" % built["n_interior"])
+                st.write("- Total mesh nodes: **%d**" % built["points"].shape[0])
+                st.write("- Mesh edges: **%d**" % len(built["edges"]))
+                st.write("- Mesh triangles: **%d**" % len(built["triangles"]))
+                st.write("- Held nodes (FDM): **%d**" % (len(fdm_fixed) if fdm_coords is not None else 0))
+                st.write("- Ring holes: **%d**" % len(built["ring_indices"]))
+
+        with st.expander("FDM solve (owner tier)", expanded=False):
+            if solve_summary is None: st.write("**Solve not run.**")
+            else:
+                f = solve_summary["fdm"]
+                st.write("- FDM converged: **%s**" % str(f["converged"]))
+                st.write("- FDM reason: **%s**" % f["reason"])
+                st.write("- FDM residual: **%.4e**" % f["residual_norm"])
+                st.write("**Mesh target: diameter / %.0f. Cached.**" % SOLVE_TARGET_LEN_FRAC)
+
+        with st.expander("Node digitisation (FDM) (owner tier)", expanded=False):
+            if built is None or fdm_coords is None: st.write("**No solved mesh to display.**")
+            else:
+                n_nodes = fdm_coords.shape[0]
+                status_of = ["free"] * n_nodes
+                anchor_set = set(int(i) for i in anchor_idx)
+                for i in range(built["n_perimeter"]):
+                    if i in anchor_set: status_of[i] = "held_anchor"
+                    else: status_of[i] = "perimeter_cable_free"
+                for idx_list in built["ring_indices"]:
+                    for i in idx_list: status_of[int(i)] = "held_ring_polygon"
+                for i in built["centre_indices"]: status_of[int(i)] = "held_ring_centre"
+                for i in built["beam_top_indices"]: status_of[int(i)] = "held_beam_top"
+                header = "%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s" % ("idx", "x_init", "y_init", "z_init", "x_set", "y_set", "z_set", "disp", "status")
+                lines = [header, "-" * len(header)]
+                for i in range(n_nodes):
+                    xi, yi, zi = pts[i]
+                    xs, ys, zs = fdm_coords[i]
+                    d = np.linalg.norm(fdm_coords[i] - pts[i])
+                    lines.append("%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s" % (i, xi, yi, zi, xs, ys, zs, d, status_of[i]))
+                st.code("\n".join(lines), language="text")
 
     return apply_common_layout(fig, crown_height)
 
