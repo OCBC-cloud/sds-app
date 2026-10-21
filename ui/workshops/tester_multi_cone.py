@@ -9,7 +9,7 @@ fully free (3 DOF). Only the eave anchors are held.
 History:
     First SDSe-only version.
     Renamed SDSe_mesh_rings_spine to SDSe_mesh_rings.
-    2026-10-22 - Added Dynamic Relaxation solver.
+    2026-10-22 - Added Dynamic Relaxation solver with kinetic damping.
 """
 
 import math
@@ -535,7 +535,6 @@ def render_tester_multi_cone():
     # ---- DYNAMIC RELAXATION CALL -----------------------------------------
     st.write("Running Dynamic Relaxation solver...")
     
-    # Build cables
     cables = []
     E_cable_Pa = 160.0e9
     n_a = len(anchor_idx)
@@ -577,11 +576,12 @@ def render_tester_multi_cone():
         membrane_material=material,
         cables=cables,
         loads=None,
-        max_iter=10000,
+        max_iter=5000,
         tol=1e-4,
         max_wall_seconds=25.0,
-        damping=0.90,
-        dt=0.005,
+        dt=0.001,
+        max_velocity=1.0,
+        kinetic_damping=True,
     )
     
     coords_final = dr_result["coordinates"]
@@ -675,11 +675,12 @@ def render_tester_multi_cone():
             st.write(f"FDM force imbalance (N): {residual_norm:.6e}")
 
         st.write("---")
-        st.write(f"**Dynamic Relaxation:**")
+        st.write(f"**Dynamic Relaxation (Kinetic Damping):**")
         st.write(f"DR converged: {dr_converged}")
         st.write(f"DR iterations: {dr_result['iterations']}")
         st.write(f"DR residual (N): {dr_residual:.6e}")
         st.write(f"DR time (s): {dr_result['elapsed_seconds']:.2f}")
+        st.write(f"DR kinetic peaks: {dr_result.get('kinetic_peaks', 0)}")
 
         st.write(f"Warp q (N/m): {warp_q:.1f}")
         st.write(f"Weft q (N/m): {weft_q:.1f}")
