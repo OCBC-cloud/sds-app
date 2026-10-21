@@ -423,16 +423,7 @@ def render_saddle_leaf():
     st.session_state["ws_sl_viewer_description"] = "Cantilever Leaf tensile membrane structure"
     st.session_state["ws_sl_viewer_dimensions"] = "Total height " + ("%.2f" % _total_h) + " m"
 
-    # ---- Multi-Board (Forced to Plan) ----
-    st.markdown("---")
-    render_multi_board(
-        key="saddle_leaf",
-        plan_label="Plan",
-        view_3d_label="3D View",
-        plan_renderer=_render_plan_board,
-        view_3d_renderer=_render_3d_board,
-        forced_board="plan"
-    )
+    
 
     # ---- Bottom Action Buttons ----
     st.markdown("<br><br>", unsafe_allow_html=True)
