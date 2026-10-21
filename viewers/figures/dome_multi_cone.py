@@ -2,7 +2,9 @@
 # SDSe - Dome Multi-Cone Viewer
 # =============================================================================
 # History:
-#   2026-10-21 - Fixed cache bug. Solver now always returns fresh forces.
+#   2026-10-21 - Added convergence guard. If the solver fails, it
+#                raises a warning and prevents the design check from
+#                returning fake forces.
 # =============================================================================
 
 import hashlib
@@ -578,9 +580,17 @@ def build_dome_multi_cone():
     # ---- RUN THE DESIGN CHECK ----
     mem_results = []
     cab_results = []
+    
+    solver_converged = False
     if solve_summary and "nfdm" in solve_summary:
+        solver_converged = solve_summary["nfdm"].get("converged", False)
+    
+    if solver_converged:
         mem_results = solve_summary["nfdm"].get("membrane_stress", [])
         cab_results = solve_summary["nfdm"].get("cable_tension", [])
+    else:
+        if solve_summary is not None:
+            st.error("⚠️ **Solver Failed to Converge.** The forces below are not reliable. Reduce the loads or increase the pretension.")
     
     # Extract max cable force for beam approximation
     max_cable_kN = 0.0
