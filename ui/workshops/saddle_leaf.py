@@ -2,7 +2,7 @@
 # SDSe Fluid Design Studio - Cantilever Leaf Workshop
 # =============================================================================
 # History:
-#   2026-10-21 - Wired the universal SDSe_pickerboard into the plan view.
+#   2026-10-21 - Removed the 2D pickerboard. Reverted to placeholder.
 # =============================================================================
 
 import math
@@ -12,7 +12,6 @@ import streamlit as st
 from data.materials import STEEL_MATERIALS, FABRIC_PROPERTIES
 from data.constants import WIND_SPEEDS
 from ui.components.SDSe_multi_board import render_multi_board
-from ui.components.SDSe_pickerboard import render_pickerboard
 
 from viewers.figures.cantilever_leaf import build_cantilever_leaf
 
@@ -152,24 +151,7 @@ def _warning_box(text): st.markdown('<div class="ws-warning-box">' + text + '</d
 # =============================================================================
 
 def _render_plan_board():
-    reach = float(st.session_state.get("ws_sl_outreach", 10.0))
-    width = reach 
-    rib_lengths = st.session_state.get("ws_sl_rib_lengths_override", [])
-    if not rib_lengths:
-        rib_lengths = st.session_state.get("ws_sl_rib_base_lengths", [])
-        
-    new_lengths = render_pickerboard(
-        shape="leaf",
-        reach=reach,
-        width=width,
-        rib_reach=0.0,
-        rib_lengths=rib_lengths,
-        key="leaf_plan_picker"
-    )
-    
-    if new_lengths != rib_lengths:
-        st.session_state["ws_sl_rib_lengths_override"] = new_lengths
-        st.session_state["ws_sl_rib_override_active"] = True
+    st.info("The 2D Plan picker for the Cantilever Leaf is coming in a future update.")
 
 def _render_3d_board():
     build_cantilever_leaf()
