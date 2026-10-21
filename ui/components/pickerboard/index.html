@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SDSe Pickerboard</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; background: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #a8b8c8;
+  }
+  #wrap {
+    width: 100%; box-sizing: border-box; padding: 8px 0 4px 0;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  #svg-container {
+    width: 100%; max-width: 600px; aspect-ratio: 4 / 3;
+    background: #0e1117; border: 1px solid #1e2a3a; border-radius: 8px;
+  }
+  svg {
+    display: block; width: 100%; height: 100%;
+    touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  }
+  .grid-line-minor { stroke: #1e2a3a; stroke-width: 1; }
+  .grid-line-major { stroke: #2c3e50; stroke-width: 1.5; }
+  .ruler-text { fill: #566073; font-size: 10px; text-anchor: middle; }
+  
+  .column { fill: #2ecc71; }
+  .arm { stroke: #FF6B6B; stroke-width: 4; }
+  .membrane { fill: rgba(74, 122, 156, 0.2); stroke: #4a7a9c; stroke-width: 2; }
+  .rib-line { stroke: #3498db; stroke-width: 2; stroke-opacity: 0.5; }
+  
+  .pick {
+    cursor: pointer; transition: fill 0.12s ease;
+  }
+  .pick.off {
+    fill: #3a4a5a; stroke: #556677; stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .pick.on {
+    fill: #f1c40f; stroke: #fff3b0; stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+  }
+  
+  #caption {
+    padding: 8px 0 0 0; font-size: 13px; color: #a8b8c8; text-align: center;
+  }
+  #caption b { color: #f1c40f; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="svg-container"></div>
+  <div id="caption">Tap the dots to adjust.</div>
+</div>
+
+<script>
+var Streamlit = (function () {
+  var RENDER_EVENT = "streamlit:render";
+  var SET_FRAME_HEIGHT = "streamlit:setFrameHeight";
+  var SET_COMPONENT_VALUE = "streamlit:setComponentValue";
+  var SET_COMPONENT_READY = "streamlit:componentReady";
+  var listeners = [];
+
+  function sendMessage(type, data) {
+    var msg = { isStreamlitMessage: true, type: type };
+    if (data) { for (var k in data) { msg[k] = data[k]; } }
+    window.parent.postMessage(msg, "*");
+  }
+
+  window.addEventListener("message", function (event) {
+    if (!event.data || event.data.type !== RENDER_EVENT) { return; }
+    listeners.forEach(function (fn) { fn(event.data.args || {}); });
+  });
+
+  return {
+    setComponentReady: function () { sendMessage(SET_COMPONENT_READY, { apiVersion: 1 }); },
+    setFrameHeight: function (height) { sendMessage(SET_FRAME_HEIGHT, { height: height }); },
+    setComponentValue: function (value) { sendMessage(SET_COMPONENT_VALUE, { value: value, dataType: "json" }); },
+    onRender: function (fn) { listeners.push(fn); }
+  };
+})();
+
+var state = {
+  shape: "leaf",
+  reach: 10.0,
+  width: 10.0,
+  rib_reach: 5.0,
+  rib_lengths: [],
+  scale: 1.0,
+  offsetX: 0,
+  offsetY: 0,
+  active_dots: {}
+};
+
+var SVG_NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs) {
+  var e = document.createElementNS(SVG_NS, tag);
+  for (var k in attrs) { e.setAttribute(k, attrs[k]); }
+  return e;
+}
+
+function render() {
+  var container = document.getElementById("svg-container");
+  if (!container) return;
+  container.innerHTML = "";
+  
+  var width = container.clientWidth || 500;
+  var height = container.clientHeight || 375;
+  
+  var padding = 40;
+  var drawWidth = width - padding;
+  var drawHeight = height - padding;
+  
+  var maxX = state.reach * 1.2;
+  var maxY = state.width * 1.2;
+  
+  var scaleX = drawWidth / maxX;
+  var scaleY = drawHeight / maxY;
+  state.scale = Math.min(scaleX, scaleY);
+  
+  state.offsetX = padding;
+  state.offsetY = height - padding;
+
+  var svg = el("svg", {
+    viewBox: "0 0 " + width + " " + height,
+    preserveAspectRatio: "xMidYMid meet"
+  });
+
+  // 1. Draw Grid and Rulers
+  for (var x = 0; x <= maxX; x += 0.5) {
+    var px = state.offsetX + x * state.scale;
+    var isMajor = (Math.abs(x % 1.0) < 0.01);
+    svg.appendChild(el("line", {
+      x1: px, y1: 0, x2: px, y2: state.offsetY,
+      class: isMajor ? "grid-line-major" : "grid-line-minor"
+    }));
+    if (isMajor) {
+      var txt = el("text", { x: px, y: state.offsetY + 15, class: "ruler-text" });
+      txt.textContent = x.toFixed(0);
+      svg.appendChild(txt);
+    }
+  }
+  
+  for (var y = -maxY/2; y <= maxY/2; y += 0.5) {
+    var py = state.offsetY - y * state.scale;
+    var isMajorY = (Math.abs(y % 1.0) < 0.01);
+    svg.appendChild(el("line", {
+      x1: state.offsetX, y1: py, x2: width, y2: py,
+      class: isMajorY ? "grid-line-major" : "grid-line-minor"
+    }));
+    if (isMajorY) {
+      var txtY = el("text", { x: state.offsetX - 15, y: py + 4, class: "ruler-text", "text-anchor": "end" });
+      txtY.textContent = y.toFixed(0);
+      svg.appendChild(txtY);
+    }
+  }
+
+  // 2. Draw Column
+  svg.appendChild(el("circle", {
+    cx: state.offsetX, cy: state.offsetY, r: 8, class: "column"
+  }));
+
+  // 3. Draw Structure based on shape
+  if (state.shape === "hypar") {
+    var armEndX = state.offsetX + state.reach * state.scale;
+    var armEndY = state.offsetY;
+    svg.appendChild(el("line", {
+      x1: state.offsetX, y1: state.offsetY,
+      x2: armEndX, y2: armEndY,
+      class: "arm"
+    }));
+    
+    var ribYTop = state.offsetY - state.rib_reach * state.scale;
+    var ribYBot = state.offsetY + state.rib_reach * state.scale;
+    var ribMidX = state.offsetX + (state.reach * 0.5) * state.scale;
+    
+    svg.appendChild(el("line", {
+      x1: ribMidX, y1: ribYTop,
+      x2: ribMidX, y2: ribYBot,
+      class: "arm"
+    }));
+    
+    var poly = el("polygon", {
+      points: state.offsetX + "," + state.offsetY + " " +
+              ribMidX + "," + ribYTop + " " +
+              armEndX + "," + armEndY + " " +
+              ribMidX + "," + ribYBot,
+      class: "membrane"
+    });
+    svg.appendChild(poly);
+    
+  } else {
+    // Default fallback: Leaf
+    var n = state.rib_lengths.length;
+    if (n === 0) n = 7;
+    
+    for (var i = 0; i < n; i++) {
+      var r = state.rib_lengths.length > i ? state.rib_lengths[i] : (state.reach * (0.08 + 0.84 * i / Math.max(1, n - 1)));
+      var t = r / state.reach;
+      var rx = state.offsetX + r * state.scale;
+      var ry = state.offsetY - (state.width * 0.4 * Math.sin(Math.PI * t)) * state.scale;
+      
+      svg.appendChild(el("line", {
+        x1: state.offsetX, y1: state.offsetY,
+        x2: rx, y2: ry,
+        class: "rib-line"
+      }));
+      
+      var k = "dot_" + i;
+      var on = state.active_dots[k] === true;
+      var cls = "pick " + (on ? "on" : "off");
+      
+      var node = el("circle", {
+        cx: rx, cy: ry, r: 6, class: cls
+      });
+      
+      node.addEventListener("click", (function(index) {
+        return function(evt) { evt.preventDefault(); toggleDot(index); };
+      })(i));
+      
+      node.addEventListener("touchend", (function(index) {
+        return function(evt) { evt.preventDefault(); toggleDot(index); };
+      })(i));
+      
+      svg.appendChild(node);
+    }
+  }
+
+  container.appendChild(svg);
+}
+
+function toggleDot(index) {
+  var k = "dot_" + index;
+  if (state.active_dots[k]) {
+    delete state.active_dots[k];
+  } else {
+    state.active_dots = {};
+    state.active_dots[k] = true;
+  }
+  sendValue();
+  render();
+}
+
+function sendValue() {
+  Streamlit.setComponentValue({ rib_lengths: state.rib_lengths });
+}
+
+Streamlit.onRender(function (args) {
+  state.shape = String(args.shape || "leaf");
+  state.reach = Number(args.reach || 10.0);
+  state.width = Number(args.width || 10.0);
+  state.rib_reach = Number(args.rib_reach || 5.0);
+  state.rib_lengths = args.rib_lengths || [];
+  
+  render();
+  
+  setTimeout(function () {
+    var wrap = document.getElementById("wrap");
+    Streamlit.setFrameHeight(wrap.scrollHeight);
+  }, 30);
+});
+
+Streamlit.setComponentReady();
+window.addEventListener("resize", render);
+</script>
+</body>
+</html>
