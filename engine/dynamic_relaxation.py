@@ -1,8 +1,8 @@
 # =============================================================================
-# SDSe Engine - Dynamic Relaxation Solver
+# SDSe Engine - Dynamic Relaxation Solver (v2)
 # =============================================================================
 # A robust nonlinear solver based on Dynamic Relaxation.
-# Replaces Newton-Raphson for membrane form-finding under load.
+# Includes velocity clamping to prevent numerical explosion.
 # =============================================================================
 
 import time
@@ -17,12 +17,13 @@ from engine.nonlinear_equilibrium import (
 def solve_dynamic_relaxation(
     points, triangles, fixed_indices, reference_points,
     membrane_material, cables=None, loads=None,
-    max_iter=10000, tol=1e-4, max_wall_seconds=25.0,
-    damping=0.90, dt=0.005
+    max_iter=20000, tol=1e-4, max_wall_seconds=25.0,
+    damping=0.90, dt=0.001, max_velocity=1.0
 ):
     """
     Solve nonlinear equilibrium using Dynamic Relaxation.
-    Returns the same dict format as solve_nonlinear_equilibrium.
+    max_velocity is the maximum distance (in metres) a node can move
+    per step. This prevents the solver from exploding on stiff cables.
     """
     t_start = time.time()
     points = np.asarray(points, dtype=float).copy()
@@ -40,10 +41,7 @@ def solve_dynamic_relaxation(
         fixed_mask[i] = True
     free_mask = ~fixed_mask
 
-    # Fictitious mass
     mass = np.ones(n_nodes, dtype=float)
-
-    # Velocity
     velocity = np.zeros((n_nodes, 3), dtype=float)
 
     cables = list(cables or [])
@@ -61,7 +59,6 @@ def solve_dynamic_relaxation(
     iterations = 0
     total_steps = 0
 
-    # Dynamic Relaxation Loop
     for it in range(max_iter):
         iterations = it + 1
         total_steps += 1
@@ -75,7 +72,6 @@ def solve_dynamic_relaxation(
             reason = "converged"
             break
 
-        # Update tautness flags
         for k, cb in enumerate(cables):
             a = int(cb["a"])
             b = int(cb["b"])
@@ -83,23 +79,26 @@ def solve_dynamic_relaxation(
             L = float(np.linalg.norm(points[b] - points[a]))
             taut_flags[k] = L > L0
 
-        # Compute residual
         R = _assemble_residual(
             points, triangles, cables, reference_points,
             membrane_material, loads, free_mask, n_nodes, taut_flags
         )
         r_norm = float(np.linalg.norm(R[free_mask]))
 
-        # Accelerate
         acc = R / mass[:, np.newaxis]
         velocity += acc * dt
         velocity *= damping
 
-        # Move
+        # Velocity clamp
+        v_norm = np.linalg.norm(velocity, axis=1)
+        too_fast = v_norm > max_velocity
+        if np.any(too_fast):
+            velocity[too_fast] *= (max_velocity / v_norm[too_fast])[:, np.newaxis]
+
         points[free_mask] += velocity[free_mask] * dt
 
-    # Compute final membrane stress
-    from engine.nonlinear_equilibrium import membrane_stress
+    # Compute final stress/tension
+    from engine.nonlinear_equilibrium import membrane_stress, cable_state
     membrane_stress_list = []
     for (a, b, c) in triangles:
         try:
@@ -120,8 +119,6 @@ def solve_dynamic_relaxation(
                 "compression_found": False,
             })
 
-    # Compute final cable tensions
-    from engine.nonlinear_equilibrium import cable_state
     cable_tension_list = []
     for cb in cables:
         T, taut, _k, _u = cable_state(
