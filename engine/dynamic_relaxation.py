@@ -1,8 +1,10 @@
 # =============================================================================
-# SDSe Engine - Dynamic Relaxation Solver (v2)
+# SDSe Engine - Dynamic Relaxation Solver (Kinetic Damping)
 # =============================================================================
-# A robust nonlinear solver based on Dynamic Relaxation.
-# Includes velocity clamping to prevent numerical explosion.
+# A robust nonlinear solver using Dynamic Relaxation with kinetic damping.
+# Kinetic damping detects when the total kinetic energy peaks and resets
+# velocity to zero at that moment. This kills the bounce and forces
+# convergence without slowing down the solver.
 # =============================================================================
 
 import time
@@ -17,13 +19,12 @@ from engine.nonlinear_equilibrium import (
 def solve_dynamic_relaxation(
     points, triangles, fixed_indices, reference_points,
     membrane_material, cables=None, loads=None,
-    max_iter=20000, tol=1e-4, max_wall_seconds=25.0,
-    damping=0.90, dt=0.001, max_velocity=1.0
+    max_iter=5000, tol=1e-4, max_wall_seconds=25.0,
+    dt=0.001, max_velocity=1.0, kinetic_damping=True
 ):
     """
-    Solve nonlinear equilibrium using Dynamic Relaxation.
-    max_velocity is the maximum distance (in metres) a node can move
-    per step. This prevents the solver from exploding on stiff cables.
+    Solve nonlinear equilibrium using Dynamic Relaxation with
+    kinetic damping (default) or viscous damping (kinetic_damping=False).
     """
     t_start = time.time()
     points = np.asarray(points, dtype=float).copy()
@@ -47,7 +48,6 @@ def solve_dynamic_relaxation(
     cables = list(cables or [])
     taut_flags = [False] * len(cables)
 
-    # Initial residual
     R = _assemble_residual(
         points, triangles, cables, reference_points,
         membrane_material, loads, free_mask, n_nodes, taut_flags
@@ -58,6 +58,11 @@ def solve_dynamic_relaxation(
     reason = "max_iter"
     iterations = 0
     total_steps = 0
+
+    # Kinetic damping tracking
+    prev_kinetic = None
+    kinetic_peaks = 0
+    viscous_damping = 0.90
 
     for it in range(max_iter):
         iterations = it + 1
@@ -72,6 +77,7 @@ def solve_dynamic_relaxation(
             reason = "converged"
             break
 
+        # Update taut flags
         for k, cb in enumerate(cables):
             a = int(cb["a"])
             b = int(cb["b"])
@@ -79,15 +85,33 @@ def solve_dynamic_relaxation(
             L = float(np.linalg.norm(points[b] - points[a]))
             taut_flags[k] = L > L0
 
+        # Compute residual
         R = _assemble_residual(
             points, triangles, cables, reference_points,
             membrane_material, loads, free_mask, n_nodes, taut_flags
         )
         r_norm = float(np.linalg.norm(R[free_mask]))
 
+        # Accelerate
         acc = R / mass[:, np.newaxis]
         velocity += acc * dt
-        velocity *= damping
+
+        # Damping strategy
+        if kinetic_damping:
+            # Kinetic energy per node
+            kinetic = float(np.sum(0.5 * mass[free_mask] *
+                                   np.sum(velocity[free_mask] ** 2, axis=1)))
+            
+            # Detect peak in kinetic energy
+            if prev_kinetic is not None and kinetic < prev_kinetic:
+                # The kinetic energy has peaked. Reset velocity.
+                velocity[free_mask] = 0.0
+                kinetic_peaks += 1
+                prev_kinetic = None
+            else:
+                prev_kinetic = kinetic
+        else:
+            velocity *= viscous_damping
 
         # Velocity clamp
         v_norm = np.linalg.norm(velocity, axis=1)
@@ -95,9 +119,10 @@ def solve_dynamic_relaxation(
         if np.any(too_fast):
             velocity[too_fast] *= (max_velocity / v_norm[too_fast])[:, np.newaxis]
 
+        # Move
         points[free_mask] += velocity[free_mask] * dt
 
-    # Compute final stress/tension
+    # Final stress/tension
     from engine.nonlinear_equilibrium import membrane_stress, cable_state
     membrane_stress_list = []
     for (a, b, c) in triangles:
@@ -146,4 +171,5 @@ def solve_dynamic_relaxation(
         "membrane_stress": membrane_stress_list,
         "cable_tension": cable_tension_list,
         "reason": reason,
+        "kinetic_peaks": kinetic_peaks,
     }
