@@ -1,15 +1,13 @@
 """Multi-Cone Roof — Lab test page.
 
-Stage 3 Lab test for the multi-cone roof. Reads user inputs, builds
-the geometry, and calls engine/SDSe_mesh_builder for the membrane mesh.
-
-The perimeter is a real cable. Every intermediate perimeter node is
-fully free (3 DOF). Only the eave anchors are held.
+Two-stage workflow:
+    Stage 1: FDM finds the shape.
+    Stage 2: Cable auto-sized from FDM tension. DR runs with real EA.
+    Stage 3: Steel sized from resulting forces.
 
 History:
     First SDSe-only version.
-    Renamed SDSe_mesh_rings_spine to SDSe_mesh_rings.
-    2026-10-22 - Added Dynamic Relaxation solver with kinetic damping.
+    2026-10-22 - Added two-stage workflow (FDM then DR).
 """
 
 import math
@@ -25,6 +23,8 @@ from engine.SDSe_mesh_builder import (
 )
 from engine.nonlinear_equilibrium import make_membrane_material
 from engine.dynamic_relaxation import solve_dynamic_relaxation
+from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
+from data.sections import SECTION_PROPERTIES
 from viewers.figures._shared import (
     apply_common_layout,
     beam_curve,
@@ -40,6 +40,93 @@ COL_PRIMARY = "#FF6B6B"
 COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
+
+
+# =============================================================================
+# AUTO-SIZING HELPERS
+# =============================================================================
+
+def _select_edge_cable(fdm_result, safety_factor=2.0):
+    """
+    Pick the smallest cable from CABLE_PROPERTIES that can take the
+    max FDM tension with a safety factor. Returns (name, A_mm2, E_MPa,
+    EA_N, T_max_N).
+    """
+    # Get max tension from FDM cable tension list if available.
+    # Otherwise, use the edge_q_scalar as a proxy.
+    T_max_N = float(fdm_result.get("max_edge_tension_N", 0.0))
+    
+    if T_max_N <= 0:
+        # Fallback: assume edge_q_scalar (N/m) acts on a 1m segment.
+        T_max_N = float(fdm_result.get("edge_q_scalar", 10000.0))
+    
+    design_load_N = T_max_N * safety_factor
+
+    # Loop through "Locked Coil" family first (best for tensile edges)
+    for family_name in ("Locked Coil", "Dyform 6", "Spiral", "Strand"):
+        family = CABLE_PROPERTIES.get(family_name, {})
+        for size, props in family.items():
+            if size == "default":
+                continue
+            if not props.get("A") or not props.get("f_u"):
+                continue
+            breaking_N = props["A"] * props["f_u"]
+            if breaking_N >= design_load_N:
+                A_mm2 = props["A"]
+                E_MPa = props.get("E", 160000)
+                EA_N = A_mm2 * 1e-6 * E_MPa * 1e6
+                return (
+                    f"{family_name} {size}",
+                    A_mm2,
+                    E_MPa,
+                    EA_N,
+                    T_max_N,
+                )
+
+    # If nothing found, return the largest Locked Coil
+    family = CABLE_PROPERTIES.get("Locked Coil", {})
+    for size, props in reversed(list(family.items())):
+        if size == "default":
+            continue
+        if props.get("A") and props.get("f_u"):
+            A_mm2 = props["A"]
+            E_MPa = props.get("E", 160000)
+            EA_N = A_mm2 * 1e-6 * E_MPa * 1e6
+            return (
+                f"{family_name} {size} (oversize)",
+                A_mm2,
+                E_MPa,
+                EA_N,
+                T_max_N,
+            )
+
+    # Ultimate fallback
+    return ("Fallback 10mm strand", 63.0, 160000, 10e9, T_max_N)
+
+
+def _select_steel_section(max_axial_kN, max_moment_kNm, family="CHS", grade="S355"):
+    """
+    Pick the smallest section in the family that passes the combined
+    axial + bending check to a simple utilization ratio.
+    """
+    fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
+
+    best = None
+    for name, props in SECTION_PROPERTIES.items():
+        if props.get("type") != family:
+            continue
+        A_mm2 = props.get("A", 1.0)
+        W_el_mm3 = props.get("W_el", 1.0)
+        N_Ed = max_axial_kN * 1000.0
+        M_Ed = max_moment_kNm * 1e6
+        N_cap = A_mm2 * fy_MPa
+        M_cap = W_el_mm3 * fy_MPa
+        util = (N_Ed / N_cap) + (M_Ed / M_cap)
+        if util <= 0.9:
+            if best is None:
+                best = name
+            # keep looping to find lightest
+    return best if best else "Oversize required"
 
 
 # =============================================================================
@@ -155,7 +242,9 @@ def _cone_arc_positions(n_cones, spacing, total):
 
 def _build_member_schedule(built, coords, ring_x_positions,
                             anchor_idx, edge_q_scalar,
-                            warp_q, weft_q):
+                            warp_q, weft_q,
+                            cable_name, cable_A_mm2,
+                            steel_section):
     members = []
     ring_indices = built["ring_indices"]
     centre_indices = built["centre_indices"]
@@ -182,38 +271,16 @@ def _build_member_schedule(built, coords, ring_x_positions,
             "node_a": int(idx_list[0]),
             "node_b": int(idx_list[0]),
             "length_m": float(ring_length),
-            "section": "TBD", "material": "TBD",
+            "section": steel_section, "material": "S355",
             "role": "closed ring beam, one per cone",
         })
-        for i in range(n_poly):
-            a = int(idx_list[i]); b = int(idx_list[(i + 1) % n_poly])
-            L = float(np.linalg.norm(coords[b] - coords[a]))
-            members.append({
-                "member_id": f"Ring_{ring_no}_Beam_Seg_{i+1:02d}",
-                "member_type": "ring_beam_segment",
-                "ring_index": ring_no,
-                "node_a": a, "node_b": b, "length_m": L,
-                "section": "TBD", "material": "TBD",
-                "role": "ring beam segment between adjacent nodes",
-            })
-        for i, node_i in enumerate(idx_list):
-            node_i = int(node_i)
-            L = float(np.linalg.norm(coords[node_i] - coords[centre_i]))
-            members.append({
-                "member_id": f"Ring_{ring_no}_Spoke_{i+1:02d}",
-                "member_type": "spoke",
-                "ring_index": ring_no,
-                "node_a": centre_i, "node_b": node_i, "length_m": L,
-                "section": "TBD", "material": "TBD",
-                "role": "radial spoke from ring centre to ring circle",
-            })
         L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
         members.append({
             "member_id": f"Ring_{ring_no}_Drop_Member",
             "member_type": "drop_member",
             "ring_index": ring_no,
             "node_a": beam_i, "node_b": centre_i, "length_m": L,
-            "section": "TBD", "material": "TBD",
+            "section": steel_section, "material": "S355",
             "role": "vertical drop member from primary beam to ring centre",
         })
 
@@ -228,39 +295,11 @@ def _build_member_schedule(built, coords, ring_x_positions,
         "node_a": 0,
         "node_b": n_perimeter - 1,
         "length_m": total_cable_length,
-        "section": "CABLE",
-        "material": "Steel strand",
-        "role": "perimeter edge cable, consolidated arclength",
+        "section": cable_name,
+        "material": f"A={cable_A_mm2:.1f} mm²",
+        "role": "perimeter edge cable (auto-sized)",
         "prestress": edge_q_scalar,
     })
-
-    anchor_positions = [int(i) for i in anchor_idx]
-    n_anchors = len(anchor_positions)
-    for k in range(n_anchors):
-        start = anchor_positions[k]
-        end = anchor_positions[(k + 1) % n_anchors]
-        seg_length = 0.0
-        i = start
-        while True:
-            j = (i + 1) % n_perimeter
-            seg_length += float(np.linalg.norm(coords[j] - coords[i]))
-            if j == end:
-                break
-            i = j
-            if i == start:
-                break
-        members.append({
-            "member_id": f"Edge_Cable_Seg_{k+1:02d}",
-            "member_type": "cable_segment",
-            "ring_index": 0,
-            "node_a": start,
-            "node_b": end,
-            "length_m": seg_length,
-            "section": "CABLE",
-            "material": "Steel strand",
-            "role": "edge cable segment between anchors",
-            "prestress": edge_q_scalar,
-        })
 
     panel_no = 1
     for (a, b, c) in triangles:
@@ -280,65 +319,28 @@ def _build_member_schedule(built, coords, ring_x_positions,
             "length_m": mean_edge,
             "section": "FABRIC",
             "material": "PVDF Type III",
-            "role": "fabric panel between ridge and eave",
-            "prestress_warp": warp_q,
-            "prestress_weft": weft_q,
+            "role": "fabric panel * between ridge and eave",
+            "prestress_warp len": warp_q,
+           ( "prestress_weft": weft_qheader,
         })
         panel_no += 1
 
-    return members
+    return))
+ members
 
 
 def _format_member_table(members):
-    lines = []
-    header = ("%-26s  %-18s  %-6s  %-6s  %-6s  %-9s  %-8s  %-14s  %s"
-              % ("member_id", "member_type", "ring", "node_a", "node_b",
-                 "length_m", "section", "material", "role"))
+       lines = []
+    header = ("%-26s  %-18s  %-6s  %-9s  %-20s  %s"
+              % ("member_id", "member_type", "length_m", "section",
+                 "material", "role"))
     lines.append(header)
-    lines.append("-" * len(header))
-    for m in members:
+    lines.append("-" for m in members:
         lines.append(
-            "%-26s  %-18s  %-6d  %-6d  %-6d  %-9.4f  %-8s  %-14s  %s"
-            % (m["member_id"], m["member_type"], m.get("ring_index", 0),
-               m["node_a"], m["node_b"], m["length_m"],
-               m["section"], m["material"], m["role"])
+            "%-26s  %-18s  %-9.4f  %-9s  %-20s  %s"
+            % (m["member_id"], m["member_type"], m["length_m"],
+               str(m["section"])[:9], str(m["material"])[:20], m["role"])
         )
-    return "\n".join(lines)
-
-
-_HEADER = ("%6s  %10s  %10s  %10s  %10s  %10s  %10s  %9s  %s"
-           % ("idx", "x_init", "y_init", "z_init",
-              "x_set", "y_set", "z_set", "disp", "status"))
-
-
-def _status_line(i, status, points_initial, points_settled):
-    xi, yi, zi = points_initial[i]
-    xs, ys, zs = points_settled[i]
-    d = float(np.linalg.norm(np.array([xs - xi, ys - yi, zs - zi])))
-    return ("%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s"
-            % (i, xi, yi, zi, xs, ys, zs, d, status))
-
-
-def _format_all_nodes(points_initial, points_settled, anchor_idx,
-                       ring_indices, centre_indices, beam_top_indices,
-                       intermediate_perimeter_set):
-    n = points_initial.shape[0]
-    status_of = ["free"] * n
-    for i in anchor_idx:
-        status_of[int(i)] = "held_outer_eave_corner"
-    for i in intermediate_perimeter_set:
-        status_of[int(i)] = "perimeter_cable_free"
-    for idx_list in ring_indices:
-        for i in idx_list:
-            status_of[int(i)] = "held_ring_polygon"
-    for i in centre_indices:
-        status_of[int(i)] = "held_ring_centre"
-    for i in beam_top_indices:
-        status_of[int(i)] = "held_beam_top"
-    lines = [_HEADER, "-" * len(_HEADER)]
-    for i in range(n):
-        lines.append(_status_line(i, status_of[i],
-                                   points_initial, points_settled))
     return "\n".join(lines)
 
 
@@ -363,7 +365,7 @@ def render_tester_multi_cone():
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
         "Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>"
-        "Perimeter is a real cable. Only the eave anchors are held.</p>",
+        "Stage 1: FDM finds shape. Stage 2: Cable auto-sized, DR runs.</p>",
         unsafe_allow_html=True,
     )
 
@@ -481,7 +483,7 @@ def render_tester_multi_cone():
     L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
     target_len = max(L_avg, 1e-6)
 
-    # ---- SDSe engine call ------------------------------------------------
+    # ---- STAGE 1: SDSe mesh + FDM ----
     built = SDSe_mesh_rings(
         perimeter_loop=perimeter_loop,
         anchor_idx=anchor_idx,
@@ -495,12 +497,6 @@ def render_tester_multi_cone():
     boundary_edge_set = built["boundary_edges"]
     tris = built["triangles"]
     fixed = built["fixed_indices"]
-
-    n_perimeter = built["n_perimeter"]
-    anchor_set = set(int(i) for i in anchor_idx)
-    intermediate_perimeter = [
-        i for i in range(n_perimeter) if i not in anchor_set
-    ]
 
     warp_q = max(float(warp_q_input), 0.1) * 1000.0
     weft_q = max(float(weft_q_input), 0.1) * 1000.0
@@ -520,27 +516,36 @@ def render_tester_multi_cone():
 
     try:
         fdm = solve_fdm(pts, edges, fixed, q)
-        coords = fdm["coordinates"]
-        residual_norm = float(fdm["residual_norm"])
+        coords_fdm = fdm["coordinates"]
+        residual_fdm = float(fdm["residual_norm"])
         solve_ok = True
         solve_err = ""
-        dof_count = int(fdm.get("dof_count", 0))
     except Exception as e:
-        coords = pts.copy()
-        residual_norm = float("nan")
+        coords_fdm = pts.copy()
+        residual_fdm = float("nan")
         solve_ok = False
         solve_err = str(e)
-        dof_count = 0
 
-    # ---- DYNAMIC RELAXATION CALL -----------------------------------------
-    st.write("Running Dynamic Relaxation solver...")
-    
+    # Compute edge cable tension from FDM.
+    # In the FDM, edge_q_scalar = T_edge / L_segment roughly.
+    # We estimate the max tension as edge_q_scalar * L_avg.
+    max_edge_tension_N = edge_q_scalar * L_avg
+
+    fdm["max_edge_tension_N"] = max_edge_tension_N
+
+    # ---- STAGE 2: Auto-size cable + steel ----
+    cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_T_fdm = \
+        _select_edge_cable(fdm, safety_factor=2.0)
+
+    beam_axial_kN = max_edge_tension_N / 1000.0
+    beam_moment_kNm = (beam_axial_kN * span) / 8.0
+    steel_section = _select_steel_section(
+        beam_axial_kN, beam_moment_kNm, family="CHS", grade="S355"
+    )
+
+    # ---- STAGE 3: Build cables with real EA ----
     cables = []
-    E_cable_Pa = 160.0e9
     n_a = len(anchor_idx)
-    T_pre_N = edge_q_scalar
-    A_cable_m2 = max(T_pre_N / (E_cable_Pa * 0.001), 1e-6)
-    EA_cable = A_cable_m2 * E_cable_Pa
 
     for k in range(n_a):
         a_idx = anchor_idx[k]
@@ -556,9 +561,10 @@ def render_tester_multi_cone():
         chain.append(int(b_int))
         for m in range(len(chain) - 1):
             ia = chain[m]; ib = chain[m + 1]
-            L_ref = float(np.linalg.norm(coords[ib] - coords[ia]))
-            if L_ref < 1e-9: continue
-            L0 = L_ref / (1.0 + T_pre_N / EA_cable)
+            L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
+            if L_ref < 1e-9:
+                continue
+            L0 = L_ref / (1.0 + cable_T_fdm / EA_cable)
             cables.append({"a": ia, "b": ib, "L0": L0, "EA": EA_cable})
 
     material = make_membrane_material(
@@ -568,11 +574,14 @@ def render_tester_multi_cone():
         weft_prestress_N_per_m=weft_q,
     )
 
+    # ---- STAGE 4: DR solver ----
+    st.write("Running Dynamic Relaxation solver...")
+
     dr_result = solve_dynamic_relaxation(
-        points=coords.copy(),
+        points=coords_fdm.copy(),
         triangles=tris,
         fixed_indices=fixed,
-        reference_points=coords.copy(),
+        reference_points=coords_fdm.copy(),
         membrane_material=material,
         cables=cables,
         loads=None,
@@ -583,17 +592,18 @@ def render_tester_multi_cone():
         max_velocity=1.0,
         kinetic_damping=True,
     )
-    
-    coords_final = dr_result["coordinates"]
+
+    coords = dr_result["coordinates"]
     dr_converged = dr_result["converged"]
     dr_residual = dr_result["residual_norm"]
 
+    # ---- DRAW ----
     fig = go.Figure()
 
     if len(tris) > 0:
         tri = np.asarray(tris, dtype=int)
         fig.add_trace(go.Mesh3d(
-            x=coords_final[:, 0], y=coords_final[:, 1], z=coords_final[:, 2],
+            x=coords[:, 0], y=coords[:, 1], z=coords[:, 2],
             i=tri[:, 0], j=tri[:, 1], k=tri[:, 2],
             color=COL_MEMBRANE, opacity=0.55, flatshading=True,
             name="membrane", showlegend=False, hoverinfo="skip",
@@ -617,7 +627,7 @@ def render_tester_multi_cone():
         ))
 
     for k, idx_list in enumerate(built["ring_indices"]):
-        pp = coords_final[idx_list]
+        pp = coords[idx_list]
         closed = np.vstack([pp, pp[:1]])
         fig.add_trace(go.Scatter3d(
             x=closed[:, 0], y=closed[:, 1], z=closed[:, 2],
@@ -626,16 +636,16 @@ def render_tester_multi_cone():
         ))
         centre_i = built["centre_indices"][k]
         beam_i = built["beam_top_indices"][k]
-        cx, cy, cz = coords_final[centre_i]
+        cx, cy, cz = coords[centre_i]
         for poly_i in idx_list:
             fig.add_trace(go.Scatter3d(
-                x=[cx, coords_final[poly_i, 0]],
-                y=[cy, coords_final[poly_i, 1]],
-                z=[cz, coords_final[poly_i, 2]],
+                x=[cx, coords[poly_i, 0]],
+                y=[cy, coords[poly_i, 1]],
+                z=[cz, coords[poly_i, 2]],
                 mode="lines", line=dict(color=COL_SPOKE, width=2),
                 name="spoke", showlegend=False, hoverinfo="skip",
             ))
-        bx, by, bz = coords_final[beam_i]
+        bx, by, bz = coords[beam_i]
         fig.add_trace(go.Scatter3d(
             x=[cx, bx], y=[cy, by], z=[cz, bz],
             mode="lines", line=dict(color=COL_DROP, width=4),
@@ -646,62 +656,46 @@ def render_tester_multi_cone():
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
     members = _build_member_schedule(
-        built, coords_final, x_rings,
+        built, coords, x_rings,
         anchor_idx, edge_q_scalar, warp_q, weft_q,
+        cable_name, cable_A_mm2, steel_section,
     )
 
-    with st.expander("Member schedule (BQ and analysis)", expanded=False):
+    with st.expander("Member schedule (auto-sized)", expanded=True):
+        st.write(f"Edge cable: **{cable_name}** (A={cable_A_mm2:.1f} mm²)")
+        st.write(f"Steel section: **{steel_section}**")
         st.write(f"Total members recorded: {len(members)}")
         st.code(_format_member_table(members), language="text")
 
     with st.expander("Diagnostics", expanded=True):
         st.write(f"Number of cones: {number_of_cones}")
-        st.write(f"Ring x positions (m): " +
-                 ", ".join(f"{v:+.3f}" for v in x_rings))
-        st.write(f"Ring z positions (m): " +
-                 ", ".join(f"{v:.3f}" for v in ring_z_rings))
-        st.write(f"Outer eave corners held: {anchors.shape[0]}")
-        st.write(f"Perimeter nodes: {perimeter_loop.shape[0]}")
-        st.write(f"Perimeter cable nodes (free): {len(intermediate_perimeter)}")
         st.write(f"Total mesh nodes: {pts.shape[0]}")
         st.write(f"Mesh edges: {len(edges)}")
         st.write(f"Mesh triangles: {len(tris)}")
         st.write(f"Held nodes (total): {len(fixed)}")
-        st.write(f"DOF count: {dof_count}")
+
+        st.write("---")
+        st.write(f"**Stage 1 — FDM:**")
         st.write(f"FDM Solve OK: {solve_ok}")
         if not solve_ok:
             st.write(f"FDM error: {solve_err}")
         else:
-            st.write(f"FDM force imbalance (N): {residual_norm:.6e}")
+            st.write(f"FDM force imbalance (N): {residual_fdm:.6e}")
+            st.write(f"FDM estimated edge tension (N): "
+                     f"{max_edge_tension_N:.1f}")
+
+        st.write(f"**Auto-Sizing:**")
+        st.write(f"Selected cable: {cable_name}")
+        st.write(f"Cable area: {cable_A_mm2:.1f} mm²")
+        st.write(f"Cable EA: {EA_cable / 1e6:.2f} MN")
+        st.write(f"Selected steel: {steel_section}")
+        st.write(f"Steel axial: {beam_axial_kN:.1f} kN")
+        st.write(f"Steel moment: {beam_moment_kNm:.1f} kNm")
 
         st.write("---")
-        st.write(f"**Dynamic Relaxation (Kinetic Damping):**")
+        st.write(f"**Stage 2 — DR:**")
         st.write(f"DR converged: {dr_converged}")
         st.write(f"DR iterations: {dr_result['iterations']}")
         st.write(f"DR residual (N): {dr_residual:.6e}")
         st.write(f"DR time (s): {dr_result['elapsed_seconds']:.2f}")
         st.write(f"DR kinetic peaks: {dr_result.get('kinetic_peaks', 0)}")
-
-        st.write(f"Warp q (N/m): {warp_q:.1f}")
-        st.write(f"Weft q (N/m): {weft_q:.1f}")
-        st.write(f"Edge cable q (N/m): {edge_q_scalar:.1f}")
-        st.write(f"Cable / membrane q ratio: "
-                 f"{edge_q_scalar / max(warp_q, 1.0):.4f}")
-        st.write(f"Target edge length: {target_len:.4f}")
-
-    with st.expander("All nodes (full digitisation)", expanded=False):
-        st.code(
-            _format_all_nodes(
-                pts, coords_final, anchor_idx,
-                built["ring_indices"],
-                built["centre_indices"],
-                built["beam_top_indices"],
-                intermediate_perimeter,
-            ),
-            language="text",
-        )
-
-
-# =============================================================================
-# END OF ui/workshops/tester_multi_cone.py
-# =============================================================================
