@@ -1,25 +1,33 @@
 # =============================================================================
 # SDSe Engine - Dynamic Relaxation Solver
 # =============================================================================
-# A robust nonlinear solver based on Dynamic Relaxation (DR).
+# A robust nonlinear solver based on Dynamic Relaxation.
 # Replaces Newton-Raphson for membrane form-finding under load.
 # =============================================================================
 
-import numpy as np
 import time
+import numpy as np
+
+from engine.nonlinear_equilibrium import (
+    _assemble_residual,
+    make_membrane_material,
+)
 
 
 def solve_dynamic_relaxation(
     points, triangles, fixed_indices, reference_points,
     membrane_material, cables=None, loads=None,
-    max_iter=5000, tol=1e-4, max_wall_seconds=25.0,
-    damping=0.95, dt=0.001
+    max_iter=10000, tol=1e-4, max_wall_seconds=25.0,
+    damping=0.90, dt=0.005
 ):
     """
-    Solves nonlinear equilibrium using Dynamic Relaxation.
+    Solve nonlinear equilibrium using Dynamic Relaxation.
+    Returns the same dict format as solve_nonlinear_equilibrium.
     """
     t_start = time.time()
     points = np.asarray(points, dtype=float).copy()
+    reference_points = np.asarray(reference_points, dtype=float).copy()
+    triangles = list(triangles)
     n_nodes = points.shape[0]
 
     if loads is None:
@@ -32,114 +40,113 @@ def solve_dynamic_relaxation(
         fixed_mask[i] = True
     free_mask = ~fixed_mask
 
-    # 1. Assign fictitious mass (based on connectivity)
-    # We use a simple uniform mass for stability
+    # Fictitious mass
     mass = np.ones(n_nodes, dtype=float)
-    
-    # 2. Pre-calculate element stiffnesses (simplified for DR)
-    # For DR, we use the current geometry to calculate forces.
-    
-    # 3. Initialize velocity
+
+    # Velocity
     velocity = np.zeros((n_nodes, 3), dtype=float)
-    
-    # We need the tangent stiffness for the DR stability check
-    # For now, we use a simplified version
 
-    def _assemble_forces(pts):
-        """Assemble the out-of-balance forces."""
-        F = np.zeros((n_nodes, 3), dtype=float)
-        
-        # Membrane forces
-        for (a, b, c) in triangles:
-            # Use the existing membrane internal force logic
-            # (We'll import or inline a simplified version here)
-            pass
-            
-        # Cable forces
-        if cables:
-            for cb in cables:
-                a = int(cb["a"])
-                b = int(cb["b"])
-                L0 = float(cb["L0"])
-                EA = float(cb["EA"])
-                
-                d = pts[b] - pts[a]
-                L = float(np.linalg.norm(d))
-                
-                if L > 1e-9 and L > L0:
-                    T = EA * (L - L0) / L0
-                    u = d / L
-                    F[a] += T * u
-                    F[b] -= T * u
-        
-        # External loads
-        F += loads
-        
-        # Zero out fixed nodes
-        F[fixed_mask] = 0.0
-        return F
+    cables = list(cables or [])
+    taut_flags = [False] * len(cables)
 
-    # We need a proper force assembly. Let's use the existing solver's
-    # _assemble_residual logic, but we'll re-write it here for clarity.
-    
-    from engine.nonlinear_equilibrium import _assemble_residual, _membrane_internal_force, cable_state, make_membrane_material
+    # Initial residual
+    R = _assemble_residual(
+        points, triangles, cables, reference_points,
+        membrane_material, loads, free_mask, n_nodes, taut_flags
+    )
+    r_norm = float(np.linalg.norm(R[free_mask]))
 
-    taut_flags = [False] * len(cables) if cables else []
-    
-    # 4. The Dynamic Relaxation Loop
+    converged = False
+    reason = "max_iter"
+    iterations = 0
+    total_steps = 0
+
+    # Dynamic Relaxation Loop
     for it in range(max_iter):
+        iterations = it + 1
+        total_steps += 1
+
         if time.time() - t_start > max_wall_seconds:
-            return {
-                "coordinates": points,
-                "converged": False,
-                "reason": "wall_clock_exceeded",
-                "iterations": it,
-                "residual_norm": np.inf,
-            }
-        
-        # Calculate residual
+            reason = "wall_clock_exceeded"
+            break
+
+        if r_norm < tol:
+            converged = True
+            reason = "converged"
+            break
+
+        # Update tautness flags
+        for k, cb in enumerate(cables):
+            a = int(cb["a"])
+            b = int(cb["b"])
+            L0 = float(cb["L0"])
+            L = float(np.linalg.norm(points[b] - points[a]))
+            taut_flags[k] = L > L0
+
+        # Compute residual
         R = _assemble_residual(
             points, triangles, cables, reference_points,
             membrane_material, loads, free_mask, n_nodes, taut_flags
         )
-        
         r_norm = float(np.linalg.norm(R[free_mask]))
-        
-        if r_norm < tol:
-            return {
-                "coordinates": points,
-                "converged": True,
-                "reason": "converged",
-                "iterations": it,
-                "residual_norm": r_norm,
-            }
-        
-        # Update velocities and positions
-        # a = F / m
+
+        # Accelerate
         acc = R / mass[:, np.newaxis]
-        
-        # v = v + a * dt
         velocity += acc * dt
-        
-        # Apply damping
         velocity *= damping
-        
-        # x = x + v * dt
+
+        # Move
         points[free_mask] += velocity[free_mask] * dt
-        
-        # Update cable tautness
-        if cables:
-            for k, cb in enumerate(cables):
-                a = int(cb["a"])
-                b = int(cb["b"])
-                L0 = float(cb["L0"])
-                L = float(np.linalg.norm(points[b] - points[a]))
-                taut_flags[k] = L > L0
+
+    # Compute final membrane stress
+    from engine.nonlinear_equilibrium import membrane_stress
+    membrane_stress_list = []
+    for (a, b, c) in triangles:
+        try:
+            sigma, comp, _sp = membrane_stress(
+                points[a], points[b], points[c],
+                reference_points[a], reference_points[b], reference_points[c],
+                membrane_material
+            )
+            membrane_stress_list.append({
+                "triangle": (int(a), int(b), int(c)),
+                "sigma": sigma,
+                "compression_found": bool(comp),
+            })
+        except ValueError:
+            membrane_stress_list.append({
+                "triangle": (int(a), int(b), int(c)),
+                "sigma": np.zeros((2, 2)),
+                "compression_found": False,
+            })
+
+    # Compute final cable tensions
+    from engine.nonlinear_equilibrium import cable_state
+    cable_tension_list = []
+    for cb in cables:
+        T, taut, _k, _u = cable_state(
+            points[int(cb["a"])], points[int(cb["b"])],
+            float(cb["L0"]), float(cb["EA"])
+        )
+        cable_tension_list.append({
+            "a": int(cb["a"]),
+            "b": int(cb["b"]),
+            "T_N": float(T),
+            "L0_m": float(cb["L0"]),
+            "taut": bool(taut),
+        })
+
+    elapsed = time.time() - t_start
 
     return {
         "coordinates": points,
-        "converged": False,
-        "reason": "max_iter",
-        "iterations": max_iter,
-        "residual_norm": r_norm,
+        "converged": bool(converged),
+        "iterations": int(iterations),
+        "total_steps": int(total_steps),
+        "elapsed_seconds": float(elapsed),
+        "residual_norm": float(r_norm),
+        "max_residual": float(r_norm),
+        "membrane_stress": membrane_stress_list,
+        "cable_tension": cable_tension_list,
+        "reason": reason,
     }
