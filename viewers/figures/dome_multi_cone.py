@@ -2,8 +2,8 @@
 # SDSe - Dome Multi-Cone Viewer
 # =============================================================================
 # History:
-#   2026-10-21 - Wired the Auto-Design engine. Extracts beam forces from
-#                cable tensions and passes them to the design check.
+#   2026-10-21 - Wired in the Load Generator (Wind, Snow, Payload).
+#                Solver now sees real loads instead of just pretension.
 # =============================================================================
 
 import hashlib
@@ -23,6 +23,7 @@ from engine.nonlinear_equilibrium import (
     make_membrane_material,
 )
 from engine.design_check import calculate_design_checks
+from engine.load_generator import generate_loads
 from viewers.figures._shared import apply_common_layout
 from ui.components.SDSe_spreadsheet import render_element_spreadsheet
 
@@ -305,7 +306,7 @@ def _verify_frame_against_globe(apexes, ground_radius, crown_height, curve_type)
 # CACHED FDM + NFDM SOLVE
 # =============================================================================
 
-def _hash_mesh(pts, tris, cables, fdm_fixed, nfdm_fixed, material_key):
+def _hash_mesh(pts, tris, cables, fdm_fixed, nfdm_fixed, material_key, loads_key):
     h = hashlib.sha256()
     h.update(np.round(pts, 6).astype(np.float64).tobytes())
     h.update(np.asarray(tris, dtype=np.int32).tobytes())
@@ -316,6 +317,7 @@ def _hash_mesh(pts, tris, cables, fdm_fixed, nfdm_fixed, material_key):
     h.update(np.asarray(fdm_fixed, dtype=np.int32).tobytes())
     h.update(np.asarray(nfdm_fixed, dtype=np.int32).tobytes())
     h.update(bytes(material_key, "utf-8"))
+    h.update(bytes(loads_key, "utf-8"))
     return h.hexdigest()
 
 
@@ -361,6 +363,7 @@ def _cached_solve(mesh_hash, pts_bytes, tris_bytes, edges_bytes,
                    cables_bytes, q_interior_bytes,
                    boundary_edge_keys_bytes, edge_q_scalar,
                    warp_prestress, weft_prestress,
+                   loads_bytes,
                    max_iter, max_outer, tol, wall_seconds):
     pts = np.frombuffer(pts_bytes, dtype=np.float64).reshape(-1, 3).copy()
     tris = np.frombuffer(tris_bytes, dtype=np.int32).reshape(-1, 3).tolist()
@@ -369,6 +372,11 @@ def _cached_solve(mesh_hash, pts_bytes, tris_bytes, edges_bytes,
     nfdm_fixed = np.frombuffer(nfdm_fixed_bytes, dtype=np.int32).tolist()
     cables = _unpack_cables(cables_bytes)
     q_interior = np.frombuffer(q_interior_bytes, dtype=np.float64).copy()
+    
+    if loads_bytes:
+        loads = np.frombuffer(loads_bytes, dtype=np.float64).reshape(-1, 3).copy()
+    else:
+        loads = None
 
     boundary_edge_set = set()
     arr_b = np.frombuffer(boundary_edge_keys_bytes, dtype=np.int32)
@@ -395,7 +403,7 @@ def _cached_solve(mesh_hash, pts_bytes, tris_bytes, edges_bytes,
     nfdm_coords = None
 
     try:
-        nfdm_res = solve_nonlinear_equilibrium(points=fdm_coords.copy(), triangles=tris, fixed_indices=nfdm_fixed, reference_points=fdm_coords.copy(), membrane_material=material, cables=cables, loads=None, max_iter=max_iter, max_outer=max_outer, tol=tol, max_wall_seconds=wall_seconds)
+        nfdm_res = solve_nonlinear_equilibrium(points=fdm_coords.copy(), triangles=tris, fixed_indices=nfdm_fixed, reference_points=fdm_coords.copy(), membrane_material=material, cables=cables, loads=loads, max_iter=max_iter, max_outer=max_outer, tol=tol, max_wall_seconds=wall_seconds)
         nfdm_coords = nfdm_res["coordinates"]
         nfdm_summary = {"converged": bool(nfdm_res.get("converged", False)), "reason": str(nfdm_res.get("reason", "")), "iterations": int(nfdm_res.get("iterations", 0)), "total_steps": int(nfdm_res.get("total_steps", 0)), "elapsed_seconds": float(nfdm_res.get("elapsed_seconds", 0.0)), "residual_norm": float(nfdm_res.get("residual_norm", 0.0)), "max_residual": float(nfdm_res.get("max_residual", 0.0)), "n_cables": len(cables), "n_fixed": len(nfdm_fixed), "n_nodes": int(pts.shape[0]), "n_triangles": len(tris), "membrane_stress": nfdm_res.get("membrane_stress", []), "cable_tension": nfdm_res.get("cable_tension", [])}
     except Exception as e:
@@ -421,6 +429,11 @@ def build_dome_multi_cone():
     warp_pretension = float(_get("warp_pretension", 20.0))
     weft_pretension = float(_get("weft_pretension", 20.0))
     edge_cable_pretension = float(_get("edge_cable_pretension", 45.0))
+    
+    # Loads
+    wind_speed = float(_get("wind_speed", 30.0))
+    snow_depth = float(_get("snow_depth", 0.0))
+    add_payload = float(_get("add_payload", 0.0))
 
     access_mode = str(st.session_state.get("access_mode", "owner")).lower()
 
@@ -465,6 +478,7 @@ def build_dome_multi_cone():
             built = None
 
     fdm_coords = None; solve_summary = None; fdm_fixed = []; pts = None
+    node_loads = None
     if built is not None:
         pts = built["points"].copy()
         tris = built["triangles"]
@@ -524,8 +538,13 @@ def build_dome_multi_cone():
                 L0 = L_ref / (1.0 + T_ring_pre_N / EA_ring)
                 cables.append({"a": ia, "b": ib, "L0": L0, "EA": EA_ring})
 
+        # GENERATE LOADS
+        node_loads = generate_loads(pts, tris, wind_speed, snow_depth, add_payload)
+        
+        # HASH
+        loads_key = "W%.1f_S%.1f_P%.1f" % (wind_speed, snow_depth, add_payload)
         material_key = "PVDF_TypeIII_%.4f_%.4f" % (warp_pretension, weft_pretension)
-        mesh_hash = _hash_mesh(pts, tris, cables, fdm_fixed, nfdm_fixed, material_key)
+        mesh_hash = _hash_mesh(pts, tris, cables, fdm_fixed, nfdm_fixed, material_key, loads_key)
 
         boundary_keys_flat = []
         for (a, b) in boundary_edge_set:
@@ -533,7 +552,25 @@ def build_dome_multi_cone():
         boundary_keys_arr = np.asarray(boundary_keys_flat, dtype=np.int32)
 
         with st.spinner("Solving FDM seed..."):
-            fdm_bytes, _, summary = _cached_solve(mesh_hash, pts.astype(np.float64).tobytes(), np.asarray(tris, dtype=np.int32).tobytes(), _pack_edges(edges), np.asarray(fdm_fixed, dtype=np.int32).tobytes(), np.asarray(nfdm_fixed, dtype=np.int32).tobytes(), _pack_cables(cables), q_interior.astype(np.float64).tobytes(), boundary_keys_arr.tobytes(), float(edge_q_scalar), float(warp_pretension * 1000.0), float(weft_pretension * 1000.0), int(SOLVE_MAX_ITER), int(SOLVE_MAX_OUTER), float(SOLVE_TOL), 0.001)
+            fdm_bytes, _, summary = _cached_solve(
+                mesh_hash, 
+                pts.astype(np.float64).tobytes(), 
+                np.asarray(tris, dtype=np.int32).tobytes(), 
+                _pack_edges(edges), 
+                np.asarray(fdm_fixed, dtype=np.int32).tobytes(), 
+                np.asarray(nfdm_fixed, dtype=np.int32).tobytes(), 
+                _pack_cables(cables), 
+                q_interior.astype(np.float64).tobytes(), 
+                boundary_keys_arr.tobytes(), 
+                float(edge_q_scalar), 
+                float(warp_pretension * 1000.0), 
+                float(weft_pretension * 1000.0), 
+                node_loads.astype(np.float64).tobytes() if node_loads is not None else b"",
+                int(SOLVE_MAX_ITER), 
+                int(SOLVE_MAX_OUTER), 
+                float(SOLVE_TOL), 
+                0.001
+            )
             fdm_coords = np.frombuffer(fdm_bytes, dtype=np.float64).reshape(-1, 3).copy()
             solve_summary = summary
 
@@ -544,12 +581,11 @@ def build_dome_multi_cone():
         mem_results = solve_summary["nfdm"].get("membrane_stress", [])
         cab_results = solve_summary["nfdm"].get("cable_tension", [])
     
-    # We extract a max cable force and convert to a rough beam load
+    # Extract max cable force for beam approximation
     max_cable_kN = 0.0
     for cb in cab_results:
         if cb["T_N"] / 1000.0 > max_cable_kN: max_cable_kN = cb["T_N"] / 1000.0
     
-    # Simple approximation for the beam load (Axial = max cable, Moment = force * span/8)
     beam_span = dome_diameter
     approx_beam_axial = max_cable_kN * 0.5
     approx_beam_moment = (approx_beam_axial * beam_span) / 8.0
