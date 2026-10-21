@@ -47,10 +47,7 @@ COL_DROP = "#a0a0a0"
 # =============================================================================
 
 def _select_edge_cable(fdm_result, safety_factor=2.0):
-    """
-    Pick the smallest cable from CABLE_PROPERTIES that can take the
-    max FDM tension with a safety factor.
-    """
+    """Pick the smallest cable from CABLE_PROPERTIES."""
     T_max_N = float(fdm_result.get("max_edge_tension_N", 0.0))
     if T_max_N <= 0:
         T_max_N = float(fdm_result.get("edge_q_scalar", 10000.0))
@@ -98,10 +95,7 @@ def _select_edge_cable(fdm_result, safety_factor=2.0):
 
 def _select_steel_section(max_axial_kN, max_moment_kNm,
                           family="CHS", grade="S355"):
-    """
-    Pick the smallest section in the family that passes the combined
-    axial + bending check to a simple utilization ratio.
-    """
+    """Pick the smallest section in the family."""
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
     best = None
     for name, props in SECTION_PROPERTIES.items():
@@ -360,7 +354,7 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        span = st.number_input("Primary span (m)", 6.0, 60.0, 25.0, 0.5,
+        span = st.number_input("Primary span (m)", 6.0, 60.0, 20.0, 0.5,
                                 key="mc_span")
     with c2:
         apex = st.number_input("Primary apex (m)", 1.0, 30.0, 9.0, 0.5,
@@ -394,13 +388,13 @@ def render_tester_multi_cone():
                                     key="mc_optends")
 
     subdivisions = int(st.number_input(
-        "Subdivisions per edge", 5, 25, 17, 1, key="mc_subdiv"
+        "Subdivisions per edge", 5, 25, 7, 1, key="mc_subdiv"
     ))
 
     c1, c2 = st.columns(2)
     with c1:
         number_of_cones = int(st.number_input(
-            "Number of cones", 1, 20, 3, 1, key="mc_ncones"
+            "Number of cones", 1, 20, 1, 1, key="mc_ncones"
         ))
     with c2:
         ring_spacing = st.number_input(
@@ -416,18 +410,18 @@ def render_tester_multi_cone():
     c1, c2 = st.columns(2)
     with c1:
         warp_q_input = st.number_input(
-            "Warp pretension (kN/m)", 0.1, 100.0, 20.0, 0.1,
+            "Warp pretension (kN/m)", 0.1, 100.0, 2.0, 0.1,
             key="mc_warp",
         )
     with c2:
         weft_q_input = st.number_input(
-            "Weft pretension (kN/m)", 0.1, 100.0, 20.0, 0.1,
+            "Weft pretension (kN/m)", 0.1, 100.0, 2.0, 0.1,
             key="mc_weft",
         )
 
     edge_q_input = st.number_input(
         "Edge cable pretension (kN/m)",
-        0.1, 500.0, 20.0, 0.1,
+        0.1, 500.0, 5.0, 0.1,
         key="mc_edgeq",
     )
 
