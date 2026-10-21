@@ -10,10 +10,10 @@ import streamlit.components.v1 as components
 
 _COMPONENT_DIR = os.path.dirname(__file__)
 
-# Point directly to the specific HTML file for the Pickerboard
+# Points to the 'pickerboard' folder we just created
 _SDSe_pickerboard_component = components.declare_component(
     "SDSe_pickerboard",
-    path=os.path.join(_COMPONENT_DIR, "SDSe_pickerboard.html"),
+    path=os.path.join(_COMPONENT_DIR, "pickerboard"),
 )
 
 
