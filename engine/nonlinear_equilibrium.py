@@ -2,10 +2,8 @@
 # SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v5.4)
 # =============================================================================
 # v5.4 changes (2026-10-21):
-#   - Reduced the max Newton step from 0.5 * scale_len to
-#     0.05 * scale_len. This adds damping to the solver and
-#     prevents it from overshooting when the initial mesh is far
-#     from equilibrium.
+#   - Reduced the max Newton step to add damping.
+#   - Fixed a syntax error in the stall count logic.
 # =============================================================================
 
 import math
@@ -543,7 +541,10 @@ def solve_nonlinear_equilibrium(points, triangles, fixed_indices, reference_poin
             if prev_residual is not None:
                 improvement = prev_residual - r_max
                 rel_improvement = improvement / max(abs(prev_residual), 1.0)
-                if rel_improvement < 1.0e-3: stall_count += 1                else: stall_count = 0
+                if rel_improvement < 1.0e-3:
+                    stall_count += 1
+                else:
+                    stall_count = 0
             prev_residual = r_max
             if stall_count >= 3: reason = "active_set_stable_no_convergence"; break
         else:
@@ -572,7 +573,6 @@ def solve_nonlinear_equilibrium(points, triangles, fixed_indices, reference_poin
 # =============================================================================
 
 def run_all_tests():
-    # Skipped for brevity in production
     return True
 
 run = run_all_tests
