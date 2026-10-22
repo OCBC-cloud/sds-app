@@ -58,7 +58,7 @@ def design_baseplate_and_foundation(reaction_N, steel_fy_MPa=355, concrete_fc_MP
         (36, 817.0, 850),
     ]
     
-    bolt_d, bolt_A, bolt_embed = 24, 353.0, 550 # Default to M24 if loads are crazy high
+    bolt_d, bolt_A, bolt_embed = 36, 817.0, 850 # Default to M36 if loads are crazy high
     for d, A, embed in bolt_sizes:
         if A >= req_area_mm2:
             bolt_d, bolt_A, bolt_embed = d, A, embed
