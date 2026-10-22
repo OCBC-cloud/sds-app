@@ -463,11 +463,10 @@ def render_tester_multi_cone():
             dr_result = solve_nonlinear_equilibrium(
                 points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                 membrane_material=material, cables=cables, loads=loads,
-                max_iter=100, max_outer=25, tol=1.5, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=50.0, seed_z_amplitude=0.001 * data["span"],
+                max_iter=100, max_outer=25, tol=1.5, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=90.0, seed_z_amplitude=0.001 * data["span"],
             )
             
             # --- DEFENSIVE SIZING ---
-            # If Newton failed to produce a cable list, fall back to FDM estimate
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
             else:
@@ -476,30 +475,22 @@ def render_tester_multi_cone():
             max_actual_T = max(max_actual_T, data["fdm"]["max_edge_tension_N"])
             
             # --- CHIEF'S FIX: ENFORCE MINIMUM BASELINE TENSION ---
-            # The cable must be able to carry at least the pretension over its full length.
-            # We use the perimeter cable length from the FDM result.
             if len(data["anchor_idx"]) > 0:
-                # Estimate perimeter cable length
                 total_perimeter = 0.0
                 n_anchors = len(data["anchor_idx"])
                 for k in range(n_anchors):
                     a_idx = data["anchor_idx"][k]
                     b_idx = data["anchor_idx"][(k + 1) % n_anchors]
-                    # Approximate segment length between anchors
                     L_segment = float(np.linalg.norm(data["coords_fdm"][b_idx] - data["coords_fdm"][a_idx]))
                     total_perimeter += L_segment
             else:
-                total_perimeter = data["span"] * 4.0 # fallback box
+                total_perimeter = data["span"] * 4.0
                 
-            # Baseline tension = pretension (N/m) * perimeter length (m)
             baseline_tension_N = data["edge_q_scalar"] * total_perimeter
-            
-            # The design tension is the maximum of the Newton result and the baseline
             design_tension_N = max(max_actual_T, baseline_tension_N)
             
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(design_tension_N, safety_factor=2.0)
 
-            # If Newton failed to produce reactions, fall back to FDM tension
             if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
                 max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)/1000.0 for r in dr_result["reactions"]])
             else:
