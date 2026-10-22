@@ -2,7 +2,7 @@
 
 Two-stage workflow:
     Stage 1: FDM finds the shape.
-    Stage 2: Cable auto-sized (smallest possible). DR runs.
+    Stage 2: Cable auto-sized (smallest possible). Newton solves.
     Stage 3: Steel sized from resulting forces.
 
 History:
@@ -13,6 +13,12 @@ History:
                 dt 0.005 -> 0.02, wall clock 25s -> 50s,
                 stopping criterion switched from absolute tol=1e-4
                 (unreachable) to relative tol_rel=1e-3 (honest).
+    2026-10-22 - Replaced DR with Newton-Raphson
+                (solve_nonlinear_equilibrium). The repo already
+                contains a complete, slack-cable aware, sparse,
+                Armijo-line-search Newton solver. DR was the wrong
+                tool for a mesh with stiff rings and cables; Newton
+                is the right tool. Diagnostics relabelled honestly.
 """
 
 import math
@@ -26,8 +32,10 @@ from engine.SDSe_mesh_builder import (
     SDSe_mesh_rings,
     SDSe_blend_q_per_edge,
 )
-from engine.nonlinear_equilibrium import make_membrane_material
-from engine.dynamic_relaxation import solve_dynamic_relaxation
+from engine.nonlinear_equilibrium import (
+    make_membrane_material,
+    solve_nonlinear_equilibrium,
+)
 from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
 from viewers.figures._shared import (
@@ -344,7 +352,7 @@ def render_tester_multi_cone():
         "Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>"
         "Stage 1: FDM finds shape. "
-        "Stage 2: Cable auto-sized, DR runs.</p>",
+        "Stage 2: Cable auto-sized, Newton solves.</p>",
         unsafe_allow_html=True,
     )
 
@@ -561,10 +569,10 @@ def render_tester_multi_cone():
         weft_prestress_N_per_m=weft_q,
     )
 
-    # ---- STAGE 4: DR solver ----
-    st.write("Running Dynamic Relaxation solver...")
+    # ---- STAGE 4: Newton-Raphson nonlinear equilibrium ----
+    st.write("Running Newton-Raphson nonlinear equilibrium solver...")
 
-    dr_result = solve_dynamic_relaxation(
+    dr_result = solve_nonlinear_equilibrium(
         points=coords_fdm.copy(),
         triangles=tris,
         fixed_indices=fixed,
@@ -572,12 +580,12 @@ def render_tester_multi_cone():
         membrane_material=material,
         cables=cables,
         loads=None,
-        max_iter=5000,
-        tol_rel=1e-3,
+        max_iter=100,
+        max_outer=25,
+        tol=1e-6,
+        tol_disp=1e-8,
+        max_total_steps=200,
         max_wall_seconds=50.0,
-        dt=0.02,
-        max_velocity=10.0,
-        kinetic_damping=True,
     )
 
     coords = dr_result["coordinates"]
@@ -681,20 +689,22 @@ def render_tester_multi_cone():
         st.write("Steel moment: %.1f kNm" % beam_moment_kNm)
 
         st.write("---")
-        st.write("**Stage 2 — DR:**")
-        st.write("DR converged: %s" % dr_converged)
-        st.write("DR iterations: %d" % dr_result["iterations"])
-        st.write("DR residual (N): %.6e" % dr_residual)
-        st.write("DR time (s): %.2f" % dr_result["elapsed_seconds"])
-        st.write("DR kinetic peaks: %d"
-                 % dr_result.get("kinetic_peaks", 0))
-        if "residual_initial" in dr_result:
-            st.write("DR residual initial (N): %.6e"
-                     % dr_result["residual_initial"])
-            st.write("DR residual target (N): %.6e"
-                     % dr_result["residual_target"])
-            st.write("DR stop mode: %s" % dr_result.get("stop_mode", ""))
-        st.write("DR reason: %s" % dr_result.get("reason", ""))
+        st.write("**Stage 2 — Newton:**")
+        st.write("Newton converged: %s" % dr_converged)
+        st.write("Newton iterations: %d" % dr_result["iterations"])
+        st.write("Newton total steps: %d" % dr_result.get("total_steps", 0))
+        st.write("Newton residual (N): %.6e" % dr_residual)
+        st.write("Newton max residual (N): %.6e"
+                 % dr_result.get("max_residual", dr_residual))
+        st.write("Newton time (s): %.2f" % dr_result["elapsed_seconds"])
+        st.write("Newton reason: %s" % dr_result.get("reason", ""))
+
+        hist = dr_result.get("history", [])
+        if hist:
+            st.write("Newton history (last 5 steps):")
+            for row in hist[-5:]:
+                st.write("  outer=%s  inner=%s  ||R||=%.4e  max|R|=%.4e"
+                         % (row[0], row[1], row[2], row[3]))
 
 
 # =============================================================================
