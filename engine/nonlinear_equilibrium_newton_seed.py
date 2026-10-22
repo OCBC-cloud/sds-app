@@ -1,104 +1,11 @@
 # =============================================================================
 # EXPERIMENTAL FORK. NOT THE SOURCE OF TRUTH.
 #
-# This file is a temporary fork of engine/nonlinear_equilibrium.py, created
-# 2026-10-22 to experiment with an optional out-of-plane seed for the Newton
-# solver, to fix the flat-reference line_search_failed on the Lab Multi-Cone
-# mesh.
-#
-# LIFETIME: when the Lab converges and the change is proven, the winning diff
-# is merged back into engine/nonlinear_equilibrium.py, this file is DELETED,
-# and the Lab import is switched back to the original. Do not let this file
-# become permanent. It is a branch, not a fork in the repo.
-#
-# Only difference from the original:
-#   - New keyword argument seed_z_amplitude (default 0.0) on
-#     solve_nonlinear_equilibrium. When nonzero, a smooth cosine bump in the
-#     z direction (zero at the boundary of the model's z-extent, maximum in
-#     the interior) is added to the working points BEFORE any residual
-#     assembly. Purely additive. Default 0.0 preserves the original
-#     behaviour exactly.
-#   - Result dict gains one key: seed_applied_m (float, the amplitude used).
-#   - max_step in the Newton loop clamped to 0.05 * scale_len (was 0.5).
-#     A 50 cm step on a 10m span is still large but no longer catastrophic.
+# LIFETIME: When the Lab converges, merge back to nonlinear_equilibrium.py.
 # =============================================================================
 
 # =============================================================================
 # SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v5.3)
-# =============================================================================
-# Prestressed-reference coupled nonlinear solver.
-# Real CST + geometric tangent. Slack-cable aware.
-# Sparse assembly and sparse solve. Element matrices cached
-# per Newton step. Armijo backtracking line search.
-# Relative convergence. Prestress baked into the reference.
-#
-# v5.3 changes (2026-10-06):
-#   - Test 4 reference geometry changed from the flat
-#     plan to a small hypar with 20 mm corner-to-corner
-#     z amplitude. The flat reference was a nearly
-#     singular configuration: the out-of-plane tangent
-#     at zero curvature is zero. The Armijo line search
-#     is stricter than the previous plain backtracking
-#     and refused to take the unstable first step.
-#     A small hypar reference is a well-posed problem:
-#     the membrane is at a small but nonzero strain, the
-#     tangent is not singular, and the Armijo condition
-#     is satisfied at a reasonable step size.
-#   - This is the same physics as v5.2. Elements,
-#     residual, tangent, prestress formulation, tension-
-#     field projection, sparse assembly, sparse solve,
-#     cached element matrices, Armijo line search, and
-#     the outer-loop active-set logic are all unchanged.
-#   - Test 1, 2, 3 are unchanged.
-#
-# v5.2 changes (2026-10-06):
-#   - Sparse tangent. Sparse solve. Element matrices
-#     cached per Newton step. Armijo backtracking line
-#     search. Displacement convergence check.
-#
-# v5.1 changes (2026-10-06):
-#   - Outer-loop break logic corrected.
-#   - Step budget and wall-clock guards added.
-#
-# v5.0 changes (2026-10-06):
-#   - Test 4 redesigned to verify cable tension.
-#
-# v4.9 changes (2026-10-06):
-#   - Test 4 acceptance criterion corrected.
-#
-# v4.8 changes (2026-10-06):
-#   - Test 4 initial configuration perturbed out of plane.
-#
-# v4.7 changes (2026-10-06):
-#   - Membrane internal force sign corrected.
-#
-# v4.6 changes (2026-10-06):
-#   - Cable tangent material term sign corrected.
-#
-# v4.5 changes (2026-10-06):
-#   - Cable geometric stiffness sign corrected.
-#
-# v4.4 changes (2026-10-06):
-#   - Residual convention: R = F_int + loads.
-#
-# Conventions:
-#   Length m, force N, stress N/m^2, thickness m, EA in N.
-#   Membrane prestress in N/m (stress resultant).
-#   Cable pretension in N (axial force).
-#   Cable tension T = EA (L - L0) / L0 if taut, else 0.
-#   loads: external force on each node, positive in the
-#          axis direction. Downward load = negative z.
-#
-# History:
-#   2026-10-04 - First build.
-#   2026-10-04 - v2. Slack handling and analytical tangent.
-#   2026-10-04 - v3. Real CST tangent. Relative convergence.
-#   2026-10-04 - v4. Prestressed reference formulation.
-#   2026-10-05 - v4.1. Prestress as stress resultant.
-#   2026-10-06 - v4.2 through v5.2. Successive fixes.
-#   2026-10-06 - v5.3. Test 4 reference not flat.
-#   2026-10-22 - TEST FORK. Optional seed_z_amplitude. See header above.
-#   2026-10-22 - max_step clamped to 0.05 * scale_len.
 # =============================================================================
 
 import math
@@ -928,8 +835,8 @@ def solve_nonlinear_equilibrium(
             dx = _solve_linear_system(K, r_flat, n_dof)
 
             dx_norm = float(np.linalg.norm(dx))
-            # TEST FORK: reduced max_step from 0.5 to 0.05.
-            max_step = 0.05 * scale_len
+            # TEST FORK: reduced max_step to 0.01
+            max_step = 0.01 * scale_len
             if dx_norm > max_step and dx_norm > 0.0:
                 dx = dx * (max_step / dx_norm)
                 dx_norm = max_step
@@ -1092,8 +999,7 @@ def solve_nonlinear_equilibrium(
 
 
 # =============================================================================
-# SELF-TESTS (copied verbatim from the original, for the fork to prove it is
-# still the same solver when seed_z_amplitude is left at its default 0.0)
+# SELF-TESTS (copied verbatim from the original)
 # =============================================================================
 
 def _test_flat_membrane():
