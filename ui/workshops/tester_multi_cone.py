@@ -354,15 +354,15 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        span = st.number_input("Primary span (m)", 6.0, 60.0, 20.0, 0.5,
+        span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5,
                                 key="mc_span")
     with c2:
-        apex = st.number_input("Primary apex (m)", 1.0, 30.0, 9.0, 0.5,
+        apex = st.number_input("Primary apex (m)", 1.0, 30.0, 5.0, 0.5,
                                 key="mc_apex")
 
     c1, c2 = st.columns(2)
     with c1:
-        mid_width = st.number_input("Mid-span width (m)", 6.0, 60.0, 18.0, 0.5,
+        mid_width = st.number_input("Mid-span width (m)", 6.0, 60.0, 10.0, 0.5,
                                      key="mc_width")
     with c2:
         eave_height = st.number_input("Eave height (m)", 0.5, 10.0, 2.8, 0.1,
@@ -388,7 +388,7 @@ def render_tester_multi_cone():
                                     key="mc_optends")
 
     subdivisions = int(st.number_input(
-        "Subdivisions per edge", 5, 25, 7, 1, key="mc_subdiv"
+        "Subdivisions per edge", 5, 25, 5, 1, key="mc_subdiv"
     ))
 
     c1, c2 = st.columns(2)
@@ -579,7 +579,7 @@ def render_tester_multi_cone():
         max_iter=5000,
         tol=1e-4,
         max_wall_seconds=25.0,
-        dt=0.001,
+        dt=0.005,
         max_velocity=1.0,
         kinetic_damping=True,
     )
