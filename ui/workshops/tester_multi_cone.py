@@ -309,9 +309,9 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 5.0, 0.1, key="mc_warp")
+        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp")
     with c2:
-        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 5.0, 0.1, key="mc_weft")
+        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft")
 
     edge_q_input = st.number_input("Edge cable pretension (kN/m)", 0.1, 500.0, 5.0, 0.1, key="mc_edgeq")
 
