@@ -82,7 +82,6 @@ def _select_edge_cable(fdm_result, safety_factor=2.0):
         _, name, A_mm2, E_MPa, EA_N = candidates[0]
         return (name, A_mm2, E_MPa, EA_N, T_max_N)
 
-    # Fallback if nothing passes
     return ("Fallback 10mm strand", 63.0, 160000, 10e9, T_max_N)
 
 
@@ -381,7 +380,7 @@ def render_tester_multi_cone():
                                     key="mc_optends")
 
     subdivisions = int(st.number_input(
-        "Subdivisions per edge", 5, 25, 7, 1, key="mc_subdiv"
+        "Subdivisions per edge", 5, 25, 5, 1, key="mc_subdiv"
     ))
 
     c1, c2 = st.columns(2)
@@ -403,18 +402,18 @@ def render_tester_multi_cone():
     c1, c2 = st.columns(2)
     with c1:
         warp_q_input = st.number_input(
-            "Warp pretension (kN/m)", 0.1, 100.0, 20.0, 0.1,
+            "Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1,
             key="mc_warp",
         )
     with c2:
         weft_q_input = st.number_input(
-            "Weft pretension (kN/m)", 0.1, 100.0, 20.0, 0.1,
+            "Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1,
             key="mc_weft",
         )
 
     edge_q_input = st.number_input(
         "Edge cable pretension (kN/m)",
-        0.1, 500.0, 20.0, 0.1,
+        0.1, 500.0, 1.0, 0.1,
         key="mc_edgeq",
     )
 
