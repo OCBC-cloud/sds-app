@@ -2,7 +2,8 @@
 
 Takes reaction forces and cable tensions from the solver and sizes:
 - Baseplate thickness
-- Anchor bolt diameter, count, and embedment (J-Bolts)
+- Anchor bolt diameter, count, and embedment (J-Bolts) checking
+  both tension and shear.
 - Concrete stump dimensions
 - Concrete pad footing (resisting uplift)
 - Fin plate thickness and weld size
@@ -29,21 +30,35 @@ def design_baseplate_and_foundation(reaction_N, steel_fy_MPa=355, concrete_fc_MP
             plate_side_mm = 600
             break
             
-    # 2. Anchor Bolt Design (Uplift / Tension)
+    # 2. Anchor Bolt Design (Uplift / Tension and Shear)
     uplift_N = max(0.0, Rz)
     shear_N = math.sqrt(Rx**2 + Ry**2)
     
-    num_bolts = 2 if uplift_N < 5000 else 4
-    allowable_bolt_stress_MPa = 300.0 # Grade 8.8
+    # Use 4 bolts for any significant load to resist shear in any direction
+    num_bolts = 4
     
-    req_area_mm2 = (uplift_N / num_bolts) / allowable_bolt_stress_MPa
+    # Allowable stresses for Grade 8.8 bolts (MPa)
+    allowable_tension_MPa = 300.0
+    allowable_shear_MPa = 180.0 # roughly 0.6 * tension
     
+    # Required area per bolt for tension and shear
+    req_area_tension = (uplift_N / num_bolts) / allowable_tension_MPa
+    req_area_shear = (shear_N / num_bolts) / allowable_shear_MPa
+    
+    # Take the larger of the two requirements
+    req_area_mm2 = max(req_area_tension, req_area_shear)
+    
+    # Bolt sizes: (diameter, area, embedment)
     bolt_sizes = [
-        (12, 84.3, 250), (16, 157.0, 350), (20, 245.0, 450),
-        (24, 353.0, 550), (30, 561.0, 700),
+        (12, 84.3, 250), 
+        (16, 157.0, 350), 
+        (20, 245.0, 450),
+        (24, 353.0, 550), 
+        (30, 561.0, 700),
+        (36, 817.0, 850),
     ]
     
-    bolt_d, bolt_A, bolt_embed = 16, 157.0, 350
+    bolt_d, bolt_A, bolt_embed = 24, 353.0, 550 # Default to M24 if loads are crazy high
     for d, A, embed in bolt_sizes:
         if A >= req_area_mm2:
             bolt_d, bolt_A, bolt_embed = d, A, embed
@@ -59,46 +74,39 @@ def design_baseplate_and_foundation(reaction_N, steel_fy_MPa=355, concrete_fc_MP
     # 4. Baseplate Thickness
     bolt_spacing_mm = plate_side_mm * 0.6
     cantilever_mm = (plate_side_mm - bolt_spacing_mm) / 2.0
-    moment_per_mm = (uplift_N / num_bolts) * cantilever_mm
-    plate_thickness_mm = math.sqrt(6 * moment_per_mm / steel_fy_MPa)
-    plate_thickness_mm = max(10.0, math.ceil(plate_thickness_mm / 2.0) * 2.0)
+    
+    # If there is no uplift, base thickness on shear prying or min thickness
+    if uplift_N < 1000:
+        plate_thickness_mm = 10.0
+    else:
+        moment_per_mm = (uplift_N / num_bolts) * cantilever_mm
+        plate_thickness_mm = math.sqrt(6 * moment_per_mm / steel_fy_MPa)
+        plate_thickness_mm = max(10.0, math.ceil(plate_thickness_mm / 2.0) * 2.0)
     
     # 5. Concrete Stump Dimensions
     stump_side_mm = max(plate_side_mm + 100.0, 300.0)
     
     # 6. Concrete Pad Footing (Resisting Uplift)
-    # We need the weight of concrete + soil to resist uplift.
-    # SF = 1.5 against uplift.
-    # Density of concrete = 2400 kg/m3. Density of soil = 1800 kg/m3.
-    # Footing thickness assumed 300mm. Soil depth above footing assumed 500mm.
     footing_thickness_m = 0.3
     soil_depth_m = 0.5
     rho_concrete = 2400
     rho_soil = 1800
     g = 9.81
     
-    # Required resisting force (N)
     req_resist_N = uplift_N * 1.5
     
-    # Force from stump (approx 1m deep)
     stump_side_m = stump_side_mm / 1000.0
     stump_weight_N = (stump_side_m**2) * 1.0 * rho_concrete * g
     
-    # Remaining force needed from pad
     pad_req_N = max(0.0, req_resist_N - stump_weight_N)
-    
-    # Weight per m2 of pad + soil
     weight_per_m2 = (footing_thickness_m * rho_concrete * g) + (soil_depth_m * rho_soil * g)
     
-    # Required area of pad
     pad_area_m2 = pad_req_N / weight_per_m2 if weight_per_m2 > 0 else 0.0
-    
-    # Pad must be at least 1.5x the stump size for punching shear
     min_pad_area = (1.5 * stump_side_m)**2
     pad_area_m2 = max(pad_area_m2, min_pad_area)
     
     pad_side_m = math.sqrt(pad_area_m2)
-    pad_side_mm = math.ceil(pad_side_m * 1000.0 / 50.0) * 50 # round to nearest 50mm
+    pad_side_mm = math.ceil(pad_side_m * 1000.0 / 50.0) * 50
     
     return {
         "plate_side_mm": int(plate_side_mm),
@@ -109,15 +117,13 @@ def design_baseplate_and_foundation(reaction_N, steel_fy_MPa=355, concrete_fc_MP
         "stump_side_mm": int(stump_side_mm),
         "pad_side_mm": int(pad_side_mm),
         "pad_thickness_mm": int(footing_thickness_m * 1000),
-        "bolt_type": "J-Bolt Grade 4.6",
+        "bolt_type": "J-Bolt Grade 8.8",
         "concrete_grade": "C25/30 (25 MPa)",
     }
 
 
 def design_fin_plate(cable_tension_N, cable_diameter_mm, steel_fy_MPa=355):
-    """
-    Designs the fin plate and weld to connect a cable to the ring.
-    """
+    """Designs the fin plate and weld to connect a cable to the ring."""
     weld_strength_MPa = 100.0
     plate_thickness_mm = 10.0
     weld_length = 2 * plate_thickness_mm
