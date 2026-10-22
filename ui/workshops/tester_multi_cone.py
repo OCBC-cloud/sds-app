@@ -466,10 +466,22 @@ def render_tester_multi_cone():
                 max_iter=100, max_outer=25, tol=1.5, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=50.0, seed_z_amplitude=0.001 * data["span"],
             )
             
-            max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]] + [data["fdm"]["max_edge_tension_N"]])
+            # --- DEFENSIVE SIZING ---
+            # If Newton failed to produce a cable list, fall back to FDM estimate
+            if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
+                max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
+            else:
+                max_actual_T = data["fdm"]["max_edge_tension_N"]
+                
+            max_actual_T = max(max_actual_T, data["fdm"]["max_edge_tension_N"])
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(max_actual_T, safety_factor=2.0)
 
-            max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)/1000.0 for r in dr_result["reactions"]])
+            # If Newton failed to produce reactions, fall back to FDM tension
+            if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
+                max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)/1000.0 for r in dr_result["reactions"]])
+            else:
+                max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
+                
             steel_section = _select_steel_section(max_reaction_kN, (max_reaction_kN * data["span"]) / 8.0, family="CHS", grade="S355")
 
             coords_to_draw = dr_result["coordinates"]
