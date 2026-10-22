@@ -1,39 +1,23 @@
 """Multi-Cone Roof — Lab test page.
 
 Two-stage workflow:
-    Stage 1: FDM finds the shape.
-    Stage 2: Cable auto-sized (smallest possible). Newton solves.
-    Stage 3: Steel sized from resulting forces.
+    Stage 1: FDM finds the shape. User visually approves.
+    Stage 2: Cable auto-sized, Newton solves with real prestress.
 
 History:
     First SDSe-only version.
     2026-10-22 - Added two-stage workflow (FDM then DR).
                 Cable selector now finds the smallest possible area.
-    2026-10-22 - DR tuned for the 60s Streamlit budget:
-                dt 0.005 -> 0.02, wall clock 25s -> 50s,
-                stopping criterion switched from absolute tol=1e-4
-                (unreachable) to relative tol_rel=1e-3 (honest).
+    2026-10-22 - DR tuned for the 60s Streamlit budget.
     2026-10-22 - Replaced DR with Newton-Raphson
-                (solve_nonlinear_equilibrium). The repo already
-                contains a complete, slack-cable aware, sparse,
-                Armijo-line-search Newton solver. DR was the wrong
-                tool for a mesh with stiff rings and cables; Newton
-                is the right tool. Diagnostics relabelled honestly.
-    2026-10-22 - Added seed_z_amplitude to unblock the flat-reference
-                tangent singularity.
-    2026-10-22 - Cables are now built SLACK (L0 = L_ref * 1.001)
-                instead of pre-tensioned to an estimated FDM force.
-                Pre-tensioning caused a violent local shock on the
-                stiff cables; starting slack lets Newton settle the
-                membrane first, and the cables pull taut naturally.
-    2026-10-22 - Increased seed to 1% of span. A 1mm seed is too small
-                to establish geometric stiffness on a 10m span; the
-                out-of-plane tangent remains effectively singular and
-                the line search stalls. 1% (100mm on 10m) is the
-                standard initial curvature used in tensile form-finding.
-                Reverted the two-stage ring freeze, because SDSe shares
-                ring nodes with the membrane and freezing them walls off
-                the membrane. Single coupled Newton solve.
+                (solve_nonlinear_equilibrium).
+    2026-10-22 - Cables are now built SLACK (L0 = L_ref * 1.001).
+    2026-10-22 - Implemented the Chief's two-step workflow: FDM runs
+                first and stores the shape in session_state. A second
+                button triggers the structural Newton solve using that
+                shape as the reference geometry. This separates form
+                from force, removes the violent initial shock, and
+                guarantees a healthy tangent matrix for Newton.
 """
 
 import math
@@ -366,11 +350,11 @@ def render_tester_multi_cone():
         "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
         "Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>"
-        "Stage 1: FDM finds shape. "
-        "Stage 2: Cable auto-sized, Newton solves.</p>",
+        "Step 1: Find Form (FDM). Step 2: Structural Calculation (Newton).</p>",
         unsafe_allow_html=True,
     )
 
+    # --- Inputs ---
     c1, c2 = st.columns(2)
     with c1:
         span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5,
@@ -444,192 +428,244 @@ def render_tester_multi_cone():
         key="mc_edgeq",
     )
 
-    xp = np.linspace(-span / 2.0, span / 2.0, 200)
-    zp = beam_curve(xp, span, apex, curve_type)
-    s_p, total_p = arclength_parametrisation(xp, zp)
+    # --- THE TWO BUTTONS ---
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+    with col_btn1:
+        btn_fdm = st.button("1. Find Form (FDM)", use_container_width=True)
+    with col_btn2:
+        btn_newton = st.button("2. Structural Calculation", use_container_width=True)
 
-    rib_x = _rib_stations(secondary_count, optional_ends, span,
-                          xp, s_p, total_p)
-    rib_peak_z = np.interp(rib_x, xp, zp)
-    rib_half_width = np.array(
-        [_ellipse_y(float(xr), span, mid_width) for xr in rib_x],
-        dtype=float,
-    )
+    if btn_fdm or "fdm_results" not in st.session_state:
+        # --- Run FDM ---
+        xp = np.linspace(-span / 2.0, span / 2.0, 200)
+        zp = beam_curve(xp, span, apex, curve_type)
+        s_p, total_p = arclength_parametrisation(xp, zp)
 
-    placement_error = ""
-    ring_specs = []
-    x_rings = []
-    ring_z_rings = []
+        rib_x = _rib_stations(secondary_count, optional_ends, span,
+                              xp, s_p, total_p)
+        rib_peak_z = np.interp(rib_x, xp, zp)
+        rib_half_width = np.array(
+            [_ellipse_y(float(xr), span, mid_width) for xr in rib_x],
+            dtype=float,
+        )
 
-    try:
-        s_rings = _cone_arc_positions(number_of_cones, ring_spacing, total_p)
-        for s_val in s_rings:
-            x_val = float(np.interp(s_val, s_p, xp))
-            bz_val = float(np.interp(s_val, s_p, zp))
-            rz_val = bz_val - float(ring_clearance)
-            x_rings.append(x_val)
-            ring_z_rings.append(rz_val)
-            ring_specs.append({
-                "cx": x_val, "cy": 0.0, "cz": rz_val,
-                "r": float(ring_diameter) / 2.0,
-                "beam_z": bz_val,
-            })
-    except ValueError as e:
-        placement_error = str(e)
+        try:
+            s_rings = _cone_arc_positions(number_of_cones, ring_spacing, total_p)
+            ring_specs = []
+            for s_val in s_rings:
+                x_val = float(np.interp(s_val, s_p, xp))
+                bz_val = float(np.interp(s_val, s_p, zp))
+                rz_val = bz_val - float(ring_clearance)
+                ring_specs.append({
+                    "cx": x_val, "cy": 0.0, "cz": rz_val,
+                    "r": float(ring_diameter) / 2.0,
+                    "beam_z": bz_val,
+                })
+        except ValueError as e:
+            st.error("Placement refused: " + str(e))
+            return
 
-    if placement_error:
-        st.error("Placement refused: " + placement_error)
+        tip_x = _tip_x_at_eave(span, apex, eave_height, curve_type)
+        anchors = _build_eave_anchors(
+            rib_x, rib_half_width, rib_peak_z, eave_height, tip_x
+        )
+        perimeter_loop, anchor_idx = _subdivide_polygon(anchors, subdivisions)
+        bd = np.diff(np.vstack([perimeter_loop, perimeter_loop[:1]]), axis=0)
+        L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
+        target_len = max(L_avg, 1e-6)
+
+        built = SDSe_mesh_rings(
+            perimeter_loop=perimeter_loop,
+            anchor_idx=anchor_idx,
+            ring_specs=ring_specs,
+            eave_height=eave_height,
+            target_len=target_len,
+        )
+
+        pts = built["points"]
+        edges = built["edges"]
+        boundary_edge_set = built["boundary_edges"]
+        tris = built["triangles"]
+        fixed = built["fixed_indices"]
+
+        warp_q = max(float(warp_q_input), 0.1) * 1000.0
+        weft_q = max(float(weft_q_input), 0.1) * 1000.0
+        edge_q_scalar = max(float(edge_q_input), 0.1) * 1000.0
+
+        pts_2d = pts[:, :2]
+        warp_dir = np.array([1.0, 0.0])
+        q_interior = SDSe_blend_q_per_edge(
+            edges, pts_2d, warp_dir, warp_q, weft_q
+        )
+
+        q = np.empty(len(edges), dtype=float)
+        for k, (i, j) in enumerate(edges):
+            key = (i, j) if i < j else (j, i)
+            if key in boundary_edge_set:
+                q[k] = edge_q_scalar
+            else:
+                q[k] = q_interior[k]
+
+        try:
+            fdm = solve_fdm(pts, edges, fixed, q)
+            coords_fdm = fdm["coordinates"]
+            residual_fdm = float(fdm["residual_norm"])
+            solve_ok = True
+            solve_err = ""
+        except Exception as e:
+            coords_fdm = pts.copy()
+            residual_fdm = float("nan")
+            solve_ok = False
+            solve_err = str(e)
+
+        max_edge_tension_N = edge_q_scalar * L_avg
+        fdm["max_edge_tension_N"] = max_edge_tension_N
+        fdm["edge_q_scalar"] = edge_q_scalar
+
+        # Save to session state so Step 2 can use it
+        st.session_state["fdm_results"] = {
+            "built": built,
+            "pts": pts,
+            "edges": edges,
+            "tris": tris,
+            "fixed": fixed,
+            "coords_fdm": coords_fdm,
+            "fdm": fdm,
+            "residual_fdm": residual_fdm,
+            "solve_ok": solve_ok,
+            "solve_err": solve_err,
+            "warp_q": warp_q,
+            "weft_q": weft_q,
+            "edge_q_scalar": edge_q_scalar,
+            "span": span,
+            "apex": apex,
+            "L_avg": L_avg,
+            "anchor_idx": anchor_idx,
+            "x_rings": [np.interp(s, s_p, xp) for s in s_rings],
+            "rib_x": rib_x,
+            "rib_peak_z": rib_peak_z,
+            "rib_half_width": rib_half_width,
+            "xp": xp,
+            "zp": zp,
+        }
+
+    data = st.session_state.get("fdm_results")
+    if not data:
         return
 
-    tip_x = _tip_x_at_eave(span, apex, eave_height, curve_type)
-    anchors = _build_eave_anchors(
-        rib_x, rib_half_width, rib_peak_z, eave_height, tip_x
-    )
-    perimeter_loop, anchor_idx = _subdivide_polygon(anchors, subdivisions)
-    bd = np.diff(np.vstack([perimeter_loop, perimeter_loop[:1]]), axis=0)
-    L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
-    target_len = max(L_avg, 1e-6)
+    # --- SHOW FDM SHAPE ---
+    coords_to_draw = data["coords_fdm"]
+    dr_result = None
 
-    # ---- STAGE 1: SDSe mesh + FDM ----
-    built = SDSe_mesh_rings(
-        perimeter_loop=perimeter_loop,
-        anchor_idx=anchor_idx,
-        ring_specs=ring_specs,
-        eave_height=eave_height,
-        target_len=target_len,
-    )
+    if btn_newton:
+        with st.spinner("Running Structural Calculation (Newton)..."):
+            # Rebuild cables and materials from saved state
+            cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_T_fdm = \
+                _select_edge_cable(data["fdm"], safety_factor=2.0)
 
-    pts = built["points"]
-    edges = built["edges"]
-    boundary_edge_set = built["boundary_edges"]
-    tris = built["triangles"]
-    fixed = built["fixed_indices"]
+            beam_axial_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
+            beam_moment_kNm = (beam_axial_kN * data["span"]) / 8.0
+            steel_section = _select_steel_section(
+                beam_axial_kN, beam_moment_kNm,
+                family="CHS", grade="S355",
+            )
 
-    warp_q = max(float(warp_q_input), 0.1) * 1000.0
-    weft_q = max(float(weft_q_input), 0.1) * 1000.0
-    edge_q_scalar = max(float(edge_q_input), 0.1) * 1000.0
+            cables = []
+            n_a = len(data["anchor_idx"])
+            pts = data["pts"]
+            coords_fdm = data["coords_fdm"]
 
-    pts_2d = pts[:, :2]
-    warp_dir = np.array([1.0, 0.0])
-    q_interior = SDSe_blend_q_per_edge(
-        edges, pts_2d, warp_dir, warp_q, weft_q
-    )
+            for k in range(n_a):
+                a_idx = data["anchor_idx"][k]
+                b_idx = data["anchor_idx"][(k + 1) % n_a]
+                chain = [int(a_idx)]
+                i_cur = (a_idx + 1) % pts.shape[0]
+                b_int = int(b_idx)
+                safety = 0
+                while i_cur != b_int and safety < pts.shape[0]:
+                    chain.append(int(i_cur))
+                    i_cur = (i_cur + 1) % pts.shape[0]
+                    safety += 1
+                chain.append(int(b_int))
+                for m in range(len(chain) - 1):
+                    ia = chain[m]
+                    ib = chain[m + 1]
+                    L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
+                    if L_ref < 1e-9:
+                        continue
+                    # Slack initial cable
+                    L0 = L_ref * 1.001
+                    cables.append({
+                        "a": ia, "b": ib, "L0": L0, "EA": EA_cable,
+                    })
 
-    q = np.empty(len(edges), dtype=float)
-    for k, (i, j) in enumerate(edges):
-        key = (i, j) if i < j else (j, i)
-        if key in boundary_edge_set:
-            q[k] = edge_q_scalar
-        else:
-            q[k] = q_interior[k]
+            material = make_membrane_material(
+                E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02,
+                nu=0.34, G_MPa=50.0,
+                warp_prestress_N_per_m=data["warp_q"],
+                weft_prestress_N_per_m=data["weft_q"],
+            )
 
-    try:
-        fdm = solve_fdm(pts, edges, fixed, q)
-        coords_fdm = fdm["coordinates"]
-        residual_fdm = float(fdm["residual_norm"])
-        solve_ok = True
-        solve_err = ""
-    except Exception as e:
-        coords_fdm = pts.copy()
-        residual_fdm = float("nan")
-        solve_ok = False
-        solve_err = str(e)
+            dr_result = solve_nonlinear_equilibrium(
+                points=coords_fdm.copy(),
+                triangles=data["tris"],
+                fixed_indices=data["fixed"],
+                reference_points=coords_fdm.copy(),
+                membrane_material=material,
+                cables=cables,
+                loads=None,
+                max_iter=100,
+                max_outer=25,
+                tol=1e-6,
+                tol_disp=1e-8,
+                max_total_steps=200,
+                max_wall_seconds=50.0,
+                seed_z_amplitude=0.001 * data["span"],
+            )
+            
+            coords_to_draw = dr_result["coordinates"]
 
-    max_edge_tension_N = edge_q_scalar * L_avg
-    fdm["max_edge_tension_N"] = max_edge_tension_N
-    fdm["edge_q_scalar"] = edge_q_scalar
+            # Save the results so they don't vanish on next rerun
+            st.session_state["newton_results"] = {
+                "dr_result": dr_result,
+                "cable_name": cable_name,
+                "cable_A_mm2": cable_A_mm2,
+                "EA_cable": EA_cable,
+                "steel_section": steel_section,
+                "beam_axial_kN": beam_axial_kN,
+                "beam_moment_kNm": beam_moment_kNm,
+                "cables": cables,
+                "material": material,
+            }
 
-    # ---- STAGE 2: Auto-size cable + steel ----
-    cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_T_fdm = \
-        _select_edge_cable(fdm, safety_factor=2.0)
+    # Load newton results if they exist
+    newton_data = st.session_state.get("newton_results")
+    if newton_data and not btn_newton:
+        coords_to_draw = newton_data["dr_result"]["coordinates"]
+        dr_result = newton_data["dr_result"]
 
-    beam_axial_kN = max_edge_tension_N / 1000.0
-    beam_moment_kNm = (beam_axial_kN * span) / 8.0
-    steel_section = _select_steel_section(
-        beam_axial_kN, beam_moment_kNm,
-        family="CHS", grade="S355",
-    )
-
-    # ---- STAGE 3: Build cables with real EA ----
-    cables = []
-    n_a = len(anchor_idx)
-
-    for k in range(n_a):
-        a_idx = anchor_idx[k]
-        b_idx = anchor_idx[(k + 1) % n_a]
-        chain = [int(a_idx)]
-        i_cur = (a_idx + 1) % pts.shape[0]
-        b_int = int(b_idx)
-        safety = 0
-        while i_cur != b_int and safety < pts.shape[0]:
-            chain.append(int(i_cur))
-            i_cur = (i_cur + 1) % pts.shape[0]
-            safety += 1
-        chain.append(int(b_int))
-        for m in range(len(chain) - 1):
-            ia = chain[m]
-            ib = chain[m + 1]
-            L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
-            if L_ref < 1e-9:
-                continue
-            L0 = L_ref * 1.001
-            cables.append({
-                "a": ia, "b": ib, "L0": L0, "EA": EA_cable,
-            })
-
-    material = make_membrane_material(
-        E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02,
-        nu=0.34, G_MPa=50.0,
-        warp_prestress_N_per_m=warp_q,
-        weft_prestress_N_per_m=weft_q,
-    )
-
-    # ---- STAGE 4: Newton-Raphson ----
-    st.write("Running Newton-Raphson nonlinear equilibrium solver...")
-
-    dr_result = solve_nonlinear_equilibrium(
-        points=coords_fdm.copy(),
-        triangles=tris,
-        fixed_indices=fixed,
-        reference_points=coords_fdm.copy(),
-        membrane_material=material,
-        cables=cables,
-        loads=None,
-        max_iter=100,
-        max_outer=25,
-        tol=1e-6,
-        tol_disp=1e-8,
-        max_total_steps=200,
-        max_wall_seconds=50.0,
-        seed_z_amplitude=0.01 * span,
-    )
-
-    coords = dr_result["coordinates"]
-    dr_converged = dr_result["converged"]
-    dr_residual = dr_result["residual_norm"]
-
-    # ---- DRAW ----
+    # --- DRAW ---
     fig = go.Figure()
 
-    if len(tris) > 0:
-        tri = np.asarray(tris, dtype=int)
+    if len(data["tris"]) > 0:
+        tri = np.asarray(data["tris"], dtype=int)
         fig.add_trace(go.Mesh3d(
-            x=coords[:, 0], y=coords[:, 1], z=coords[:, 2],
+            x=coords_to_draw[:, 0], y=coords_to_draw[:, 1], z=coords_to_draw[:, 2],
             i=tri[:, 0], j=tri[:, 1], k=tri[:, 2],
             color=COL_MEMBRANE, opacity=0.55, flatshading=True,
             name="membrane", showlegend=False, hoverinfo="skip",
         ))
 
     fig.add_trace(go.Scatter3d(
-        x=xp, y=np.zeros_like(xp), z=zp,
+        x=data["xp"], y=np.zeros_like(data["xp"]), z=data["zp"],
         mode="lines", line=dict(color=COL_PRIMARY, width=7),
         name="primary beam", showlegend=False, hoverinfo="skip",
     ))
 
-    for i in range(len(rib_x)):
+    for i in range(len(data["rib_x"])):
         rp = _rib_polyline(
-            float(rib_x[i]), float(rib_half_width[i]),
-            float(rib_peak_z[i]), RIB_SEGMENTS,
+            float(data["rib_x"][i]), float(data["rib_half_width"][i]),
+            float(data["rib_peak_z"][i]), RIB_SEGMENTS,
         )
         fig.add_trace(go.Scatter3d(
             x=rp[:, 0], y=rp[:, 1], z=rp[:, 2],
@@ -637,92 +673,87 @@ def render_tester_multi_cone():
             name="rib", showlegend=False, hoverinfo="skip",
         ))
 
-    for k, idx_list in enumerate(built["ring_indices"]):
-        pp = coords[idx_list]
+    for k, idx_list in enumerate(data["built"]["ring_indices"]):
+        pp = coords_to_draw[idx_list]
         closed = np.vstack([pp, pp[:1]])
         fig.add_trace(go.Scatter3d(
             x=closed[:, 0], y=closed[:, 1], z=closed[:, 2],
             mode="lines", line=dict(color=COL_RING_EDGE, width=5),
             name="ring", showlegend=False, hoverinfo="skip",
         ))
-        centre_i = built["centre_indices"][k]
-        beam_i = built["beam_top_indices"][k]
-        cx, cy, cz = coords[centre_i]
+        centre_i = data["built"]["centre_indices"][k]
+        beam_i = data["built"]["beam_top_indices"][k]
+        cx, cy, cz = coords_to_draw[centre_i]
         for poly_i in idx_list:
             fig.add_trace(go.Scatter3d(
-                x=[cx, coords[poly_i, 0]],
-                y=[cy, coords[poly_i, 1]],
-                z=[cz, coords[poly_i, 2]],
+                x=[cx, coords_to_draw[poly_i, 0]],
+                y=[cy, coords_to_draw[poly_i, 1]],
+                z=[cz, coords_to_draw[poly_i, 2]],
                 mode="lines", line=dict(color=COL_SPOKE, width=2),
                 name="spoke", showlegend=False, hoverinfo="skip",
             ))
-        bx, by, bz = coords[beam_i]
+        bx, by, bz = coords_to_draw[beam_i]
         fig.add_trace(go.Scatter3d(
             x=[cx, bx], y=[cy, by], z=[cz, bz],
             mode="lines", line=dict(color=COL_DROP, width=4),
             name="drop", showlegend=False, hoverinfo="skip",
         ))
 
-    apply_common_layout(fig, apex)
+    apply_common_layout(fig, data["apex"])
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
-    members = _build_member_schedule(
-        built, coords, x_rings,
-        anchor_idx, edge_q_scalar, warp_q, weft_q,
-        cable_name, cable_A_mm2, steel_section,
-    )
-
-    with st.expander("Member schedule (auto-sized)", expanded=True):
-        st.write("Edge cable: **%s** (A=%.1f mm2)"
-                 % (cable_name, cable_A_mm2))
-        st.write("Steel section: **%s**" % steel_section)
-        st.write("Total members recorded: %d" % len(members))
-        st.code(_format_member_table(members), language="text")
-
+    # --- DIAGNOSTICS ---
     with st.expander("Diagnostics", expanded=True):
         st.write("Number of cones: %d" % number_of_cones)
-        st.write("Total mesh nodes: %d" % pts.shape[0])
-        st.write("Mesh edges: %d" % len(edges))
-        st.write("Mesh triangles: %d" % len(tris))
-        st.write("Held nodes (total): %d" % len(fixed))
+        st.write("Total mesh nodes: %d" % data["pts"].shape[0])
+        st.write("Mesh edges: %d" % len(data["edges"]))
+        st.write("Mesh triangles: %d" % len(data["tris"]))
+        st.write("Held nodes (total): %d" % len(data["fixed"]))
 
         st.write("---")
         st.write("**Stage 1 — FDM:**")
-        st.write("FDM Solve OK: %s" % solve_ok)
-        if not solve_ok:
-            st.write("FDM error: %s" % solve_err)
+        st.write("FDM Solve OK: %s" % data["solve_ok"])
+        if not data["solve_ok"]:
+            st.write("FDM error: %s" % data["solve_err"])
         else:
-            st.write("FDM force imbalance (N): %.6e" % residual_fdm)
+            st.write("FDM force imbalance (N): %.6e" % data["residual_fdm"])
             st.write("FDM estimated edge tension (N): %.1f"
-                     % max_edge_tension_N)
+                     % data["fdm"]["max_edge_tension_N"])
 
-        st.write("**Auto-Sizing:**")
-        st.write("Selected cable: %s" % cable_name)
-        st.write("Cable area: %.1f mm2" % cable_A_mm2)
-        st.write("Cable EA: %.2f MN" % (EA_cable / 1e6))
-        st.write("Selected steel: %s" % steel_section)
-        st.write("Steel axial: %.1f kN" % beam_axial_kN)
-        st.write("Steel moment: %.1f kNm" % beam_moment_kNm)
+        if newton_data:
+            nd = newton_data["dr_result"]
+            st.write("---")
+            st.write("**Stage 2 — Newton:**")
+            st.write("Newton converged: %s" % nd["converged"])
+            st.write("Newton iterations: %d" % nd["iterations"])
+            st.write("Newton total steps: %d" % nd.get("total_steps", 0))
+            st.write("Newton residual (N): %.6e" % nd["residual_norm"])
+            st.write("Newton max residual (N): %.6e"
+                     % nd.get("max_residual", nd["residual_norm"]))
+            st.write("Newton time (s): %.2f" % nd["elapsed_seconds"])
+            st.write("Newton reason: %s" % nd.get("reason", ""))
+            st.write("Seed applied (m): %.6f" % nd.get("seed_applied_m", 0.0))
 
-        st.write("---")
-        st.write("**Stage 2 — Newton:**")
-        st.write("Newton converged: %s" % dr_converged)
-        st.write("Newton iterations: %d" % dr_result["iterations"])
-        st.write("Newton total steps: %d" % dr_result.get("total_steps", 0))
-        st.write("Newton residual (N): %.6e" % dr_residual)
-        st.write("Newton max residual (N): %.6e"
-                 % dr_result.get("max_residual", dr_residual))
-        st.write("Newton time (s): %.2f" % dr_result["elapsed_seconds"])
-        st.write("Newton reason: %s" % dr_result.get("reason", ""))
-        st.write("Seed applied (m): %.6f" % dr_result.get("seed_applied_m", 0.0))
+            hist = nd.get("history", [])
+            if hist:
+                st.write("Newton history (last 5 steps):")
+                for row in hist[-5:]:
+                    st.write("  outer=%s  inner=%s  ||R||=%.4e  max|R|=%.4e"
+                             % (row[0], row[1], row[2], row[3]))
 
-        hist = dr_result.get("history", [])
-        if hist:
-            st.write("Newton history (last 5 steps):")
-            for row in hist[-5:]:
-                st.write("  outer=%s  inner=%s  ||R||=%.4e  max|R|=%.4e"
-                         % (row[0], row[1], row[2], row[3]))
+            # Member Schedule
+            members = _build_member_schedule(
+                data["built"], coords_to_draw, data["x_rings"],
+                data["anchor_idx"], data["edge_q_scalar"], data["warp_q"], data["weft_q"],
+                newton_data["cable_name"], newton_data["cable_A_mm2"], newton_data["steel_section"],
+            )
 
+            with st.expander("Member schedule (auto-sized)", expanded=True):
+                st.write("Edge cable: **%s** (A=%.1f mm2)"
+                         % (newton_data["cable_name"], newton_data["cable_A_mm2"]))
+                st.write("Steel section: **%s**" % newton_data["steel_section"])
+                st.write("Total members recorded: %d" % len(members))
+                st.code(_format_member_table(members), language="text")
 
 # =============================================================================
 # END OF ui/workshops/tester_multi_cone.py
