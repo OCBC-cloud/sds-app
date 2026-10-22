@@ -9,6 +9,10 @@ History:
     First SDSe-only version.
     2026-10-22 - Added two-stage workflow (FDM then DR).
                 Cable selector now finds the smallest possible area.
+    2026-10-22 - DR tuned for the 60s Streamlit budget:
+                dt 0.005 -> 0.02, wall clock 25s -> 50s,
+                stopping criterion switched from absolute tol=1e-4
+                (unreachable) to relative tol_rel=1e-3 (honest).
 """
 
 import math
@@ -569,10 +573,10 @@ def render_tester_multi_cone():
         cables=cables,
         loads=None,
         max_iter=5000,
-        tol=1e-4,
-        max_wall_seconds=25.0,
-        dt=0.005,
-        max_velocity=1.0,
+        tol_rel=1e-3,
+        max_wall_seconds=50.0,
+        dt=0.02,
+        max_velocity=10.0,
         kinetic_damping=True,
     )
 
@@ -684,6 +688,13 @@ def render_tester_multi_cone():
         st.write("DR time (s): %.2f" % dr_result["elapsed_seconds"])
         st.write("DR kinetic peaks: %d"
                  % dr_result.get("kinetic_peaks", 0))
+        if "residual_initial" in dr_result:
+            st.write("DR residual initial (N): %.6e"
+                     % dr_result["residual_initial"])
+            st.write("DR residual target (N): %.6e"
+                     % dr_result["residual_target"])
+            st.write("DR stop mode: %s" % dr_result.get("stop_mode", ""))
+        st.write("DR reason: %s" % dr_result.get("reason", ""))
 
 
 # =============================================================================
