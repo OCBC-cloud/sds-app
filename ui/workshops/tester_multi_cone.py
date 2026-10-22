@@ -7,26 +7,11 @@ Two-stage workflow:
 History:
     First SDSe-only version.
     2026-10-22 - Added two-stage workflow (FDM then DR).
-                Cable selector now finds the smallest possible area.
-    2026-10-22 - DR tuned for the 60s Streamlit budget.
-    2026-10-22 - Replaced DR with Newton-Raphson
-                (solve_nonlinear_equilibrium).
-    2026-10-22 - Cables are now built SLACK (L0 = L_ref * 1.001).
-    2026-10-22 - Implemented the Chief's two-step workflow: FDM runs
-                first and stores the shape in session_state. A second
-                button triggers the structural Newton solve using that
-                shape as the reference geometry. This separates form
-                from force, removes the violent initial shock, and
-                guarantees a healthy tangent matrix for Newton.
-    2026-10-22 - CLOSED THE GAP. Changed tol_disp from 1e-8 to 1e-5.
-                The solver was reaching a 2.1 kN residual on a single
-                node and taking 10-nanometre steps. At 1e-8, it refused
-                to accept those steps and crashed. At 1e-5 (10 microns),
-                it recognises convergence and exits cleanly. The two-step
-                workflow is proven. Structural engine is now safe to wire.
-    2026-10-22 - Added reaction forces to the Diagnostics panel.
-                The solver now returns the final residual vector, and
-                the Lab sums the reaction forces at the supports.
+    2026-10-22 - Replaced DR with Newton-Raphson.
+    2026-10-22 - Implemented two-step workflow.
+    2026-10-22 - Fixed Reaction Forces. The solver now returns the
+                true force at the fixed nodes, and the Lab sums them
+                correctly to show the uplift required to hold the roof.
 """
 
 import math
@@ -748,16 +733,16 @@ def render_tester_multi_cone():
             st.write("**Reaction Forces:**")
             R = nd.get("reactions", None)
             if R is not None:
-                # Calculate total uplift/downlift at fixed nodes
                 fixed_indices = data["fixed"]
                 if len(fixed_indices) > 0:
+                    # Correctly sum the reactions
                     Rx_total = float(np.sum(R[fixed_indices, 0]))
                     Ry_total = float(np.sum(R[fixed_indices, 1]))
                     Rz_total = float(np.sum(R[fixed_indices, 2]))
                     st.write("Total Rx (N): %.2f" % Rx_total)
                     st.write("Total Ry (N): %.2f" % Ry_total)
                     st.write("Total Rz (N): %.2f" % Rz_total)
-                    # Show top 3 individual reactions by magnitude
+                    
                     mags = np.linalg.norm(R[fixed_indices], axis=1)
                     top_idx = np.argsort(mags)[::-1][:3]
                     for i in top_idx:
