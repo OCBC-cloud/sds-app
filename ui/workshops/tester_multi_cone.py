@@ -10,7 +10,7 @@ History:
     2026-10-22 - Replaced DR with Newton-Raphson.
     2026-10-22 - Implemented two-step workflow.
     2026-10-22 - Fixed Reaction Forces.
-    2026-10-22 - Added Snow Load, Wind Load, and Payload to the solver.
+    2026-10-22 - Added multi-code load generator (Wind m/s, Snow, Payload).
 """
 
 import math
@@ -27,6 +27,12 @@ from engine.SDSe_mesh_builder import (
 from engine.nonlinear_equilibrium_newton_seed import (
     make_membrane_material,
     solve_nonlinear_equilibrium,
+)
+from engine.load_generator import (
+    generate_wind_load,
+    generate_snow_load,
+    generate_payload_load,
+    CODE_PARAMS,
 )
 from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
@@ -421,15 +427,23 @@ def render_tester_multi_cone():
         key="mc_edgeq",
     )
 
-    st.markdown("### Loads")
+    st.markdown("### Environmental Loads")
+    
+    code_choice = st.selectbox(
+        "Building Code", 
+        list(CODE_PARAMS.keys()),
+        index=0,
+        key="mc_code"
+    )
+
     c1, c2 = st.columns(2)
     with c1:
-        snow_load_kNm2 = st.number_input(
-            "Snow Load (kN/m²)", 0.0, 5.0, 0.5, 0.1, key="mc_snow"
+        wind_speed = st.number_input(
+            "Wind Speed (m/s)", 0.0, 80.0, 30.0, 1.0, key="mc_wind_speed"
         )
     with c2:
-        wind_load_kNm2 = st.number_input(
-            "Wind Uplift (kN/m²)", 0.0, 5.0, 0.0, 0.1, key="mc_wind"
+        snow_depth = st.number_input(
+            "Snow Depth (m)", 0.0, 2.0, 0.0, 0.1, key="mc_snow_depth"
         )
     
     payload_kg = st.number_input(
@@ -617,33 +631,18 @@ def render_tester_multi_cone():
             # --- APPLY LOADS ---
             loads = np.zeros((pts.shape[0], 3), dtype=float)
             
-            # 1. Snow Load (downward)
-            snow_Pa = snow_load_kNm2 * 1000.0
-            for (a, b, c) in data["tris"]:
-                pa, pb, pc = coords_fdm[a], coords_fdm[b], coords_fdm[c]
-                area = 0.5 * float(np.linalg.norm(np.cross(pb - pa, pc - pa)))
-                force = snow_Pa * area / 3.0
-                loads[a, 2] -= force
-                loads[b, 2] -= force
-                loads[c, 2] -= force
+            # 1. Snow Load
+            if snow_depth > 0:
+                loads += generate_snow_load(coords_fdm, data["tris"], snow_depth, code_choice)
                 
-            # 2. Wind Uplift (upward)
-            wind_Pa = wind_load_kNm2 * 1000.0
-            for (a, b, c) in data["tris"]:
-                pa, pb, pc = coords_fdm[a], coords_fdm[b], coords_fdm[c]
-                area = 0.5 * float(np.linalg.norm(np.cross(pb - pa, pc - pa)))
-                force = wind_Pa * area / 3.0
-                loads[a, 2] += force
-                loads[b, 2] += force
-                loads[c, 2] += force
+            # 2. Wind Load (Uplift)
+            if wind_speed > 0:
+                loads += generate_wind_load(coords_fdm, data["tris"], wind_speed, code_choice)
 
-            # 3. Payload (at apex)
+            # 3. Payload
             if payload_kg > 0 and len(data["built"]["beam_top_indices"]) > 0:
                 apex_idx = data["built"]["beam_top_indices"][0]
-                loads[apex_idx, 2] -= payload_kg * 9.81
-
-            # Save the actual load vector used for this solve
-            st.session_state["last_loads"] = loads
+                loads += generate_payload_load(coords_fdm, apex_idx, payload_kg)
 
             dr_result = solve_nonlinear_equilibrium(
                 points=coords_fdm.copy(),
@@ -652,7 +651,7 @@ def render_tester_multi_cone():
                 reference_points=coords_fdm.copy(),
                 membrane_material=material,
                 cables=cables,
-                loads=loads, # <-- PASS THE LOADS HERE
+                loads=loads,
                 max_iter=100,
                 max_outer=25,
                 tol=1.5,
