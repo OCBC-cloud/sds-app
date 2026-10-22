@@ -10,7 +10,8 @@ History:
     2026-10-22 - Replaced DR with Newton-Raphson.
     2026-10-22 - Implemented two-step workflow.
     2026-10-22 - Fixed Reaction Forces.
-    2026-10-22 - Added multi-code load generator (Wind m/s, Snow, Payload).
+    2026-10-22 - Added multi-code load generator.
+    2026-10-22 - Added connection design (baseplate, J-bolts, fin plates).
 """
 
 import math
@@ -33,6 +34,10 @@ from engine.load_generator import (
     generate_snow_load,
     generate_payload_load,
     CODE_PARAMS,
+)
+from engine.connection_design import (
+    design_baseplate_and_foundation,
+    design_fin_plate,
 )
 from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
@@ -772,14 +777,13 @@ def render_tester_multi_cone():
             st.write("Newton reason: %s" % nd.get("reason", ""))
             st.write("Seed applied (m): %.6f" % nd.get("seed_applied_m", 0.0))
 
-            # --- REACTION FORCES ---
+            # --- REACTION FORCES & CONNECTION DESIGN ---
             st.write("---")
-            st.write("**Reaction Forces:**")
+            st.write("**Reaction Forces & Foundation Design:**")
             R = nd.get("reactions", None)
             if R is not None:
                 fixed_indices = data["fixed"]
                 if len(fixed_indices) > 0:
-                    # Correctly sum the reactions
                     Rx_total = float(np.sum(R[fixed_indices, 0]))
                     Ry_total = float(np.sum(R[fixed_indices, 1]))
                     Rz_total = float(np.sum(R[fixed_indices, 2]))
@@ -787,12 +791,51 @@ def render_tester_multi_cone():
                     st.write("Total Ry (N): %.2f" % Ry_total)
                     st.write("Total Rz (N): %.2f" % Rz_total)
                     
+                    # Find the worst-case node (largest magnitude reaction)
                     mags = np.linalg.norm(R[fixed_indices], axis=1)
-                    top_idx = np.argsort(mags)[::-1][:3]
-                    for i in top_idx:
-                        nd_idx = fixed_indices[i]
-                        st.write("Node %d: Fx=%.1f, Fy=%.1f, Fz=%.1f (N)"
-                                 % (nd_idx, R[nd_idx, 0], R[nd_idx, 1], R[nd_idx, 2]))
+                    worst_idx = np.argmax(mags)
+                    nd_idx = fixed_indices[worst_idx]
+                    worst_R = R[nd_idx]
+                    
+                    st.write("---")
+                    st.write("**Worst-Case Baseplate & Foundation (Node %d):**" % nd_idx)
+                    st.write("Reaction: Fx=%.1f, Fy=%.1f, Fz=%.1f (N)" % (worst_R[0], worst_R[1], worst_R[2]))
+                    
+                    design = design_baseplate_and_foundation(worst_R)
+                    st.code(
+                        "Baseplate: %d x %d x %d mm\n"
+                        "Anchor Bolts: %d x M%d J-Bolts (Embed: %d mm)\n"
+                        "Concrete Stump: %d x %d mm\n"
+                        "Concrete Grade: %s"
+                        % (
+                            design["plate_side_mm"], design["plate_side_mm"], design["plate_thickness_mm"],
+                            design["bolt_count"], design["bolt_diameter_mm"], design["bolt_embedment_mm"],
+                            design["stump_side_mm"], design["stump_side_mm"],
+                            design["concrete_grade"]
+                        ),
+                        language="text"
+                    )
+                    
+                    # --- FIN PLATE DESIGN ---
+                    st.write("---")
+                    st.write("**Corner / Fin Plate Design (Edge Cable):**")
+                    max_cable_T = 5000.0  # Fallback
+                    if "cable_tension_list" in nd and len(nd["cable_tension_list"]) > 0:
+                        max_cable_T = max(c["T_N"] for c in nd["cable_tension_list"])
+                    
+                    st.write("Max Cable Tension: %.1f N" % max_cable_T)
+                    fin = design_fin_plate(max_cable_T, newton_data["cable_A_mm2"]**0.5)
+                    st.code(
+                        "Fin Plate Thickness: %d mm\n"
+                        "Weld Size: %d mm fillet\n"
+                        "Cable Diameter: %d mm"
+                        % (
+                            fin["fin_plate_thickness_mm"],
+                            fin["weld_size_mm"],
+                            fin["cable_diameter_mm"]
+                        ),
+                        language="text"
+                    )
             else:
                 st.write("Reactions not available in solver output.")
 
