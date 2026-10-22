@@ -825,9 +825,7 @@ def solve_nonlinear_equilibrium(
                 inner_failed = True
                 break
 
-            total_steps += 1
-
-            K = _assemble_tangent_sparse(
+            total_steps += 1            K = _assemble_tangent_sparse(
                 points, triangles, cables, ref_points,
                 membrane_material, free_mask, n_nodes, taut_flags
             )
@@ -835,8 +833,9 @@ def solve_nonlinear_equilibrium(
             dx = _solve_linear_system(K, r_flat, n_dof)
 
             dx_norm = float(np.linalg.norm(dx))
-            # TEST FORK: reduced max_step to 0.01
-            max_step = 0.01 * scale_len
+            
+            # TEST FORK: Clamp the max step size to 0.001 * span
+            max_step = 0.001 * scale_len
             if dx_norm > max_step and dx_norm > 0.0:
                 dx = dx * (max_step / dx_norm)
                 dx_norm = max_step
@@ -981,8 +980,6 @@ def solve_nonlinear_equilibrium(
         })
 
     # Recompute final residual to get exact reactions at fixed nodes.
-    # We pass a mask of all True here, so it calculates the force on
-    # EVERY node. Then we flip the sign so positive is upward support.
     all_true = np.ones(n_nodes, dtype=bool)
     R_final = _assemble_residual(
         points, triangles, cables, ref_points,
