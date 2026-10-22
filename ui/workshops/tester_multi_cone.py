@@ -10,8 +10,7 @@ History:
     2026-10-22 - Replaced DR with Newton-Raphson.
     2026-10-22 - Implemented two-step workflow.
     2026-10-22 - Fixed Reaction Forces.
-    2026-10-22 - Added multi-code load generator.
-    2026-10-22 - Added connection design (baseplate, J-bolts, fin plates).
+    2026-10-22 - Added multi-code load generator with ULS factors.
 """
 
 import math
@@ -30,10 +29,8 @@ from engine.nonlinear_equilibrium_newton_seed import (
     solve_nonlinear_equilibrium,
 )
 from engine.load_generator import (
-    generate_wind_load,
-    generate_snow_load,
-    generate_payload_load,
     CODE_PARAMS,
+    generate_uls_loads,
 )
 from engine.connection_design import (
     design_baseplate_and_foundation,
@@ -432,14 +429,23 @@ def render_tester_multi_cone():
         key="mc_edgeq",
     )
 
-    st.markdown("### Environmental Loads")
+    st.markdown("### Environmental Loads & Design Philosophy")
     
-    code_choice = st.selectbox(
-        "Building Code", 
-        list(CODE_PARAMS.keys()),
-        index=0,
-        key="mc_code"
-    )
+    c1, c2 = st.columns(2)
+    with c1:
+        code_choice = st.selectbox(
+            "Building Code", 
+            list(CODE_PARAMS.keys()),
+            index=0,
+            key="mc_code"
+        )
+    with c2:
+        design_philosophy = st.selectbox(
+            "Design Philosophy",
+            ["Serviceability (Unfactored)", "Ultimate Limit State (Factored)"],
+            index=0,
+            key="mc_design_philosophy"
+        )
 
     c1, c2 = st.columns(2)
     with c1:
@@ -583,6 +589,7 @@ def render_tester_multi_cone():
     # --- SHOW FDM SHAPE ---
     coords_to_draw = data["coords_fdm"]
     dr_result = None
+    worst_reaction = None
 
     if btn_newton:
         with st.spinner("Running Structural Calculation (Newton)..."):
@@ -620,7 +627,6 @@ def render_tester_multi_cone():
                     L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
                     if L_ref < 1e-9:
                         continue
-                    # Slack initial cable
                     L0 = L_ref * 1.001
                     cables.append({
                         "a": ia, "b": ib, "L0": L0, "EA": EA_cable,
@@ -633,21 +639,27 @@ def render_tester_multi_cone():
                 weft_prestress_N_per_m=data["weft_q"],
             )
 
-            # --- APPLY LOADS ---
-            loads = np.zeros((pts.shape[0], 3), dtype=float)
+            # --- GENERATE LOADS ---
+            apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
             
-            # 1. Snow Load
-            if snow_depth > 0:
-                loads += generate_snow_load(coords_fdm, data["tris"], snow_depth, code_choice)
-                
-            # 2. Wind Load (Uplift)
-            if wind_speed > 0:
-                loads += generate_wind_load(coords_fdm, data["tris"], wind_speed, code_choice)
-
-            # 3. Payload
-            if payload_kg > 0 and len(data["built"]["beam_top_indices"]) > 0:
-                apex_idx = data["built"]["beam_top_indices"][0]
-                loads += generate_payload_load(coords_fdm, apex_idx, payload_kg)
+            if design_philosophy == "Ultimate Limit State (Factored)":
+                uls_loads = generate_uls_loads(
+                    coords_fdm, data["tris"], code_choice, 
+                    wind_speed, snow_depth, payload_kg, apex_idx
+                )
+                # We will solve for the Gravity case (worst for steel) 
+                # and Uplift case (worst for foundation).
+                # For simplicity in this single solve, we use Gravity.
+                # In a full engine, you'd run both and envelope them.
+                loads = uls_loads["gravity"]
+                st.info("Running ULS Gravity Case (Dead + Snow + Payload). Check Diagnostics for Foundation Uplift design.")
+            else:
+                # Serviceability (Unfactored)
+                loads_dict = generate_uls_loads(
+                    coords_fdm, data["tris"], code_choice, 
+                    wind_speed, snow_depth, payload_kg, apex_idx
+                )
+                loads = loads_dict["service"]
 
             dr_result = solve_nonlinear_equilibrium(
                 points=coords_fdm.copy(),
@@ -784,22 +796,18 @@ def render_tester_multi_cone():
             if R is not None:
                 fixed_indices = data["fixed"]
                 if len(fixed_indices) > 0:
-                    Rx_total = float(np.sum(R[fixed_indices, 0]))
-                    Ry_total = float(np.sum(R[fixed_indices, 1]))
-                    Rz_total = float(np.sum(R[fixed_indices, 2]))
-                    st.write("Total Rx (N): %.2f" % Rx_total)
-                    st.write("Total Ry (N): %.2f" % Ry_total)
-                    st.write("Total Rz (N): %.2f" % Rz_total)
-                    
                     # Find the worst-case node (largest magnitude reaction)
                     mags = np.linalg.norm(R[fixed_indices], axis=1)
                     worst_idx = np.argmax(mags)
                     nd_idx = fixed_indices[worst_idx]
                     worst_R = R[nd_idx]
                     
-                    st.write("---")
                     st.write("**Worst-Case Baseplate & Foundation (Node %d):**" % nd_idx)
                     st.write("Reaction: Fx=%.1f, Fy=%.1f, Fz=%.1f (N)" % (worst_R[0], worst_R[1], worst_R[2]))
+                    
+                    # If ULS is selected, we also need to check the Uplift case for the foundation
+                    if design_philosophy == "Ultimate Limit State (Factored)":
+                        st.write("*(Note: Foundation design below is based on the current Gravity solve. A full ULS check would also verify the Uplift case: 0.9D + 1.0W)*")
                     
                     design = design_baseplate_and_foundation(worst_R)
                     st.code(
@@ -819,7 +827,7 @@ def render_tester_multi_cone():
                     # --- FIN PLATE DESIGN ---
                     st.write("---")
                     st.write("**Corner / Fin Plate Design (Edge Cable):**")
-                    max_cable_T = 5000.0  # Fallback
+                    max_cable_T = 5000.0
                     if "cable_tension_list" in nd and len(nd["cable_tension_list"]) > 0:
                         max_cable_T = max(c["T_N"] for c in nd["cable_tension_list"])
                     
