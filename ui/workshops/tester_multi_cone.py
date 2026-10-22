@@ -455,8 +455,8 @@ def render_tester_multi_cone():
             apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
             
             if design_philosophy == "Ultimate Limit State (Factored)":
-                loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["gravity"]
-                st.info("Running ULS Gravity Case. Check Diagnostics for Foundation Uplift design.")
+                loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["uplift"]
+                st.info("Running ULS Uplift Case. Check Diagnostics for Foundation Uplift design.")
             else:
                 loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["service"]
 
@@ -589,7 +589,7 @@ def render_tester_multi_cone():
                     st.write("Reaction: Fx=%.1f, Fy=%.1f, Fz=%.1f (N)" % (worst_R[0], worst_R[1], worst_R[2]))
                     
                     if design_philosophy == "Ultimate Limit State (Factored)":
-                        st.write("*(Note: Foundation design below is based on the current Gravity solve. A full ULS check would also verify the Uplift case: 0.9D + 1.0W)*")
+                        st.write("*(Note: Foundation design below is based on the current Uplift solve. A full ULS check would also verify the Gravity case: 1.2D + 1.6S)*")
                     
                     design = design_baseplate_and_foundation(worst_R)
                     st.code(
