@@ -309,9 +309,9 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp")
+        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 5.0, 0.1, key="mc_warp")
     with c2:
-        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft")
+        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 5.0, 0.1, key="mc_weft")
 
     edge_q_input = st.number_input("Edge cable pretension (kN/m)", 0.1, 500.0, 5.0, 0.1, key="mc_edgeq")
 
@@ -325,7 +325,7 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        wind_speed = st.number_input("Wind Speed (m/s)", 0.0, 80.0, 30.0, 1.0, key="mc_wind_speed")
+        wind_speed = st.number_input("Wind Speed (m/s)", 0.0, 80.0, 33.5, 1.0, key="mc_wind_speed")
     with c2:
         snow_depth = st.number_input("Snow Depth (m)", 0.0, 2.0, 0.0, 0.1, key="mc_snow_depth")
     
@@ -474,7 +474,30 @@ def render_tester_multi_cone():
                 max_actual_T = data["fdm"]["max_edge_tension_N"]
                 
             max_actual_T = max(max_actual_T, data["fdm"]["max_edge_tension_N"])
-            cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(max_actual_T, safety_factor=2.0)
+            
+            # --- CHIEF'S FIX: ENFORCE MINIMUM BASELINE TENSION ---
+            # The cable must be able to carry at least the pretension over its full length.
+            # We use the perimeter cable length from the FDM result.
+            if len(data["anchor_idx"]) > 0:
+                # Estimate perimeter cable length
+                total_perimeter = 0.0
+                n_anchors = len(data["anchor_idx"])
+                for k in range(n_anchors):
+                    a_idx = data["anchor_idx"][k]
+                    b_idx = data["anchor_idx"][(k + 1) % n_anchors]
+                    # Approximate segment length between anchors
+                    L_segment = float(np.linalg.norm(data["coords_fdm"][b_idx] - data["coords_fdm"][a_idx]))
+                    total_perimeter += L_segment
+            else:
+                total_perimeter = data["span"] * 4.0 # fallback box
+                
+            # Baseline tension = pretension (N/m) * perimeter length (m)
+            baseline_tension_N = data["edge_q_scalar"] * total_perimeter
+            
+            # The design tension is the maximum of the Newton result and the baseline
+            design_tension_N = max(max_actual_T, baseline_tension_N)
+            
+            cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(design_tension_N, safety_factor=2.0)
 
             # If Newton failed to produce reactions, fall back to FDM tension
             if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
