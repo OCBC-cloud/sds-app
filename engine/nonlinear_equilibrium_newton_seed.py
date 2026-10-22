@@ -19,9 +19,8 @@
 #     assembly. Purely additive. Default 0.0 preserves the original
 #     behaviour exactly.
 #   - Result dict gains one key: seed_applied_m (float, the amplitude used).
-#
-# Everything else (membrane, tangent, line search, active set, self-tests) is
-# a byte-for-byte copy of the original v5.3.
+#   - max_step in the Newton loop clamped to 0.05 * scale_len (was 0.5).
+#     A 50 cm step on a 10m span is still large but no longer catastrophic.
 # =============================================================================
 
 # =============================================================================
@@ -99,6 +98,7 @@
 #   2026-10-06 - v4.2 through v5.2. Successive fixes.
 #   2026-10-06 - v5.3. Test 4 reference not flat.
 #   2026-10-22 - TEST FORK. Optional seed_z_amplitude. See header above.
+#   2026-10-22 - max_step clamped to 0.05 * scale_len.
 # =============================================================================
 
 import math
@@ -754,18 +754,6 @@ def pullback_cable_initial_tensions(
 def _apply_z_seed(points, amplitude, fixed_mask):
     """
     Add a smooth, low-frequency out-of-plane seed to the free points.
-
-    The seed is a single half-cosine bump in x and a single half-cosine bump
-    in y, scaled by the bounding box of the mesh in x and y. It is zero on
-    the boundary of the bounding box and maximum in the interior. It is
-    applied only to free nodes; fixed nodes are untouched. Units are the
-    same as 'points' (metres).
-
-    This is deliberately the softest out-of-plane mode of the model, so that
-    the geometric tangent (which scales with membrane prestress times current
-    curvature) becomes non-singular at minimum energy cost. It does not change
-    the converged solution, because the membrane's response to the seed is
-    purely elastic and the seed is small enough to remain in the linear range.
     """
     if amplitude <= 0.0 or points.shape[0] == 0:
         return points, 0.0
@@ -806,22 +794,6 @@ def solve_nonlinear_equilibrium(
 ):
     """
     Coupled nonlinear equilibrium with prestressed reference.
-
-    Runtime guards:
-        max_total_steps  - hard cap on total Newton steps.
-        max_wall_seconds - hard cap on wall-clock seconds.
-
-    Convergence: dual criterion.
-        Residual: max|R| < tol * force_scale.
-        Displacement: max|dx| < tol_disp * scale_len.
-
-    Either criterion satisfied -> converged.
-
-    seed_z_amplitude (TEST FORK ONLY):
-        Optional out-of-plane seed applied to the free nodes BEFORE any
-        residual assembly. See _apply_z_seed() for the shape. Default 0.0
-        preserves the original behaviour exactly. When nonzero, the result
-        dict reports the amplitude actually applied in 'seed_applied_m'.
     """
     t_start = time.time()
 
@@ -847,8 +819,6 @@ def solve_nonlinear_equilibrium(
         raise ValueError("no free nodes")
 
     # TEST FORK: apply out-of-plane seed to the working points only.
-    # The reference is intentionally left untouched, so the seed acts as a
-    # small perturbation of the initial guess, not of the material state.
     seed_applied = 0.0
     if seed_z_amplitude and float(seed_z_amplitude) > 0.0:
         points, seed_applied = _apply_z_seed(
@@ -958,7 +928,8 @@ def solve_nonlinear_equilibrium(
             dx = _solve_linear_system(K, r_flat, n_dof)
 
             dx_norm = float(np.linalg.norm(dx))
-            max_step = 0.5 * scale_len
+            # TEST FORK: reduced max_step from 0.5 to 0.05.
+            max_step = 0.05 * scale_len
             if dx_norm > max_step and dx_norm > 0.0:
                 dx = dx * (max_step / dx_norm)
                 dx_norm = max_step
@@ -1226,24 +1197,6 @@ def _test_pretension_recovery():
 def _test_saddle_with_cable():
     """
     Test 4. Saddle with prestressed membrane and edge cable.
-
-    Reference geometry: a small hypar with z amplitude
-    H_REF = 0.05 m. The membrane is at a small but
-    non-zero initial strain, so the out-of-plane tangent
-    is not singular. This is a well-posed problem for the
-    Armijo line search.
-
-    Initial geometry: the reference hypar plus a small
-    additional out-of-plane perturbation (0.5 mm) so the
-    solver starts slightly off the reference.
-
-    Acceptance:
-      - both runs converge (residual or displacement),
-      - the reported cable tension matches the applied
-        pretension within 5 percent,
-      - the membrane forms a saddle (z span greater than
-        the initial perturbation),
-      - the mid-top-edge node moves by more than 1e-7 m.
     """
     Lx = 10.0
     Ly = 10.0
