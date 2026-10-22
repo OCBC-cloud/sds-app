@@ -32,7 +32,7 @@ from engine.SDSe_mesh_builder import (
     SDSe_mesh_rings,
     SDSe_blend_q_per_edge,
 )
-from engine.nonlinear_equilibrium import (
+from engine.nonlinear_equilibrium_newton_seed import (
     make_membrane_material,
     solve_nonlinear_equilibrium,
 )
@@ -586,6 +586,7 @@ def render_tester_multi_cone():
         tol_disp=1e-8,
         max_total_steps=200,
         max_wall_seconds=50.0,
+        seed_z_amplitude=0.001 * span,
     )
 
     coords = dr_result["coordinates"]
