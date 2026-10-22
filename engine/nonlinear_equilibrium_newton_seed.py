@@ -980,6 +980,12 @@ def solve_nonlinear_equilibrium(
             "taut": bool(taut),
         })
 
+    # Recompute final residual to get exact reactions at fixed nodes
+    R_final = _assemble_residual(
+        points, triangles, cables, ref_points,
+        membrane_material, loads, free_mask, n_nodes, taut_flags
+    )
+
     elapsed = time.time() - t_start
 
     return {
@@ -995,6 +1001,7 @@ def solve_nonlinear_equilibrium(
         "history": history,
         "reason": reason,
         "seed_applied_m": float(seed_applied),
+        "reactions": R_final, # <--- ADDED REACTIONS
     }
 
 
