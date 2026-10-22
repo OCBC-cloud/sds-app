@@ -2,12 +2,13 @@
 
 Two-stage workflow:
     Stage 1: FDM finds the shape.
-    Stage 2: Cable auto-sized from FDM tension. DR runs with real EA.
+    Stage 2: Cable auto-sized (smallest possible). DR runs.
     Stage 3: Steel sized from resulting forces.
 
 History:
     First SDSe-only version.
     2026-10-22 - Added two-stage workflow (FDM then DR).
+                Cable selector now finds the smallest possible area.
 """
 
 import math
@@ -47,15 +48,17 @@ COL_DROP = "#a0a0a0"
 # =============================================================================
 
 def _select_edge_cable(fdm_result, safety_factor=2.0):
-    """Pick the smallest cable from CABLE_PROPERTIES."""
+    """Pick the smallest cable (by area) across all families."""
     T_max_N = float(fdm_result.get("max_edge_tension_N", 0.0))
     if T_max_N <= 0:
         T_max_N = float(fdm_result.get("edge_q_scalar", 10000.0))
 
     design_load_N = T_max_N * safety_factor
 
-    for family_name in ("Locked Coil", "Dyform 6", "Spiral", "Strand"):
-        family = CABLE_PROPERTIES.get(family_name, {})
+    candidates = []
+    for family_name, family in CABLE_PROPERTIES.items():
+        if family_name == "default":
+            continue
         for size, props in family.items():
             if size == "default":
                 continue
@@ -66,30 +69,20 @@ def _select_edge_cable(fdm_result, safety_factor=2.0):
                 A_mm2 = props["A"]
                 E_MPa = props.get("E", 160000)
                 EA_N = A_mm2 * 1e-6 * E_MPa * 1e6
-                return (
+                candidates.append((
+                    A_mm2,
                     "%s %s" % (family_name, size),
                     A_mm2,
                     E_MPa,
                     EA_N,
-                    T_max_N,
-                )
+                ))
 
-    family = CABLE_PROPERTIES.get("Locked Coil", {})
-    for size, props in reversed(list(family.items())):
-        if size == "default":
-            continue
-        if props.get("A") and props.get("f_u"):
-            A_mm2 = props["A"]
-            E_MPa = props.get("E", 160000)
-            EA_N = A_mm2 * 1e-6 * E_MPa * 1e6
-            return (
-                "Locked Coil %s (oversize)" % size,
-                A_mm2,
-                E_MPa,
-                EA_N,
-                T_max_N,
-            )
+    if candidates:
+        candidates.sort(key=lambda c: c[0])
+        _, name, A_mm2, E_MPa, EA_N = candidates[0]
+        return (name, A_mm2, E_MPa, EA_N, T_max_N)
 
+    # Fallback if nothing passes
     return ("Fallback 10mm strand", 63.0, 160000, 10e9, T_max_N)
 
 
@@ -388,7 +381,7 @@ def render_tester_multi_cone():
                                     key="mc_optends")
 
     subdivisions = int(st.number_input(
-        "Subdivisions per edge", 5, 25, 5, 1, key="mc_subdiv"
+        "Subdivisions per edge", 5, 25, 7, 1, key="mc_subdiv"
     ))
 
     c1, c2 = st.columns(2)
@@ -410,18 +403,18 @@ def render_tester_multi_cone():
     c1, c2 = st.columns(2)
     with c1:
         warp_q_input = st.number_input(
-            "Warp pretension (kN/m)", 0.1, 100.0, 2.0, 0.1,
+            "Warp pretension (kN/m)", 0.1, 100.0, 20.0, 0.1,
             key="mc_warp",
         )
     with c2:
         weft_q_input = st.number_input(
-            "Weft pretension (kN/m)", 0.1, 100.0, 2.0, 0.1,
+            "Weft pretension (kN/m)", 0.1, 100.0, 20.0, 0.1,
             key="mc_weft",
         )
 
     edge_q_input = st.number_input(
         "Edge cable pretension (kN/m)",
-        0.1, 500.0, 5.0, 0.1,
+        0.1, 500.0, 20.0, 0.1,
         key="mc_edgeq",
     )
 
