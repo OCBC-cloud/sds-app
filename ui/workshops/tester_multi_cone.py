@@ -24,6 +24,9 @@ History:
                 to accept those steps and crashed. At 1e-5 (10 microns),
                 it recognises convergence and exits cleanly. The two-step
                 workflow is proven. Structural engine is now safe to wire.
+    2026-10-22 - Added reaction forces to the Diagnostics panel.
+                The solver now returns the final residual vector, and
+                the Lab sums the reaction forces at the supports.
 """
 
 import math
@@ -623,7 +626,7 @@ def render_tester_multi_cone():
                 max_iter=100,
                 max_outer=25,
                 tol=1.5,
-                tol_disp=1e-5, # <--- THE FIX IS HERE (was 1e-8)
+                tol_disp=1e-5,
                 max_total_steps=200,
                 max_wall_seconds=50.0,
                 seed_z_amplitude=0.001 * data["span"],
@@ -739,6 +742,30 @@ def render_tester_multi_cone():
             st.write("Newton time (s): %.2f" % nd["elapsed_seconds"])
             st.write("Newton reason: %s" % nd.get("reason", ""))
             st.write("Seed applied (m): %.6f" % nd.get("seed_applied_m", 0.0))
+
+            # --- REACTION FORCES ---
+            st.write("---")
+            st.write("**Reaction Forces:**")
+            R = nd.get("reactions", None)
+            if R is not None:
+                # Calculate total uplift/downlift at fixed nodes
+                fixed_indices = data["fixed"]
+                if len(fixed_indices) > 0:
+                    Rx_total = float(np.sum(R[fixed_indices, 0]))
+                    Ry_total = float(np.sum(R[fixed_indices, 1]))
+                    Rz_total = float(np.sum(R[fixed_indices, 2]))
+                    st.write("Total Rx (N): %.2f" % Rx_total)
+                    st.write("Total Ry (N): %.2f" % Ry_total)
+                    st.write("Total Rz (N): %.2f" % Rz_total)
+                    # Show top 3 individual reactions by magnitude
+                    mags = np.linalg.norm(R[fixed_indices], axis=1)
+                    top_idx = np.argsort(mags)[::-1][:3]
+                    for i in top_idx:
+                        nd_idx = fixed_indices[i]
+                        st.write("Node %d: Fx=%.1f, Fy=%.1f, Fz=%.1f (N)"
+                                 % (nd_idx, R[nd_idx, 0], R[nd_idx, 1], R[nd_idx, 2]))
+            else:
+                st.write("Reactions not available in solver output.")
 
             hist = nd.get("history", [])
             if hist:
