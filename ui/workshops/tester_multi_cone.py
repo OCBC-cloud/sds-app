@@ -2,16 +2,15 @@
 
 Two-stage workflow:
     Stage 1: FDM finds the shape. User visually approves.
-    Stage 2: Cable auto-sized, Newton solves with real prestress.
+    Stage 2: Cable auto-sized, Newton solves with real prestress + loads.
 
 History:
     First SDSe-only version.
     2026-10-22 - Added two-stage workflow (FDM then DR).
     2026-10-22 - Replaced DR with Newton-Raphson.
     2026-10-22 - Implemented two-step workflow.
-    2026-10-22 - Fixed Reaction Forces. The solver now returns the
-                true force at the fixed nodes, and the Lab sums them
-                correctly to show the uplift required to hold the roof.
+    2026-10-22 - Fixed Reaction Forces.
+    2026-10-22 - Added Snow Load, Wind Load, and Payload to the solver.
 """
 
 import math
@@ -422,6 +421,21 @@ def render_tester_multi_cone():
         key="mc_edgeq",
     )
 
+    st.markdown("### Loads")
+    c1, c2 = st.columns(2)
+    with c1:
+        snow_load_kNm2 = st.number_input(
+            "Snow Load (kN/m²)", 0.0, 5.0, 0.5, 0.1, key="mc_snow"
+        )
+    with c2:
+        wind_load_kNm2 = st.number_input(
+            "Wind Uplift (kN/m²)", 0.0, 5.0, 0.0, 0.1, key="mc_wind"
+        )
+    
+    payload_kg = st.number_input(
+        "Payload at apex (kg)", 0.0, 1000.0, 0.0, 10.0, key="mc_payload"
+    )
+
     # --- THE TWO BUTTONS ---
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
     with col_btn1:
@@ -600,6 +614,37 @@ def render_tester_multi_cone():
                 weft_prestress_N_per_m=data["weft_q"],
             )
 
+            # --- APPLY LOADS ---
+            loads = np.zeros((pts.shape[0], 3), dtype=float)
+            
+            # 1. Snow Load (downward)
+            snow_Pa = snow_load_kNm2 * 1000.0
+            for (a, b, c) in data["tris"]:
+                pa, pb, pc = coords_fdm[a], coords_fdm[b], coords_fdm[c]
+                area = 0.5 * float(np.linalg.norm(np.cross(pb - pa, pc - pa)))
+                force = snow_Pa * area / 3.0
+                loads[a, 2] -= force
+                loads[b, 2] -= force
+                loads[c, 2] -= force
+                
+            # 2. Wind Uplift (upward)
+            wind_Pa = wind_load_kNm2 * 1000.0
+            for (a, b, c) in data["tris"]:
+                pa, pb, pc = coords_fdm[a], coords_fdm[b], coords_fdm[c]
+                area = 0.5 * float(np.linalg.norm(np.cross(pb - pa, pc - pa)))
+                force = wind_Pa * area / 3.0
+                loads[a, 2] += force
+                loads[b, 2] += force
+                loads[c, 2] += force
+
+            # 3. Payload (at apex)
+            if payload_kg > 0 and len(data["built"]["beam_top_indices"]) > 0:
+                apex_idx = data["built"]["beam_top_indices"][0]
+                loads[apex_idx, 2] -= payload_kg * 9.81
+
+            # Save the actual load vector used for this solve
+            st.session_state["last_loads"] = loads
+
             dr_result = solve_nonlinear_equilibrium(
                 points=coords_fdm.copy(),
                 triangles=data["tris"],
@@ -607,7 +652,7 @@ def render_tester_multi_cone():
                 reference_points=coords_fdm.copy(),
                 membrane_material=material,
                 cables=cables,
-                loads=None,
+                loads=loads, # <-- PASS THE LOADS HERE
                 max_iter=100,
                 max_outer=25,
                 tol=1.5,
