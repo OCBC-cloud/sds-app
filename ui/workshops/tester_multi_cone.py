@@ -3,17 +3,6 @@
 Two-stage workflow:
     Stage 1: FDM finds the shape. User visually approves.
     Stage 2: Cable auto-sized, Newton solves with real prestress + loads.
-
-History:
-    First SDSe-only version.
-    2026-10-22 - Added two-stage workflow (FDM then DR).
-    2026-10-22 - Replaced DR with Newton-Raphson.
-    2026-10-22 - Implemented two-step workflow.
-    2026-10-22 - Fixed Reaction Forces.
-    2026-10-22 - Added multi-code load generator with ULS factors.
-    2026-10-22 - Added pad footing design.
-    2026-10-22 - Fixed cable sizing based on actual Newton forces.
-    2026-10-22 - Fixed worst-case node selection for baseplate (tension+shear).
 """
 
 import math
@@ -129,9 +118,11 @@ def _rib_stations(n, optional_ends, span, x, s, total):
 
 
 def _rib_arch_y_at_eave(peak_z, half_width, eave_height):
-    if peak_z <= eave_height: return None
+    if peak_z <= eave_height:
+        return None
     u2 = 1.0 - eave_height / peak_z
-    if u2 < 0.0: return None
+    if u2 < 0.0:
+        return None
     return half_width * math.sqrt(u2)
 
 
@@ -144,11 +135,13 @@ def _rib_polyline(rib_x, half_width, peak_z, n):
 
 
 def _tip_x_at_eave(span, apex, eave_height, curve_type):
-    if apex <= eave_height: return span / 2.0
+    if apex <= eave_height:
+        return span / 2.0
     x_fine = np.linspace(0.0, span / 2.0, 2000)
     z_fine = beam_curve(x_fine, span, apex, curve_type)
     idx = np.where(z_fine >= eave_height)[0]
-    if len(idx) == 0: return span / 2.0
+    if len(idx) == 0:
+        return span / 2.0
     return float(x_fine[idx[-1]])
 
 
@@ -156,12 +149,14 @@ def _build_eave_anchors(rib_x, rib_half_width, rib_peak_z, eave_height, tip_x):
     plus, minus = [], []
     for i, xr in enumerate(rib_x):
         y_at = _rib_arch_y_at_eave(float(rib_peak_z[i]), float(rib_half_width[i]), eave_height)
-        if y_at is None: continue
+        if y_at is None:
+            continue
         plus.append((float(xr), +y_at, eave_height))
         minus.append((float(xr), -y_at, eave_height))
     pts = list(plus)
     pts.append((+tip_x, 0.0, eave_height))
-    for p in reversed(minus): pts.append(p)
+    for p in reversed(minus):
+        pts.append(p)
     pts.append((-tip_x, 0.0, eave_height))
     return np.asarray(pts, dtype=float)
 
@@ -181,7 +176,8 @@ def _subdivide_polygon(anchors, subdivisions):
 
 
 def _cone_arc_positions(n_cones, spacing, total):
-    if n_cones < 1: raise ValueError("Number of cones must be at least 1.")
+    if n_cones < 1:
+        raise ValueError("Number of cones must be at least 1.")
     mid = total / 2.0
     if n_cones % 2 == 1:
         half = (n_cones - 1) // 2
@@ -278,51 +274,69 @@ def render_tester_multi_cone():
 
     # --- Inputs ---
     c1, c2 = st.columns(2)
-    with c1: span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5, key="mc_span")
-    with c2: apex = st.number_input("Primary apex (m)", 1.0, 30.0, 5.0, 0.5, key="mc_apex")
+    with c1:
+        span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5, key="mc_span")
+    with c2:
+        apex = st.number_input("Primary apex (m)", 1.0, 30.0, 5.0, 0.5, key="mc_apex")
 
     c1, c2 = st.columns(2)
-    with c1: mid_width = st.number_input("Mid-span width (m)", 6.0, 60.0, 10.0, 0.5, key="mc_width")
-    with c2: eave_height = st.number_input("Eave height (m)", 0.5, 10.0, 2.8, 0.1, key="mc_eave")
+    with c1:
+        mid_width = st.number_input("Mid-span width (m)", 6.0, 60.0, 10.0, 0.5, key="mc_width")
+    with c2:
+        eave_height = st.number_input("Eave height (m)", 0.5, 10.0, 2.8, 0.1, key="mc_eave")
 
     c1, c2 = st.columns(2)
-    with c1: ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 1.0, 0.1, key="mc_rd")
-    with c2: curve_type = st.selectbox("Curve type", ["parabolic", "circular", "catenary"], index=0, key="mc_curve")
+    with c1:
+        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 1.0, 0.1, key="mc_rd")
+    with c2:
+        curve_type = st.selectbox("Curve type", ["parabolic", "circular", "catenary"], index=0, key="mc_curve")
 
     c1, c2 = st.columns(2)
-    with c1: secondary_count = int(st.number_input("Secondary count", 2, 20, 3, 1, key="mc_nribs"))
-    with c2: optional_ends = st.toggle("Optional ends", value=False, key="mc_optends")
+    with c1:
+        secondary_count = int(st.number_input("Secondary count", 2, 20, 3, 1, key="mc_nribs"))
+    with c2:
+        optional_ends = st.toggle("Optional ends", value=False, key="mc_optends")
 
     subdivisions = int(st.number_input("Subdivisions per edge", 5, 25, 5, 1, key="mc_subdiv"))
 
     c1, c2 = st.columns(2)
-    with c1: number_of_cones = int(st.number_input("Number of cones", 1, 20, 1, 1, key="mc_ncones"))
-    with c2: ring_spacing = st.number_input("Distance between adjacent cones (m, along beam)", 0.5, 10.0, 5.0, 0.1, key="mc_spacing")
+    with c1:
+        number_of_cones = int(st.number_input("Number of cones", 1, 20, 1, 1, key="mc_ncones"))
+    with c2:
+        ring_spacing = st.number_input("Distance between adjacent cones (m, along beam)", 0.5, 10.0, 5.0, 0.1, key="mc_spacing")
 
     ring_clearance = st.number_input("Ring clearance below beam (m)", 0.1, 5.0, 1.0, 0.1, key="mc_clr")
 
     c1, c2 = st.columns(2)
-    with c1: warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp")
-    with c2: weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft")
+    with c1:
+        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp")
+    with c2:
+        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft")
 
     edge_q_input = st.number_input("Edge cable pretension (kN/m)", 0.1, 500.0, 1.0, 0.1, key="mc_edgeq")
 
     st.markdown("### Environmental Loads & Design Philosophy")
     
     c1, c2 = st.columns(2)
-    with c1: code_choice = st.selectbox("Building Code", list(CODE_PARAMS.keys()), index=0, key="mc_code")
-    with c2: design_philosophy = st.selectbox("Design Philosophy", ["Serviceability (Unfactored)", "Ultimate Limit State (Factored)"], index=0, key="mc_design_philosophy")
+    with c1:
+        code_choice = st.selectbox("Building Code", list(CODE_PARAMS.keys()), index=0, key="mc_code")
+    with c2:
+        design_philosophy = st.selectbox("Design Philosophy", ["Serviceability (Unfactored)", "Ultimate Limit State (Factored)"], index=0, key="mc_design_philosophy")
 
     c1, c2 = st.columns(2)
-    with c1: wind_speed = st.number_input("Wind Speed (m/s)", 0.0, 80.0, 30.0, 1.0, key="mc_wind_speed")
-    with c2: snow_depth = st.number_input("Snow Depth (m)", 0.0, 2.0, 0.0, 0.1, key="mc_snow_depth")
+    with c1:
+        wind_speed = st.number_input("Wind Speed (m/s)", 0.0, 80.0, 30.0, 1.0, key="mc_wind_speed")
+    with c2:
+        snow_depth = st.number_input("Snow Depth (m)", 0.0, 2.0, 0.0, 0.1, key="mc_snow_depth")
     
     payload_kg = st.number_input("Payload at apex (kg)", 0.0, 1000.0, 0.0, 10.0, key="mc_payload")
 
     # --- THE TWO BUTTONS ---
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
-    with col_btn1: btn_fdm = st.button("1. Find Form (FDM)", use_container_width=True)
-    with col_btn2: btn_newton = st.button("2. Structural Calculation", use_container_width=True)
+    with col_btn1:
+        btn_fdm = st.button("1. Find Form (FDM)", use_container_width=True)
+    with col_btn2:
+        btn_newton = st.button("2. Structural Calculation", use_container_width=True)
 
     if btn_fdm or "fdm_results" not in st.session_state:
         xp = np.linspace(-span / 2.0, span / 2.0, 200)
@@ -398,7 +412,8 @@ def render_tester_multi_cone():
         }
 
     data = st.session_state.get("fdm_results")
-    if not data: return
+    if not data:
+        return
 
     coords_to_draw = data["coords_fdm"]
     dr_result = None
@@ -428,7 +443,8 @@ def render_tester_multi_cone():
                     ia = chain[m]
                     ib = chain[m + 1]
                     L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
-                    if L_ref < 1e-9: continue
+                    if L_ref < 1e-9:
+                        continue
                     cables.append({"a": ia, "b": ib, "L0": L_ref * 1.001, "EA": EA_cable})
 
             material = make_membrane_material(
@@ -506,8 +522,11 @@ def render_tester_multi_cone():
         st.write("---")
         st.write("**Stage 1 — FDM:**")
         st.write("FDM Solve OK: %s" % data["solve_ok"])
-        if not data["solve_ok"]: st.write("FDM error: %s" % data["solve_err"])
-        else: st.write("FDM force imbalance (N): %.6e" % data["residual_fdm"]); st.write("FDM estimated edge tension (N): %.1f" % data["fdm"]["max_edge_tension_N"])
+        if not data["solve_ok"]:
+            st.write("FDM error: %s" % data["solve_err"])
+        else:
+            st.write("FDM force imbalance (N): %.6e" % data["residual_fdm"])
+            st.write("FDM estimated edge tension (N): %.1f" % data["fdm"]["max_edge_tension_N"])
 
         if newton_data:
             nd = newton_data["dr_result"]
@@ -543,7 +562,8 @@ def render_tester_multi_cone():
                     st.write("**Worst-Case Baseplate & Foundation (Node %d):**" % nd_idx)
                     st.write("Reaction: Fx=%.1f, Fy=%.1f, Fz=%.1f (N)" % (worst_R[0], worst_R[1], worst_R[2]))
                     
-                    if design_philosophy == "Ultimate Limit State (Factored)": st.write("*(Note: Foundation design below is based on the current Gravity solve. A full ULS check would also verify the Uplift case: 0.9D + 1.0W)*")
+                    if design_philosophy == "Ultimate Limit State (Factored)":
+                        st.write("*(Note: Foundation design below is based on the current Gravity solve. A full ULS check would also verify the Uplift case: 0.9D + 1.0W)*")
                     
                     design = design_baseplate_and_foundation(worst_R)
                     st.code(
@@ -568,7 +588,8 @@ def render_tester_multi_cone():
             hist = nd.get("history", [])
             if hist:
                 st.write("Newton history (last 5 steps):")
-                for row in hist[-5:]: st.write("  outer=%s  inner=%s  ||R||=%.4e  max|R|=%.4e" % (row[0], row[1], row[2], row[3]))
+                for row in hist[-5:]:
+                    st.write("  outer=%s  inner=%s  ||R||=%.4e  max|R|=%.4e" % (row[0], row[1], row[2], row[3]))
 
             members = _build_member_schedule(data["built"], coords_to_draw, data["x_rings"], data["anchor_idx"], data["edge_q_scalar"], data["warp_q"], data["weft_q"], newton_data["cable_name"], newton_data["cable_A_mm2"], newton_data["steel_section"])
             with st.expander("Member schedule (auto-sized)", expanded=True):
