@@ -26,12 +26,14 @@ History:
                 Pre-tensioning caused a violent local shock on the
                 stiff cables; starting slack lets Newton settle the
                 membrane first, and the cables pull taut naturally.
-    2026-10-22 - Split the Newton solve into two stages to handle the
-                stiffness contrast between the soft membrane and the
-                stiff steel ring. Stage 4a holds the ring nodes fixed
-                so the membrane bows and tensions the cables. Stage 4b
-                releases the ring nodes so the steel settles into its
-                final position from a well-formed membrane.
+    2026-10-22 - Increased seed to 1% of span. A 1mm seed is too small
+                to establish geometric stiffness on a 10m span; the
+                out-of-plane tangent remains effectively singular and
+                the line search stalls. 1% (100mm on 10m) is the
+                standard initial curvature used in tensile form-finding.
+                Reverted the two-stage ring freeze, because SDSe shares
+                ring nodes with the membrane and freezing them walls off
+                the membrane. Single coupled Newton solve.
 """
 
 import math
@@ -365,7 +367,7 @@ def render_tester_multi_cone():
         "Multi-Cone Roof — Tester</h2>"
         "<p style='color:#a8b8c8;margin-top:0;'>"
         "Stage 1: FDM finds shape. "
-        "Stage 2: Cable auto-sized, Newton solves (two-stage).</p>",
+        "Stage 2: Cable auto-sized, Newton solves.</p>",
         unsafe_allow_html=True,
     )
 
@@ -570,7 +572,6 @@ def render_tester_multi_cone():
             L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
             if L_ref < 1e-9:
                 continue
-            # Slack initial cable, so the membrane settles first.
             L0 = L_ref * 1.001
             cables.append({
                 "a": ia, "b": ib, "L0": L0, "EA": EA_cable,
@@ -583,25 +584,13 @@ def render_tester_multi_cone():
         weft_prestress_N_per_m=weft_q,
     )
 
-    # ---- STAGE 4: Newton-Raphson (two-stage) ----
+    # ---- STAGE 4: Newton-Raphson ----
     st.write("Running Newton-Raphson nonlinear equilibrium solver...")
 
-    # Identify the stiff ring nodes so we can hold them during stage 4a.
-    ring_node_set = set()
-    for idx_list in built.get("ring_indices", []):
-        for nd in idx_list:
-            ring_node_set.add(int(nd))
-    for nd in built.get("centre_indices", []):
-        ring_node_set.add(int(nd))
-    for nd in built.get("beam_top_indices", []):
-        ring_node_set.add(int(nd))
-
-    fixed_stage_a = sorted(set(int(f) for f in fixed) | ring_node_set)
-
-    dr_result_a = solve_nonlinear_equilibrium(
+    dr_result = solve_nonlinear_equilibrium(
         points=coords_fdm.copy(),
         triangles=tris,
-        fixed_indices=fixed_stage_a,
+        fixed_indices=fixed,
         reference_points=coords_fdm.copy(),
         membrane_material=material,
         cables=cables,
@@ -611,39 +600,13 @@ def render_tester_multi_cone():
         tol=1e-6,
         tol_disp=1e-8,
         max_total_steps=200,
-        max_wall_seconds=25.0,
-        seed_z_amplitude=0.001 * span,
+        max_wall_seconds=50.0,
+        seed_z_amplitude=0.01 * span,
     )
 
-    st.write(
-        "Stage 4a (ring fixed): converged=%s, reason=%s, time=%.2fs"
-        % (
-            dr_result_a["converged"],
-            dr_result_a.get("reason", ""),
-            dr_result_a["elapsed_seconds"],
-        )
-    )
-
-    dr_result_b = solve_nonlinear_equilibrium(
-        points=dr_result_a["coordinates"].copy(),
-        triangles=tris,
-        fixed_indices=list(fixed),
-        reference_points=coords_fdm.copy(),
-        membrane_material=material,
-        cables=cables,
-        loads=None,
-        max_iter=100,
-        max_outer=25,
-        tol=1e-6,
-        tol_disp=1e-8,
-        max_total_steps=200,
-        max_wall_seconds=25.0,
-        seed_z_amplitude=0.0,
-    )
-
-    coords = dr_result_b["coordinates"]
-    dr_converged = dr_result_b["converged"]
-    dr_residual = dr_result_b["residual_norm"]
+    coords = dr_result["coordinates"]
+    dr_converged = dr_result["converged"]
+    dr_residual = dr_result["residual_norm"]
 
     # ---- DRAW ----
     fig = go.Figure()
@@ -722,7 +685,6 @@ def render_tester_multi_cone():
         st.write("Mesh edges: %d" % len(edges))
         st.write("Mesh triangles: %d" % len(tris))
         st.write("Held nodes (total): %d" % len(fixed))
-        st.write("Ring nodes (stage 4a hold): %d" % len(ring_node_set))
 
         st.write("---")
         st.write("**Stage 1 — FDM:**")
@@ -743,28 +705,20 @@ def render_tester_multi_cone():
         st.write("Steel moment: %.1f kNm" % beam_moment_kNm)
 
         st.write("---")
-        st.write("**Stage 4a — Newton (ring held):**")
-        st.write("Converged: %s" % dr_result_a["converged"])
-        st.write("Iterations: %d" % dr_result_a["iterations"])
-        st.write("Residual (N): %.6e" % dr_result_a["residual_norm"])
-        st.write("Max residual (N): %.6e"
-                 % dr_result_a.get("max_residual", dr_result_a["residual_norm"]))
-        st.write("Time (s): %.2f" % dr_result_a["elapsed_seconds"])
-        st.write("Reason: %s" % dr_result_a.get("reason", ""))
+        st.write("**Stage 2 — Newton:**")
+        st.write("Newton converged: %s" % dr_converged)
+        st.write("Newton iterations: %d" % dr_result["iterations"])
+        st.write("Newton total steps: %d" % dr_result.get("total_steps", 0))
+        st.write("Newton residual (N): %.6e" % dr_residual)
+        st.write("Newton max residual (N): %.6e"
+                 % dr_result.get("max_residual", dr_residual))
+        st.write("Newton time (s): %.2f" % dr_result["elapsed_seconds"])
+        st.write("Newton reason: %s" % dr_result.get("reason", ""))
+        st.write("Seed applied (m): %.6f" % dr_result.get("seed_applied_m", 0.0))
 
-        st.write("**Stage 4b — Newton (ring released):**")
-        st.write("Converged: %s" % dr_result_b["converged"])
-        st.write("Iterations: %d" % dr_result_b["iterations"])
-        st.write("Total steps: %d" % dr_result_b.get("total_steps", 0))
-        st.write("Residual (N): %.6e" % dr_result_b["residual_norm"])
-        st.write("Max residual (N): %.6e"
-                 % dr_result_b.get("max_residual", dr_result_b["residual_norm"]))
-        st.write("Time (s): %.2f" % dr_result_b["elapsed_seconds"])
-        st.write("Reason: %s" % dr_result_b.get("reason", ""))
-
-        hist = dr_result_b.get("history", [])
+        hist = dr_result.get("history", [])
         if hist:
-            st.write("Stage 4b history (last 5 steps):")
+            st.write("Newton history (last 5 steps):")
             for row in hist[-5:]:
                 st.write("  outer=%s  inner=%s  ||R||=%.4e  max|R|=%.4e"
                          % (row[0], row[1], row[2], row[3]))
