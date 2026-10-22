@@ -71,16 +71,23 @@ def design_baseplate_and_foundation(reaction_N, steel_fy_MPa=355, concrete_fc_MP
         bolt_embed = int((uplift_N / num_bolts) / (math.pi * bolt_d * bond_stress_MPa))
         bolt_embed = math.ceil(bolt_embed / 50.0) * 50
         
-    # 4. Baseplate Thickness
+    # 4. Baseplate Thickness (Combined Bending from Uplift and Shear)
     bolt_spacing_mm = plate_side_mm * 0.6
     cantilever_mm = (plate_side_mm - bolt_spacing_mm) / 2.0
     
-    # If there is no uplift, base thickness on shear prying or min thickness
-    if uplift_N < 1000:
-        plate_thickness_mm = 10.0
+    # Moment from uplift (per bolt)
+    moment_tension = (uplift_N / num_bolts) * cantilever_mm
+    
+    # Moment from shear (per bolt) - assuming half the shear is resisted by bending in the plate
+    moment_shear = (shear_N / (2 * num_bolts)) * cantilever_mm
+    
+    # Combined moment
+    total_moment = moment_tension + moment_shear
+    
+    if total_moment < 1.0:
+        plate_thickness_mm = 10.0 # Minimum practical thickness
     else:
-        moment_per_mm = (uplift_N / num_bolts) * cantilever_mm
-        plate_thickness_mm = math.sqrt(6 * moment_per_mm / steel_fy_MPa)
+        plate_thickness_mm = math.sqrt(6 * total_moment / steel_fy_MPa)
         plate_thickness_mm = max(10.0, math.ceil(plate_thickness_mm / 2.0) * 2.0)
     
     # 5. Concrete Stump Dimensions
