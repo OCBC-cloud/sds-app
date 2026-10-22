@@ -812,7 +812,9 @@ def solve_nonlinear_equilibrium(
         if r_max < tol_abs:
             converged = True
             reason = "converged"
-            break        inner_failed = False
+            break
+
+        inner_failed = False
         for it in range(1, max_iter + 1):
             if time.time() - t_start > max_wall_seconds:
                 reason = "wall_clock_exceeded"
@@ -824,7 +826,7 @@ def solve_nonlinear_equilibrium(
                 break
 
             total_steps += 1
-            
+
             K = _assemble_tangent_sparse(
                 points, triangles, cables, ref_points,
                 membrane_material, free_mask, n_nodes, taut_flags
