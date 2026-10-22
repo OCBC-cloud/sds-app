@@ -980,11 +980,15 @@ def solve_nonlinear_equilibrium(
             "taut": bool(taut),
         })
 
-    # Recompute final residual to get exact reactions at fixed nodes
+    # Recompute final residual to get exact reactions at fixed nodes.
+    # We pass a mask of all True here, so it calculates the force on
+    # EVERY node. Then we flip the sign so positive is upward support.
+    all_true = np.ones(n_nodes, dtype=bool)
     R_final = _assemble_residual(
         points, triangles, cables, ref_points,
-        membrane_material, loads, free_mask, n_nodes, taut_flags
+        membrane_material, loads, all_true, n_nodes, taut_flags
     )
+    R_final[fixed_mask] = -R_final[fixed_mask]
 
     elapsed = time.time() - t_start
 
@@ -1001,7 +1005,7 @@ def solve_nonlinear_equilibrium(
         "history": history,
         "reason": reason,
         "seed_applied_m": float(seed_applied),
-        "reactions": R_final, # <--- ADDED REACTIONS
+        "reactions": R_final,
     }
 
 
