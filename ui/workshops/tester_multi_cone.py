@@ -11,7 +11,10 @@ History:
     2026-10-22 - Implemented two-step workflow.
     2026-10-22 - Fixed Reaction Forces.
     2026-10-22 - Added multi-code load generator with ULS factors.
-    2026-10-22 - Added pad footing design to foundation engine.
+    2026-10-22 - Added pad footing design.
+    2026-10-22 - FIXED CABLE SIZING: Cable is now sized based on the 
+                actual max tension from the Newton solver, not just 
+                the initial FDM pretension.
 """
 
 import math
@@ -60,13 +63,9 @@ COL_DROP = "#a0a0a0"
 # AUTO-SIZING HELPERS
 # =============================================================================
 
-def _select_edge_cable(fdm_result, safety_factor=2.0):
+def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
     """Pick the smallest cable (by area) across all families."""
-    T_max_N = float(fdm_result.get("max_edge_tension_N", 0.0))
-    if T_max_N <= 0:
-        T_max_N = float(fdm_result.get("edge_q_scalar", 10000.0))
-
-    design_load_N = T_max_N * safety_factor
+    design_load_N = actual_max_tension_N * safety_factor
 
     candidates = []
     for family_name, family in CABLE_PROPERTIES.items():
@@ -93,9 +92,9 @@ def _select_edge_cable(fdm_result, safety_factor=2.0):
     if candidates:
         candidates.sort(key=lambda c: c[0])
         _, name, A_mm2, E_MPa, EA_N = candidates[0]
-        return (name, A_mm2, E_MPa, EA_N, T_max_N)
+        return (name, A_mm2, E_MPa, EA_N)
 
-    return ("Fallback 10mm strand", 63.0, 160000, 10e9, T_max_N)
+    return ("Fallback 10mm strand", 63.0, 160000, 10e9)
 
 
 def _select_steel_section(max_axial_kN, max_moment_kNm,
@@ -590,19 +589,12 @@ def render_tester_multi_cone():
     # --- SHOW FDM SHAPE ---
     coords_to_draw = data["coords_fdm"]
     dr_result = None
-    worst_reaction = None
 
     if btn_newton:
         with st.spinner("Running Structural Calculation (Newton)..."):
-            # Rebuild cables and materials from saved state
-            cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_T_fdm = \
-                _select_edge_cable(data["fdm"], safety_factor=2.0)
-
-            beam_axial_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
-            beam_moment_kNm = (beam_axial_kN * data["span"]) / 8.0
-            steel_section = _select_steel_section(
-                beam_axial_kN, beam_moment_kNm,
-                family="CHS", grade="S355",
+            # Start with the 6mm default estimate
+            cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(
+                data["fdm"]["max_edge_tension_N"], safety_factor=2.0
             )
 
             cables = []
@@ -674,6 +666,41 @@ def render_tester_multi_cone():
                 seed_z_amplitude=0.001 * data["span"],
             )
             
+            # --- POST-PROCESSING: SIZE CABLES AND STEEL FROM ACTUAL FORCES ---
+            # Now that Newton has run, we have the actual forces.
+            # Let's find the max cable tension and size the steel ring.
+            
+            max_actual_T = 0.0
+            if "cable_tension_list" in dr_result:
+                for c in dr_result["cable_tension_list"]:
+                    if c["T_N"] > max_actual_T:
+                        max_actual_T = c["T_N"]
+            
+            if max_actual_T < data["fdm"]["max_edge_tension_N"]:
+                max_actual_T = data["fdm"]["max_edge_tension_N"]
+
+            # Now size the final cable based on the true tension
+            cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(
+                max_actual_T, safety_factor=2.0
+            )
+
+            # Size the steel section based on the actual max reaction
+            # (Using the max total reaction as a proxy for axial load on the ring)
+            max_reaction_kN = 0.0
+            if "reactions" in dr_result:
+                R = dr_result["reactions"]
+                for r in R:
+                    mag = math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)
+                    if mag / 1000.0 > max_reaction_kN:
+                        max_reaction_kN = mag / 1000.0
+            
+            # Moment from reaction * span / 8
+            beam_moment_kNm = (max_reaction_kN * data["span"]) / 8.0
+            steel_section = _select_steel_section(
+                max_reaction_kN, beam_moment_kNm,
+                family="CHS", grade="S355",
+            )
+
             coords_to_draw = dr_result["coordinates"]
 
             # Save the results so they don't vanish on next rerun
@@ -683,7 +710,7 @@ def render_tester_multi_cone():
                 "cable_A_mm2": cable_A_mm2,
                 "EA_cable": EA_cable,
                 "steel_section": steel_section,
-                "beam_axial_kN": beam_axial_kN,
+                "beam_axial_kN": max_reaction_kN,
                 "beam_moment_kNm": beam_moment_kNm,
                 "cables": cables,
                 "material": material,
@@ -755,115 +782,4 @@ def render_tester_multi_cone():
 
     # --- DIAGNOSTICS ---
     with st.expander("Diagnostics", expanded=True):
-        st.write("Number of cones: %d" % number_of_cones)
-        st.write("Total mesh nodes: %d" % data["pts"].shape[0])
-        st.write("Mesh edges: %d" % len(data["edges"]))
-        st.write("Mesh triangles: %d" % len(data["tris"]))
-        st.write("Held nodes (total): %d" % len(data["fixed"]))
-
-        st.write("---")
-        st.write("**Stage 1 — FDM:**")
-        st.write("FDM Solve OK: %s" % data["solve_ok"])
-        if not data["solve_ok"]:
-            st.write("FDM error: %s" % data["solve_err"])
-        else:
-            st.write("FDM force imbalance (N): %.6e" % data["residual_fdm"])
-            st.write("FDM estimated edge tension (N): %.1f"
-                     % data["fdm"]["max_edge_tension_N"])
-
-        if newton_data:
-            nd = newton_data["dr_result"]
-            st.write("---")
-            st.write("**Stage 2 — Newton:**")
-            st.write("Newton converged: %s" % nd["converged"])
-            st.write("Newton iterations: %d" % nd["iterations"])
-            st.write("Newton total steps: %d" % nd.get("total_steps", 0))
-            st.write("Newton residual (N): %.6e" % nd["residual_norm"])
-            st.write("Newton max residual (N): %.6e"
-                     % nd.get("max_residual", nd["residual_norm"]))
-            st.write("Newton time (s): %.2f" % nd["elapsed_seconds"])
-            st.write("Newton reason: %s" % nd.get("reason", ""))
-            st.write("Seed applied (m): %.6f" % nd.get("seed_applied_m", 0.0))
-
-            # --- REACTION FORCES & CONNECTION DESIGN ---
-            st.write("---")
-            st.write("**Reaction Forces & Foundation Design:**")
-            R = nd.get("reactions", None)
-            if R is not None:
-                fixed_indices = data["fixed"]
-                if len(fixed_indices) > 0:
-                    mags = np.linalg.norm(R[fixed_indices], axis=1)
-                    worst_idx = np.argmax(mags)
-                    nd_idx = fixed_indices[worst_idx]
-                    worst_R = R[nd_idx]
-                    
-                    st.write("**Worst-Case Baseplate & Foundation (Node %d):**" % nd_idx)
-                    st.write("Reaction: Fx=%.1f, Fy=%.1f, Fz=%.1f (N)" % (worst_R[0], worst_R[1], worst_R[2]))
-                    
-                    if design_philosophy == "Ultimate Limit State (Factored)":
-                        st.write("*(Note: Foundation design below is based on the current Gravity solve. A full ULS check would also verify the Uplift case: 0.9D + 1.0W)*")
-                    
-                    design = design_baseplate_and_foundation(worst_R)
-                    st.code(
-                        "Baseplate: %d x %d x %d mm\n"
-                        "Anchor Bolts: %d x M%d J-Bolts (Embed: %d mm)\n"
-                        "Concrete Stump: %d x %d mm\n"
-                        "Pad Footing: %d x %d x %d mm\n"
-                        "Concrete Grade: %s"
-                        % (
-                            design["plate_side_mm"], design["plate_side_mm"], design["plate_thickness_mm"],
-                            design["bolt_count"], design["bolt_diameter_mm"], design["bolt_embedment_mm"],
-                            design["stump_side_mm"], design["stump_side_mm"],
-                            design["pad_side_mm"], design["pad_side_mm"], design["pad_thickness_mm"],
-                            design["concrete_grade"]
-                        ),
-                        language="text"
-                    )
-                    
-                    # --- FIN PLATE DESIGN ---
-                    st.write("---")
-                    st.write("**Corner / Fin Plate Design (Edge Cable):**")
-                    max_cable_T = 5000.0
-                    if "cable_tension_list" in nd and len(nd["cable_tension_list"]) > 0:
-                        max_cable_T = max(c["T_N"] for c in nd["cable_tension_list"])
-                    
-                    st.write("Max Cable Tension: %.1f N" % max_cable_T)
-                    fin = design_fin_plate(max_cable_T, newton_data["cable_A_mm2"]**0.5)
-                    st.code(
-                        "Fin Plate Thickness: %d mm\n"
-                        "Weld Size: %d mm fillet\n"
-                        "Cable Diameter: %d mm"
-                        % (
-                            fin["fin_plate_thickness_mm"],
-                            fin["weld_size_mm"],
-                            fin["cable_diameter_mm"]
-                        ),
-                        language="text"
-                    )
-            else:
-                st.write("Reactions not available in solver output.")
-
-            hist = nd.get("history", [])
-            if hist:
-                st.write("Newton history (last 5 steps):")
-                for row in hist[-5:]:
-                    st.write("  outer=%s  inner=%s  ||R||=%.4e  max|R|=%.4e"
-                             % (row[0], row[1], row[2], row[3]))
-
-            # Member Schedule
-            members = _build_member_schedule(
-                data["built"], coords_to_draw, data["x_rings"],
-                data["anchor_idx"], data["edge_q_scalar"], data["warp_q"], data["weft_q"],
-                newton_data["cable_name"], newton_data["cable_A_mm2"], newton_data["steel_section"],
-            )
-
-            with st.expander("Member schedule (auto-sized)", expanded=True):
-                st.write("Edge cable: **%s** (A=%.1f mm2)"
-                         % (newton_data["cable_name"], newton_data["cable_A_mm2"]))
-                st.write("Steel section: **%s**" % newton_data["steel_section"])
-                st.write("Total members recorded: %d" % len(members))
-                st.code(_format_member_table(members), language="text")
-
-# =============================================================================
-# END OF ui/workshops/tester_multi_cone.py
-# =============================================================================
+        st.write("
