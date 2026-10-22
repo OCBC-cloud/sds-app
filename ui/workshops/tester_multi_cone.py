@@ -11,6 +11,7 @@ History:
     2026-10-22 - Implemented two-step workflow.
     2026-10-22 - Fixed Reaction Forces.
     2026-10-22 - Added multi-code load generator with ULS factors.
+    2026-10-22 - Added pad footing design to foundation engine.
 """
 
 import math
@@ -647,14 +648,9 @@ def render_tester_multi_cone():
                     coords_fdm, data["tris"], code_choice, 
                     wind_speed, snow_depth, payload_kg, apex_idx
                 )
-                # We will solve for the Gravity case (worst for steel) 
-                # and Uplift case (worst for foundation).
-                # For simplicity in this single solve, we use Gravity.
-                # In a full engine, you'd run both and envelope them.
                 loads = uls_loads["gravity"]
                 st.info("Running ULS Gravity Case (Dead + Snow + Payload). Check Diagnostics for Foundation Uplift design.")
             else:
-                # Serviceability (Unfactored)
                 loads_dict = generate_uls_loads(
                     coords_fdm, data["tris"], code_choice, 
                     wind_speed, snow_depth, payload_kg, apex_idx
@@ -796,7 +792,6 @@ def render_tester_multi_cone():
             if R is not None:
                 fixed_indices = data["fixed"]
                 if len(fixed_indices) > 0:
-                    # Find the worst-case node (largest magnitude reaction)
                     mags = np.linalg.norm(R[fixed_indices], axis=1)
                     worst_idx = np.argmax(mags)
                     nd_idx = fixed_indices[worst_idx]
@@ -805,7 +800,6 @@ def render_tester_multi_cone():
                     st.write("**Worst-Case Baseplate & Foundation (Node %d):**" % nd_idx)
                     st.write("Reaction: Fx=%.1f, Fy=%.1f, Fz=%.1f (N)" % (worst_R[0], worst_R[1], worst_R[2]))
                     
-                    # If ULS is selected, we also need to check the Uplift case for the foundation
                     if design_philosophy == "Ultimate Limit State (Factored)":
                         st.write("*(Note: Foundation design below is based on the current Gravity solve. A full ULS check would also verify the Uplift case: 0.9D + 1.0W)*")
                     
@@ -814,11 +808,13 @@ def render_tester_multi_cone():
                         "Baseplate: %d x %d x %d mm\n"
                         "Anchor Bolts: %d x M%d J-Bolts (Embed: %d mm)\n"
                         "Concrete Stump: %d x %d mm\n"
+                        "Pad Footing: %d x %d x %d mm\n"
                         "Concrete Grade: %s"
                         % (
                             design["plate_side_mm"], design["plate_side_mm"], design["plate_thickness_mm"],
                             design["bolt_count"], design["bolt_diameter_mm"], design["bolt_embedment_mm"],
                             design["stump_side_mm"], design["stump_side_mm"],
+                            design["pad_side_mm"], design["pad_side_mm"], design["pad_thickness_mm"],
                             design["concrete_grade"]
                         ),
                         language="text"
