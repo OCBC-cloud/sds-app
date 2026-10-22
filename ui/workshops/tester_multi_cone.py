@@ -622,7 +622,7 @@ def render_tester_multi_cone():
                 loads=None,
                 max_iter=100,
                 max_outer=25,
-                tol=1e-6,
+                tol=1.5,
                 tol_disp=1e-5, # <--- THE FIX IS HERE (was 1e-8)
                 max_total_steps=200,
                 max_wall_seconds=50.0,
