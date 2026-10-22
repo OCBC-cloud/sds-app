@@ -19,6 +19,13 @@ History:
                 Armijo-line-search Newton solver. DR was the wrong
                 tool for a mesh with stiff rings and cables; Newton
                 is the right tool. Diagnostics relabelled honestly.
+    2026-10-22 - Added seed_z_amplitude to unblock the flat-reference
+                tangent singularity.
+    2026-10-22 - Cables are now built SLACK (L0 = L_ref * 1.001)
+                instead of pre-tensioned to an estimated FDM force.
+                Pre-tensioning caused a violent local shock on the
+                stiff cables; starting slack lets Newton settle the
+                membrane first, and the cables pull taut naturally.
 """
 
 import math
@@ -557,7 +564,12 @@ def render_tester_multi_cone():
             L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
             if L_ref < 1e-9:
                 continue
-            L0 = L_ref / (1.0 + cable_T_fdm / EA_cable)
+            # Start the cable SLACK. We do not pre-tension to an estimated
+            # FDM force, because a stiff cable pre-tensioned to a mismatched
+            # estimate creates a violent local shock that the line search
+            # cannot resolve. Starting 0.1% slack lets Newton settle the
+            # membrane first, and the cable pulls taut naturally.
+            L0 = L_ref * 1.001
             cables.append({
                 "a": ia, "b": ib, "L0": L0, "EA": EA_cable,
             })
@@ -699,6 +711,7 @@ def render_tester_multi_cone():
                  % dr_result.get("max_residual", dr_residual))
         st.write("Newton time (s): %.2f" % dr_result["elapsed_seconds"])
         st.write("Newton reason: %s" % dr_result.get("reason", ""))
+        st.write("Seed applied (m): %.6f" % dr_result.get("seed_applied_m", 0.0))
 
         hist = dr_result.get("history", [])
         if hist:
