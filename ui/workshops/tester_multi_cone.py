@@ -1,1368 +1,729 @@
-# =============================================================================
-# EXPERIMENTAL FORK. NOT THE SOURCE OF TRUTH.
-#
-# This file is a temporary fork of engine/nonlinear_equilibrium.py, created
-# 2026-10-22 to experiment with an optional out-of-plane seed for the Newton
-# solver, to fix the flat-reference line_search_failed on the Lab Multi-Cone
-# mesh.
-#
-# LIFETIME: when the Lab converges and the change is proven, the winning diff
-# is merged back into engine/nonlinear_equilibrium.py, this file is DELETED,
-# and the Lab import is switched back to the original. Do not let this file
-# become permanent. It is a branch, not a fork in the repo.
-#
-# Only difference from the original:
-#   - New keyword argument seed_z_amplitude (default 0.0) on
-#     solve_nonlinear_equilibrium. When nonzero, a smooth cosine bump in the
-#     z direction (zero at the boundary of the model's z-extent, maximum in
-#     the interior) is added to the working points BEFORE any residual
-#     assembly. Purely additive. Default 0.0 preserves the original
-#     behaviour exactly.
-#   - Result dict gains one key: seed_applied_m (float, the amplitude used).
-#   - max_step in the Newton loop clamped to 0.05 * scale_len (was 0.5).
-#     A 50 cm step on a 10m span is still large but no longer catastrophic.
-# =============================================================================
+"""Multi-Cone Roof — Lab test page.
 
-# =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v5.3)
-# =============================================================================
-# Prestressed-reference coupled nonlinear solver.
-# Real CST + geometric tangent. Slack-cable aware.
-# Sparse assembly and sparse solve. Element matrices cached
-# per Newton step. Armijo backtracking line search.
-# Relative convergence. Prestress baked into the reference.
-#
-# v5.3 changes (2026-10-06):
-#   - Test 4 reference geometry changed from the flat
-#     plan to a small hypar with 20 mm corner-to-corner
-#     z amplitude. The flat reference was a nearly
-#     singular configuration: the out-of-plane tangent
-#     at zero curvature is zero. The Armijo line search
-#     is stricter than the previous plain backtracking
-#     and refused to take the unstable first step.
-#     A small hypar reference is a well-posed problem:
-#     the membrane is at a small but nonzero strain, the
-#     tangent is not singular, and the Armijo condition
-#     is satisfied at a reasonable step size.
-#   - This is the same physics as v5.2. Elements,
-#     residual, tangent, prestress formulation, tension-
-#     field projection, sparse assembly, sparse solve,
-#     cached element matrices, Armijo line search, and
-#     the outer-loop active-set logic are all unchanged.
-#   - Test 1, 2, 3 are unchanged.
-#
-# v5.2 changes (2026-10-06):
-#   - Sparse tangent. Sparse solve. Element matrices
-#     cached per Newton step. Armijo backtracking line
-#     search. Displacement convergence check.
-#
-# v5.1 changes (2026-10-06):
-#   - Outer-loop break logic corrected.
-#   - Step budget and wall-clock guards added.
-#
-# v5.0 changes (2026-10-06):
-#   - Test 4 redesigned to verify cable tension.
-#
-# v4.9 changes (2026-10-06):
-#   - Test 4 acceptance criterion corrected.
-#
-# v4.8 changes (2026-10-06):
-#   - Test 4 initial configuration perturbed out of plane.
-#
-# v4.7 changes (2026-10-06):
-#   - Membrane internal force sign corrected.
-#
-# v4.6 changes (2026-10-06):
-#   - Cable tangent material term sign corrected.
-#
-# v4.5 changes (2026-10-06):
-#   - Cable geometric stiffness sign corrected.
-#
-# v4.4 changes (2026-10-06):
-#   - Residual convention: R = F_int + loads.
-#
-# Conventions:
-#   Length m, force N, stress N/m^2, thickness m, EA in N.
-#   Membrane prestress in N/m (stress resultant).
-#   Cable pretension in N (axial force).
-#   Cable tension T = EA (L - L0) / L0 if taut, else 0.
-#   loads: external force on each node, positive in the
-#          axis direction. Downward load = negative z.
-#
-# History:
-#   2026-10-04 - First build.
-#   2026-10-04 - v2. Slack handling and analytical tangent.
-#   2026-10-04 - v3. Real CST tangent. Relative convergence.
-#   2026-10-04 - v4. Prestressed reference formulation.
-#   2026-10-05 - v4.1. Prestress as stress resultant.
-#   2026-10-06 - v4.2 through v5.2. Successive fixes.
-#   2026-10-06 - v5.3. Test 4 reference not flat.
-#   2026-10-22 - TEST FORK. Optional seed_z_amplitude. See header above.
-#   2026-10-22 - max_step clamped to 0.05 * scale_len.
-# =============================================================================
+Two-stage workflow:
+    Stage 1: FDM finds the shape.
+    Stage 2: Cable auto-sized (smallest possible). Newton solves.
+    Stage 3: Steel sized from resulting forces.
+
+History:
+    First SDSe-only version.
+    2026-10-22 - Added two-stage workflow (FDM then DR).
+                Cable selector now finds the smallest possible area.
+    2026-10-22 - DR tuned for the 60s Streamlit budget:
+                dt 0.005 -> 0.02, wall clock 25s -> 50s,
+                stopping criterion switched from absolute tol=1e-4
+                (unreachable) to relative tol_rel=1e-3 (honest).
+    2026-10-22 - Replaced DR with Newton-Raphson
+                (solve_nonlinear_equilibrium). The repo already
+                contains a complete, slack-cable aware, sparse,
+                Armijo-line-search Newton solver. DR was the wrong
+                tool for a mesh with stiff rings and cables; Newton
+                is the right tool. Diagnostics relabelled honestly.
+    2026-10-22 - Added seed_z_amplitude to unblock the flat-reference
+                tangent singularity.
+    2026-10-22 - Cables are now built SLACK (L0 = L_ref * 1.001)
+                instead of pre-tensioned to an estimated FDM force.
+                Pre-tensioning caused a violent local shock on the
+                stiff cables; starting slack lets Newton settle the
+                membrane first, and the cables pull taut naturally.
+    2026-10-22 - Increased seed to 1% of span. A 1mm seed is too small
+                to establish geometric stiffness on a 10m span; the
+                out-of-plane tangent remains effectively singular and
+                the line search stalls. 1% (100mm on 10m) is the
+                standard initial curvature used in tensile form-finding.
+                Reverted the two-stage ring freeze, because SDSe shares
+                ring nodes with the membrane and freezing them walls off
+                the membrane. Single coupled Newton solve.
+"""
 
 import math
-import time
 
 import numpy as np
+import plotly.graph_objects as go
+import streamlit as st
 
-try:
-    import scipy.sparse as sp
-    import scipy.sparse.linalg as spla
-    _HAS_SCIPY_SPARSE = True
-except Exception:
-    _HAS_SCIPY_SPARSE = False
-
-
-MEMBRANE_NU_DEFAULT = 0.34
-MEMBRANE_G_MPa_DEFAULT = 50.0
-
-DEFAULT_MAX_ITER = 100
-DEFAULT_MAX_OUTER = 25
-DEFAULT_TOL = 1.0e-6
-DEFAULT_TOL_DISP = 1.0e-8
-DEFAULT_LINE_SEARCH_STEPS = 24
-DEFAULT_MAX_TOTAL_STEPS = 200
-DEFAULT_MAX_WALL_SECONDS = 25.0
-ARMIJO_C1 = 1.0e-4
-
-EPS = 1e-12
+from engine.form_finding_test import solve_fdm
+from engine.SDSe_mesh_builder import (
+    SDSe_mesh_rings,
+    SDSe_blend_q_per_edge,
+)
+from engine.nonlinear_equilibrium_newton_seed import (
+    make_membrane_material,
+    solve_nonlinear_equilibrium,
+)
+from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
+from data.sections import SECTION_PROPERTIES
+from viewers.figures._shared import (
+    apply_common_layout,
+    beam_curve,
+    arclength_parametrisation,
+)
 
 
-# =============================================================================
-# PLANE-STRESS MATRIX
-# =============================================================================
+RIB_SEGMENTS = 80
 
-def plane_stress_matrix(E1, E2, nu12, G12):
-    """Return the 3x3 orthotropic plane-stress matrix."""
-    nu21 = nu12 * E2 / E1
-    denom = 1.0 - nu12 * nu21
-    if abs(denom) < EPS:
-        raise ValueError("Orthotropic matrix is singular")
-    C11 = E1 / denom
-    C22 = E2 / denom
-    C12 = nu12 * E2 / denom
-    C33 = G12
-    return np.array([
-        [C11, C12, 0.0],
-        [C12, C22, 0.0],
-        [0.0, 0.0, C33],
-    ], dtype=float)
-
-
-def make_membrane_material(E_warp_MPa, E_weft_MPa, thickness_mm,
-                           nu=0.34, G_MPa=50.0,
-                           warp_prestress_N_per_m=0.0,
-                           weft_prestress_N_per_m=0.0):
-    """Return the material dict."""
-    E1 = float(E_warp_MPa) * 1e6
-    E2 = float(E_weft_MPa) * 1e6
-    G12 = float(G_MPa) * 1e6
-    t = float(thickness_mm) / 1000.0
-    C = plane_stress_matrix(E1, E2, float(nu), G12)
-
-    N_warp = float(warp_prestress_N_per_m)
-    N_weft = float(weft_prestress_N_per_m)
-
-    N_vec = np.array([N_warp, N_weft, 0.0], dtype=float)
-    try:
-        eps_ref_vec = np.linalg.solve(C, N_vec) / t
-    except np.linalg.LinAlgError:
-        eps_ref_vec = np.zeros(3)
-    E_ref_2x2 = np.array([
-        [eps_ref_vec[0], 0.5 * eps_ref_vec[2]],
-        [0.5 * eps_ref_vec[2], eps_ref_vec[1]],
-    ], dtype=float)
-
-    return {
-        "E_warp_Pa": E1,
-        "E_weft_Pa": E2,
-        "G_Pa": G12,
-        "nu": float(nu),
-        "thickness_m": t,
-        "C_plane": C,
-        "warp_prestress_N_per_m": N_warp,
-        "weft_prestress_N_per_m": N_weft,
-        "E_ref_2x2": E_ref_2x2,
-    }
-
-
-def make_cable_material(A_mm2, E_MPa, prestress_kN):
-    """Return the cable material constants."""
-    A = float(A_mm2) * 1e-6
-    E = float(E_MPa) * 1e6
-    return {
-        "A_m2": A,
-        "E_Pa": E,
-        "EA_N": A * E,
-        "T_pretension_N": float(prestress_kN) * 1000.0,
-    }
+COL_MEMBRANE = "#4a7a9c"
+COL_RING_EDGE = "#ffd166"
+COL_PRIMARY = "#FF6B6B"
+COL_RIB = "#e07b39"
+COL_SPOKE = "#c0c0c0"
+COL_DROP = "#a0a0a0"
 
 
 # =============================================================================
-# TRIANGLE GEOMETRY
+# AUTO-SIZING HELPERS
 # =============================================================================
 
-def _triangle_basis(p0, p1, p2):
-    """Return orthonormal in-plane basis (t1, t2) and normal."""
-    e1 = p1 - p0
-    e2 = p2 - p0
-    n = np.cross(e1, e2)
-    nn = float(np.linalg.norm(n))
-    if nn < EPS:
-        raise ValueError("Degenerate triangle")
-    normal = n / nn
-    t1 = e1
-    n1 = float(np.linalg.norm(t1))
-    if n1 < EPS:
-        t1 = e2
-        n1 = float(np.linalg.norm(t1))
-        if n1 < EPS:
-            raise ValueError("Degenerate triangle")
-    t1 = t1 / n1
-    t2 = np.cross(normal, t1)
-    t2 = t2 / (np.linalg.norm(t2) + EPS)
-    return t1, t2, normal
+def _select_edge_cable(fdm_result, safety_factor=2.0):
+    """Pick the smallest cable (by area) across all families."""
+    T_max_N = float(fdm_result.get("max_edge_tension_N", 0.0))
+    if T_max_N <= 0:
+        T_max_N = float(fdm_result.get("edge_q_scalar", 10000.0))
 
+    design_load_N = T_max_N * safety_factor
 
-def _strain_vector_from_ref(p0, p1, p2, P0, P1, P2, t1, t2):
-    """Return (Exx, Eyy, 2 Exy) in the (t1, t2) basis."""
-    def comp(v):
-        return np.array([float(np.dot(v, t1)), float(np.dot(v, t2))])
-
-    c1 = comp(p1 - p0)
-    c2 = comp(p2 - p0)
-    r1 = comp(P1 - P0)
-    r2 = comp(P2 - P0)
-
-    d1 = c1 - r1
-    d2 = c2 - r2
-
-    E11 = 0.5 * (d1[0] * d1[0] + d2[0] * d2[0]
-                 + 2.0 * (r1[0] * d1[0] + r2[0] * d2[0]))
-    E22 = 0.5 * (d1[1] * d1[1] + d2[1] * d2[1]
-                 + 2.0 * (r1[1] * d1[1] + r2[1] * d2[1]))
-    E12 = 0.5 * (d1[0] * d1[1] + d2[0] * d2[1]
-                 + r1[0] * d1[1] + d1[0] * r1[1]
-                 + r2[0] * d2[1] + d2[0] * r2[1])
-    return np.array([E11, E22, 2.0 * E12], dtype=float)
-
-
-def _principal_project(s11, s22, s12):
-    """Tension-field projection. Returns (s11p, s22p, s12p, comp_flag)."""
-    sigma = np.array([[s11, s12], [s12, s22]], dtype=float)
-    vals, vecs = np.linalg.eigh(0.5 * (sigma + sigma.T))
-    comp = bool(np.any(vals < -1e-9))
-    proj = np.maximum(vals, 0.0)
-    sigma_p = vecs @ np.diag(proj) @ vecs.T
-    sigma_p = 0.5 * (sigma_p + sigma_p.T)
-    return float(sigma_p[0, 0]), float(sigma_p[1, 1]), float(sigma_p[0, 1]), comp
-
-
-def membrane_stress(p0, p1, p2, P0, P1, P2, material):
-    """Return the plane-stress tensor at a triangle."""
-    C_plane = material["C_plane"]
-    thickness = material["thickness_m"]
-
-    N_warp = float(material.get("warp_prestress_N_per_m", 0.0))
-    N_weft = float(material.get("weft_prestress_N_per_m", 0.0))
-
-    t1, t2, _ = _triangle_basis(p0, p1, p2)
-    eps_vec = _strain_vector_from_ref(p0, p1, p2, P0, P1, P2, t1, t2)
-
-    stress = C_plane @ eps_vec
-
-    s11 = float(stress[0]) * thickness + N_warp
-    s22 = float(stress[1]) * thickness + N_weft
-    s12 = float(stress[2]) * thickness
-
-    s11p, s22p, s12p, comp = _principal_project(s11, s22, s12)
-    sigma_p = np.array([[s11p, s12p], [s12p, s22p]], dtype=float)
-    vals_p, _ = np.linalg.eigh(sigma_p)
-    return sigma_p, comp, vals_p
-
-
-def _membrane_internal_force(p0, p1, p2, P0, P1, P2, material):
-    """
-    Return (f0, f1, f2) internal forces at the three nodes.
-
-    Sign convention: internal force is the force the
-    material exerts on its own boundary. Returned forces are
-    the negation of the outward-traction assembly.
-    """
-    sigma, _c, _s = membrane_stress(p0, p1, p2, P0, P1, P2, material)
-    t1, t2, _n = _triangle_basis(p0, p1, p2)
-
-    def plane(v):
-        return np.array([float(np.dot(v, t1)), float(np.dot(v, t2))])
-
-    e01 = p1 - p0
-    e12 = p2 - p1
-    e20 = p0 - p2
-
-    def outward(edge2d):
-        n = np.array([edge2d[1], -edge2d[0]], dtype=float)
-        nn = float(np.linalg.norm(n))
-        return np.zeros(2) if nn < EPS else n / nn
-
-    forces = []
-    for e2d, e3d in (
-        (plane(e01), e01),
-        (plane(e12), e12),
-        (plane(e20), e20),
-    ):
-        n2d = outward(e2d)
-        trac = sigma @ n2d
-        ln = float(np.linalg.norm(e3d))
-        f2 = trac * ln
-        f3 = f2[0] * t1 + f2[1] * t2
-        forces.append(f3)
-
-    fe01, fe12, fe20 = forces
-    f0 = (1.0 / 3.0) * (fe20 - fe01)
-    f1 = (1.0 / 3.0) * (fe01 - fe12)
-    f2 = (1.0 / 3.0) * (fe12 - fe20)
-    return -f0, -f1, -f2
-
-
-# =============================================================================
-# MEMBRANE TANGENT (CST + GEOMETRIC, PRESTRESSED)
-# =============================================================================
-
-def _membrane_local_stiffness_3node(p0, p1, p2, P0, P1, P2, material):
-    """Return a 9x9 local stiffness matrix in the current plane."""
-    C_plane = material["C_plane"]
-    thickness = material["thickness_m"]
-
-    t1, t2, _n = _triangle_basis(p0, p1, p2)
-
-    def plane(v):
-        return np.array([float(np.dot(v, t1)), float(np.dot(v, t2))], dtype=float)
-
-    e1 = plane(p1 - p0)
-    e2 = plane(p2 - p0)
-
-    x1, y1 = e1[0], e1[1]
-    x2, y2 = e2[0], e2[1]
-
-    two_A = x1 * y2 - x2 * y1
-    area = 0.5 * abs(two_A)
-    if area < EPS:
-        return np.eye(9)
-
-    sign = 1.0 if two_A > 0.0 else -1.0
-    inv_2A = sign / two_A if abs(two_A) > EPS else 0.0
-
-    B = np.zeros((3, 6), dtype=float)
-    B[0, 0] = y1 - y2
-    B[0, 2] = y2
-    B[0, 4] = -y1
-    B[1, 1] = x2 - x1
-    B[1, 3] = -x2
-    B[1, 5] = x1
-    B[2, 0] = x2 - x1
-    B[2, 1] = y1 - y2
-    B[2, 2] = -x2
-    B[2, 3] = y2
-    B[2, 4] = x1
-    B[2, 5] = -y1
-    B = B * inv_2A
-
-    K_mat = thickness * area * (B.T @ C_plane @ B)
-
-    sigma_total, _comp, _sp = membrane_stress(
-        p0, p1, p2, P0, P1, P2, material
-    )
-
-    dN = np.zeros((3, 2), dtype=float)
-    dN[0, 0] = (y1 - y2) * inv_2A
-    dN[0, 1] = (x2 - x1) * inv_2A
-    dN[1, 0] = (-y2) * inv_2A
-    dN[1, 1] = (x2) * inv_2A
-    dN[2, 0] = (y1) * inv_2A
-    dN[2, 1] = (-x1) * inv_2A
-
-    K_geo = np.zeros((6, 6), dtype=float)
-    for i in range(3):
-        for j in range(3):
-            gx_i, gy_i = dN[i, 0], dN[i, 1]
-            gx_j, gy_j = dN[j, 0], dN[j, 1]
-            kxx = area * (gx_i * gx_j * sigma_total[0, 0]
-                          + gy_i * gy_j * sigma_total[1, 1]
-                          + (gx_i * gy_j + gy_i * gx_j) * sigma_total[0, 1])
-            K_geo[2 * i, 2 * j] += kxx
-            K_geo[2 * i + 1, 2 * j + 1] += kxx
-
-    K_2d = K_mat + K_geo
-
-    K_local = np.zeros((9, 9), dtype=float)
-    for i in range(3):
-        for j in range(3):
-            for a in range(2):
-                for b in range(2):
-                    K_local[3 * i + a, 3 * j + b] += K_2d[2 * i + a, 2 * j + b]
-
-    return K_local
-
-
-# =============================================================================
-# CABLE ELEMENT
-# =============================================================================
-
-def cable_state(p_a, p_b, L0, EA):
-    """Return (T, taut, k_axial, u). Slack if L <= L0."""
-    d = p_b - p_a
-    L = float(np.linalg.norm(d))
-    if L < EPS or L0 < EPS:
-        return 0.0, False, 0.0, np.zeros(3)
-    u = d / L
-    strain = (L - L0) / L0
-    if strain <= 0.0:
-        return 0.0, False, 0.0, u
-    T = EA * strain
-    k_axial = EA / L0
-    return float(T), True, float(k_axial), u
-
-
-def _cable_stiffness(p_a, p_b, L0, EA):
-    """K_aa = -(EA/L0) u u^T - (T/L)(I - u u^T). K_ab = -K_aa."""
-    d = p_b - p_a
-    L = float(np.linalg.norm(d))
-    if L < EPS or L0 < EPS:
-        return np.zeros((3, 3)), False
-    u = d / L
-    strain = (L - L0) / L0
-    if strain <= 0.0:
-        return np.zeros((3, 3)), False
-    T = EA * strain
-    k_axial = EA / L0
-    I3 = np.eye(3)
-    uu = np.outer(u, u)
-    K_mat = -k_axial * uu
-    K_geo = -(T / L) * (I3 - uu)
-    return (K_mat + K_geo), True
-
-
-# =============================================================================
-# RESIDUAL ASSEMBLY
-# =============================================================================
-
-def _assemble_residual(points, triangles, cables, ref_points,
-                        material, loads, free_mask, n_nodes,
-                        taut_flags):
-    """R = F_int + loads. Slack cables contribute zero force."""
-    F = np.zeros((n_nodes, 3), dtype=float)
-
-    for (a, b, c) in triangles:
-        try:
-            f0, f1, f2 = _membrane_internal_force(
-                points[a], points[b], points[c],
-                ref_points[a], ref_points[b], ref_points[c],
-                material
-            )
-        except ValueError:
+    candidates = []
+    for family_name, family in CABLE_PROPERTIES.items():
+        if family_name == "default":
             continue
-        F[a] += f0
-        F[b] += f1
-        F[c] += f2
-
-    for k, cb in enumerate(cables):
-        a = int(cb["a"])
-        b = int(cb["b"])
-        T, taut, _k_ax, u = cable_state(
-            points[a], points[b],
-            float(cb["L0"]), float(cb["EA"])
-        )
-        taut_flags[k] = taut
-        if taut:
-            F[a] += T * u
-            F[b] -= T * u
-
-    R = F + loads
-    R[~free_mask] = 0.0
-    return R
-
-
-def _assemble_tangent_sparse(points, triangles, cables, ref_points,
-                              material, free_mask, n_nodes, taut_flags):
-    """Assemble the tangent matrix as a scipy.sparse.csr_matrix."""
-    n_free_nodes = int(free_mask.sum())
-    n_free = 3 * n_free_nodes
-
-    free_idx = np.where(free_mask)[0]
-    dof_of_node = -np.ones(n_nodes, dtype=int)
-    for pos, nd in enumerate(free_idx):
-        dof_of_node[nd] = pos
-
-    rows = []
-    cols = []
-    data = []
-
-    for (a, b, c) in triangles:
-        try:
-            area = 0.5 * float(np.linalg.norm(
-                np.cross(points[b] - points[a], points[c] - points[a])
-            ))
-        except Exception:
-            continue
-        if area < EPS:
-            continue
-
-        Kloc = _membrane_local_stiffness_3node(
-            points[a], points[b], points[c],
-            ref_points[a], ref_points[b], ref_points[c],
-            material
-        )
-
-        t1, t2, nrm = _triangle_basis(
-            points[a], points[b], points[c]
-        )
-
-        Kloc_global = np.zeros((9, 9), dtype=float)
-        for node_i in range(3):
-            for gi in range(3):
-                for node_j in range(3):
-                    for gj in range(3):
-                        s = 0.0
-                        for loc_i in range(3):
-                            for loc_j in range(3):
-                                basis_i = [t1, t2, nrm][loc_i]
-                                basis_j = [t1, t2, nrm][loc_j]
-                                s += (
-                                    Kloc[3 * node_i + loc_i,
-                                         3 * node_j + loc_j]
-                                    * basis_i[gi]
-                                    * basis_j[gj]
-                                )
-                        Kloc_global[3 * node_i + gi, 3 * node_j + gj] = s
-
-        nds = [a, b, c]
-        dofs = []
-        for nd in nds:
-            if free_mask[nd]:
-                base = dof_of_node[nd] * 3
-                dofs.extend([base, base + 1, base + 2])
-            else:
-                dofs.extend([-1, -1, -1])
-
-        for i_loc in range(9):
-            gi = dofs[i_loc]
-            if gi < 0:
+        for size, props in family.items():
+            if size == "default":
                 continue
-            for j_loc in range(9):
-                gj = dofs[j_loc]
-                if gj < 0:
-                    continue
-                v = Kloc_global[i_loc, j_loc]
-                if v != 0.0:
-                    rows.append(gi)
-                    cols.append(gj)
-                    data.append(v)
+            if not props.get("A") or not props.get("f_u"):
+                continue
+            breaking_N = props["A"] * props["f_u"]
+            if breaking_N >= design_load_N:
+                A_mm2 = props["A"]
+                E_MPa = props.get("E", 160000)
+                EA_N = A_mm2 * 1e-6 * E_MPa * 1e6
+                candidates.append((
+                    A_mm2,
+                    "%s %s" % (family_name, size),
+                    A_mm2,
+                    E_MPa,
+                    EA_N,
+                ))
 
-    for k, cb in enumerate(cables):
-        if not taut_flags[k]:
+    if candidates:
+        candidates.sort(key=lambda c: c[0])
+        _, name, A_mm2, E_MPa, EA_N = candidates[0]
+        return (name, A_mm2, E_MPa, EA_N, T_max_N)
+
+    return ("Fallback 10mm strand", 63.0, 160000, 10e9, T_max_N)
+
+
+def _select_steel_section(max_axial_kN, max_moment_kNm,
+                          family="CHS", grade="S355"):
+    """Pick the smallest section in the family."""
+    fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
+    best = None
+    for name, props in SECTION_PROPERTIES.items():
+        if props.get("type") != family:
             continue
-        a = int(cb["a"])
-        b = int(cb["b"])
-        Kblk, ok = _cable_stiffness(
-            points[a], points[b],
-            float(cb["L0"]), float(cb["EA"])
+        A_mm2 = props.get("A", 1.0)
+        W_el_mm3 = props.get("W_el", 1.0)
+        N_Ed = max_axial_kN * 1000.0
+        M_Ed = max_moment_kNm * 1e6
+        N_cap = A_mm2 * fy_MPa
+        M_cap = W_el_mm3 * fy_MPa
+        util = (N_Ed / N_cap) + (M_Ed / M_cap)
+        if util <= 0.9 and best is None:
+            best = name
+    return best if best else "Oversize required"
+
+
+# =============================================================================
+# Geometry helpers
+# =============================================================================
+
+def _ellipse_y(x, span, mid_width):
+    a = span / 2.0
+    b = mid_width / 2.0
+    t = max(0.0, 1.0 - (x / a) ** 2)
+    return b * math.sqrt(t)
+
+
+def _rib_stations(n, optional_ends, span, x, s, total):
+    if (not optional_ends) or n < 3:
+        fracs = np.array(
+            [k / (n + 1.0) for k in range(1, n + 1)], dtype=float
         )
-        if not ok:
-            continue
-        da = dof_of_node[a] * 3 if free_mask[a] else -1
-        db = dof_of_node[b] * 3 if free_mask[b] else -1
-        if da < 0 and db < 0:
-            continue
-        for i_ax in range(3):
-            for j_ax in range(3):
-                v = Kblk[i_ax, j_ax]
-                if v == 0.0:
-                    continue
-                gi = (da + i_ax) if da >= 0 else -1
-                gj = (da + j_ax) if da >= 0 else -1
-                if gi >= 0 and gj >= 0:
-                    rows.append(gi); cols.append(gj); data.append(v)
-                gi = (db + i_ax) if db >= 0 else -1
-                gj = (db + j_ax) if db >= 0 else -1
-                if gi >= 0 and gj >= 0:
-                    rows.append(gi); cols.append(gj); data.append(v)
-                gi = (da + i_ax) if da >= 0 else -1
-                gj = (db + j_ax) if db >= 0 else -1
-                if gi >= 0 and gj >= 0:
-                    rows.append(gi); cols.append(gj); data.append(-v)
-                gi = (db + i_ax) if db >= 0 else -1
-                gj = (da + j_ax) if da >= 0 else -1
-                if gi >= 0 and gj >= 0:
-                    rows.append(gi); cols.append(gj); data.append(-v)
+        return np.interp(fracs * total, s, x)
+    xt = span / 2.0 - 3.0
+    return np.linspace(-xt, +xt, n)
 
-    if _HAS_SCIPY_SPARSE:
-        K = sp.coo_matrix(
-            (np.asarray(data, dtype=float),
-             (np.asarray(rows, dtype=int),
-              np.asarray(cols, dtype=int))),
-            shape=(n_free, n_free),
-        ).tocsr()
-        K.sum_duplicates()
-        return K
+
+def _rib_arch_y_at_eave(peak_z, half_width, eave_height):
+    if peak_z <= eave_height:
+        return None
+    u2 = 1.0 - eave_height / peak_z
+    if u2 < 0.0:
+        return None
+    return half_width * math.sqrt(u2)
+
+
+def _rib_polyline(rib_x, half_width, peak_z, n):
+    y = np.linspace(-half_width, +half_width, n)
+    u = y / half_width
+    z = peak_z * (1.0 - u ** 2)
+    x = np.full_like(y, rib_x)
+    return np.column_stack([x, y, z])
+
+
+def _tip_x_at_eave(span, apex, eave_height, curve_type):
+    if apex <= eave_height:
+        return span / 2.0
+    x_fine = np.linspace(0.0, span / 2.0, 2000)
+    z_fine = beam_curve(x_fine, span, apex, curve_type)
+    idx = np.where(z_fine >= eave_height)[0]
+    if len(idx) == 0:
+        return span / 2.0
+    return float(x_fine[idx[-1]])
+
+
+def _build_eave_anchors(rib_x, rib_half_width, rib_peak_z,
+                         eave_height, tip_x):
+    plus, minus = [], []
+    for i, xr in enumerate(rib_x):
+        y_at = _rib_arch_y_at_eave(
+            float(rib_peak_z[i]), float(rib_half_width[i]), eave_height
+        )
+        if y_at is None:
+            continue
+        plus.append((float(xr), +y_at, eave_height))
+        minus.append((float(xr), -y_at, eave_height))
+    pts = list(plus)
+    pts.append((+tip_x, 0.0, eave_height))
+    for p in reversed(minus):
+        pts.append(p)
+    pts.append((-tip_x, 0.0, eave_height))
+    return np.asarray(pts, dtype=float)
+
+
+def _subdivide_polygon(anchors, subdivisions):
+    n_a = anchors.shape[0]
+    loop = []
+    anchor_idx = []
+    for i in range(n_a):
+        a = anchors[i]
+        b = anchors[(i + 1) % n_a]
+        anchor_idx.append(len(loop))
+        for k in range(subdivisions):
+            f = k / float(subdivisions)
+            loop.append(a + (b - a) * f)
+    return np.asarray(loop, dtype=float), anchor_idx
+
+
+def _cone_arc_positions(n_cones, spacing, total):
+    if n_cones < 1:
+        raise ValueError("Number of cones must be at least 1.")
+    mid = total / 2.0
+    if n_cones % 2 == 1:
+        half = (n_cones - 1) // 2
+        ks = [0]
+        for i in range(1, half + 1):
+            ks.append(+i)
+            ks.append(-i)
     else:
-        Kdense = np.zeros((n_free, n_free), dtype=float)
-        for r, c, v in zip(rows, cols, data):
-            Kdense[r, c] += v
-        return Kdense
-
-
-def _solve_linear_system(K, r_flat, n_dof):
-    """Solve K dx = -r_flat. Sparse if K is sparse, dense otherwise."""
-    rhs = -r_flat
-
-    if _HAS_SCIPY_SPARSE and sp.issparse(K):
-        try:
-            dx = spla.spsolve(K.tocsc(), rhs)
-            if np.all(np.isfinite(dx)):
-                return dx
-        except Exception:
-            pass
-        scale = max(
-            1.0,
-            float(np.max(np.abs(K.data))) if K.nnz > 0 else 1.0,
-        )
-        K_reg = K + 1e-9 * scale * sp.identity(n_dof, format="csr")
-        try:
-            dx = spla.spsolve(K_reg.tocsc(), rhs)
-            if np.all(np.isfinite(dx)):
-                return dx
-        except Exception:
-            pass
-        return np.zeros(n_dof)
-    else:
-        try:
-            return np.linalg.solve(K, rhs)
-        except np.linalg.LinAlgError:
-            scale = max(
-                1.0,
-                float(np.max(np.abs(np.diag(K)))) if n_dof > 0 else 1.0,
+        half = n_cones // 2
+        ks = []
+        for i in range(half):
+            k = i + 0.5
+            ks.append(+k)
+            ks.append(-k)
+    positions = [mid + k * spacing for k in ks]
+    for p in positions:
+        if p < 0.0 or p > total:
+            raise ValueError(
+                "Ring position %.3f m falls outside the primary span "
+                "of %.3f m. Reduce spacing or cone count." % (p, total)
             )
-            K_reg = K + 1e-9 * scale * np.eye(n_dof)
-            try:
-                return np.linalg.solve(K_reg, rhs)
-            except np.linalg.LinAlgError:
-                return np.zeros(n_dof)
+    return sorted(positions)
 
 
 # =============================================================================
-# PULL-BACK: CABLE INITIAL TENSIONS FROM MEMBRANE EQUILIBRIUM
+# Member schedule
 # =============================================================================
 
-def pullback_cable_initial_tensions(
-    points,
-    triangles,
-    boundary_loop,
-    anchors,
-    segments,
-    material,
-):
-    """Compute per-edge cable tensions from the membrane pull."""
-    n_boundary = boundary_loop.shape[0]
+def _build_member_schedule(built, coords, ring_x_positions,
+                            anchor_idx, edge_q_scalar,
+                            warp_q, weft_q,
+                            cable_name, cable_A_mm2,
+                            steel_section):
+    members = []
+    ring_indices = built["ring_indices"]
+    centre_indices = built["centre_indices"]
+    beam_top_indices = built["beam_top_indices"]
+    triangles = built["triangles"]
+    n_perimeter = built["n_perimeter"]
 
-    boundary_edges = set()
-    for k in range(n_boundary):
-        i = int(k)
-        j = int((k + 1) % n_boundary)
-        key = (i, j) if i < j else (j, i)
-        boundary_edges.add(key)
+    for k in range(len(ring_indices)):
+        ring_no = k + 1
+        idx_list = ring_indices[k]
+        centre_i = int(centre_indices[k])
+        beam_i = int(beam_top_indices[k])
+        n_poly = len(idx_list)
 
-    edge_to_tri = {}
-    for tri in triangles:
-        a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
-        for i, j in ((a, b), (b, c), (c, a)):
-            key = (i, j) if i < j else (j, i)
-            if key in boundary_edges:
-                edge_to_tri[key] = (a, b, c)
+        ring_length = 0.0
+        for i in range(n_poly):
+            a = int(idx_list[i])
+            b = int(idx_list[(i + 1) % n_poly])
+            ring_length += float(np.linalg.norm(coords[b] - coords[a]))
 
-    tensions = {}
-    for seg in segments:
-        anchor_a = int(seg["anchor_a"])
-        anchor_b = int(seg["anchor_b"])
-        interior = list(seg["interior"])
-        chain = [anchor_a] + interior + [anchor_b]
-
-        for k in range(len(chain) - 1):
-            i = int(chain[k])
-            j = int(chain[k + 1])
-            key = (i, j) if i < j else (j, i)
-
-            if key not in edge_to_tri:
-                tensions[(i, j)] = 0.0
-                continue
-
-            tri = edge_to_tri[key]
-            a, b, c = tri
-            p0 = points[a]
-            p1 = points[b]
-            p2 = points[c]
-
-            try:
-                t1, t2, _normal = _triangle_basis(p0, p1, p2)
-            except ValueError:
-                tensions[(i, j)] = 0.0
-                continue
-
-            try:
-                sigma, _comp, _sp = membrane_stress(
-                    p0, p1, p2, p0, p1, p2, material
-                )
-            except ValueError:
-                tensions[(i, j)] = 0.0
-                continue
-
-            edge_3d = points[j] - points[i]
-            edge_2d = np.array([
-                float(np.dot(edge_3d, t1)),
-                float(np.dot(edge_3d, t2)),
-            ], dtype=float)
-            L = float(np.linalg.norm(edge_2d))
-            if L < EPS:
-                tensions[(i, j)] = 0.0
-                continue
-
-            n2d = np.array([-edge_2d[1], edge_2d[0]], dtype=float)
-            nn = float(np.linalg.norm(n2d))
-            if nn < EPS:
-                tensions[(i, j)] = 0.0
-                continue
-            n2d = n2d / nn
-
-            traction = sigma @ n2d
-            force_2d = traction * L
-
-            u_2d = edge_2d / L
-            axial = float(np.dot(force_2d, u_2d))
-
-            if axial <= 0.0:
-                tensions[(i, j)] = 0.0
-            else:
-                tensions[(i, j)] = axial
-
-    return tensions
-
-
-# =============================================================================
-# OUT-OF-PLANE SEED (TEST FORK ONLY)
-# =============================================================================
-
-def _apply_z_seed(points, amplitude, fixed_mask):
-    """
-    Add a smooth, low-frequency out-of-plane seed to the free points.
-    """
-    if amplitude <= 0.0 or points.shape[0] == 0:
-        return points, 0.0
-
-    free = ~fixed_mask
-    if not np.any(free):
-        return points, 0.0
-
-    xs = points[free, 0]
-    ys = points[free, 1]
-    x_min, x_max = float(np.min(xs)), float(np.max(xs))
-    y_min, y_max = float(np.min(ys)), float(np.max(ys))
-    x_span = max(x_max - x_min, EPS)
-    y_span = max(y_max - y_min, EPS)
-
-    u = (points[free, 0] - x_min) / x_span
-    v = (points[free, 1] - y_min) / y_span
-    bump = np.sin(np.pi * u) * np.sin(np.pi * v)
-
-    pts = points.copy()
-    pts[free, 2] += float(amplitude) * bump
-    return pts, float(amplitude)
-
-
-# =============================================================================
-# SOLVER
-# =============================================================================
-
-def solve_nonlinear_equilibrium(
-    points, triangles, fixed_indices, reference_points,
-    membrane_material, cables=None, loads=None,
-    max_iter=DEFAULT_MAX_ITER, max_outer=DEFAULT_MAX_OUTER,
-    tol=DEFAULT_TOL,
-    tol_disp=DEFAULT_TOL_DISP,
-    max_total_steps=DEFAULT_MAX_TOTAL_STEPS,
-    max_wall_seconds=DEFAULT_MAX_WALL_SECONDS,
-    seed_z_amplitude=0.0,
-):
-    """
-    Coupled nonlinear equilibrium with prestressed reference.
-    """
-    t_start = time.time()
-
-    points = np.asarray(points, dtype=float).copy()
-    ref_points = np.asarray(reference_points, dtype=float).copy()
-    triangles = list(triangles)
-    n_nodes = points.shape[0]
-
-    if loads is None:
-        loads = np.zeros((n_nodes, 3), dtype=float)
-    else:
-        loads = np.asarray(loads, dtype=float)
-        if loads.shape != (n_nodes, 3):
-            raise ValueError("loads must have shape (n, 3)")
-
-    fixed_mask = np.zeros(n_nodes, dtype=bool)
-    for i in fixed_indices:
-        if i < 0 or i >= n_nodes:
-            raise ValueError("fixed index out of range")
-        fixed_mask[i] = True
-    free_mask = ~fixed_mask
-    if free_mask.sum() == 0:
-        raise ValueError("no free nodes")
-
-    # TEST FORK: apply out-of-plane seed to the working points only.
-    seed_applied = 0.0
-    if seed_z_amplitude and float(seed_z_amplitude) > 0.0:
-        points, seed_applied = _apply_z_seed(
-            points, float(seed_z_amplitude), fixed_mask
-        )
-
-    cables = list(cables or [])
-    for cb in cables:
-        if "L0" not in cb and "T_pretension_N" in cb:
-            ref_len = float(np.linalg.norm(
-                ref_points[int(cb["b"])] - ref_points[int(cb["a"])]
-            ))
-            T_pre = float(cb["T_pretension_N"])
-            EA = float(cb["EA"])
-            if EA <= 0:
-                cb["L0"] = ref_len
-            else:
-                cb["L0"] = ref_len / (1.0 + T_pre / EA)
-
-    free_idx = np.where(free_mask)[0]
-    free_dofs = np.array(
-        [3 * int(i) + d for i in free_idx for d in range(3)],
-        dtype=int,
-    )
-    n_dof = len(free_dofs)
-
-    def flat(vec3):
-        return vec3.ravel()[free_dofs]
-
-    def unflat(v):
-        p = points.copy()
-        p.ravel()[free_dofs] = v
-        return p
-
-    load_scale = float(np.max(np.abs(loads))) if loads.size else 0.0
-    cable_pre_scale = max(
-        [abs(float(cb.get("T_pretension_N", 0.0))) for cb in cables] + [0.0]
-    )
-    membrane_scale = max(
-        abs(float(membrane_material.get("warp_prestress_N_per_m", 0.0))),
-        abs(float(membrane_material.get("weft_prestress_N_per_m", 0.0))),
-        1.0,
-    )
-    force_scale = max(1.0, load_scale, cable_pre_scale, membrane_scale)
-    tol_abs = float(tol) * force_scale
-
-    bbox = np.max(points, axis=0) - np.min(points, axis=0)
-    scale_len = max(float(np.linalg.norm(bbox)), 1e-3)
-    tol_disp_abs = float(tol_disp) * scale_len
-
-    taut_flags = [False] * len(cables)
-    history = []
-    reason = "max_iter"
-    converged = False
-    inner_failed = False
-    prev_residual = None
-    stall_count = 0
-    total_steps = 0
-
-    for outer in range(max_outer + 1):
-        if time.time() - t_start > max_wall_seconds:
-            reason = "wall_clock_exceeded"
-            break
-        if total_steps >= max_total_steps:
-            reason = "step_budget_exhausted"
-            break
-
-        for k, cb in enumerate(cables):
-            _T, taut, _k, _u = cable_state(
-                points[int(cb["a"])], points[int(cb["b"])],
-                float(cb["L0"]), float(cb["EA"])
-            )
-            taut_flags[k] = taut
-
-        R = _assemble_residual(
-            points, triangles, cables, ref_points,
-            membrane_material, loads, free_mask, n_nodes, taut_flags
-        )
-        r_flat = flat(R)
-        r_norm = float(np.linalg.norm(r_flat))
-        r_max = float(np.max(np.abs(r_flat))) if r_flat.size else 0.0
-        history.append((outer, 0, r_norm, r_max))
-
-        if r_max < tol_abs:
-            converged = True
-            reason = "converged"
-            break
-
-        inner_failed = False
-        for it in range(1, max_iter + 1):
-            if time.time() - t_start > max_wall_seconds:
-                reason = "wall_clock_exceeded"
-                inner_failed = True
-                break
-            if total_steps >= max_total_steps:
-                reason = "step_budget_exhausted"
-                inner_failed = True
-                break
-
-            total_steps += 1
-
-            K = _assemble_tangent_sparse(
-                points, triangles, cables, ref_points,
-                membrane_material, free_mask, n_nodes, taut_flags
-            )
-
-            dx = _solve_linear_system(K, r_flat, n_dof)
-
-            dx_norm = float(np.linalg.norm(dx))
-            # TEST FORK: reduced max_step from 0.5 to 0.05.
-            max_step = 0.05 * scale_len
-            if dx_norm > max_step and dx_norm > 0.0:
-                dx = dx * (max_step / dx_norm)
-                dx_norm = max_step
-
-            alpha = 1.0
-            best_alpha = None
-            best_r = None
-            best_norm = r_norm
-            x0 = flat(points)
-            best_flags = list(taut_flags)
-
-            slope = -float(np.dot(r_flat, r_flat))
-            if slope >= 0.0:
-                slope = -1.0
-
-            for _ls in range(DEFAULT_LINE_SEARCH_STEPS):
-                x_try = x0 + alpha * dx
-                p_try = unflat(x_try)
-
-                trial_flags = [False] * len(cables)
-                for kk, cbt in enumerate(cables):
-                    _Tt, taut_t, _k_t, _u_t = cable_state(
-                        p_try[int(cbt["a"])], p_try[int(cbt["b"])],
-                        float(cbt["L0"]), float(cbt["EA"])
-                    )
-                    trial_flags[kk] = taut_t
-                try:
-                    R_try = _assemble_residual(
-                        p_try, triangles, cables, ref_points,
-                        membrane_material, loads, free_mask, n_nodes,
-                        trial_flags
-                    )
-                except Exception:
-                    alpha *= 0.5
-                    continue
-                r_try = flat(R_try)
-                n_try_sq = float(np.dot(r_try, r_try))
-                n_try = float(np.sqrt(n_try_sq))
-
-                armijo_rhs = 0.5 * float(np.dot(r_flat, r_flat)) \
-                    + ARMIJO_C1 * alpha * slope
-                if 0.5 * n_try_sq <= armijo_rhs and n_try < best_norm:
-                    best_alpha = alpha
-                    best_norm = n_try
-                    best_r = r_try
-                    best_flags = trial_flags
-                    break
-                if n_try < best_norm:
-                    best_alpha = alpha
-                    best_norm = n_try
-                    best_r = r_try
-                    best_flags = trial_flags
-                    break
-                alpha *= 0.5
-
-            if best_alpha is None:
-                reason = "line_search_failed"
-                inner_failed = True
-                break
-
-            points = unflat(x0 + best_alpha * dx)
-            r_flat = best_r
-            r_norm = best_norm
-            r_max = float(np.max(np.abs(r_flat))) if r_flat.size else 0.0
-            taut_flags = best_flags
-            history.append((outer, it, r_norm, r_max))
-
-            if r_max < tol_abs:
-                converged = True
-                reason = "converged"
-                break
-
-            if best_alpha * dx_norm < tol_disp_abs:
-                converged = True
-                reason = "converged_disp"
-                break
-
-        if converged:
-            break
-        if inner_failed:
-            break
-
-        new_flags = [False] * len(cables)
-        for k, cb in enumerate(cables):
-            _T, taut, _k, _u = cable_state(
-                points[int(cb["a"])], points[int(cb["b"])],
-                float(cb["L0"]), float(cb["EA"])
-            )
-            new_flags[k] = taut
-
-        if new_flags == taut_flags:
-            if prev_residual is not None:
-                improvement = prev_residual - r_max
-                rel_improvement = improvement / max(abs(prev_residual), 1.0)
-                if rel_improvement < 1.0e-3:
-                    stall_count += 1
-                else:
-                    stall_count = 0
-            prev_residual = r_max
-
-            if stall_count >= 3:
-                reason = "active_set_stable_no_convergence"
-                break
-        else:
-            stall_count = 0
-            prev_residual = r_max
-
-        taut_flags = new_flags
-
-    membrane_stress_list = []
-    for (a, b, c) in triangles:
-        try:
-            sigma, comp, _sp = membrane_stress(
-                points[a], points[b], points[c],
-                ref_points[a], ref_points[b], ref_points[c],
-                membrane_material
-            )
-            membrane_stress_list.append({
-                "triangle": (int(a), int(b), int(c)),
-                "sigma": sigma,
-                "compression_found": bool(comp),
-            })
-        except ValueError:
-            membrane_stress_list.append({
-                "triangle": (int(a), int(b), int(c)),
-                "sigma": np.zeros((2, 2)),
-                "compression_found": False,
-            })
-
-    cable_tension_list = []
-    for cb in cables:
-        T, taut, _k, _u = cable_state(
-            points[int(cb["a"])], points[int(cb["b"])],
-            float(cb["L0"]), float(cb["EA"])
-        )
-        cable_tension_list.append({
-            "a": int(cb["a"]),
-            "b": int(cb["b"]),
-            "T_N": float(T),
-            "L0_m": float(cb["L0"]),
-            "taut": bool(taut),
+        members.append({
+            "member_id": "Ring_%d_Ring_Beam" % ring_no,
+            "member_type": "ring_beam",
+            "length_m": float(ring_length),
+            "section": steel_section,
+            "material": "S355",
+            "role": "closed ring beam, one per cone",
         })
 
-    elapsed = time.time() - t_start
+        L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
+        members.append({
+            "member_id": "Ring_%d_Drop_Member" % ring_no,
+            "member_type": "drop_member",
+            "length_m": L,
+            "section": steel_section,
+            "material": "S355",
+            "role": "vertical drop from primary beam to ring centre",
+        })
 
-    return {
-        "coordinates": points,
-        "converged": bool(converged),
-        "iterations": len(history) - 1,
-        "total_steps": int(total_steps),
-        "elapsed_seconds": float(elapsed),
-        "residual_norm": float(r_norm),
-        "max_residual": float(r_max),
-        "membrane_stress": membrane_stress_list,
-        "cable_tension": cable_tension_list,
-        "history": history,
-        "reason": reason,
-        "seed_applied_m": float(seed_applied),
-    }
+    total_cable_length = 0.0
+    for i in range(n_perimeter):
+        j = (i + 1) % n_perimeter
+        total_cable_length += float(np.linalg.norm(coords[j] - coords[i]))
+
+    members.append({
+        "member_id": "Edge_Cable",
+        "member_type": "cable",
+        "length_m": total_cable_length,
+        "section": cable_name,
+        "material": "A=%.1f mm2" % cable_A_mm2,
+        "role": "perimeter edge cable (auto-sized)",
+    })
+
+    panel_no = 1
+    for (a, b, c) in triangles:
+        pa = coords[a]
+        pb = coords[b]
+        pc = coords[c]
+        mean_edge = (
+            float(np.linalg.norm(pb - pa)) +
+            float(np.linalg.norm(pc - pb)) +
+            float(np.linalg.norm(pa - pc))
+        ) / 3.0
+        members.append({
+            "member_id": "Membrane_Panel_%04d" % panel_no,
+            "member_type": "membrane",
+            "length_m": mean_edge,
+            "section": "FABRIC",
+            "material": "PVDF Type III",
+            "role": "fabric panel between ridge and eave",
+        })
+        panel_no += 1
+
+    return members
+
+
+def _format_member_table(members):
+    lines = []
+    header = (
+        "%-26s  %-18s  %-9s  %-20s  %-20s  %s"
+        % ("member_id", "member_type", "length_m",
+           "section", "material", "role")
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+    for m in members:
+        lines.append(
+            "%-26s  %-18s  %-9.4f  %-20s  %-20s  %s"
+            % (m["member_id"], m["member_type"], m["length_m"],
+               str(m["section"])[:20], str(m["material"])[:20],
+               m["role"])
+        )
+    return "\n".join(lines)
 
 
 # =============================================================================
-# SELF-TESTS (copied verbatim from the original, for the fork to prove it is
-# still the same solver when seed_z_amplitude is left at its default 0.0)
+# Page
 # =============================================================================
 
-def _test_flat_membrane():
-    n = 4
-    pts = np.array(
-        [[i / (n - 1.0), j / (n - 1.0), 0.0]
-         for j in range(n) for i in range(n)],
+def render_tester_multi_cone():
+    bcol1, bcol2, bcol3 = st.columns([1, 1, 3])
+    with bcol1:
+        if st.button("← Back to Lab", key="mc_back_lab",
+                     use_container_width=True):
+            st.session_state.page = "lab"
+            st.rerun()
+    with bcol2:
+        if st.button("← Back to Landing", key="mc_back_landing",
+                     use_container_width=True):
+            st.session_state.page = "landing"
+            st.rerun()
+
+    st.markdown(
+        "<h2 style='color:#f39c12;margin-bottom:0.2rem;'>"
+        "Multi-Cone Roof — Tester</h2>"
+        "<p style='color:#a8b8c8;margin-top:0;'>"
+        "Stage 1: FDM finds shape. "
+        "Stage 2: Cable auto-sized, Newton solves.</p>",
+        unsafe_allow_html=True,
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5,
+                                key="mc_span")
+    with c2:
+        apex = st.number_input("Primary apex (m)", 1.0, 30.0, 5.0, 0.5,
+                                key="mc_apex")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        mid_width = st.number_input("Mid-span width (m)", 6.0, 60.0, 10.0, 0.5,
+                                     key="mc_width")
+    with c2:
+        eave_height = st.number_input("Eave height (m)", 0.5, 10.0, 2.8, 0.1,
+                                       key="mc_eave")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 1.0, 0.1,
+                                         key="mc_rd")
+    with c2:
+        curve_type = st.selectbox(
+            "Curve type", ["parabolic", "circular", "catenary"],
+            index=0, key="mc_curve",
+        )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        secondary_count = int(st.number_input(
+            "Secondary count", 2, 20, 3, 1, key="mc_nribs"
+        ))
+    with c2:
+        optional_ends = st.toggle("Optional ends", value=False,
+                                    key="mc_optends")
+
+    subdivisions = int(st.number_input(
+        "Subdivisions per edge", 5, 25, 5, 1, key="mc_subdiv"
+    ))
+
+    c1, c2 = st.columns(2)
+    with c1:
+        number_of_cones = int(st.number_input(
+            "Number of cones", 1, 20, 1, 1, key="mc_ncones"
+        ))
+    with c2:
+        ring_spacing = st.number_input(
+            "Distance between adjacent cones (m, along beam)",
+            0.5, 10.0, 5.0, 0.1, key="mc_spacing"
+        )
+
+    ring_clearance = st.number_input(
+        "Ring clearance below beam (m)", 0.1, 5.0, 1.0, 0.1,
+        key="mc_clr",
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        warp_q_input = st.number_input(
+            "Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1,
+            key="mc_warp",
+        )
+    with c2:
+        weft_q_input = st.number_input(
+            "Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1,
+            key="mc_weft",
+        )
+
+    edge_q_input = st.number_input(
+        "Edge cable pretension (kN/m)",
+        0.1, 500.0, 1.0, 0.1,
+        key="mc_edgeq",
+    )
+
+    xp = np.linspace(-span / 2.0, span / 2.0, 200)
+    zp = beam_curve(xp, span, apex, curve_type)
+    s_p, total_p = arclength_parametrisation(xp, zp)
+
+    rib_x = _rib_stations(secondary_count, optional_ends, span,
+                          xp, s_p, total_p)
+    rib_peak_z = np.interp(rib_x, xp, zp)
+    rib_half_width = np.array(
+        [_ellipse_y(float(xr), span, mid_width) for xr in rib_x],
         dtype=float,
     )
-    tris = []
-    for j in range(n - 1):
-        for i in range(n - 1):
-            a = j * n + i
-            b = a + 1
-            c = (j + 1) * n + i
-            d = c + 1
-            tris.append((a, b, d))
-            tris.append((a, d, c))
-    fixed = [k for k in range(n * n)
-             if k // n in (0, n - 1) or k % n in (0, n - 1)]
 
-    mat = make_membrane_material(
-        1400.0, 1400.0, 1.02, 0.34, 50.0,
-        warp_prestress_N_per_m=2240.0,
-        weft_prestress_N_per_m=2240.0,
-    )
-    res = solve_nonlinear_equilibrium(
-        points=pts, triangles=tris, fixed_indices=fixed,
-        reference_points=pts, membrane_material=mat,
-        cables=[], loads=None, max_iter=10, tol=1e-5,
-    )
-    coords = res["coordinates"]
-    z_max = float(np.max(np.abs(coords[:, 2])))
-    return {
-        "converged": res["converged"],
-        "iterations": res["iterations"],
-        "residual_norm": res["residual_norm"],
-        "reason": res["reason"],
-        "z_max": z_max,
-        "ok": z_max < 1e-6 and res["converged"],
-    }
+    placement_error = ""
+    ring_specs = []
+    x_rings = []
+    ring_z_rings = []
 
-
-def _test_cable_catenary():
-    pts = np.array([
-        [0.0, 0.0, 0.0],
-        [0.5, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-    ], dtype=float)
-    loads = np.zeros((3, 3))
-    loads[1, 2] = -500.0
-    EA = 1.0e7
-    T_pre = 100.0
-
-    def L0_from(T):
-        return 0.5 / (1.0 + T / EA)
-
-    cab = [
-        {"a": 0, "b": 1, "L0": L0_from(T_pre), "EA": EA},
-        {"a": 1, "b": 2, "L0": L0_from(T_pre), "EA": EA},
-    ]
-
-    mat = make_membrane_material(1.0, 1.0, 0.01, 0.34, 1.0)
-    res = solve_nonlinear_equilibrium(
-        points=pts, triangles=[], fixed_indices=[0, 2],
-        reference_points=pts, membrane_material=mat,
-        cables=cab, loads=loads, max_iter=80, tol=1e-6,
-    )
-    coords = res["coordinates"]
-    sag = -float(coords[1, 2])
-    T_final = float(res["cable_tension"][0]["T_N"])
-    return {
-        "converged": res["converged"],
-        "iterations": res["iterations"],
-        "residual_norm": res["residual_norm"],
-        "reason": res["reason"],
-        "sag_m": sag,
-        "tension_N": T_final,
-        "ok": res["converged"] and sag > 1e-3 and T_final > T_pre,
-    }
-
-
-def _test_pretension_recovery():
-    EA = 1.0e7
-    L_ref = 1.0
-    T_pre = 1000.0
-    L0 = L_ref / (1.0 + T_pre / EA)
-    strain = (L_ref - L0) / L0
-    T = EA * strain
-    err = abs(T - T_pre) / T_pre
-    return {
-        "L_ref": L_ref,
-        "L0": L0,
-        "T_target": T_pre,
-        "T_final": T,
-        "rel_error": err,
-        "ok": err < 1e-9,
-    }
-
-
-def _test_saddle_with_cable():
-    """
-    Test 4. Saddle with prestressed membrane and edge cable.
-    """
-    Lx = 10.0
-    Ly = 10.0
-    N = 7
-    H_REF = 0.05
-
-    def node_index(i, j):
-        return j * N + i
-
-    ref_pts = []
-    for j in range(N):
-        v = j / (N - 1.0)
-        y = Ly * v
-        for i in range(N):
-            u = i / (N - 1.0)
-            x = Lx * u
-            z = H_REF * (u - 0.5) * (v - 0.5) * 4.0
-            ref_pts.append([x, y, z])
-    ref_pts = np.asarray(ref_pts, dtype=float)
-
-    amp = 5.0e-4
-    pts_init = ref_pts.copy()
-    for j in range(N):
-        for i in range(N):
-            k = j * N + i
-            u = i / (N - 1.0)
-            v = j / (N - 1.0)
-            pts_init[k, 2] += amp * (u - 0.5) * (v - 0.5) * 4.0
-
-    tris = []
-    for j in range(N - 1):
-        for i in range(N - 1):
-            a = node_index(i, j)
-            b = node_index(i + 1, j)
-            c = node_index(i, j + 1)
-            d = node_index(i + 1, j + 1)
-            tris.append((a, b, d))
-            tris.append((a, d, c))
-
-    fixed = [
-        node_index(0, 0),
-        node_index(N - 1, 0),
-        node_index(0, N - 1),
-        node_index(N - 1, N - 1),
-    ]
-
-    mat = make_membrane_material(
-        1400.0, 1400.0, 1.02, 0.34, 50.0,
-        warp_prestress_N_per_m=2240.0,
-        weft_prestress_N_per_m=2240.0,
-    )
-
-    EA_cable = 162.9e-6 * 160.0e9
-
-    top_chain = [node_index(i, 0) for i in range(N)]
-
-    T_LOW = 5000.0
-    T_HIGH = 50000.0
-
-    def cable_set(T_pre):
-        cables = []
-        for k in range(len(top_chain) - 1):
-            a = int(top_chain[k])
-            b = int(top_chain[k + 1])
-            L_ref = float(np.linalg.norm(ref_pts[b] - ref_pts[a]))
-            L0 = L_ref / (1.0 + T_pre / EA_cable)
-            cables.append({
-                "a": a,
-                "b": b,
-                "L0": L0,
-                "EA": EA_cable,
+    try:
+        s_rings = _cone_arc_positions(number_of_cones, ring_spacing, total_p)
+        for s_val in s_rings:
+            x_val = float(np.interp(s_val, s_p, xp))
+            bz_val = float(np.interp(s_val, s_p, zp))
+            rz_val = bz_val - float(ring_clearance)
+            x_rings.append(x_val)
+            ring_z_rings.append(rz_val)
+            ring_specs.append({
+                "cx": x_val, "cy": 0.0, "cz": rz_val,
+                "r": float(ring_diameter) / 2.0,
+                "beam_z": bz_val,
             })
-        return cables
+    except ValueError as e:
+        placement_error = str(e)
 
-    res_low = solve_nonlinear_equilibrium(
-        points=pts_init.copy(), triangles=tris, fixed_indices=fixed,
-        reference_points=ref_pts.copy(), membrane_material=mat,
-        cables=cable_set(T_LOW), max_iter=300, tol=1e-2,
+    if placement_error:
+        st.error("Placement refused: " + placement_error)
+        return
+
+    tip_x = _tip_x_at_eave(span, apex, eave_height, curve_type)
+    anchors = _build_eave_anchors(
+        rib_x, rib_half_width, rib_peak_z, eave_height, tip_x
     )
-    res_high = solve_nonlinear_equilibrium(
-        points=pts_init.copy(), triangles=tris, fixed_indices=fixed,
-        reference_points=ref_pts.copy(), membrane_material=mat,
-        cables=cable_set(T_HIGH), max_iter=300, tol=1e-2,
+    perimeter_loop, anchor_idx = _subdivide_polygon(anchors, subdivisions)
+    bd = np.diff(np.vstack([perimeter_loop, perimeter_loop[:1]]), axis=0)
+    L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
+    target_len = max(L_avg, 1e-6)
+
+    # ---- STAGE 1: SDSe mesh + FDM ----
+    built = SDSe_mesh_rings(
+        perimeter_loop=perimeter_loop,
+        anchor_idx=anchor_idx,
+        ring_specs=ring_specs,
+        eave_height=eave_height,
+        target_len=target_len,
     )
 
-    T_low_rep = float(res_low["cable_tension"][0]["T_N"])
-    T_high_rep = float(res_high["cable_tension"][0]["T_N"])
+    pts = built["points"]
+    edges = built["edges"]
+    boundary_edge_set = built["boundary_edges"]
+    tris = built["triangles"]
+    fixed = built["fixed_indices"]
 
-    tension_ok_low = abs(T_low_rep - T_LOW) < 0.05 * T_LOW
-    tension_ok_high = abs(T_high_rep - T_HIGH) < 0.05 * T_HIGH
+    warp_q = max(float(warp_q_input), 0.1) * 1000.0
+    weft_q = max(float(weft_q_input), 0.1) * 1000.0
+    edge_q_scalar = max(float(edge_q_input), 0.1) * 1000.0
 
-    z_span_low = float(np.max(res_low["coordinates"][:, 2])
-                       - np.min(res_low["coordinates"][:, 2]))
-    z_span_high = float(np.max(res_high["coordinates"][:, 2])
-                        - np.min(res_high["coordinates"][:, 2]))
-    has_z_span = (z_span_low > 1e-4) and (z_span_high > 1e-4)
+    pts_2d = pts[:, :2]
+    warp_dir = np.array([1.0, 0.0])
+    q_interior = SDSe_blend_q_per_edge(
+        edges, pts_2d, warp_dir, warp_q, weft_q
+    )
 
-    mid_node = node_index(N // 2, 0)
-    d_mid_low = float(np.linalg.norm(
-        res_low["coordinates"][mid_node] - ref_pts[mid_node]
+    q = np.empty(len(edges), dtype=float)
+    for k, (i, j) in enumerate(edges):
+        key = (i, j) if i < j else (j, i)
+        if key in boundary_edge_set:
+            q[k] = edge_q_scalar
+        else:
+            q[k] = q_interior[k]
+
+    try:
+        fdm = solve_fdm(pts, edges, fixed, q)
+        coords_fdm = fdm["coordinates"]
+        residual_fdm = float(fdm["residual_norm"])
+        solve_ok = True
+        solve_err = ""
+    except Exception as e:
+        coords_fdm = pts.copy()
+        residual_fdm = float("nan")
+        solve_ok = False
+        solve_err = str(e)
+
+    max_edge_tension_N = edge_q_scalar * L_avg
+    fdm["max_edge_tension_N"] = max_edge_tension_N
+    fdm["edge_q_scalar"] = edge_q_scalar
+
+    # ---- STAGE 2: Auto-size cable + steel ----
+    cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_T_fdm = \
+        _select_edge_cable(fdm, safety_factor=2.0)
+
+    beam_axial_kN = max_edge_tension_N / 1000.0
+    beam_moment_kNm = (beam_axial_kN * span) / 8.0
+    steel_section = _select_steel_section(
+        beam_axial_kN, beam_moment_kNm,
+        family="CHS", grade="S355",
+    )
+
+    # ---- STAGE 3: Build cables with real EA ----
+    cables = []
+    n_a = len(anchor_idx)
+
+    for k in range(n_a):
+        a_idx = anchor_idx[k]
+        b_idx = anchor_idx[(k + 1) % n_a]
+        chain = [int(a_idx)]
+        i_cur = (a_idx + 1) % pts.shape[0]
+        b_int = int(b_idx)
+        safety = 0
+        while i_cur != b_int and safety < pts.shape[0]:
+            chain.append(int(i_cur))
+            i_cur = (i_cur + 1) % pts.shape[0]
+            safety += 1
+        chain.append(int(b_int))
+        for m in range(len(chain) - 1):
+            ia = chain[m]
+            ib = chain[m + 1]
+            L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
+            if L_ref < 1e-9:
+                continue
+            L0 = L_ref * 1.001
+            cables.append({
+                "a": ia, "b": ib, "L0": L0, "EA": EA_cable,
+            })
+
+    material = make_membrane_material(
+        E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02,
+        nu=0.34, G_MPa=50.0,
+        warp_prestress_N_per_m=warp_q,
+        weft_prestress_N_per_m=weft_q,
+    )
+
+    # ---- STAGE 4: Newton-Raphson ----
+    st.write("Running Newton-Raphson nonlinear equilibrium solver...")
+
+    dr_result = solve_nonlinear_equilibrium(
+        points=coords_fdm.copy(),
+        triangles=tris,
+        fixed_indices=fixed,
+        reference_points=coords_fdm.copy(),
+        membrane_material=material,
+        cables=cables,
+        loads=None,
+        max_iter=100,
+        max_outer=25,
+        tol=1e-6,
+        tol_disp=1e-8,
+        max_total_steps=200,
+        max_wall_seconds=50.0,
+        seed_z_amplitude=0.01 * span,
+    )
+
+    coords = dr_result["coordinates"]
+    dr_converged = dr_result["converged"]
+    dr_residual = dr_result["residual_norm"]
+
+    # ---- DRAW ----
+    fig = go.Figure()
+
+    if len(tris) > 0:
+        tri = np.asarray(tris, dtype=int)
+        fig.add_trace(go.Mesh3d(
+            x=coords[:, 0], y=coords[:, 1], z=coords[:, 2],
+            i=tri[:, 0], j=tri[:, 1], k=tri[:, 2],
+            color=COL_MEMBRANE, opacity=0.55, flatshading=True,
+            name="membrane", showlegend=False, hoverinfo="skip",
+        ))
+
+    fig.add_trace(go.Scatter3d(
+        x=xp, y=np.zeros_like(xp), z=zp,
+        mode="lines", line=dict(color=COL_PRIMARY, width=7),
+        name="primary beam", showlegend=False, hoverinfo="skip",
     ))
-    d_mid_high = float(np.linalg.norm(
-        res_high["coordinates"][mid_node] - ref_pts[mid_node]
-    ))
-    moved = (d_mid_low > 1e-7) and (d_mid_high > 1e-7)
 
-    ok = tension_ok_low and tension_ok_high and has_z_span and moved
+    for i in range(len(rib_x)):
+        rp = _rib_polyline(
+            float(rib_x[i]), float(rib_half_width[i]),
+            float(rib_peak_z[i]), RIB_SEGMENTS,
+        )
+        fig.add_trace(go.Scatter3d(
+            x=rp[:, 0], y=rp[:, 1], z=rp[:, 2],
+            mode="lines", line=dict(color=COL_RIB, width=5),
+            name="rib", showlegend=False, hoverinfo="skip",
+        ))
 
-    return {
-        "T_low_applied_N": T_LOW,
-        "T_low_reported_N": T_low_rep,
-        "T_low_rel_err": abs(T_low_rep - T_LOW) / T_LOW,
-        "T_high_applied_N": T_HIGH,
-        "T_high_reported_N": T_high_rep,
-        "T_high_rel_err": abs(T_high_rep - T_HIGH) / T_HIGH,
-        "z_span_low_m": z_span_low,
-        "z_span_high_m": z_span_high,
-        "disp_low_m": d_mid_low,
-        "disp_high_m": d_mid_high,
-        "tension_ok_low": tension_ok_low,
-        "tension_ok_high": tension_ok_high,
-        "has_z_span": has_z_span,
-        "moved": moved,
-        "ok": ok,
-    }
+    for k, idx_list in enumerate(built["ring_indices"]):
+        pp = coords[idx_list]
+        closed = np.vstack([pp, pp[:1]])
+        fig.add_trace(go.Scatter3d(
+            x=closed[:, 0], y=closed[:, 1], z=closed[:, 2],
+            mode="lines", line=dict(color=COL_RING_EDGE, width=5),
+            name="ring", showlegend=False, hoverinfo="skip",
+        ))
+        centre_i = built["centre_indices"][k]
+        beam_i = built["beam_top_indices"][k]
+        cx, cy, cz = coords[centre_i]
+        for poly_i in idx_list:
+            fig.add_trace(go.Scatter3d(
+                x=[cx, coords[poly_i, 0]],
+                y=[cy, coords[poly_i, 1]],
+                z=[cz, coords[poly_i, 2]],
+                mode="lines", line=dict(color=COL_SPOKE, width=2),
+                name="spoke", showlegend=False, hoverinfo="skip",
+            ))
+        bx, by, bz = coords[beam_i]
+        fig.add_trace(go.Scatter3d(
+            x=[cx, bx], y=[cy, by], z=[cz, bz],
+            mode="lines", line=dict(color=COL_DROP, width=4),
+            name="drop", showlegend=False, hoverinfo="skip",
+        ))
 
+    apply_common_layout(fig, apex)
+    st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
-def run_all_tests():
-    print("=" * 60)
-    print("Nonlinear Equilibrium v5.3 (NEWTON SEED FORK) - self-tests")
-    print("=" * 60)
-    all_ok = True
+    members = _build_member_schedule(
+        built, coords, x_rings,
+        anchor_idx, edge_q_scalar, warp_q, weft_q,
+        cable_name, cable_A_mm2, steel_section,
+    )
 
-    tests = [
-        ("Test 1 - Flat membrane stays flat", _test_flat_membrane),
-        ("Test 2 - Cable catenary under load", _test_cable_catenary),
-        ("Test 3 - Cable pretension recovered", _test_pretension_recovery),
-        ("Test 4 - Saddle cable tension verified", _test_saddle_with_cable),
-    ]
+    with st.expander("Member schedule (auto-sized)", expanded=True):
+        st.write("Edge cable: **%s** (A=%.1f mm2)"
+                 % (cable_name, cable_A_mm2))
+        st.write("Steel section: **%s**" % steel_section)
+        st.write("Total members recorded: %d" % len(members))
+        st.code(_format_member_table(members), language="text")
 
-    for name, fn in tests:
-        print("-" * 60)
-        print(name)
-        try:
-            r = fn()
-            for k, v in r.items():
-                print("  %-20s : %s" % (k, v))
-            if not r.get("ok"):
-                all_ok = False
-        except Exception as e:
-            print("  FAILED: %s" % str(e))
-            all_ok = False
+    with st.expander("Diagnostics", expanded=True):
+        st.write("Number of cones: %d" % number_of_cones)
+        st.write("Total mesh nodes: %d" % pts.shape[0])
+        st.write("Mesh edges: %d" % len(edges))
+        st.write("Mesh triangles: %d" % len(tris))
+        st.write("Held nodes (total): %d" % len(fixed))
 
-    print("=" * 60)
-    print("GATE:", "PASS" if all_ok else "FAIL")
-    print("-" * 60)
-    return all_ok
+        st.write("---")
+        st.write("**Stage 1 — FDM:**")
+        st.write("FDM Solve OK: %s" % solve_ok)
+        if not solve_ok:
+            st.write("FDM error: %s" % solve_err)
+        else:
+            st.write("FDM force imbalance (N): %.6e" % residual_fdm)
+            st.write("FDM estimated edge tension (N): %.1f"
+                     % max_edge_tension_N)
 
+        st.write("**Auto-Sizing:**")
+        st.write("Selected cable: %s" % cable_name)
+        st.write("Cable area: %.1f mm2" % cable_A_mm2)
+        st.write("Cable EA: %.2f MN" % (EA_cable / 1e6))
+        st.write("Selected steel: %s" % steel_section)
+        st.write("Steel axial: %.1f kN" % beam_axial_kN)
+        st.write("Steel moment: %.1f kNm" % beam_moment_kNm)
 
-run = run_all_tests
+        st.write("---")
+        st.write("**Stage 2 — Newton:**")
+        st.write("Newton converged: %s" % dr_converged)
+        st.write("Newton iterations: %d" % dr_result["iterations"])
+        st.write("Newton total steps: %d" % dr_result.get("total_steps", 0))
+        st.write("Newton residual (N): %.6e" % dr_residual)
+        st.write("Newton max residual (N): %.6e"
+                 % dr_result.get("max_residual", dr_residual))
+        st.write("Newton time (s): %.2f" % dr_result["elapsed_seconds"])
+        st.write("Newton reason: %s" % dr_result.get("reason", ""))
+        st.write("Seed applied (m): %.6f" % dr_result.get("seed_applied_m", 0.0))
 
-
-if __name__ == "__main__":
-    run_all_tests()
+        hist = dr_result.get("history", [])
+        if hist:
+            st.write("Newton history (last 5 steps):")
+            for row in hist[-5:]:
+                st.write("  outer=%s  inner=%s  ||R||=%.4e  max|R|=%.4e"
+                         % (row[0], row[1], row[2], row[3]))
 
 
 # =============================================================================
-# END OF engine/nonlinear_equilibrium_newton_seed.py
+# END OF ui/workshops/tester_multi_cone.py
 # =============================================================================
