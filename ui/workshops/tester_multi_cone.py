@@ -513,7 +513,8 @@ def render_tester_multi_cone():
                     L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
                     if L_ref < 1e-9:
                         continue
-                    cables.append({"a": ia, "b": ib, "L0": L_ref * 1.001, "EA": EA_cable})
+                    # Cable is slightly shorter than the reference shape so it starts taut.
+                    cables.append({"a": ia, "b": ib, "L0": L_ref * 0.999, "EA": EA_cable})
 
             apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
 
