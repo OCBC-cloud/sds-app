@@ -758,7 +758,9 @@ def render_tester_multi_cone():
                     )
                     any_corner_warn = False
                     for idx in anchor_idx:
-                        T_N = anchor_cable_tension_N.get(idx, 0.0)
+                        # Use the maximum of the baseline or the solver's reported max tension.
+                        max_solver_T = max([c["T_N"] for c in cable_tensions]) if cable_tensions else 0.0
+                        T_N = max(anchor_cable_tension_N.get(idx, 0.0), max_solver_T, data["fdm"]["max_edge_tension_N"])
                         # Cable diameter estimate from selected cable area
                         A_mm2 = newton_data["cable_A_mm2"]
                         cable_d_mm = max(6.0, math.sqrt(4.0 * A_mm2 / math.pi))
