@@ -46,7 +46,8 @@ COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
 
-PRETENSION_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0]
+PRETENSION_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0]
+UTILIZATION_WARN_THRESHOLD = 0.60
 
 
 # =============================================================================
@@ -213,23 +214,19 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
     triangles = built["triangles"]
     n_perimeter = built["n_perimeter"]
 
-    # 1. Primary Beam
     primary_beam_length = span * 1.2 # heuristic
     members.append({"member_id": "Primary_Beam_Main", "member_type": "primary_beam", "length_m": float(primary_beam_length), "section": steel_section, "material": "S355", "role": "Main arched beam from ground to ground"})
 
-    # 2. Ribs
     num_ribs = len(built.get("rib_indices", []))
     rib_length = mid_width * 1.5 # heuristic
     for i in range(3):
         members.append({"member_id": "Rib_Beam_%d" % (i+1), "member_type": "rib_beam", "length_m": float(rib_length), "section": steel_section, "material": "S355", "role": "Secondary arched beam from primary beam to ground"})
 
-    # 3. Stubs
     num_eave_anchors = len(anchor_idx)
     stub_length = eave_height
     for i in range(num_eave_anchors):
         members.append({"member_id": "Stub_Col_%d" % (i+1), "member_type": "stub_column", "length_m": float(stub_length), "section": steel_section, "material": "S355", "role": "Vertical stub from eave to baseplate"})
 
-    # 4. Rings
     for k in range(len(ring_indices)):
         ring_no = k + 1
         idx_list = ring_indices[k]
@@ -246,14 +243,12 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
         L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
         members.append({"member_id": "Ring_%d_Drop_Member" % ring_no, "member_type": "drop_member", "length_m": L, "section": steel_section, "material": "S355", "role": "vertical drop from primary beam to ring centre"})
 
-    # 5. Edge Cable
     total_cable_length = 0.0
     for i in range(n_perimeter):
         j = (i + 1) % n_perimeter
         total_cable_length += float(np.linalg.norm(coords[j] - coords[i]))
     members.append({"member_id": "Edge_Cable", "member_type": "cable", "length_m": total_cable_length, "section": cable_name, "material": "A=%.1f mm2" % cable_A_mm2, "role": "perimeter edge cable (auto-sized)"})
 
-    # 6. Membrane
     panel_no = 1
     for (a, b, c) in triangles:
         pa, pb, pc = coords[a], coords[b], coords[c]
@@ -491,7 +486,7 @@ def render_tester_multi_cone():
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=loads,
-                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=20.0, seed_z_amplitude=0.001 * data["span"],
+                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=15.0, seed_z_amplitude=0.001 * data["span"],
                 )
                 
                 if res["converged"]:
@@ -500,7 +495,7 @@ def render_tester_multi_cone():
                     break
 
             if dr_result is None:
-                st.error("The solver could not converge even at the maximum pretension of 3.0 kN/m. The geometry is unstable under this load. Please reduce the span or adjust the cone layout.")
+                st.error("This geometry requires a membrane pretension above %.1f kN/m to hold its shape under %.1f m/s wind. That is outside the practical range for PVDF fabric (typical limit: 4-6 kN/m). Consider increasing the apex height, adding more cones, or reducing the span." % (PRETENSION_STEPS[-1], wind_speed))
                 return
 
             if final_pretension > 1.0:
@@ -535,6 +530,24 @@ def render_tester_multi_cone():
                 max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
                 
             steel_section = _select_steel_section(max_reaction_kN, (max_reaction_kN * data["span"]) / 8.0, family="CHS", grade="S355")
+
+            # Check for utilization warning (60-65%)
+            fy_MPa = STEEL_MATERIALS.get("Steel", {}).get("S355", {}).get("fy", 355)
+            props = SECTION_PROPERTIES.get(steel_section, {})
+            A_mm2 = props.get("A", 1.0)
+            W_el_mm3 = props.get("W_el", 1.0)
+            N_Ed = max_reaction_kN * 1000.0
+            M_Ed = (max_reaction_kN * data["span"] / 8.0) * 1e6
+            N_cap = A_mm2 * fy_MPa
+            M_cap = W_el_mm3 * fy_MPa
+            util = (N_Ed / N_cap) + (M_Ed / M_cap)
+
+            if util > UTILIZATION_WARN_THRESHOLD:
+                st.warning(
+                    "Warning: Steel section utilization is at %.0f%%. "
+                    "Consider adding more ribs to reduce the unsupported membrane surface, "
+                    "or adding more cones to provide more pull holding supports." % (util * 100)
+                )
 
             coords_to_draw = dr_result["coordinates"]
             st.session_state["newton_results"] = {
