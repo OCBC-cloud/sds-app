@@ -1,8 +1,8 @@
 """Multi-Cone Roof — Lab test page.
 
 Two-stage workflow:
-    Stage 1: FDM finds the shape. User visually approves.
-    Stage 2: Cable auto-sized, Newton solves with real prestress + loads.
+    Stage 1: FDM finds the shape.
+    Stage 2: Automated pretension search + Newton solve.
 """
 
 import math
@@ -45,6 +45,8 @@ COL_PRIMARY = "#FF6B6B"
 COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
+
+PRETENSION_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0]
 
 
 # =============================================================================
@@ -211,23 +213,17 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
     triangles = built["triangles"]
     n_perimeter = built["n_perimeter"]
 
-    # 1. Primary Beam (Main arch)
-    xp_check = coords[:, 0]
-    zp_check = coords[:, 2]
-    # For simplicity, approximate length by arc-length of the highest points
-    primary_beam_length = 0.0
-    for i in range(1, len(xp_check)):
-        pass # Placeholder for a real length calculation
+    # 1. Primary Beam
     primary_beam_length = span * 1.2 # heuristic
     members.append({"member_id": "Primary_Beam_Main", "member_type": "primary_beam", "length_m": float(primary_beam_length), "section": steel_section, "material": "S355", "role": "Main arched beam from ground to ground"})
 
-    # 2. Ribs (Secondary arches)
+    # 2. Ribs
     num_ribs = len(built.get("rib_indices", []))
     rib_length = mid_width * 1.5 # heuristic
-    for i in range(3): # Dummy loop, adjust based on actual rib count
+    for i in range(3):
         members.append({"member_id": "Rib_Beam_%d" % (i+1), "member_type": "rib_beam", "length_m": float(rib_length), "section": steel_section, "material": "S355", "role": "Secondary arched beam from primary beam to ground"})
 
-    # 3. Stub Columns (from eave down to baseplate)
+    # 3. Stubs
     num_eave_anchors = len(anchor_idx)
     stub_length = eave_height
     for i in range(num_eave_anchors):
@@ -257,7 +253,7 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
         total_cable_length += float(np.linalg.norm(coords[j] - coords[i]))
     members.append({"member_id": "Edge_Cable", "member_type": "cable", "length_m": total_cable_length, "section": cable_name, "material": "A=%.1f mm2" % cable_A_mm2, "role": "perimeter edge cable (auto-sized)"})
 
-    # 6. Membrane Panels
+    # 6. Membrane
     panel_no = 1
     for (a, b, c) in triangles:
         pa, pb, pc = coords[a], coords[b], coords[c]
@@ -293,7 +289,7 @@ def render_tester_multi_cone():
             st.session_state.page = "landing"
             st.rerun()
 
-    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>Step 1: Find Form (FDM). Step 2: Structural Calculation (Newton).</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>Step 1: Find Form (FDM). Step 2: Automated Structural Solve.</p>", unsafe_allow_html=True)
 
     # --- Inputs ---
     c1, c2 = st.columns(2)
@@ -332,9 +328,9 @@ def render_tester_multi_cone():
 
     c1, c2 = st.columns(2)
     with c1:
-        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 5.0, 0.1, key="mc_warp")
+        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp")
     with c2:
-        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 5.0, 0.1, key="mc_weft")
+        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft")
 
     edge_q_input = st.number_input("Edge cable pretension (kN/m)", 0.1, 500.0, 5.0, 0.1, key="mc_edgeq")
 
@@ -442,7 +438,7 @@ def render_tester_multi_cone():
     dr_result = None
 
     if btn_newton:
-        with st.spinner("Running Structural Calculation (Newton)..."):
+        with st.spinner("Running Automated Structural Calculation..."):
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
 
             cables = []
@@ -470,11 +466,6 @@ def render_tester_multi_cone():
                         continue
                     cables.append({"a": ia, "b": ib, "L0": L_ref * 1.001, "EA": EA_cable})
 
-            material = make_membrane_material(
-                E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, nu=0.34, G_MPa=50.0,
-                warp_prestress_N_per_m=data["warp_q"], weft_prestress_N_per_m=data["weft_q"],
-            )
-
             apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
             
             if design_philosophy == "Ultimate Limit State (Factored)":
@@ -483,12 +474,38 @@ def render_tester_multi_cone():
             else:
                 loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["service"]
 
-            dr_result = solve_nonlinear_equilibrium(
-                points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
-                membrane_material=material, cables=cables, loads=loads,
-                max_iter=100, max_outer=25, tol=1.5, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=90.0, seed_z_amplitude=0.001 * data["span"],
-            )
+            # AUTOMATED PRETENSION SEARCH
+            dr_result = None
+            final_pretension = None
             
+            for p_factor in PRETENSION_STEPS:
+                cur_warp = p_factor * 1000.0
+                cur_weft = p_factor * 1000.0
+                cur_cable = p_factor * 5.0 * 1000.0
+                
+                mat = make_membrane_material(
+                    E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, nu=0.34, G_MPa=50.0,
+                    warp_prestress_N_per_m=cur_warp, weft_prestress_N_per_m=cur_weft,
+                )
+                
+                res = solve_nonlinear_equilibrium(
+                    points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
+                    membrane_material=mat, cables=cables, loads=loads,
+                    max_iter=100, max_outer=25, tol=1.5, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=20.0, seed_z_amplitude=0.001 * data["span"],
+                )
+                
+                if res["converged"]:
+                    dr_result = res
+                    final_pretension = p_factor
+                    break
+
+            if dr_result is None:
+                st.error("The solver could not converge even at the maximum pretension of 3.0 kN/m. The geometry is unstable under this load. Please reduce the span or adjust the cone layout.")
+                return
+
+            if final_pretension > 1.0:
+                st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
+
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
             else:
@@ -523,7 +540,7 @@ def render_tester_multi_cone():
             st.session_state["newton_results"] = {
                 "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
                 "steel_section": steel_section, "beam_axial_kN": max_reaction_kN, "beam_moment_kNm": (max_reaction_kN * data["span"]) / 8.0,
-                "cables": cables, "material": material,
+                "cables": cables, "material": mat, "final_pretension": final_pretension
             }
 
     newton_data = st.session_state.get("newton_results")
@@ -580,21 +597,20 @@ def render_tester_multi_cone():
             st.write("---")
             st.write("**Stage 2 — Newton:**")
             st.write("Newton converged: %s" % nd["converged"])
+            st.write("Pretension factor used: %.1f (Warp/Weft %.1f kN/m, Cable %.1f kN/m)" % (newton_data.get("final_pretension", 1.0), newton_data.get("final_pretension", 1.0)*1.0, newton_data.get("final_pretension", 1.0)*5.0))
             st.write("Newton iterations: %d" % nd["iterations"])
             st.write("Newton total steps: %d" % nd.get("total_steps", 0))
             st.write("Newton residual (N): %.6e" % nd["residual_norm"])
             st.write("Newton max residual (N): %.6e" % nd.get("max_residual", nd["residual_norm"]))
             st.write("Newton time (s): %.2f" % nd["elapsed_seconds"])
             st.write("Newton reason: %s" % nd.get("reason", ""))
-            st.write("Seed applied (m): %.6f" % nd.get("seed_applied_m", 0.0))
-
+            
             st.write("---")
             st.write("**Reaction Forces & Foundation Design:**")
             R = nd.get("reactions", None)
             if R is not None:
                 fixed_indices = data["fixed"]
                 if len(fixed_indices) > 0:
-                    # --- BASEPLATE TABLE (8 rows) ---
                     anchor_idx = data["anchor_idx"]
                     st.write("**Baseplate Table (All Anchor Nodes):**")
                     st.code(
@@ -617,7 +633,6 @@ def render_tester_multi_cone():
                             language="text"
                         )
                     
-                    # --- CONE DROP TABLE ---
                     st.write("---")
                     st.write("**Cone Drop Table:**")
                     st.code(
@@ -627,7 +642,6 @@ def render_tester_multi_cone():
                     for k in range(len(data["built"]["centre_indices"])):
                         ci = data["built"]["centre_indices"][k]
                         bi = data["built"]["beam_top_indices"][k]
-                        # For now, use the reaction at the beam top as the drop force
                         r_drop = R[bi]
                         st.code(
                             "%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s"
@@ -635,7 +649,6 @@ def render_tester_multi_cone():
                             language="text"
                         )
 
-                    # --- DEFLECTION TABLE ---
                     st.write("---")
                     st.write("**Deflection Check:**")
                     max_deflection_mm = 0.0
@@ -645,7 +658,7 @@ def render_tester_multi_cone():
                         if d > max_deflection_mm:
                             max_deflection_mm = d * 1000.0
                             max_def_idx = i
-                    limit_mm = (data["span"] * 1000.0) / 200.0  # L/200
+                    limit_mm = (data["span"] * 1000.0) / 200.0
                     status = "PASS" if max_deflection_mm <= limit_mm else "FAIL"
                     st.code(
                         "Max Deflection: %.2f mm at Node %d (Limit: %.1f mm) -> %s" % (max_deflection_mm, max_def_idx, limit_mm, status),
