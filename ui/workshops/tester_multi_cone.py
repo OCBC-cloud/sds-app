@@ -1,4 +1,3 @@
-=== BEGIN FILE ===
 """Multi-Cone Roof — Lab test page.
 
 Two-stage workflow:
@@ -835,4 +834,4 @@ def render_tester_multi_cone():
 
 # =============================================================================
 # END OF ui/workshops/tester_multi_cone.py
-=== END FILE ===
+
