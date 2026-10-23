@@ -46,7 +46,8 @@ COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
 
-PRETENSION_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0]
+# Max pretension limited to 10.0 kN/m for PVDF fabric safety
+PRETENSION_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0]
 UTILIZATION_WARN_THRESHOLD = 0.60
 
 
@@ -103,10 +104,6 @@ def _steel_capacity_ratios(section_name, max_axial_kN, max_moment_kNm,
     """Single source of truth for steel utilization.
 
     Returns (interaction_util, buckling_util).
-
-    interaction_util : N/N_cap + M/M_cap (yield interaction).
-    buckling_util    : N/N_buckling using Euler with L_eff = L (Option A, conservative).
-                       No end-restraint reduction is claimed.
     """
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
     props = SECTION_PROPERTIES.get(section_name, {})
@@ -123,14 +120,11 @@ def _steel_capacity_ratios(section_name, max_axial_kN, max_moment_kNm,
     # --- Euler buckling, L_eff = L ---
     r_mm = _section_radius_of_gyration(section_name)
     if r_mm is None or r_mm <= 0.0 or A_mm2 <= 0.0:
-        # Cannot evaluate buckling -> be honest and flag it high
         buckling_util = 1.0e9
     else:
         L_eff_mm = float(member_length_m) * 1000.0
         I_mm4 = A_mm2 * (r_mm ** 2)
-        # Euler critical load (N). Effective length factor K = 1.0.
         N_cr_N = (math.pi ** 2) * E_MPa * I_mm4 / (L_eff_mm ** 2)
-        # If the member is in tension, no buckling. Only positive N_Ed buckles.
         if N_Ed <= 0.0:
             buckling_util = 0.0
         else:
@@ -142,7 +136,7 @@ def _steel_capacity_ratios(section_name, max_axial_kN, max_moment_kNm,
 def _select_steel_section(max_axial_kN, max_moment_kNm, member_length_m,
                           family="CHS", grade="S355"):
     """Pick the smallest section in the family that satisfies
-    yield interaction (<=0.9) and Euler buckling (<=1.0), with L_eff = L.
+    yield interaction (<=1.0) and Euler buckling (<=1.0), with L_eff = L.
     """
     best = None
     for name, props in SECTION_PROPERTIES.items():
@@ -547,11 +541,14 @@ def render_tester_multi_cone():
                     break
 
             if dr_result is None:
-                st.error("This geometry requires a membrane pretension above %.1f kN/m to hold its shape under %.1f m/s wind. That is outside the practical range for PVDF fabric (typical limit: 4-6 kN/m). Consider increasing the apex height, adding more cones, or reducing the span." % (PRETENSION_STEPS[-1], wind_speed))
+                st.error("This geometry requires a membrane pretension above %.1f kN/m to hold its shape under %.1f m/s wind. This exceeds the maximum safe limit for PVDF fabric. You MUST add more ribs (increase secondary count) or add more cones to reduce the unsupported span." % (PRETENSION_STEPS[-1], wind_speed))
                 return
 
             if final_pretension > 1.0:
                 st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
+
+            if final_pretension > 6.0:
+                st.warning("High Pretension Warning: The solver needed %.1f kN/m to converge. PVDF fabric typically operates at 1-3 kN/m. At this level, you must verify the fabric's tear strength. Consider adding more ribs or increasing the apex." % final_pretension)
 
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
@@ -581,7 +578,6 @@ def render_tester_multi_cone():
             else:
                 max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
 
-            # Use the primary beam developed length (span * 1.2) for buckling of the governing member.
             governing_member_length_m = data["span"] * 1.2
             steel_section = _select_steel_section(
                 max_reaction_kN,
@@ -607,29 +603,35 @@ def render_tester_multi_cone():
                 )
 
             # --- SMART AUTO-SIZE BUTTON ---
-                st.markdown("---")
-                st.write("### Member Sizing Recommendation")
-                if util > UTILIZATION_WARN_THRESHOLD:
-                    st.write("The current section **%s** is at **%.0f%%** utilization." % (steel_section, util * 100.0))
-                    if st.checkbox("Auto-recommend a larger steel section", key="auto_size_check"):
-                        keys = [k for k, v in SECTION_PROPERTIES.items() if v.get("type") == "CHS"]
-                        keys.sort(key=lambda k: SECTION_PROPERTIES[k].get("A", 0.0))
-                        try:
-                            current_idx = keys.index(steel_section)
-                            next_section = keys[current_idx + 1] if current_idx + 1 < len(keys) else steel_section
-                        except ValueError:
-                            next_section = steel_section
-                            
-                        st.success("Recommendation: Oversize to **%s**" % next_section)
-                        steel_section = next_section
+            st.markdown("---")
+            st.write("### Member Sizing Recommendation")
+            if util > UTILIZATION_WARN_THRESHOLD:
+                st.write("The current section **%s** is at **%.0f%%** utilization." % (steel_section, util * 100.0))
+                if st.checkbox("Auto-recommend a larger steel section", key="auto_size_check"):
+                    keys = [k for k, v in SECTION_PROPERTIES.items() if v.get("type") == "CHS"]
+                    keys.sort(key=lambda k: SECTION_PROPERTIES[k].get("A", 0.0))
+                    try:
+                        current_idx = keys.index(steel_section)
+                        next_section = keys[current_idx + 1] if current_idx + 1 < len(keys) else steel_section
+                    except ValueError:
+                        next_section = steel_section
+                        
+                    st.success("Recommendation: Oversize to **%s**" % next_section)
+                    steel_section = next_section
+                    
+                    st.write("---")
+                    st.write("### Membrane Support Recommendation")
+                    if final_pretension > 3.0:
+                        st.write("The membrane required **%.1f kN/m** pretension to hold its shape. This is high for PVDF." % final_pretension)
+                        st.info("💡 **Engineering Tip:** Consider increasing the 'Secondary count' (ribs) in the main inputs from **%d** to **%d** to reduce the unsupported span and lower the required pretension." % (secondary_count, secondary_count + 2))
 
-                coords_to_draw = dr_result["coordinates"]
-                st.session_state["newton_results"] = {
-                    "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
-                    "steel_section": steel_section, "beam_axial_kN": max_reaction_kN, "beam_moment_kNm": (max_reaction_kN * data["span"]) / 8.0,
-                    "cables": cables, "material": mat, "final_pretension": final_pretension,
-                    "interaction_util": interaction_util, "buckling_util": buckling_util,
-                }
+            coords_to_draw = dr_result["coordinates"]
+            st.session_state["newton_results"] = {
+                "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
+                "steel_section": steel_section, "beam_axial_kN": max_reaction_kN, "beam_moment_kNm": (max_reaction_kN * data["span"]) / 8.0,
+                "cables": cables, "material": mat, "final_pretension": final_pretension,
+                "interaction_util": interaction_util, "buckling_util": buckling_util,
+            }
 
     newton_data = st.session_state.get("newton_results")
     if newton_data and not btn_newton:
@@ -709,11 +711,7 @@ def render_tester_multi_cone():
                     anchor_cable_tension_N = {}
                     cable_tensions = nd.get("cable_tension_list", [])
                     if cable_tensions:
-                        # cables list is built in anchor order; each anchor k owns the
-                        # first segment of its boundary chain. Match by index.
                         per_anchor = [[] for _ in range(len(anchor_idx))]
-                        # Recompute which cable entries belong to which anchor by
-                        # replaying the same chain construction used earlier.
                         n_a = len(anchor_idx)
                         pts_all = data["pts"]
                         cable_i = 0
@@ -778,6 +776,7 @@ def render_tester_multi_cone():
                         # Use the maximum of the baseline or the solver's reported max tension.
                         max_solver_T = max([c["T_N"] for c in cable_tensions]) if cable_tensions else 0.0
                         T_N = max(anchor_cable_tension_N.get(idx, 0.0), max_solver_T, data["fdm"]["max_edge_tension_N"])
+                        
                         # Cable diameter estimate from selected cable area
                         A_mm2 = newton_data["cable_A_mm2"]
                         cable_d_mm = max(6.0, math.sqrt(4.0 * A_mm2 / math.pi))
@@ -853,4 +852,3 @@ def render_tester_multi_cone():
 
 # =============================================================================
 # END OF ui/workshops/tester_multi_cone.py
-
