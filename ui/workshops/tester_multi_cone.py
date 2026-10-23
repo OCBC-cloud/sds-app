@@ -26,7 +26,7 @@ from engine.load_generator import (
 )
 from engine.connection_design import (
     design_baseplate_and_foundation,
-    design_corner_plate,
+    design_corner_plate,   # <--- CHANGED from design_fin_plate
 )
 from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
@@ -455,9 +455,7 @@ def render_tester_multi_cone():
                     L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
                     if L_ref < 1e-9:
                         continue
-                    # Use the force density from FDM to calculate the true unstressed length.
-                    # This prevents the solver from seeing a slack cable.
-                    cables.append({"a": ia, "b": ib, "T_pretension_N": data["edge_q_scalar"] * L_ref, "EA": EA_cable})
+                    cables.append({"a": ia, "b": ib, "L0": L_ref * 1.001, "EA": EA_cable})
 
             apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
             
@@ -481,9 +479,9 @@ def render_tester_multi_cone():
                 )
                 
                 res = solve_nonlinear_equilibrium(
-                    points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=data["pts"].copy(),
+                    points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=loads,
-                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=15.0, seed_z_amplitude=0.0,
+                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=15.0, seed_z_amplitude=0.001 * data["span"],
                 )
                 
                 if res["converged"]:
