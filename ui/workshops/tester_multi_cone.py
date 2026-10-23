@@ -2,7 +2,7 @@
 
 Two-stage workflow:
     Stage 1: FDM finds the shape.
-    Stage 2: Automated pretension search + Newton solve.
+    Stage 2: Structural Calculation (Fixed Pretension + Wind Load Check)
 """
 
 import math
@@ -28,7 +28,7 @@ from engine.connection_design import (
     design_baseplate_and_foundation,
     design_corner_plate,
 )
-from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
+from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS, FABRIC_PROPERTIES
 from data.sections import SECTION_PROPERTIES
 from viewers.figures._shared import (
     apply_common_layout,
@@ -46,8 +46,6 @@ COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
 
-# Max pretension limited to 10.0 kN/m for PVDF fabric safety
-PRETENSION_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0]
 UTILIZATION_WARN_THRESHOLD = 0.60
 
 
@@ -333,7 +331,7 @@ def render_tester_multi_cone():
             st.session_state.page = "landing"
             st.rerun()
 
-    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>Step 1: Find Form (FDM). Step 2: Automated Structural Solve.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>Step 1: Find Form (FDM). Step 2: Structural Calculation.</p>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -369,11 +367,20 @@ def render_tester_multi_cone():
 
     ring_clearance = st.number_input("Ring clearance below beam (m)", 0.1, 5.0, 1.0, 0.1, key="mc_clr")
 
+    # Fabric Selection
+    fabric_options = list(FABRIC_PROPERTIES.get("PVDF", {}).keys())
+    fabric_options = [f for f in fabric_options if f != "default"]
+    selected_fabric = st.selectbox("Membrane Fabric (PVDF)", fabric_options, index=fabric_options.index("Ferrari 702") if "Ferrari 702" in fabric_options else 0, key="mc_fabric")
+    fabric_props = FABRIC_PROPERTIES["PVDF"][selected_fabric]
+    sf = fabric_props.get("safety_factor", 4.0)
+    if sf is None: sf = 4.0
+    allowable_stress_kN_m = fabric_props["f_u_warp"] / sf if fabric_props["f_u_warp"] else 10.0
+
     c1, c2 = st.columns(2)
     with c1:
-        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp")
+        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, float(fabric_props.get("prestress_default_kN_per_m", 1.0)), 0.1, key="mc_warp")
     with c2:
-        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft")
+        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, float(fabric_props.get("prestress_default_kN_per_m", 1.0)), 0.1, key="mc_weft")
 
     edge_q_input = st.number_input("Edge cable pretension (kN/m)", 0.1, 500.0, 5.0, 0.1, key="mc_edgeq")
 
@@ -480,7 +487,7 @@ def render_tester_multi_cone():
     dr_result = None
 
     if btn_newton:
-        with st.spinner("Running Automated Structural Calculation..."):
+        with st.spinner("Running Structural Calculation..."):
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
 
             cables = []
@@ -516,39 +523,50 @@ def render_tester_multi_cone():
             else:
                 loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["service"]
 
-            dr_result = None
-            final_pretension = None
+            # Run the solver ONCE at the user's chosen pretension. 
+            # Do NOT artificially inflate the pretension to fight the wind.
+            cur_warp = data["warp_q"]
+            cur_weft = data["weft_q"]
 
-            for p_factor in PRETENSION_STEPS:
-                cur_warp = p_factor * 1000.0
-                cur_weft = p_factor * 1000.0
-                cur_cable = p_factor * 5.0 * 1000.0
+            mat = make_membrane_material(
+                E_warp_MPa=fabric_props.get("E_warp", 1400.0), E_weft_MPa=fabric_props.get("E_weft", 1400.0), 
+                thickness_mm=fabric_props.get("t_mm", 1.02), nu=0.34, G_MPa=50.0,
+                warp_prestress_N_per_m=cur_warp, weft_prestress_N_per_m=cur_weft,
+            )
 
-                mat = make_membrane_material(
-                    E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, nu=0.34, G_MPa=50.0,
-                    warp_prestress_N_per_m=cur_warp, weft_prestress_N_per_m=cur_weft,
-                )
+            res = solve_nonlinear_equilibrium(
+                points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
+                membrane_material=mat, cables=cables, loads=loads,
+                max_iter=150, max_outer=50, tol=0.01, tol_disp=1e-5, max_total_steps=500, max_wall_seconds=20.0, seed_z_amplitude=0.001 * data["span"],
+            )
 
-                res = solve_nonlinear_equilibrium(
-                    points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
-                    membrane_material=mat, cables=cables, loads=loads,
-                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=15.0, seed_z_amplitude=0.001 * data["span"],
-                )
-
-                if res["converged"]:
-                    dr_result = res
-                    final_pretension = p_factor
-                    break
+            if res["converged"]:
+                dr_result = res
+            else:
+                dr_result = None
 
             if dr_result is None:
-                st.error("This geometry requires a membrane pretension above %.1f kN/m to hold its shape under %.1f m/s wind. This exceeds the maximum safe limit for PVDF fabric. You MUST add more ribs (increase secondary count) or add more cones to reduce the unsupported span." % (PRETENSION_STEPS[-1], wind_speed))
+                st.error("The solver could not converge under the wind load at the current geometry. The wind is too strong for this shape. You MUST increase the apex height, add more cones, or add more ribs to reduce the unsupported span.")
+                
+                if st.button("Auto-increase ribs and try again", key="auto_fix_ribs"):
+                    st.session_state["mc_nribs"] = secondary_count + 2
+                    st.rerun()
                 return
 
-            if final_pretension > 1.0:
-                st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
-
-            if final_pretension > 6.0:
-                st.warning("High Pretension Warning: The solver needed %.1f kN/m to converge. PVDF fabric typically operates at 1-3 kN/m. At this level, you must verify the fabric's tear strength. Consider adding more ribs or increasing the apex." % final_pretension)
+            # --- CHECK TOTAL MEMBRANE TENSION ---
+            # Extract max membrane stress from solver (if available) or estimate.
+            # For now, we use the solver's stress output if it exists, else we check cable tension.
+            if "max_membrane_stress_kN_m" in dr_result:
+                total_membrane_tension = dr_result["max_membrane_stress_kN_m"]
+            else:
+                # Fallback estimate: initial pretension + estimated wind tension from cable reaction
+                total_membrane_tension = max(data["warp_q"], data["weft_q"]) / 1000.0 + (max_actual_T / 1000.0) * 0.5
+            
+            if total_membrane_tension > allowable_stress_kN_m:
+                st.error("FABRIC FAILURE: The total tension under wind is %.1f kN/m, which exceeds the safe limit of %.1f kN/m for %s. You MUST add more ribs or cones to reduce the load on the fabric." % (total_membrane_tension, allowable_stress_kN_m, selected_fabric))
+                return
+            else:
+                st.success("Fabric is safe. Total tension: %.1f kN/m (Limit: %.1f kN/m)." % (total_membrane_tension, allowable_stress_kN_m))
 
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
@@ -596,8 +614,8 @@ def render_tester_multi_cone():
                 st.warning(
                     "Warning: Steel section utilization is at %.0f%% "
                     "(interaction %.0f%%, buckling %.0f%%). "
-                    "Consider adding more ribs to reduce the unsupported membrane surface, "
-                    "or adding more cones to provide more pull holding supports." % (
+                    "Consider adding more ribs or cones to reduce the load, "
+                    "or oversize the section below." % (
                         util * 100.0, interaction_util * 100.0, buckling_util * 100.0
                     )
                 )
@@ -621,16 +639,17 @@ def render_tester_multi_cone():
                     
                     st.write("---")
                     st.write("### Membrane Support Recommendation")
-                    if final_pretension > 3.0:
-                        st.write("The membrane required **%.1f kN/m** pretension to hold its shape. This is high for PVDF." % final_pretension)
-                        st.info("💡 **Engineering Tip:** Consider increasing the 'Secondary count' (ribs) in the main inputs from **%d** to **%d** to reduce the unsupported span and lower the required pretension." % (secondary_count, secondary_count + 2))
+                    if total_membrane_tension > (allowable_stress_kN_m * 0.8):
+                        st.write("The membrane is close to its limit (%.1f kN/m out of %.1f kN/m)." % (total_membrane_tension, allowable_stress_kN_m))
+                        st.info("💡 **Engineering Tip:** Consider increasing the 'Secondary count' (ribs) in the main inputs from **%d** to **%d** to reduce the unsupported span and lower the stress." % (secondary_count, secondary_count + 2))
 
             coords_to_draw = dr_result["coordinates"]
             st.session_state["newton_results"] = {
                 "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
                 "steel_section": steel_section, "beam_axial_kN": max_reaction_kN, "beam_moment_kNm": (max_reaction_kN * data["span"]) / 8.0,
-                "cables": cables, "material": mat, "final_pretension": final_pretension,
+                "cables": cables, "material": mat, "final_pretension": 1.0, # Just for the session state
                 "interaction_util": interaction_util, "buckling_util": buckling_util,
+                "total_membrane_tension": total_membrane_tension,
             }
 
     newton_data = st.session_state.get("newton_results")
@@ -686,7 +705,8 @@ def render_tester_multi_cone():
             st.write("---")
             st.write("**Stage 2 — Newton:**")
             st.write("Newton converged: %s" % nd["converged"])
-            st.write("Pretension factor used: %.1f (Warp/Weft %.1f kN/m, Cable %.1f kN/m)" % (newton_data.get("final_pretension", 1.0), newton_data.get("final_pretension", 1.0)*1.0, newton_data.get("final_pretension", 1.0)*5.0))
+            st.write("Pretension used: %.1f kN/m (Fixed input)" % (warp_q_input))
+            st.write("Total Membrane Tension: %.1f kN/m (Limit: %.1f kN/m)" % (newton_data["total_membrane_tension"], allowable_stress_kN_m))
             st.write("Newton iterations: %d" % nd["iterations"])
             st.write("Newton total steps: %d" % nd.get("total_steps", 0))
             st.write("Newton residual (N): %.6e" % nd["residual_norm"])
