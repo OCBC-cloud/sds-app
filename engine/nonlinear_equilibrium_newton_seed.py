@@ -849,10 +849,8 @@ def solve_nonlinear_equilibrium(
             x0 = flat(points)
             best_flags = list(taut_flags)
 
-            slope = -float(np.dot(r_flat, r_flat))
-            if slope >= 0.0:
-                slope = -1.0
-
+            # Monotone descent line search: accept any step that reduces ||R||.
+            # No slope, no Armijo constant, no fake gradient.
             for _ls in range(DEFAULT_LINE_SEARCH_STEPS):
                 x_try = x0 + alpha * dx
                 p_try = unflat(x_try)
@@ -874,17 +872,8 @@ def solve_nonlinear_equilibrium(
                     alpha *= 0.5
                     continue
                 r_try = flat(R_try)
-                n_try_sq = float(np.dot(r_try, r_try))
-                n_try = float(np.sqrt(n_try_sq))
+                n_try = float(np.linalg.norm(r_try))
 
-                armijo_rhs = 0.5 * float(np.dot(r_flat, r_flat)) \
-                    + ARMIJO_C1 * alpha * slope
-                if 0.5 * n_try_sq <= armijo_rhs and n_try < best_norm:
-                    best_alpha = alpha
-                    best_norm = n_try
-                    best_r = r_try
-                    best_flags = trial_flags
-                    break
                 if n_try < best_norm:
                     best_alpha = alpha
                     best_norm = n_try
