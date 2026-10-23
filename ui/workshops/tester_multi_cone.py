@@ -151,7 +151,7 @@ def _select_steel_section(max_axial_kN, max_moment_kNm, member_length_m,
         interaction_util, buckling_util = _steel_capacity_ratios(
             name, max_axial_kN, max_moment_kNm, member_length_m, grade=grade
         )
-        if interaction_util <= 0.9 and buckling_util <= 1.0 and best is None:
+        if interaction_util <= 1.0 and buckling_util <= 1.0 and best is None:
             best = name
     return best if best else "Oversize required"
 
@@ -606,13 +606,30 @@ def render_tester_multi_cone():
                     )
                 )
 
-            coords_to_draw = dr_result["coordinates"]
-            st.session_state["newton_results"] = {
-                "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
-                "steel_section": steel_section, "beam_axial_kN": max_reaction_kN, "beam_moment_kNm": (max_reaction_kN * data["span"]) / 8.0,
-                "cables": cables, "material": mat, "final_pretension": final_pretension,
-                "interaction_util": interaction_util, "buckling_util": buckling_util,
-            }
+            # --- SMART AUTO-SIZE BUTTON ---
+                st.markdown("---")
+                st.write("### Member Sizing Recommendation")
+                if util > UTILIZATION_WARN_THRESHOLD:
+                    st.write("The current section **%s** is at **%.0f%%** utilization." % (steel_section, util * 100.0))
+                    if st.checkbox("Auto-recommend a larger steel section", key="auto_size_check"):
+                        keys = [k for k, v in SECTION_PROPERTIES.items() if v.get("type") == "CHS"]
+                        keys.sort(key=lambda k: SECTION_PROPERTIES[k].get("A", 0.0))
+                        try:
+                            current_idx = keys.index(steel_section)
+                            next_section = keys[current_idx + 1] if current_idx + 1 < len(keys) else steel_section
+                        except ValueError:
+                            next_section = steel_section
+                            
+                        st.success("Recommendation: Oversize to **%s**" % next_section)
+                        steel_section = next_section
+
+                coords_to_draw = dr_result["coordinates"]
+                st.session_state["newton_results"] = {
+                    "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
+                    "steel_section": steel_section, "beam_axial_kN": max_reaction_kN, "beam_moment_kNm": (max_reaction_kN * data["span"]) / 8.0,
+                    "cables": cables, "material": mat, "final_pretension": final_pretension,
+                    "interaction_util": interaction_util, "buckling_util": buckling_util,
+                }
 
     newton_data = st.session_state.get("newton_results")
     if newton_data and not btn_newton:
