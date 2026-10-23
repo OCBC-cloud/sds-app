@@ -491,7 +491,7 @@ def render_tester_multi_cone():
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=loads,
-                    max_iter=100, max_outer=25, tol=1.5, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=20.0, seed_z_amplitude=0.001 * data["span"],
+                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=20.0, seed_z_amplitude=0.001 * data["span"],
                 )
                 
                 if res["converged"]:
