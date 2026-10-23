@@ -6,12 +6,9 @@ moment due to the eave height, and sizes:
 - Anchor bolt diameter, count, and embedment (J-Bolts)
 - Concrete stump dimensions
 - Concrete pad footing (resisting uplift, bearing, and overturning)
-- Fin plate thickness and weld size
+- Fin plate (corner plate) for cable connections, checked at ultimate.
 
-The baseplate is designed as a real moment-resisting baseplate:
-- The bolts are placed at the edges to maximize the lever arm.
-- The plate gets wider under moment (to resist concrete bearing).
-- The plate thickness is driven by the cantilever from the bolt to the column.
+All calculations are to ultimate limit state (ULS).
 """
 
 import math
@@ -25,7 +22,6 @@ def _lookup_column_diameter(column_section):
     props = SECTION_PROPERTIES.get(column_section, {})
     if "d" in props:
         return float(props["d"])
-    # Fallback for unknown section
     return 200.0
 
 
@@ -33,47 +29,39 @@ def design_baseplate_and_foundation(reaction_N, column_section, eave_height_m=0.
                                      steel_fy_MPa=355, concrete_fc_MPa=25,
                                      bolt_grade=8.8):
     """
-    Designs baseplate, J-bolts, concrete stump, and pad footing.
+    Designs baseplate, J-bolts, concrete stump, and pad footing to ULS.
     reaction_N: [Rx, Ry, Rz] in Newtons. Positive Rz is uplift.
-    column_section: the CHS section string (e.g., "CHS 273.0x10.0")
-    eave_height_m: the lever arm from the eave anchor to the ground.
     """
     Rx, Ry, Rz = reaction_N
     d_col_mm = _lookup_column_diameter(column_section)
 
-    # Overturning moment from the eave lever arm
     Mx_Nm = Ry * eave_height_m
     My_Nm = Rx * eave_height_m
     M_total_Nmm = math.sqrt(Mx_Nm**2 + My_Nm**2) * 1000.0
     shear_N = math.sqrt(Rx**2 + Ry**2)
 
-    # Bolt material properties
-    fy_bolt_MPa = 800.0 * (bolt_grade / 8.8)  # Grade 8.8 = 800 MPa ultimate
-    allowable_tension_MPa = 0.6 * fy_bolt_MPa
-    allowable_shear_MPa = 0.4 * fy_bolt_MPa
+    # Grade 8.8 ultimate strength
+    fu_bolt_MPa = 800.0
+    # ULS design stress (0.6 is a common reduction for combined tension-shear)
+    allowable_tension_MPa = 0.6 * fu_bolt_MPa
+    allowable_shear_MPa = 0.4 * fu_bolt_MPa
     num_bolts = 4
 
-    # ---------------- Step 1: Plate width from bolt layout ----------------
-    # Start with a plate that gives edge distance of 1.5 * bolt_d
-    # We iterate because the bolt diameter depends on the moment, which depends on B.
     B_mm = max(d_col_mm + 100.0, 200.0)
-    N_mm = B_mm  # square plate for simplicity
+    N_mm = B_mm
 
     bolt_d_mm = 16.0
     bolt_edge_mm = 1.5 * bolt_d_mm
 
     for _iteration in range(20):
-        # Total bolt tension from the moment
-        z_mm = B_mm - bolt_edge_mm  # lever arm from tension bolt to compression toe
+        z_mm = B_mm - bolt_edge_mm
         T_bolts_N = (M_total_Nmm / z_mm) - (Rz / 2.0)
         T_bolts_N = max(0.0, T_bolts_N)
 
-        # Required bolt area
         req_area_tension = (T_bolts_N / num_bolts) / allowable_tension_MPa
         req_area_shear = (shear_N / num_bolts) / allowable_shear_MPa
-        req_area_mm2 = max(req_area_tension, req_area_shear, 84.3)  # M12 minimum
+        req_area_mm2 = max(req_area_tension, req_area_shear, 84.3)
 
-        # Choose bolt size
         bolt_sizes = [
             (12, 84.3, 250), (16, 157.0, 350), (20, 245.0, 450),
             (24, 353.0, 550), (30, 561.0, 700), (36, 817.0, 850),
@@ -84,8 +72,6 @@ def design_baseplate_and_foundation(reaction_N, column_section, eave_height_m=0.
                 new_bolt_d, bolt_A, bolt_embed = d, A, embed
                 break
 
-        # Check if the plate needs to grow for concrete bearing
-        # Peak pressure = axial/B^2 + 6M/B^3 (at the compression edge)
         allowable_bearing_MPa = 0.6 * concrete_fc_MPa
         B_m = B_mm / 1000.0
         N_m = N_mm / 1000.0
@@ -103,15 +89,11 @@ def design_baseplate_and_foundation(reaction_N, column_section, eave_height_m=0.
         bolt_d_mm = new_bolt_d
         bolt_edge_mm = 1.5 * bolt_d_mm
 
-    # ---------------- Step 2: Final bolt tension ----------------
     z_mm = B_mm - bolt_edge_mm
     T_bolts_N = max(0.0, (M_total_Nmm / z_mm) - (Rz / 2.0))
 
-    # ---------------- Step 3: Plate thickness ----------------
-    # Cantilever from bolt line to column face
     c_mm = max((B_mm - d_col_mm) / 2.0 - bolt_edge_mm, 10.0)
     moment_per_bolt_Nmm = (T_bolts_N / num_bolts) * c_mm
-    # Plus shear moment
     moment_per_bolt_Nmm += (shear_N / (2 * num_bolts)) * c_mm
 
     if moment_per_bolt_Nmm < 1.0:
@@ -120,7 +102,6 @@ def design_baseplate_and_foundation(reaction_N, column_section, eave_height_m=0.
         plate_thickness_mm = math.sqrt(6.0 * moment_per_bolt_Nmm / steel_fy_MPa)
         plate_thickness_mm = max(12.0, math.ceil(plate_thickness_mm / 2.0) * 2.0)
 
-    # ---------------- Step 4: Bolt embedment (pull-out) ----------------
     bond_stress_MPa = 1.5
     if T_bolts_N > 0:
         cone_capacity_N = math.pi * bolt_d_mm * bolt_embed * bond_stress_MPa
@@ -129,10 +110,8 @@ def design_baseplate_and_foundation(reaction_N, column_section, eave_height_m=0.
             bolt_embed = math.ceil(bolt_embed / 50.0) * 50
     bolt_embed = max(bolt_embed, 250)
 
-    # ---------------- Step 5: Concrete stump ----------------
     stump_side_mm = max(B_mm + 100.0, 300.0)
 
-    # ---------------- Step 6: Pad footing ----------------
     footing_thickness_m = 0.3
     soil_depth_m = 0.5
     rho_concrete = 2400
@@ -147,7 +126,6 @@ def design_baseplate_and_foundation(reaction_N, column_section, eave_height_m=0.
     weight_per_m2 = (footing_thickness_m * rho_concrete * g) + (soil_depth_m * rho_soil * g)
     pad_area_m2 = pad_req_N / weight_per_m2 if weight_per_m2 > 0 else 0.0
 
-    # Overturning check
     if M_total_Nmm > 0:
         pad_width_overturn = math.sqrt(6.0 * M_total_Nmm / (weight_per_m2 * 1e9)) if weight_per_m2 > 0 else 0.0
         pad_side_m = max(math.sqrt(pad_area_m2), pad_width_overturn, 1.5 * stump_side_m)
@@ -173,21 +151,79 @@ def design_baseplate_and_foundation(reaction_N, column_section, eave_height_m=0.
     }
 
 
-def design_fin_plate(cable_tension_N, cable_diameter_mm, steel_fy_MPa=355):
-    """Designs the fin plate and weld to connect a cable to the ring."""
-    weld_strength_MPa = 100.0
-    plate_thickness_mm = 10.0
-    weld_length = 2 * plate_thickness_mm
+def design_corner_plate(cable_tension_N, cable_diameter_mm, steel_fy_MPa=355):
+    """
+    Designs the corner fin plate (gusset) that transfers the cable tension
+    to the ring beam, checked at ULS for:
+    - Weld capacity (fillet weld)
+    - Bearing on the pin hole
+    - Tear-out of the pin hole
+    - Net-section rupture of the plate
+    - Pin shear
+    
+    Returns a dict with the plate thickness, weld size, pin diameter, and
+    utilization ratios.
+    """
+    # Ultimate strengths
+    fu_steel_MPa = 1.2 * steel_fy_MPa   # ULS rupture
+    fu_weld_MPa = 480.0                  # E70 electrode ULS
+    fu_pin_MPa = 800.0                   # Grade 8.8 pin
 
-    weld_size_mm = cable_tension_N / (0.707 * weld_length * weld_strength_MPa)
+    # Design factor for the whole connection
+    design_factor = 1.0  # ULS already factored in the cable tension
+    
+    T_design_N = cable_tension_N * design_factor
+
+    # ---------------- Weld ----------------
+    # Two-sided fillet weld along the full plate length
+    plate_length_mm = max(100.0, 4.0 * cable_diameter_mm)
+    weld_throat_factor = 0.707
+    # Weld size from ULS shear capacity on the throat
+    weld_area_mm2 = 2 * weld_throat_factor * plate_length_mm  # per mm of weld size
+    weld_size_mm = T_design_N / (weld_area_mm2 * fu_weld_MPa)
     weld_size_mm = max(5.0, math.ceil(weld_size_mm))
 
-    plate_thickness_mm = cable_tension_N / (2 * cable_diameter_mm * steel_fy_MPa)
-    plate_thickness_mm = max(10.0, math.ceil(plate_thickness_mm / 2.0) * 2.0)
+    # ---------------- Pin bearing ----------------
+    plate_thickness_bearing = T_design_N / (cable_diameter_mm * fu_steel_MPa)
+
+    # ---------------- Tear-out ----------------
+    edge_distance_mm = max(2.0 * cable_diameter_mm, 40.0)
+    tearout_capacity_N = 2 * plate_thickness_bearing * edge_distance_mm * fu_steel_MPa / 2.0
+    plate_thickness_tearout = T_design_N / (2 * edge_distance_mm * fu_steel_MPa)
+
+    # ---------------- Net section rupture ----------------
+    plate_width_mm = max(80.0, 3.0 * cable_diameter_mm)
+    net_width_mm = plate_width_mm - cable_diameter_mm
+    plate_thickness_net = T_design_N / (net_width_mm * fu_steel_MPa)
+
+    # ---------------- Pin shear ----------------
+    pin_area_req_mm2 = T_design_N / (fu_pin_MPa * 0.6)  # 0.6 is the ULS shear factor
+    # Choose pin diameter from required area
+    pin_d_mm = math.sqrt(4.0 * pin_area_req_mm2 / math.pi)
+    pin_d_mm = max(cable_diameter_mm, math.ceil(pin_d_mm))
+
+    # ---------------- Final plate thickness ----------------
+    plate_thickness_mm = max(
+        plate_thickness_bearing,
+        plate_thickness_tearout,
+        plate_thickness_net,
+        10.0
+    )
+    plate_thickness_mm = math.ceil(plate_thickness_mm)
+
+    # ---------------- Utilizations ----------------
+    weld_util = T_design_N / (weld_area_mm2 * weld_size_mm * fu_weld_MPa)
+    pin_shear_capacity_N = math.pi * (pin_d_mm / 2.0)**2 * fu_pin_MPa * 0.6
+    pin_util = T_design_N / pin_shear_capacity_N
 
     return {
-        "fin_plate_thickness_mm": int(plate_thickness_mm),
+        "plate_thickness_mm": int(plate_thickness_mm),
+        "plate_length_mm": int(plate_length_mm),
+        "plate_width_mm": int(plate_width_mm),
         "weld_size_mm": int(weld_size_mm),
-        "weld_length_mm": int(weld_length),
-        "cable_diameter_mm": int(cable_diameter_mm),
+        "weld_length_mm": int(plate_length_mm),
+        "pin_diameter_mm": int(pin_d_mm),
+        "edge_distance_mm": int(edge_distance_mm),
+        "weld_utilization": float(weld_util),
+        "pin_utilization": float(pin_util),
     }
