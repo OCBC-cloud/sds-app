@@ -2,7 +2,7 @@
 
 Two-stage workflow:
     Stage 1: FDM finds the shape.
-    Stage 2: Automated pretension search + Newton solve.
+    Stage 2: Structural Calculation (Fixed Pretension + Wind Load Check)
 """
 
 import math
@@ -26,9 +26,9 @@ from engine.load_generator import (
 )
 from engine.connection_design import (
     design_baseplate_and_foundation,
-    design_corner_plate,   # <--- CHANGED from design_fin_plate
+    design_corner_plate,
 )
-from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
+from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS, FABRIC_PROPERTIES
 from data.sections import SECTION_PROPERTIES
 from viewers.figures._shared import (
     apply_common_layout,
@@ -46,7 +46,6 @@ COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
 
-PRETENSION_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0]
 UTILIZATION_WARN_THRESHOLD = 0.60
 
 
@@ -82,21 +81,69 @@ def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
     return ("Fallback 10mm strand", 63.0, 160000, 10e9)
 
 
-def _select_steel_section(max_axial_kN, max_moment_kNm, family="CHS", grade="S355"):
-    """Pick the smallest section in the family."""
+def _section_radius_of_gyration(section_name):
+    """Return radius of gyration (mm). Tries r, then sqrt(I/A), then 0.35*d for CHS."""
+    props = SECTION_PROPERTIES.get(section_name, {})
+    if "r" in props and props["r"]:
+        return float(props["r"])
+    if "I" in props and props.get("I") and props.get("A"):
+        try:
+            return math.sqrt(float(props["I"]) / float(props["A"]))
+        except Exception:
+            pass
+    if "d" in props and props["d"]:
+        # Conservative approximation for a CHS: r ~ 0.35 * d
+        return 0.35 * float(props["d"])
+    return None
+
+
+def _steel_capacity_ratios(section_name, max_axial_kN, max_moment_kNm,
+                           member_length_m, E_MPa=210000, grade="S355"):
+    """Single source of truth for steel utilization.
+
+    Returns (interaction_util, buckling_util).
+    """
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
+    props = SECTION_PROPERTIES.get(section_name, {})
+    A_mm2 = props.get("A", 1.0)
+    W_el_mm3 = props.get("W_el", 1.0)
+
+    N_Ed = max_axial_kN * 1000.0
+    M_Ed = max_moment_kNm * 1e6
+
+    N_cap = A_mm2 * fy_MPa
+    M_cap = W_el_mm3 * fy_MPa
+    interaction_util = (N_Ed / N_cap) + (M_Ed / M_cap)
+
+    # --- Euler buckling, L_eff = L ---
+    r_mm = _section_radius_of_gyration(section_name)
+    if r_mm is None or r_mm <= 0.0 or A_mm2 <= 0.0:
+        buckling_util = 1.0e9
+    else:
+        L_eff_mm = float(member_length_m) * 1000.0
+        I_mm4 = A_mm2 * (r_mm ** 2)
+        N_cr_N = (math.pi ** 2) * E_MPa * I_mm4 / (L_eff_mm ** 2)
+        if N_Ed <= 0.0:
+            buckling_util = 0.0
+        else:
+            buckling_util = N_Ed / N_cr_N if N_cr_N > 0.0 else 1.0e9
+
+    return interaction_util, buckling_util
+
+
+def _select_steel_section(max_axial_kN, max_moment_kNm, member_length_m,
+                          family="CHS", grade="S355"):
+    """Pick the smallest section in the family that satisfies
+    yield interaction (<=1.0) and Euler buckling (<=1.0), with L_eff = L.
+    """
     best = None
     for name, props in SECTION_PROPERTIES.items():
         if props.get("type") != family:
             continue
-        A_mm2 = props.get("A", 1.0)
-        W_el_mm3 = props.get("W_el", 1.0)
-        N_Ed = max_axial_kN * 1000.0
-        M_Ed = max_moment_kNm * 1e6
-        N_cap = A_mm2 * fy_MPa
-        M_cap = W_el_mm3 * fy_MPa
-        util = (N_Ed / N_cap) + (M_Ed / M_cap)
-        if util <= 0.9 and best is None:
+        interaction_util, buckling_util = _steel_capacity_ratios(
+            name, max_axial_kN, max_moment_kNm, member_length_m, grade=grade
+        )
+        if interaction_util <= 1.0 and buckling_util <= 1.0 and best is None:
             best = name
     return best if best else "Oversize required"
 
@@ -206,7 +253,9 @@ def _cone_arc_positions(n_cones, spacing, total):
 # Member schedule
 # =============================================================================
 
-def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_scalar, warp_q, weft_q, cable_name, cable_A_mm2, steel_section, eave_height, span, mid_width):
+def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_scalar,
+                           warp_q, weft_q, cable_name, cable_A_mm2, steel_section,
+                           eave_height, span, mid_width):
     members = []
     ring_indices = built["ring_indices"]
     centre_indices = built["centre_indices"]
@@ -235,7 +284,7 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
             b = int(idx_list[(i + 1) % n_poly])
             ring_length += float(np.linalg.norm(coords[b] - coords[a]))
         members.append({"member_id": "Ring_%d_Ring_Beam" % ring_no, "member_type": "ring_beam", "length_m": float(ring_length), "section": steel_section, "material": "S355", "role": "closed ring beam, one per cone"})
-        
+
         centre_i = int(centre_indices[k])
         beam_i = int(beam_top_indices[k])
         L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
@@ -282,7 +331,7 @@ def render_tester_multi_cone():
             st.session_state.page = "landing"
             st.rerun()
 
-    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>Step 1: Find Form (FDM). Step 2: Automated Structural Solve.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>Step 1: Find Form (FDM). Step 2: Structural Calculation.</p>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -318,16 +367,25 @@ def render_tester_multi_cone():
 
     ring_clearance = st.number_input("Ring clearance below beam (m)", 0.1, 5.0, 1.0, 0.1, key="mc_clr")
 
+    # Fabric Selection
+    fabric_options = list(FABRIC_PROPERTIES.get("PVDF", {}).keys())
+    fabric_options = [f for f in fabric_options if f != "default"]
+    selected_fabric = st.selectbox("Membrane Fabric (PVDF)", fabric_options, index=fabric_options.index("Ferrari 702") if "Ferrari 702" in fabric_options else 0, key="mc_fabric")
+    fabric_props = FABRIC_PROPERTIES["PVDF"][selected_fabric]
+    sf = fabric_props.get("safety_factor", 4.0)
+    if sf is None: sf = 4.0
+    allowable_stress_kN_m = fabric_props["f_u_warp"] / sf if fabric_props["f_u_warp"] else 10.0
+
     c1, c2 = st.columns(2)
     with c1:
-        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp")
+        warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, float(fabric_props.get("prestress_default_kN_per_m", 1.0)), 0.1, key="mc_warp")
     with c2:
-        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft")
+        weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, float(fabric_props.get("prestress_default_kN_per_m", 1.0)), 0.1, key="mc_weft")
 
     edge_q_input = st.number_input("Edge cable pretension (kN/m)", 0.1, 500.0, 5.0, 0.1, key="mc_edgeq")
 
     st.markdown("### Environmental Loads & Design Philosophy")
-    
+
     c1, c2 = st.columns(2)
     with c1:
         code_choice = st.selectbox("Building Code", list(CODE_PARAMS.keys()), index=0, key="mc_code")
@@ -339,7 +397,7 @@ def render_tester_multi_cone():
         wind_speed = st.number_input("Wind Speed (m/s)", 0.0, 80.0, 33.5, 1.0, key="mc_wind_speed")
     with c2:
         snow_depth = st.number_input("Snow Depth (m)", 0.0, 2.0, 0.0, 0.1, key="mc_snow_depth")
-    
+
     payload_kg = st.number_input("Payload at apex (kg)", 0.0, 1000.0, 0.0, 10.0, key="mc_payload")
 
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
@@ -429,7 +487,7 @@ def render_tester_multi_cone():
     dr_result = None
 
     if btn_newton:
-        with st.spinner("Running Automated Structural Calculation..."):
+        with st.spinner("Running Structural Calculation..."):
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
 
             cables = []
@@ -455,54 +513,74 @@ def render_tester_multi_cone():
                     L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
                     if L_ref < 1e-9:
                         continue
-                    cables.append({"a": ia, "b": ib, "L0": L_ref * 1.001, "EA": EA_cable})
+                    # Cable is slightly shorter than the reference shape so it starts taut.
+                    cables.append({"a": ia, "b": ib, "L0": L_ref * 0.999, "EA": EA_cable})
 
             apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
-            
+
             if design_philosophy == "Ultimate Limit State (Factored)":
                 loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["uplift"]
                 st.info("Running ULS Uplift Case. Check Diagnostics for Foundation Uplift design.")
             else:
                 loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["service"]
 
-            dr_result = None
-            final_pretension = None
-            
-            for p_factor in PRETENSION_STEPS:
-                cur_warp = p_factor * 1000.0
-                cur_weft = p_factor * 1000.0
-                cur_cable = p_factor * 5.0 * 1000.0
-                
-                mat = make_membrane_material(
-                    E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, nu=0.34, G_MPa=50.0,
-                    warp_prestress_N_per_m=cur_warp, weft_prestress_N_per_m=cur_weft,
-                )
-                
-                res = solve_nonlinear_equilibrium(
-                    points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
-                    membrane_material=mat, cables=cables, loads=loads,
-                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=15.0, seed_z_amplitude=0.001 * data["span"],
-                )
-                
-                if res["converged"]:
-                    dr_result = res
-                    final_pretension = p_factor
-                    break
+            # Run the solver ONCE at the user's chosen pretension. 
+            # Do NOT artificially inflate the pretension to fight the wind.
+            cur_warp = data["warp_q"]
+            cur_weft = data["weft_q"]
+
+            mat = make_membrane_material(
+                E_warp_MPa=fabric_props.get("E_warp", 1400.0), E_weft_MPa=fabric_props.get("E_weft", 1400.0), 
+                thickness_mm=fabric_props.get("t_mm", 1.02), nu=0.34, G_MPa=50.0,
+                warp_prestress_N_per_m=cur_warp, weft_prestress_N_per_m=cur_weft,
+            )
+
+            res = solve_nonlinear_equilibrium(
+                points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=data["pts"].copy(),
+                membrane_material=mat, cables=cables, loads=loads,
+                max_iter=150, max_outer=50, tol=0.01, tol_disp=1e-5, max_total_steps=500, max_wall_seconds=20.0, seed_z_amplitude=0.001 * data["span"],
+            )
+
+            if res["converged"]:
+                dr_result = res
+            else:
+                dr_result = None
 
             if dr_result is None:
-                st.error("This geometry requires a membrane pretension above %.1f kN/m to hold its shape under %.1f m/s wind. That is outside the practical range for PVDF fabric (typical limit: 4-6 kN/m). Consider increasing the apex height, adding more cones, or reducing the span." % (PRETENSION_STEPS[-1], wind_speed))
+                st.error("The solver could not converge under the wind load at the current geometry. The wind is too strong for this shape. You MUST increase the apex height, add more cones, or add more ribs to reduce the unsupported span.")
+                
+                if st.button("Auto-increase ribs and try again", key="auto_fix_ribs"):
+                    st.session_state["pending_rib_increase"] = True
+                
+                # Check if we need to apply the pending increase
+                if st.session_state.get("pending_rib_increase", False):
+                    st.session_state["mc_nribs"] = secondary_count + 2
+                    st.session_state["pending_rib_increase"] = False
+                    st.rerun()
                 return
 
-            if final_pretension > 1.0:
-                st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
+            # --- CHECK TOTAL MEMBRANE TENSION ---
+            # Extract max membrane stress from solver (if available) or estimate.
+            # For now, we use the solver's stress output if it exists, else we check cable tension.
+            if "max_membrane_stress_kN_m" in dr_result:
+                total_membrane_tension = dr_result["max_membrane_stress_kN_m"]
+            else:
+                # Fallback estimate: initial pretension + estimated wind tension from cable reaction
+                total_membrane_tension = max(data["warp_q"], data["weft_q"]) / 1000.0 + (max_actual_T / 1000.0) * 0.5
+            
+            if total_membrane_tension > allowable_stress_kN_m:
+                st.error("FABRIC FAILURE: The total tension under wind is %.1f kN/m, which exceeds the safe limit of %.1f kN/m for %s. You MUST add more ribs or cones to reduce the load on the fabric." % (total_membrane_tension, allowable_stress_kN_m, selected_fabric))
+                return
+            else:
+                st.success("Fabric is safe. Total tension: %.1f kN/m (Limit: %.1f kN/m)." % (total_membrane_tension, allowable_stress_kN_m))
 
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
             else:
                 max_actual_T = data["fdm"]["max_edge_tension_N"]
-                
+
             max_actual_T = max(max_actual_T, data["fdm"]["max_edge_tension_N"])
-            
+
             if len(data["anchor_idx"]) > 0:
                 total_perimeter = 0.0
                 n_anchors = len(data["anchor_idx"])
@@ -513,41 +591,71 @@ def render_tester_multi_cone():
                     total_perimeter += L_segment
             else:
                 total_perimeter = data["span"] * 4.0
-                
+
             baseline_tension_N = data["edge_q_scalar"] * total_perimeter
             design_tension_N = max(max_actual_T, baseline_tension_N)
-            
+
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(design_tension_N, safety_factor=2.0)
 
             if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
                 max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)/1000.0 for r in dr_result["reactions"]])
             else:
                 max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
-                
-            steel_section = _select_steel_section(max_reaction_kN, (max_reaction_kN * data["span"]) / 8.0, family="CHS", grade="S355")
 
-            fy_MPa = STEEL_MATERIALS.get("Steel", {}).get("S355", {}).get("fy", 355)
-            props = SECTION_PROPERTIES.get(steel_section, {})
-            A_mm2 = props.get("A", 1.0)
-            W_el_mm3 = props.get("W_el", 1.0)
-            N_Ed = max_reaction_kN * 1000.0
-            M_Ed = (max_reaction_kN * data["span"] / 8.0) * 1e6
-            N_cap = A_mm2 * fy_MPa
-            M_cap = W_el_mm3 * fy_MPa
-            util = (N_Ed / N_cap) + (M_Ed / M_cap)
+            governing_member_length_m = data["span"] * 1.2
+            steel_section = _select_steel_section(
+                max_reaction_kN,
+                (max_reaction_kN * data["span"]) / 8.0,
+                governing_member_length_m,
+                family="CHS", grade="S355",
+            )
+
+            interaction_util, buckling_util = _steel_capacity_ratios(
+                steel_section, max_reaction_kN, (max_reaction_kN * data["span"]) / 8.0,
+                governing_member_length_m,
+            )
+            util = max(interaction_util, buckling_util)
 
             if util > UTILIZATION_WARN_THRESHOLD:
                 st.warning(
-                    "Warning: Steel section utilization is at %.0f%%. "
-                    "Consider adding more ribs to reduce the unsupported membrane surface, "
-                    "or adding more cones to provide more pull holding supports." % (util * 100)
+                    "Warning: Steel section utilization is at %.0f%% "
+                    "(interaction %.0f%%, buckling %.0f%%). "
+                    "Consider adding more ribs or cones to reduce the load, "
+                    "or oversize the section below." % (
+                        util * 100.0, interaction_util * 100.0, buckling_util * 100.0
+                    )
                 )
+
+            # --- SMART AUTO-SIZE BUTTON ---
+            st.markdown("---")
+            st.write("### Member Sizing Recommendation")
+            if util > UTILIZATION_WARN_THRESHOLD:
+                st.write("The current section **%s** is at **%.0f%%** utilization." % (steel_section, util * 100.0))
+                if st.checkbox("Auto-recommend a larger steel section", key="auto_size_check"):
+                    keys = [k for k, v in SECTION_PROPERTIES.items() if v.get("type") == "CHS"]
+                    keys.sort(key=lambda k: SECTION_PROPERTIES[k].get("A", 0.0))
+                    try:
+                        current_idx = keys.index(steel_section)
+                        next_section = keys[current_idx + 1] if current_idx + 1 < len(keys) else steel_section
+                    except ValueError:
+                        next_section = steel_section
+                        
+                    st.success("Recommendation: Oversize to **%s**" % next_section)
+                    steel_section = next_section
+                    
+                    st.write("---")
+                    st.write("### Membrane Support Recommendation")
+                    if total_membrane_tension > (allowable_stress_kN_m * 0.8):
+                        st.write("The membrane is close to its limit (%.1f kN/m out of %.1f kN/m)." % (total_membrane_tension, allowable_stress_kN_m))
+                        st.info("💡 **Engineering Tip:** Consider increasing the 'Secondary count' (ribs) in the main inputs from **%d** to **%d** to reduce the unsupported span and lower the stress." % (secondary_count, secondary_count + 2))
 
             coords_to_draw = dr_result["coordinates"]
             st.session_state["newton_results"] = {
                 "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
                 "steel_section": steel_section, "beam_axial_kN": max_reaction_kN, "beam_moment_kNm": (max_reaction_kN * data["span"]) / 8.0,
-                "cables": cables, "material": mat, "final_pretension": final_pretension
+                "cables": cables, "material": mat, "final_pretension": 1.0, # Just for the session state
+                "interaction_util": interaction_util, "buckling_util": buckling_util,
+                "total_membrane_tension": total_membrane_tension,
             }
 
     newton_data = st.session_state.get("newton_results")
@@ -579,7 +687,8 @@ def render_tester_multi_cone():
         fig.add_trace(go.Scatter3d(x=[cx, bx], y=[cy, by], z=[cz, bz], mode="lines", line=dict(color=COL_DROP, width=4), name="drop", showlegend=False, hoverinfo="skip"))
 
     apply_common_layout(fig, data["apex"])
-    st.plotly_chart(fig, use_container_width=True, key="mc_3d")
+    chart_key = "mc_3d_%s_%s" % (number_of_cones, newton_data.get("steel_section", "none") if newton_data else "none")
+    st.plotly_chart(fig, use_container_width=True, key=chart_key)
 
     with st.expander("Diagnostics", expanded=True):
         st.write("Number of cones: %d" % number_of_cones)
@@ -602,14 +711,21 @@ def render_tester_multi_cone():
             st.write("---")
             st.write("**Stage 2 — Newton:**")
             st.write("Newton converged: %s" % nd["converged"])
-            st.write("Pretension factor used: %.1f (Warp/Weft %.1f kN/m, Cable %.1f kN/m)" % (newton_data.get("final_pretension", 1.0), newton_data.get("final_pretension", 1.0)*1.0, newton_data.get("final_pretension", 1.0)*5.0))
+            st.write("Pretension used: %.1f kN/m (Fixed input)" % (warp_q_input))
+            st.write("Total Membrane Tension: %.1f kN/m (Limit: %.1f kN/m)" % (newton_data["total_membrane_tension"], allowable_stress_kN_m))
             st.write("Newton iterations: %d" % nd["iterations"])
             st.write("Newton total steps: %d" % nd.get("total_steps", 0))
             st.write("Newton residual (N): %.6e" % nd["residual_norm"])
             st.write("Newton max residual (N): %.6e" % nd.get("max_residual", nd["residual_norm"]))
             st.write("Newton time (s): %.2f" % nd["elapsed_seconds"])
             st.write("Newton reason: %s" % nd.get("reason", ""))
-            
+
+            st.write("---")
+            st.write("**Steel section check (L_eff = L, conservative):**")
+            st.write("Section: **%s**" % newton_data["steel_section"])
+            st.write("Interaction utilization: %.1f%%" % (newton_data.get("interaction_util", 0.0) * 100.0))
+            st.write("Buckling utilization (Euler): %.1f%%" % (newton_data.get("buckling_util", 0.0) * 100.0))
+
             st.write("---")
             st.write("**Reaction Forces & Foundation Design:**")
             R = nd.get("reactions", None)
@@ -617,9 +733,45 @@ def render_tester_multi_cone():
                 fixed_indices = data["fixed"]
                 if len(fixed_indices) > 0:
                     anchor_idx = data["anchor_idx"]
+
+                    # --- Match cable tensions to anchors for corner plate design ---
+                    anchor_cable_tension_N = {}
+                    cable_tensions = nd.get("cable_tension_list", [])
+                    if cable_tensions:
+                        per_anchor = [[] for _ in range(len(anchor_idx))]
+                        n_a = len(anchor_idx)
+                        pts_all = data["pts"]
+                        cable_i = 0
+                        for k in range(n_a):
+                            a_idx = anchor_idx[k]
+                            b_idx = anchor_idx[(k + 1) % n_a]
+                            chain = [int(a_idx)]
+                            i_cur = (a_idx + 1) % pts_all.shape[0]
+                            b_int = int(b_idx)
+                            safety = 0
+                            while i_cur != b_int and safety < pts_all.shape[0]:
+                                chain.append(int(i_cur))
+                                i_cur = (i_cur + 1) % pts_all.shape[0]
+                                safety += 1
+                            chain.append(int(b_int))
+                            n_segments = len(chain) - 1
+                            for m in range(n_segments):
+                                if cable_i < len(cable_tensions):
+                                    per_anchor[k].append(cable_tensions[cable_i]["T_N"])
+                                cable_i += 1
+                        for k in range(n_a):
+                            if per_anchor[k]:
+                                anchor_cable_tension_N[anchor_idx[k]] = max(per_anchor[k])
+                            else:
+                                anchor_cable_tension_N[anchor_idx[k]] = 0.0
+                    else:
+                        for idx in anchor_idx:
+                            anchor_cable_tension_N[idx] = 0.0
+
+                    # --- Baseplate Table ---
                     st.write("**Baseplate Table (All Anchor Nodes):**")
                     st.code(
-                        "%-6s  %-8s  %-8s  %-10s  %-10s  %-10s  %-12s  %-10s  %-10s  %-12s" 
+                        "%-6s  %-8s  %-8s  %-10s  %-10s  %-10s  %-12s  %-10s  %-10s  %-12s"
                         % ("Node", "X(m)", "Y(m)", "Fx(kN)", "Fy(kN)", "Fz(kN)", "Moment(kNm)", "Plate(mm)", "Bolts", "Pad(mm)"),
                         language="text"
                     )
@@ -629,7 +781,7 @@ def render_tester_multi_cone():
                         st.code(
                             "%-6d  %-8.2f  %-8.2f  %-10.1f  %-10.1f  %-10.1f  %-12.1f  %-10s  %-10s  %-12s"
                             % (
-                                idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], 
+                                idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1],
                                 r[0]/1000.0, r[1]/1000.0, r[2]/1000.0, design["overturning_moment_kNm"],
                                 "%dx%d" % (design["plate_side_mm"], design["plate_side_mm"]),
                                 "%dxM%d" % (design["bolt_count"], design["bolt_diameter_mm"]),
@@ -637,23 +789,68 @@ def render_tester_multi_cone():
                             ),
                             language="text"
                         )
-                    
+
+                    # --- Corner Plate Table ---
+                    st.write("---")
+                    st.write("**Corner Plate Table (Cable-to-Ring Connections):**")
+                    st.code(
+                        "%-6s  %-12s  %-12s  %-10s  %-10s  %-10s  %-12s  %-10s  %-10s"
+                        % ("Node", "Cable T(kN)", "Cable d(mm)", "Plate(mm)", "Width(mm)", "Weld(mm)", "Pin(mm)", "Weld util", "Pin util"),
+                        language="text"
+                    )
+                    any_corner_warn = False
+                    for idx in anchor_idx:
+                        # Use the maximum of the baseline or the solver's reported max tension.
+                        max_solver_T = max([c["T_N"] for c in cable_tensions]) if cable_tensions else 0.0
+                        T_N = max(anchor_cable_tension_N.get(idx, 0.0), max_solver_T, data["fdm"]["max_edge_tension_N"])
+                        
+                        # Cable diameter estimate from selected cable area
+                        A_mm2 = newton_data["cable_A_mm2"]
+                        cable_d_mm = max(6.0, math.sqrt(4.0 * A_mm2 / math.pi))
+                        corner = design_corner_plate(T_N, cable_d_mm)
+                        weld_util = corner["weld_utilization"]
+                        pin_util = corner["pin_utilization"]
+                        if weld_util > 1.0 or pin_util > 1.0:
+                            any_corner_warn = True
+                        st.code(
+                            "%-6d  %-12.1f  %-12.1f  %-10d  %-10d  %-10d  %-12d  %-10.2f  %-10.2f"
+                            % (
+                                idx, T_N / 1000.0, cable_d_mm,
+                                corner["plate_thickness_mm"], corner["plate_width_mm"],
+                                corner["weld_size_mm"], corner["pin_diameter_mm"],
+                                weld_util, pin_util,
+                            ),
+                            language="text"
+                        )
+                    if any_corner_warn:
+                        st.warning(
+                            "One or more corner plates exceed 100% utilization. "
+                            "Increase plate thickness, weld size, or pin diameter, or reduce cable tension."
+                        )
+
+                    # --- Cone Drop Table ---
                     st.write("---")
                     st.write("**Cone Drop Table:**")
                     st.code(
-                        "%-8s  %-10s  %-10s  %-10s  %-10s" % ("Cone", "X(m)", "Y(m)", "Fz(kN)", "Drop(mm)"),
+                        "%-8s  %-10s  %-10s  %-10s" % ("Cone", "X(m)", "Y(m)", "Fz(kN)"),
                         language="text"
                     )
+                    any_zero_drop = False
                     for k in range(len(data["built"]["centre_indices"])):
                         ci = data["built"]["centre_indices"][k]
                         bi = data["built"]["beam_top_indices"][k]
                         r_drop = R[bi]
+                        if abs(r_drop[2]) < 0.5:
+                            any_zero_drop = True
                         st.code(
-                            "%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s"
-                            % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, newton_data["steel_section"]),
+                            "%-8d  %-10.2f  %-10.2f  %-10.1f"
+                            % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0),
                             language="text"
                         )
+                    if any_zero_drop:
+                        st.info("Note: Some cone drop members are carrying minimal vertical load. Ensure the drop connections are designed for compression and local buckling, as the primary beam is holding the uplift.")
 
+                    # --- Deflection Check ---
                     st.write("---")
                     st.write("**Deflection Check:**")
                     max_deflection_mm = 0.0
