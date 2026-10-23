@@ -26,7 +26,7 @@ from engine.load_generator import (
 )
 from engine.connection_design import (
     design_baseplate_and_foundation,
-    design_fin_plate,
+    design_corner_plate,   # <--- CHANGED from design_fin_plate
 )
 from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
@@ -214,17 +214,15 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
     triangles = built["triangles"]
     n_perimeter = built["n_perimeter"]
 
-    primary_beam_length = span * 1.2 # heuristic
+    primary_beam_length = span * 1.2
     members.append({"member_id": "Primary_Beam_Main", "member_type": "primary_beam", "length_m": float(primary_beam_length), "section": steel_section, "material": "S355", "role": "Main arched beam from ground to ground"})
 
-    num_ribs = len(built.get("rib_indices", []))
-    rib_length = mid_width * 1.5 # heuristic
+    rib_length = mid_width * 1.5
     for i in range(3):
         members.append({"member_id": "Rib_Beam_%d" % (i+1), "member_type": "rib_beam", "length_m": float(rib_length), "section": steel_section, "material": "S355", "role": "Secondary arched beam from primary beam to ground"})
 
-    num_eave_anchors = len(anchor_idx)
     stub_length = eave_height
-    for i in range(num_eave_anchors):
+    for i in range(len(anchor_idx)):
         members.append({"member_id": "Stub_Col_%d" % (i+1), "member_type": "stub_column", "length_m": float(stub_length), "section": steel_section, "material": "S355", "role": "Vertical stub from eave to baseplate"})
 
     for k in range(len(ring_indices)):
@@ -286,7 +284,6 @@ def render_tester_multi_cone():
 
     st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>Step 1: Find Form (FDM). Step 2: Automated Structural Solve.</p>", unsafe_allow_html=True)
 
-    # --- Inputs ---
     c1, c2 = st.columns(2)
     with c1:
         span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5, key="mc_span")
@@ -345,7 +342,6 @@ def render_tester_multi_cone():
     
     payload_kg = st.number_input("Payload at apex (kg)", 0.0, 1000.0, 0.0, 10.0, key="mc_payload")
 
-    # --- THE TWO BUTTONS ---
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
     with col_btn1:
         btn_fdm = st.button("1. Find Form (FDM)", use_container_width=True)
@@ -469,7 +465,6 @@ def render_tester_multi_cone():
             else:
                 loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["service"]
 
-            # AUTOMATED PRETENSION SEARCH
             dr_result = None
             final_pretension = None
             
@@ -531,7 +526,6 @@ def render_tester_multi_cone():
                 
             steel_section = _select_steel_section(max_reaction_kN, (max_reaction_kN * data["span"]) / 8.0, family="CHS", grade="S355")
 
-            # Check for utilization warning (60-65%)
             fy_MPa = STEEL_MATERIALS.get("Steel", {}).get("S355", {}).get("fy", 355)
             props = SECTION_PROPERTIES.get(steel_section, {})
             A_mm2 = props.get("A", 1.0)
@@ -561,7 +555,6 @@ def render_tester_multi_cone():
         coords_to_draw = newton_data["dr_result"]["coordinates"]
         dr_result = newton_data["dr_result"]
 
-    # --- DRAW ---
     fig = go.Figure()
 
     if len(data["tris"]) > 0:
@@ -588,7 +581,6 @@ def render_tester_multi_cone():
     apply_common_layout(fig, data["apex"])
     st.plotly_chart(fig, use_container_width=True, key="mc_3d")
 
-    # --- DIAGNOSTICS ---
     with st.expander("Diagnostics", expanded=True):
         st.write("Number of cones: %d" % number_of_cones)
         st.write("Total mesh nodes: %d" % data["pts"].shape[0])
