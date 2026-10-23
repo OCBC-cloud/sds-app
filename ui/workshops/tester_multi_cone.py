@@ -662,7 +662,8 @@ def render_tester_multi_cone():
         fig.add_trace(go.Scatter3d(x=[cx, bx], y=[cy, by], z=[cz, bz], mode="lines", line=dict(color=COL_DROP, width=4), name="drop", showlegend=False, hoverinfo="skip"))
 
     apply_common_layout(fig, data["apex"])
-    st.plotly_chart(fig, use_container_width=True, key="mc_3d")
+    chart_key = "mc_3d_%s_%s" % (number_of_cones, newton_data.get("steel_section", "none") if newton_data else "none")
+    st.plotly_chart(fig, use_container_width=True, key=chart_key)
 
     with st.expander("Diagnostics", expanded=True):
         st.write("Number of cones: %d" % number_of_cones)
@@ -808,15 +809,20 @@ def render_tester_multi_cone():
                         "%-8s  %-10s  %-10s  %-10s" % ("Cone", "X(m)", "Y(m)", "Fz(kN)"),
                         language="text"
                     )
+                    any_zero_drop = False
                     for k in range(len(data["built"]["centre_indices"])):
                         ci = data["built"]["centre_indices"][k]
                         bi = data["built"]["beam_top_indices"][k]
                         r_drop = R[bi]
+                        if abs(r_drop[2]) < 0.5:
+                            any_zero_drop = True
                         st.code(
                             "%-8d  %-10.2f  %-10.2f  %-10.1f"
                             % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0),
                             language="text"
                         )
+                    if any_zero_drop:
+                        st.info("Note: Some cone drop members are carrying minimal vertical load. Ensure the drop connections are designed for compression and local buckling, as the primary beam is holding the uplift.")
 
                     # --- Deflection Check ---
                     st.write("---")
