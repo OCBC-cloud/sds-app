@@ -535,7 +535,7 @@ def render_tester_multi_cone():
             )
 
             res = solve_nonlinear_equilibrium(
-                points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
+                points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=data["pts"].copy(),
                 membrane_material=mat, cables=cables, loads=loads,
                 max_iter=150, max_outer=50, tol=0.01, tol_disp=1e-5, max_total_steps=500, max_wall_seconds=20.0, seed_z_amplitude=0.001 * data["span"],
             )
@@ -549,7 +549,12 @@ def render_tester_multi_cone():
                 st.error("The solver could not converge under the wind load at the current geometry. The wind is too strong for this shape. You MUST increase the apex height, add more cones, or add more ribs to reduce the unsupported span.")
                 
                 if st.button("Auto-increase ribs and try again", key="auto_fix_ribs"):
+                    st.session_state["pending_rib_increase"] = True
+                
+                # Check if we need to apply the pending increase
+                if st.session_state.get("pending_rib_increase", False):
                     st.session_state["mc_nribs"] = secondary_count + 2
+                    st.session_state["pending_rib_increase"] = False
                     st.rerun()
                 return
 
