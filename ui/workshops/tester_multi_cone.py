@@ -457,7 +457,7 @@ def render_tester_multi_cone():
                         continue
                     # Use the force density from FDM to calculate the true unstressed length.
                     # This prevents the solver from seeing a slack cable.
-                    cables.append({"a": ia, "b": ib, "T_pretension_N": edge_q_scalar * L_ref, "EA": EA_cable})
+                    cables.append({"a": ia, "b": ib, "T_pretension_N": data["edge_q_scalar"] * L_ref, "EA": EA_cable})
 
             apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
             
