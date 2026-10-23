@@ -408,7 +408,7 @@ def render_tester_multi_cone():
             "residual_fdm": residual_fdm, "solve_ok": solve_ok, "solve_err": solve_err,
             "warp_q": warp_q, "weft_q": weft_q, "edge_q_scalar": edge_q_scalar, "span": span, "apex": apex, "L_avg": L_avg,
             "anchor_idx": anchor_idx, "x_rings": [np.interp(s, s_p, xp) for s in s_rings], "rib_x": rib_x,
-            "rib_peak_z": rib_peak_z, "rib_half_width": rib_half_width, "xp": xp, "zp": zp,
+            "rib_peak_z": rib_peak_z, "rib_half_width": rib_half_width, "xp": xp, "zp": zp, "eave_height": eave_height,
         }
 
     data = st.session_state.get("fdm_results")
@@ -466,7 +466,6 @@ def render_tester_multi_cone():
                 max_iter=100, max_outer=25, tol=1.5, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=90.0, seed_z_amplitude=0.001 * data["span"],
             )
             
-            # --- DEFENSIVE SIZING ---
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
             else:
@@ -474,7 +473,6 @@ def render_tester_multi_cone():
                 
             max_actual_T = max(max_actual_T, data["fdm"]["max_edge_tension_N"])
             
-            # --- CHIEF'S FIX: ENFORCE MINIMUM BASELINE TENSION ---
             if len(data["anchor_idx"]) > 0:
                 total_perimeter = 0.0
                 n_anchors = len(data["anchor_idx"])
@@ -588,17 +586,15 @@ def render_tester_multi_cone():
                     st.write("**Worst-Case Baseplate & Foundation (Node %d):**" % nd_idx)
                     st.write("Reaction: Fx=%.1f, Fy=%.1f, Fz=%.1f (N)" % (worst_R[0], worst_R[1], worst_R[2]))
                     
-                    if design_philosophy == "Ultimate Limit State (Factored)":
-                        st.write("*(Note: Foundation design below is based on the current Uplift solve. A full ULS check would also verify the Gravity case: 1.2D + 1.6S)*")
-                    
-                    design = design_baseplate_and_foundation(worst_R)
+                    design = design_baseplate_and_foundation(worst_R, eave_height_m=data["eave_height"])
                     st.code(
                         "Baseplate: %d x %d x %d mm\n"
                         "Anchor Bolts: %d x M%d J-Bolts (Embed: %d mm)\n"
                         "Concrete Stump: %d x %d mm\n"
                         "Pad Footing: %d x %d x %d mm\n"
+                        "Overturning Moment: %.1f kNm\n"
                         "Concrete Grade: %s"
-                        % (design["plate_side_mm"], design["plate_side_mm"], design["plate_thickness_mm"], design["bolt_count"], design["bolt_diameter_mm"], design["bolt_embedment_mm"], design["stump_side_mm"], design["stump_side_mm"], design["pad_side_mm"], design["pad_side_mm"], design["pad_thickness_mm"], design["concrete_grade"]),
+                        % (design["plate_side_mm"], design["plate_side_mm"], design["plate_thickness_mm"], design["bolt_count"], design["bolt_diameter_mm"], design["bolt_embedment_mm"], design["stump_side_mm"], design["stump_side_mm"], design["pad_side_mm"], design["pad_side_mm"], design["pad_thickness_mm"], design["overturning_moment_kNm"], design["concrete_grade"]),
                         language="text"
                     )
                     
