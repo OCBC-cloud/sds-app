@@ -500,7 +500,7 @@ def render_tester_multi_cone():
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=loads,
-                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=15.0, seed_z_amplitude=0.001 * data["span"],
+                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=25.0, seed_z_amplitude=0.001 * data["span"],
                 )
                 
                 if res["converged"]:
@@ -655,8 +655,6 @@ def render_tester_multi_cone():
                     )
                     for idx in anchor_idx:
                         r = R[idx]
-                        # We pass 0.0 for eave_height because the arches spring from z=0.
-                        # There is no lever arm for the overturning moment.
                         design = design_baseplate_and_foundation(r, newton_data["steel_section"], 0.0)
                         st.code(
                             "%-6d  %-8.2f  %-8.2f  %-10.1f  %-10.1f  %-10.1f  %-12.1f  %-10s  %-10s  %-12s"
@@ -700,7 +698,6 @@ def render_tester_multi_cone():
                     for k in range(n_anchors):
                         idx = anchor_idx[k]
                         try:
-                            # Compute the actual vector force at this node from adjacent cable segments
                             prev_idx = anchor_idx[(k - 1) % n_anchors]
                             next_idx = anchor_idx[(k + 1) % n_anchors]
                             
@@ -713,13 +710,11 @@ def render_tester_multi_cone():
                             if L_prev > 1e-9 and L_next > 1e-9:
                                 u_prev = v_prev / L_prev
                                 u_next = v_next / L_next
-                                # The tension T is uniform. The local demand is T * |u_prev + u_next|
                                 T = max_actual_T
                                 F_resultant = T * np.linalg.norm(u_prev + u_next)
                             else:
                                 F_resultant = max_actual_T
                                 
-                            # Ensure the plate is at least sized for the baseline edge pretension
                             design_force_N = max(F_resultant, data["fdm"]["max_edge_tension_N"])
                             
                             cp = design_corner_plate(design_force_N, newton_data["cable_d_mm"], steel_fy_MPa=355)
