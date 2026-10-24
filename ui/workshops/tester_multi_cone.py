@@ -87,7 +87,6 @@ def _select_steel_section(max_axial_kN, max_moment_kNm, member_length_m, family=
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
     best = None
     
-    # Iterate through the sections in order of area (smallest to largest)
     chs_sections = [(k, v) for k, v in SECTION_PROPERTIES.items() if v.get("type") == family]
     chs_sections.sort(key=lambda x: x[1].get("A", 0.0))
 
@@ -99,10 +98,9 @@ def _select_steel_section(max_axial_kN, max_moment_kNm, member_length_m, family=
         N_cap = A_mm2 * fy_MPa
         M_cap = W_el_mm3 * fy_MPa
         
-        # Interaction check
         util = (N_Ed / N_cap) + (M_Ed / M_cap)
         
-        # Simple buckling check for compression
+        # Buckling check
         r_mm = math.sqrt(props.get("I", 1.0) / A_mm2) if props.get("I") else 0.35 * props.get("d", 100)
         L_eff_mm = float(member_length_m) * 1000.0
         I_mm4 = A_mm2 * (r_mm ** 2)
@@ -515,36 +513,40 @@ def render_tester_multi_cone():
             if final_pretension > 1.0:
                 st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
 
-            # --- NEW SIZING LOGIC ---
+            # --- NEW SIZING LOGIC WITH CORRECT UNITS AND LEVER ARMS ---
             R = dr_result.get("reactions", None)
             if R is None:
                 st.error("No reactions found in solver output.")
                 return
 
-            # 1. Primary Beam Sizing
+            # 1. Primary Beam Sizing (kN, kNm)
             max_reaction_global = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2) for r in R]) if R is not None else 1000.0
-            max_M_primary = (max_reaction_global * data["span"]) / 8.0  # Simple approximation
-            sec_primary = _select_steel_section(max_reaction_global/1000.0, max_M_primary/1e6, data["span"] * 1.2)
+            max_reaction_kN = max_reaction_global / 1000.0
+            max_M_primary_kNm = (max_reaction_kN * data["span"]) / 8.0
+            sec_primary = _select_steel_section(max_reaction_kN, max_M_primary_kNm, data["span"] * 1.2)
 
-            # 2. Stub Column Sizing (Base Moment)
-            max_base_moment = 0.0
+            # 2. Stub Column Sizing (Base Moment at Z=0)
+            # We use apex height as the lever arm for arch thrust at the base.
+            max_base_moment_kNm = 0.0
+            max_stub_axial_kN = 0.0
             for idx in data["anchor_idx"]:
                 r = R[idx]
-                # Moment at base = sqrt(Fx^2 + Fy^2) * height
-                m_base = math.sqrt(r[0]**2 + r[1]**2) * data["eave_height"]
-                if m_base > max_base_moment:
-                    max_base_moment = m_base
+                # r[0], r[1] are Newtons. apex is in meters.
+                m_base_Nm = math.sqrt(r[0]**2 + r[1]**2) * data["apex"]
+                if m_base_Nm > max_base_moment_kNm * 1000.0:
+                    max_base_moment_kNm = m_base_Nm / 1000.0
+                if abs(r[2]) > max_stub_axial_kN * 1000.0:
+                    max_stub_axial_kN = abs(r[2]) / 1000.0
             
-            max_stub_axial = max([abs(R[idx][2]) for idx in data["anchor_idx"]]) if data["anchor_idx"] else 1000.0
-            sec_stub = _select_steel_section(max_stub_axial/1000.0, max_base_moment/1e6, data["eave_height"])
+            sec_stub = _select_steel_section(max_stub_axial_kN, max_base_moment_kNm, data["eave_height"])
 
             # 3. Rib Sizing (Approximate as 1/3 of global reaction)
-            max_rib_axial = max_reaction_global / 3.0
-            max_M_rib = (max_rib_axial * data["mid_width"]) / 8.0
-            sec_rib = _select_steel_section(max_rib_axial/1000.0, max_M_rib/1e6, data["mid_width"])
+            max_rib_axial_kN = max_reaction_kN / 3.0
+            max_M_rib_kNm = (max_rib_axial_kN * data["mid_width"]) / 8.0
+            sec_rib = _select_steel_section(max_rib_axial_kN, max_M_rib_kNm, data["mid_width"])
 
             # 4. Ring/Drop Sizing (Small local forces)
-            sec_ring = _select_steel_section(10.0, 2.0, 1.0) # Assume small standard section
+            sec_ring = _select_steel_section(10.0, 2.0, 1.0)
 
             # --- Recalculate Cable based on new sizing ---
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
@@ -562,7 +564,7 @@ def render_tester_multi_cone():
             A_mm2 = props.get("A", 1.0)
             W_el_mm3 = props.get("W_el", 1.0)
             N_Ed = max_reaction_global
-            M_Ed = max_M_primary
+            M_Ed = max_M_primary_kNm * 1e6
             N_cap = A_mm2 * fy_MPa
             M_cap = W_el_mm3 * fy_MPa
             util = (N_Ed / N_cap) + (M_Ed / M_cap)
@@ -578,7 +580,7 @@ def render_tester_multi_cone():
             st.session_state["newton_results"] = {
                 "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
                 "sec_primary": sec_primary, "sec_rib": sec_rib, "sec_stub": sec_stub, "sec_ring": sec_ring,
-                "beam_axial_kN": max_reaction_global/1000.0, "beam_moment_kNm": max_M_primary/1e6,
+                "beam_axial_kN": max_reaction_global/1000.0, "beam_moment_kNm": max_M_primary_kNm,
                 "cables": cables, "material": mat, "final_pretension": final_pretension
             }
 
