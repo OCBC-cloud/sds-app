@@ -26,19 +26,19 @@ def _element_stiffness_matrix_3d(E, G, A, Iy, Iz, J, L):
 
     K = np.zeros((12, 12), dtype=float)
 
-    # Axial (DOF 0 and 6)
+    # Axial (DOF 1 and 7)
     K[0, 0] = k_axial
     K[0, 6] = -k_axial
     K[6, 0] = -k_axial
     K[6, 6] = k_axial
 
-    # Torsion (DOF 3 and 9)
+    # Torsion (DOF 4 and 10)
     K[3, 3] = k_torsion
     K[3, 9] = -k_torsion
     K[9, 3] = -k_torsion
     K[9, 9] = k_torsion
 
-    # Bending about local Y (DOF 1, 5, 7, 11)
+    # Bending about local Y (DOF 2, 6, 8, 12)
     K[1, 1] = 12 * k_bend_y
     K[1, 5] = 6 * L * k_bend_y
     K[1, 7] = -12 * k_bend_y
@@ -56,7 +56,7 @@ def _element_stiffness_matrix_3d(E, G, A, Iy, Iz, J, L):
     K[11, 7] = -6 * L * k_bend_y
     K[11, 11] = 4 * L**2 * k_bend_y
 
-    # Bending about local Z (DOF 2, 4, 8, 10)
+    # Bending about local Z (DOF 3, 5, 9, 11)
     K[2, 2] = 12 * k_bend_z
     K[2, 4] = -6 * L * k_bend_z
     K[2, 8] = -12 * k_bend_z
@@ -86,7 +86,7 @@ def _transformation_matrix(p1, p2):
 
     x_local = d / L
 
-    # Choose a reference vector not parallel to x_local
+    # Find a vector not parallel to x_local to construct y_local
     if abs(x_local[2]) < 0.9:
         v = np.array([0.0, 0.0, 1.0])
     else:
@@ -113,11 +113,12 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     loads: (n, 6) array of forces and moments at each node
     fixed_nodes: list of node indices that are fixed
     grade_props: dict with E, G
+    returns: dict with 'displacements', 'reactions', 'member_end_forces'
     """
     n_nodes = nodes.shape[0]
     n_dof = 6 * n_nodes
 
-    E = grade_props.get("E", 210000.0) * 1e6
+    E = grade_props.get("E", 210000.0) * 1e6  # Pa
     G = grade_props.get("G", E / (2 * (1 + 0.3)))
 
     K_global = np.zeros((n_dof, n_dof), dtype=float)
@@ -162,10 +163,11 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     K_ff = K_global[np.ix_(free_dofs, free_dofs)]
     F_f = F_global[free_dofs]
 
-    # Solve for displacements
+    # Solve
     try:
         u_f = np.linalg.solve(K_ff, F_f)
     except np.linalg.LinAlgError:
+        # Regularize
         K_ff_reg = K_ff + 1e-6 * np.eye(K_ff.shape[0])
         try:
             u_f = np.linalg.solve(K_ff_reg, F_f)
@@ -196,19 +198,13 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
             E, G, sec["A"], sec.get("Iy", sec["I"]), sec.get("Iz", sec["I"]), sec.get("J", sec["I"] * 2), L
         )
         T = _transformation_matrix(nodes[a], nodes[b])
-
-        # Extract the 12 DOFs for this element (6 for node a, 6 for node b)
-        dofs = [6*a + i for i in range(6)] + [6*b + i for i in range(6)]
-        u_elem_global = u_global[dofs]
-
-        u_local = T @ u_elem_global
+        u_local = T @ u_global
         f_local = K_local @ u_local
-
         member_end_forces.append({
             "a": a, "b": b,
-            "N": float(f_local[0]),
-            "My": float(max(abs(f_local[5]), abs(f_local[11]))),
-            "Mz": float(max(abs(f_local[4]), abs(f_local[10]))),
+            "N": f_local[0],
+            "My_a": f_local[5], "My_b": f_local[11],
+            "Mz_a": f_local[4], "Mz_b": f_local[10],
         })
 
     return {
