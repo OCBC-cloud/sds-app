@@ -46,7 +46,8 @@ COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
 
-PRETENSION_STEPS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0]
+# UPDATED: Start at 0.1 and cap at 6.0 (max PVDF practical limit)
+PRETENSION_STEPS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0]
 UTILIZATION_WARN_THRESHOLD = 0.60
 
 
@@ -490,17 +491,17 @@ def render_tester_multi_cone():
             for p_factor in PRETENSION_STEPS:
                 cur_warp = p_factor * 1000.0
                 cur_weft = p_factor * 1000.0
-                cur_cable = p_factor * 5.0 * 1000.0
                 
                 mat = make_membrane_material(
                     E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, nu=0.34, G_MPa=50.0,
                     warp_prestress_N_per_m=cur_warp, weft_prestress_N_per_m=cur_weft,
                 )
                 
+                # UPDATED: max_wall_seconds=10.0 so it doesn't freeze the app
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=loads,
-                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=25.0, seed_z_amplitude=0.001 * data["span"],
+                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=200, max_wall_seconds=10.0, seed_z_amplitude=0.001 * data["span"],
                 )
                 
                 if res["converged"]:
@@ -512,7 +513,7 @@ def render_tester_multi_cone():
                 st.error("This geometry requires a membrane pretension above %.1f kN/m to hold its shape under %.1f m/s wind. That is outside the practical range for PVDF fabric (typical limit: 4-6 kN/m). Consider increasing the apex height, adding more cones, or reducing the span." % (PRETENSION_STEPS[-1], wind_speed))
                 return
 
-            if final_pretension > 1.0:
+            if final_pretension > 0.1:
                 st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
 
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
