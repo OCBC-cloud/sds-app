@@ -531,7 +531,7 @@ def render_tester_multi_cone():
                 max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
 
             # --- MEMBER-SPECIFIC SIZING ---
-            # 1. Primary Beam: L_eff = span (or span / (n_ribs + 1) if braced)
+            # 1. Primary Beam: L_eff = span / (n_ribs + 1) if braced
             if secondary_count > 0:
                 L_eff_beam = data["span"] / (secondary_count + 1.0)
             else:
@@ -546,16 +546,16 @@ def render_tester_multi_cone():
             sec_stub = _select_steel_section(max_reaction_kN * 0.5, 0.0, family="CHS", grade="S355", effective_length_m=data["eave_height"])
             
             # 4. Ring beams: L_eff = ring_diameter, force is roughly 1/4 of primary
-            sec_ring = _select_steel_section(max_reaction_kN * 0.25, 0.0, family="CHS", grade="S355", effective_length_m=data["ring_diameter"])
+            # (FIX: use the local ring_diameter variable, not data["ring_diameter"])
+            sec_ring = _select_steel_section(max_reaction_kN * 0.25, 0.0, family="CHS", grade="S355", effective_length_m=ring_diameter)
             
             # 5. Drop members: L_eff = ring_clearance, force is roughly 1/4 of primary
-            sec_drop = _select_steel_section(max_reaction_kN * 0.25, 0.0, family="CHS", grade="S355", effective_length_m=data["ring_clearance"])
+            sec_drop = _select_steel_section(max_reaction_kN * 0.25, 0.0, family="CHS", grade="S355", effective_length_m=ring_clearance)
             
             if "Oversize required" in [sec_primary, sec_rib, sec_stub, sec_ring, sec_drop]:
                 st.error("Steel section required exceeds catalogue. Increase membrane pretension, reduce span, or add ribs.")
                 return
 
-            # Still compute the primary beam utilization for the warning
             fy_MPa = STEEL_MATERIALS.get("Steel", {}).get("S355", {}).get("fy", 355)
             props = SECTION_PROPERTIES.get(sec_primary, {})
             A_mm2 = props.get("A", 1.0)
