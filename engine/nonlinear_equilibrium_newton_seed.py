@@ -836,8 +836,9 @@ def solve_nonlinear_equilibrium(
 
             dx_norm = float(np.linalg.norm(dx))
             
-            # TEST FORK: Clamp the max step size to 0.001 * span
-            max_step = 0.001 * scale_len
+            # TEST FORK: Clamp the max step size to 0.01 * span
+            # (Loosened from 0.001 to allow the solver to make real progress)
+            max_step = 0.01 * scale_len
             if dx_norm > max_step and dx_norm > 0.0:
                 dx = dx * (max_step / dx_norm)
                 dx_norm = max_step
@@ -899,10 +900,8 @@ def solve_nonlinear_equilibrium(
                 reason = "converged"
                 break
 
-            if best_alpha * dx_norm < tol_disp_abs:
-                converged = True
-                reason = "converged_disp"
-                break
+            # Removed the "converged_disp" escape hatch. 
+            # The solver must reduce the force, not just take a tiny step.
 
         if converged:
             break
