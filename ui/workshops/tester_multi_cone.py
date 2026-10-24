@@ -610,8 +610,20 @@ def render_tester_multi_cone():
 
     apply_common_layout(fig, data["apex"])
     
-    # --- THE FIX: Unique key based on geometry to force viewer reset ---
-    geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}"
+    # --- MANUAL RESET BUTTON ---
+    col_reset1, col_reset2 = st.columns([1, 4])
+    with col_reset1:
+        if st.button("🔄 Reset Camera", use_container_width=True):
+            # The button is just an empty trigger. 
+            # Streamlit will rerun, and we use the button state to change the key.
+            pass
+
+    # The key changes if the button is pressed OR if the geometry changes.
+    # This forces a fresh viewer.
+    reset_state = st.session_state.get("reset_camera", 0)
+    
+    # --- THE FIX: Unique key based on geometry + manual reset ---
+    geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}_{reset_state}"
     st.plotly_chart(fig, use_container_width=True, key=f"mc_3d_{geom_hash}")
 
     with st.expander("Diagnostics", expanded=True):
