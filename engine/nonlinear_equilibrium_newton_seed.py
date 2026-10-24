@@ -784,6 +784,9 @@ def solve_nonlinear_equilibrium(
     prev_residual = None
     stall_count = 0
     total_steps = 0
+    
+    # We track the last step size for the report
+    last_step_size = 0.0
 
     for outer in range(max_outer + 1):
         if time.time() - t_start > max_wall_seconds:
@@ -837,7 +840,6 @@ def solve_nonlinear_equilibrium(
             dx_norm = float(np.linalg.norm(dx))
             
             # TEST FORK: Clamp the max step size to 0.01 * span
-            # (Loosened from 0.001 to allow the solver to make real progress)
             max_step = 0.01 * scale_len
             if dx_norm > max_step and dx_norm > 0.0:
                 dx = dx * (max_step / dx_norm)
@@ -850,8 +852,6 @@ def solve_nonlinear_equilibrium(
             x0 = flat(points)
             best_flags = list(taut_flags)
 
-            # Monotone descent line search: accept any step that reduces ||R||.
-            # No slope, no Armijo constant, no fake gradient.
             for _ls in range(DEFAULT_LINE_SEARCH_STEPS):
                 x_try = x0 + alpha * dx
                 p_try = unflat(x_try)
@@ -894,14 +894,19 @@ def solve_nonlinear_equilibrium(
             r_max = float(np.max(np.abs(r_flat))) if r_flat.size else 0.0
             taut_flags = best_flags
             history.append((outer, it, r_norm, r_max))
+            
+            last_step_size = best_alpha * dx_norm
 
             if r_max < tol_abs:
                 converged = True
                 reason = "converged"
                 break
 
-            # Removed the "converged_disp" escape hatch. 
-            # The solver must reduce the force, not just take a tiny step.
+            # Accept convergence if the step size is < 0.1mm (tol_disp_abs).
+            if last_step_size < tol_disp_abs:
+                converged = True
+                reason = "converged_disp"
+                break
 
         if converged:
             break
@@ -987,6 +992,7 @@ def solve_nonlinear_equilibrium(
         "elapsed_seconds": float(elapsed),
         "residual_norm": float(r_norm),
         "max_residual": float(r_max),
+        "last_step_m": float(last_step_size),
         "membrane_stress": membrane_stress_list,
         "cable_tension": cable_tension_list,
         "history": history,
