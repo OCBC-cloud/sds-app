@@ -655,7 +655,9 @@ def render_tester_multi_cone():
                     )
                     for idx in anchor_idx:
                         r = R[idx]
-                        design = design_baseplate_and_foundation(r, newton_data["steel_section"], data["eave_height"])
+                        # We pass 0.0 for eave_height because the arches spring from z=0.
+                        # There is no lever arm for the overturning moment.
+                        design = design_baseplate_and_foundation(r, newton_data["steel_section"], 0.0)
                         st.code(
                             "%-6d  %-8.2f  %-8.2f  %-10.1f  %-10.1f  %-10.1f  %-12.1f  %-10s  %-10s  %-12s"
                             % (
