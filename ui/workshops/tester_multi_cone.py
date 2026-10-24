@@ -46,7 +46,6 @@ COL_RIB = "#e07b39"
 COL_SPOKE = "#c0c0c0"
 COL_DROP = "#a0a0a0"
 
-# UPDATED: Start at 0.1 and cap at 6.0 (max PVDF practical limit)
 PRETENSION_STEPS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0]
 UTILIZATION_WARN_THRESHOLD = 0.60
 
@@ -610,7 +609,10 @@ def render_tester_multi_cone():
         fig.add_trace(go.Scatter3d(x=[cx, bx], y=[cy, by], z=[cz, bz], mode="lines", line=dict(color=COL_DROP, width=4), name="drop", showlegend=False, hoverinfo="skip"))
 
     apply_common_layout(fig, data["apex"])
-    st.plotly_chart(fig, use_container_width=True, key="mc_3d")
+    
+    # --- THE FIX: Unique key based on geometry to force viewer reset ---
+    geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}"
+    st.plotly_chart(fig, use_container_width=True, key=f"mc_3d_{geom_hash}")
 
     with st.expander("Diagnostics", expanded=True):
         st.write("Number of cones: %d" % number_of_cones)
