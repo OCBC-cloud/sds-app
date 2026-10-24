@@ -26,7 +26,7 @@ from engine.load_generator import (
 )
 from engine.connection_design import (
     design_baseplate_and_foundation,
-    design_corner_plate,   # <--- CHANGED from design_fin_plate
+    design_corner_plate,
 )
 from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
@@ -72,32 +72,51 @@ def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
                 A_mm2 = props["A"]
                 E_MPa = props.get("E", 160000)
                 EA_N = A_mm2 * 1e-6 * E_MPa * 1e6
-                candidates.append((A_mm2, "%s %s" % (family_name, size), A_mm2, E_MPa, EA_N))
+                d_mm = props.get("d", math.sqrt(4 * A_mm2 / math.pi))
+                candidates.append((A_mm2, "%s %s" % (family_name, size), A_mm2, E_MPa, EA_N, d_mm))
 
     if candidates:
         candidates.sort(key=lambda c: c[0])
-        _, name, A_mm2, E_MPa, EA_N = candidates[0]
-        return (name, A_mm2, E_MPa, EA_N)
+        _, name, A_mm2, E_MPa, EA_N, d_mm = candidates[0]
+        return (name, A_mm2, E_MPa, EA_N, d_mm)
 
-    return ("Fallback 10mm strand", 63.0, 160000, 10e9)
+    return ("Fallback 10mm strand", 63.0, 160000, 10e9, 10.0)
 
 
-def _select_steel_section(max_axial_kN, max_moment_kNm, family="CHS", grade="S355"):
-    """Pick the smallest section in the family."""
+def _select_steel_section(max_axial_kN, max_moment_kNm, family="CHS", grade="S355", effective_length_m=0.0):
+    """Pick the smallest section in the family that passes combined stress and buckling."""
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
+    E_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000)
     best = None
+    
     for name, props in SECTION_PROPERTIES.items():
         if props.get("type") != family:
             continue
+            
         A_mm2 = props.get("A", 1.0)
         W_el_mm3 = props.get("W_el", 1.0)
         N_Ed = max_axial_kN * 1000.0
         M_Ed = max_moment_kNm * 1e6
         N_cap = A_mm2 * fy_MPa
         M_cap = W_el_mm3 * fy_MPa
+        
+        # 1. Stress utilization
         util = (N_Ed / N_cap) + (M_Ed / M_cap)
-        if util <= 0.9 and best is None:
+        
+        # 2. Buckling utilization (Euler)
+        buckling_util = 0.0
+        if effective_length_m > 0.0 and "I" in props:
+            I_mm4 = props["I"]
+            L_mm = effective_length_m * 1000.0
+            K = 1.0 # Pinned-pinned assumption
+            N_cr = (math.pi**2 * E_MPa * I_mm4) / ((K * L_mm)**2)
+            buckling_util = N_Ed / N_cr if N_cr > 0 else 999.0
+            
+        combined_util = util + buckling_util
+        
+        if combined_util <= 0.9 and best is None:
             best = name
+            
     return best if best else "Oversize required"
 
 
@@ -430,7 +449,7 @@ def render_tester_multi_cone():
 
     if btn_newton:
         with st.spinner("Running Automated Structural Calculation..."):
-            cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
+            cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
 
             cables = []
             n_a = len(data["anchor_idx"])
@@ -517,14 +536,24 @@ def render_tester_multi_cone():
             baseline_tension_N = data["edge_q_scalar"] * total_perimeter
             design_tension_N = max(max_actual_T, baseline_tension_N)
             
-            cable_name, cable_A_mm2, cable_E_MPa, EA_cable = _select_edge_cable(design_tension_N, safety_factor=2.0)
+            cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(design_tension_N, safety_factor=2.0)
 
             if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
                 max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)/1000.0 for r in dr_result["reactions"]])
             else:
                 max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
                 
-            steel_section = _select_steel_section(max_reaction_kN, (max_reaction_kN * data["span"]) / 8.0, family="CHS", grade="S355")
+            steel_section = _select_steel_section(
+                max_reaction_kN, 
+                (max_reaction_kN * data["span"]) / 8.0, 
+                family="CHS", 
+                grade="S355",
+                effective_length_m=data["span"]
+            )
+            
+            if steel_section == "Oversize required":
+                st.error("Steel section required exceeds catalogue. Increase membrane pretension, reduce span, or add ribs.")
+                return
 
             fy_MPa = STEEL_MATERIALS.get("Steel", {}).get("S355", {}).get("fy", 355)
             props = SECTION_PROPERTIES.get(steel_section, {})
@@ -546,6 +575,7 @@ def render_tester_multi_cone():
             coords_to_draw = dr_result["coordinates"]
             st.session_state["newton_results"] = {
                 "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
+                "cable_d_mm": cable_d_mm,
                 "steel_section": steel_section, "beam_axial_kN": max_reaction_kN, "beam_moment_kNm": (max_reaction_kN * data["span"]) / 8.0,
                 "cables": cables, "material": mat, "final_pretension": final_pretension
             }
@@ -653,6 +683,47 @@ def render_tester_multi_cone():
                             % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, newton_data["steel_section"]),
                             language="text"
                         )
+
+                    st.write("---")
+                    st.write("**Corner Plate Table (All Anchor Nodes):**")
+                    st.code(
+                        "%-6s  %-8s  %-8s  %-12s  %-14s  %-12s  %-10s  %-9s  %-9s" 
+                        % ("Node", "X(m)", "Y(m)", "T_cable(kN)", "Plate(mm)", "Weld(mm)", "Pin(mm)", "WeldUtil", "PinUtil"),
+                        language="text"
+                    )
+                    
+                    any_corner_warn = False
+                    for idx in anchor_idx:
+                        try:
+                            cp = design_corner_plate(design_tension_N, newton_data["cable_d_mm"], steel_fy_MPa=355)
+                            
+                            plate_str = "%dx%dx%d" % (cp["plate_thickness_mm"], cp["plate_width_mm"], cp["plate_length_mm"])
+                            weld_str = "%dx%d" % (cp["weld_size_mm"], cp["weld_length_mm"])
+                            pin_str = "%d" % cp["pin_diameter_mm"]
+                            weld_util_str = "%.0f%%" % (cp["weld_utilization"] * 100)
+                            pin_util_str = "%.0f%%" % (cp["pin_utilization"] * 100)
+                            
+                            st.code(
+                                "%-6d  %-8.2f  %-8.2f  %-12.1f  %-14s  %-12s  %-10s  %-9s  %-9s"
+                                % (
+                                    idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], 
+                                    design_tension_N / 1000.0, plate_str, weld_str, pin_str, weld_util_str, pin_util_str
+                                ),
+                                language="text"
+                            )
+                            
+                            if cp["weld_utilization"] > 0.9 or cp["pin_utilization"] > 0.9:
+                                any_corner_warn = True
+                                
+                        except Exception as e:
+                            st.code(
+                                "%-6d  %-8.2f  %-8.2f  ERROR: %s"
+                                % (idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], str(e)),
+                                language="text"
+                            )
+                            
+                    if any_corner_warn:
+                        st.warning("Corner plate utilization exceeds 90% at one or more nodes. Consider increasing plate thickness or pin diameter.")
 
                     st.write("---")
                     st.write("**Deflection Check:**")
