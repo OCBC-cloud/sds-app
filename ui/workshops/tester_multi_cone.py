@@ -497,11 +497,11 @@ def render_tester_multi_cone():
                     warp_prestress_N_per_m=cur_warp, weft_prestress_N_per_m=cur_weft,
                 )
                 
-                # UPDATED: max_total_steps=50 so it doesn't freeze the app
+                # Accept convergence if the nodes are moving less than 0.1mm (1e-4 m).
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=loads,
-                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-5, max_total_steps=50, max_wall_seconds=10.0, seed_z_amplitude=0.001 * data["span"],
+                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-4, max_total_steps=50, max_wall_seconds=10.0, seed_z_amplitude=0.001 * data["span"],
                 )
                 
                 if res["converged"]:
@@ -638,6 +638,7 @@ def render_tester_multi_cone():
             st.write("Newton total steps: %d" % nd.get("total_steps", 0))
             st.write("Newton residual (N): %.6e" % nd["residual_norm"])
             st.write("Newton max residual (N): %.6e" % nd.get("max_residual", nd["residual_norm"]))
+            st.write("Newton last step size: %.4f mm" % (nd.get("last_step_m", 0.0) * 1000.0))
             st.write("Newton time (s): %.2f" % nd["elapsed_seconds"])
             st.write("Newton reason: %s" % nd.get("reason", ""))
             
