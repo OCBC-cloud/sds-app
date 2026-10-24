@@ -92,7 +92,12 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
         L = float(np.linalg.norm(nodes[b] - nodes[a]))
         K_local = _element_stiffness_matrix_3d(E, G, sec["A"], sec.get("Iy", sec["I"]), sec.get("Iz", sec["I"]), sec.get("J", sec["I"] * 2), L)
         T = _transformation_matrix(nodes[a], nodes[b])
-        u_local = T @ u_global
+        
+        # Extract the 12 DOFs for this element (6 for node a, 6 for node b)
+        dofs = [6*a + i for i in range(6)] + [6*b + i for i in range(6)]
+        u_elem_global = u_global[dofs]
+        
+        u_local = T @ u_elem_global
         f_local = K_local @ u_local
         member_end_forces.append({"a": a, "b": b, "N": f_local[0], "My": max(abs(f_local[5]), abs(f_local[11])), "Mz": max(abs(f_local[4]), abs(f_local[10]))})
     return {"displacements": u_global, "reactions": reactions, "member_end_forces": member_end_forces}
