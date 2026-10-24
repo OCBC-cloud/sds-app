@@ -693,9 +693,34 @@ def render_tester_multi_cone():
                     )
                     
                     any_corner_warn = False
-                    for idx in anchor_idx:
+                    n_anchors = len(anchor_idx)
+                    
+                    for k in range(n_anchors):
+                        idx = anchor_idx[k]
                         try:
-                            cp = design_corner_plate(design_tension_N, newton_data["cable_d_mm"], steel_fy_MPa=355)
+                            # Compute the actual vector force at this node from adjacent cable segments
+                            prev_idx = anchor_idx[(k - 1) % n_anchors]
+                            next_idx = anchor_idx[(k + 1) % n_anchors]
+                            
+                            v_prev = data["coords_fdm"][prev_idx] - data["coords_fdm"][idx]
+                            v_next = data["coords_fdm"][next_idx] - data["coords_fdm"][idx]
+                            
+                            L_prev = np.linalg.norm(v_prev)
+                            L_next = np.linalg.norm(v_next)
+                            
+                            if L_prev > 1e-9 and L_next > 1e-9:
+                                u_prev = v_prev / L_prev
+                                u_next = v_next / L_next
+                                # The tension T is uniform. The local demand is T * |u_prev + u_next|
+                                T = max_actual_T
+                                F_resultant = T * np.linalg.norm(u_prev + u_next)
+                            else:
+                                F_resultant = max_actual_T
+                                
+                            # Ensure the plate is at least sized for the baseline edge pretension
+                            design_force_N = max(F_resultant, data["fdm"]["max_edge_tension_N"])
+                            
+                            cp = design_corner_plate(design_force_N, newton_data["cable_d_mm"], steel_fy_MPa=355)
                             
                             plate_str = "%dx%dx%d" % (cp["plate_thickness_mm"], cp["plate_width_mm"], cp["plate_length_mm"])
                             weld_str = "%dx%d" % (cp["weld_size_mm"], cp["weld_length_mm"])
@@ -707,7 +732,7 @@ def render_tester_multi_cone():
                                 "%-6d  %-8.2f  %-8.2f  %-12.1f  %-14s  %-12s  %-10s  %-9s  %-9s"
                                 % (
                                     idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], 
-                                    design_tension_N / 1000.0, plate_str, weld_str, pin_str, weld_util_str, pin_util_str
+                                    design_force_N / 1000.0, plate_str, weld_str, pin_str, weld_util_str, pin_util_str
                                 ),
                                 language="text"
                             )
