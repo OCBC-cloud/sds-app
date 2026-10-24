@@ -515,27 +515,17 @@ def render_tester_multi_cone():
             if final_pretension > 0.1:
                 st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
 
+            # --- FIXED CABLE SIZING LOGIC ---
+            # Find the true maximum tension in ANY single cable segment from the solver
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
             else:
                 max_actual_T = data["fdm"]["max_edge_tension_N"]
                 
-            max_actual_T = max(max_actual_T, data["fdm"]["max_edge_tension_N"])
+            # Ensure we account for the FDM baseline tension
+            design_tension_N = max(max_actual_T, data["fdm"]["max_edge_tension_N"])
             
-            if len(data["anchor_idx"]) > 0:
-                total_perimeter = 0.0
-                n_anchors = len(data["anchor_idx"])
-                for k in range(n_anchors):
-                    a_idx = data["anchor_idx"][k]
-                    b_idx = data["anchor_idx"][(k + 1) % n_anchors]
-                    L_segment = float(np.linalg.norm(data["coords_fdm"][b_idx] - data["coords_fdm"][a_idx]))
-                    total_perimeter += L_segment
-            else:
-                total_perimeter = data["span"] * 4.0
-                
-            baseline_tension_N = data["edge_q_scalar"] * total_perimeter
-            design_tension_N = max(max_actual_T, baseline_tension_N)
-            
+            # Size the cable based on this local maximum, NOT a global perimeter sum.
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(design_tension_N, safety_factor=2.0)
 
             if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
@@ -610,20 +600,17 @@ def render_tester_multi_cone():
 
     apply_common_layout(fig, data["apex"])
     
-    # --- MANUAL RESET BUTTON ---
+    # --- FIX: Manual Viewer Reset Button ---
     col_reset1, col_reset2 = st.columns([1, 4])
     with col_reset1:
         if st.button("🔄 Reset Camera", use_container_width=True):
-            # The button is just an empty trigger. 
-            # Streamlit will rerun, and we use the button state to change the key.
-            pass
+            st.session_state["viewer_reset"] = st.session_state.get("viewer_reset", 0) + 1
+            st.rerun()
 
     # The key changes if the button is pressed OR if the geometry changes.
-    # This forces a fresh viewer.
-    reset_state = st.session_state.get("reset_camera", 0)
-    
-    # --- THE FIX: Unique key based on geometry + manual reset ---
+    reset_state = st.session_state.get("viewer_reset", 0)
     geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}_{reset_state}"
+    
     st.plotly_chart(fig, use_container_width=True, key=f"mc_3d_{geom_hash}")
 
     with st.expander("Diagnostics", expanded=True):
@@ -726,14 +713,12 @@ def render_tester_multi_cone():
                             if L_prev > 1e-9 and L_next > 1e-9:
                                 u_prev = v_prev / L_prev
                                 u_next = v_next / L_next
-                                T = max_actual_T
+                                T = design_tension_N
                                 F_resultant = T * np.linalg.norm(u_prev + u_next)
                             else:
-                                F_resultant = max_actual_T
+                                F_resultant = design_tension_N
                                 
-                            design_force_N = max(F_resultant, data["fdm"]["max_edge_tension_N"])
-                            
-                            cp = design_corner_plate(design_force_N, newton_data["cable_d_mm"], steel_fy_MPa=355)
+                            cp = design_corner_plate(F_resultant, newton_data["cable_d_mm"], steel_fy_MPa=355)
                             
                             plate_str = "%dx%dx%d" % (cp["plate_thickness_mm"], cp["plate_width_mm"], cp["plate_length_mm"])
                             weld_str = "%dx%d" % (cp["weld_size_mm"], cp["weld_length_mm"])
@@ -745,7 +730,7 @@ def render_tester_multi_cone():
                                 "%-6d  %-8.2f  %-8.2f  %-12.1f  %-14s  %-12s  %-10s  %-9s  %-9s"
                                 % (
                                     idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], 
-                                    design_force_N / 1000.0, plate_str, weld_str, pin_str, weld_util_str, pin_util_str
+                                    F_resultant / 1000.0, plate_str, weld_str, pin_str, weld_util_str, pin_util_str
                                 ),
                                 language="text"
                             )
