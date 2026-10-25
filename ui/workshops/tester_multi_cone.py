@@ -48,9 +48,9 @@ COL_DROP = "#a0a0a0"
 
 PRETENSION_STEPS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0]
 UTILIZATION_WARN_THRESHOLD = 0.60
-UTILIZATION_CAP = 0.70  # Chief's rule: never exceed 70%
+UTILIZATION_CAP = 0.70
 
-# Membrane dead load (PVDF Type III) in kg/m²
+# Fallback; real value is read from FABRIC_PROPERTIES
 MEMBRANE_DEAD_LOAD_KG_M2 = 1.102
 GRAVITY = 9.81
 
@@ -60,9 +60,7 @@ GRAVITY = 9.81
 # =============================================================================
 
 def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
-    """Pick the smallest cable (by area) across all families."""
     design_load_N = actual_max_tension_N * safety_factor
-
     candidates = []
     for family_name, family in CABLE_PROPERTIES.items():
         if family_name == "default":
@@ -79,42 +77,24 @@ def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
                 EA_N = A_mm2 * 1e-6 * E_MPa * 1e6
                 d_mm = props.get("d", math.sqrt(4 * A_mm2 / math.pi))
                 candidates.append((A_mm2, "%s %s" % (family_name, size), A_mm2, E_MPa, EA_N, d_mm))
-
     if candidates:
         candidates.sort(key=lambda c: c[0])
         _, name, A_mm2, E_MPa, EA_N, d_mm = candidates[0]
         return (name, A_mm2, E_MPa, EA_N, d_mm)
-
     return ("Fallback 10mm strand", 63.0, 160000, 10e9, 10.0)
 
 
 def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, family="CHS", grade="S355"):
-    """
-    Iterative steel sizing that includes self-weight.
-    Separates Axial Demand (Buckling) from Transverse Demand (Bending).
-    Enforces 70% utilization cap.
-    """
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
     E_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000)
-    
-    # Load factors for ULS Uplift case
     if code_choice == "MS 1553":
-        gamma_DL = 0.9
-        gamma_WL = 1.5
+        gamma_DL, gamma_WL = 0.9, 1.5
     elif code_choice == "ASCE 7":
-        gamma_DL = 0.9
-        gamma_WL = 1.0
+        gamma_DL, gamma_WL = 0.9, 1.0
     else:
-        gamma_DL = 1.0
-        gamma_WL = 1.5
-        
-    # Effective length: arch assumption
+        gamma_DL, gamma_WL = 1.0, 1.5
     L_eff_m = 0.7 * length_m
-    
-    # Membrane dead load on this member's tributary area (in kN)
     membrane_DL_kN = MEMBRANE_DEAD_LOAD_KG_M2 * GRAVITY * tributary_width_m * length_m / 1000.0
-    
-    # Get the list of candidate sections sorted by area (lightest first)
     candidates = []
     for name, props in SECTION_PROPERTIES.items():
         if props.get("type") != family:
@@ -124,60 +104,35 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
         candidates.append((props.get("A", 1e9), name, props))
     candidates.sort(key=lambda c: c[0])
     candidates = candidates[:40]
-    
     for A_mm2, name, props in candidates:
         W_el_mm3 = props.get("W_el", 1.0)
         weight_kg_m = props.get("weight", 0.0)
-        
-        # Steel self-weight (in kN)
         steel_DL_kN = weight_kg_m * GRAVITY * length_m / 1000.0
         total_DL_kN = steel_DL_kN + membrane_DL_kN
-        
-        # 1. AXIAL DEMAND
         N_Ed_axial_kN = max(0.0, gamma_WL * n_wind_kN - gamma_DL * total_DL_kN)
-        
-        # 2. TRANSVERSE BENDING DEMAND
         w_transverse_kN_m = total_DL_kN / length_m
-        M_Ed_kNm = w_transverse_kN_m * length_m**2 / 8.0
-        
-        # Capacity checks
+        M_Ed_kNm = w_transverse_kN_m * length_m ** 2 / 8.0
         N_Ed = N_Ed_axial_kN * 1000.0
         M_Ed = M_Ed_kNm * 1e6
         N_cap = A_mm2 * fy_MPa
         M_cap = W_el_mm3 * fy_MPa
-        
         util_stress = (N_Ed / N_cap) + (M_Ed / M_cap)
-        
-        # 3. EULER BUCKLING
-        buckling_util = 0.0
         I_mm4 = props["I"]
         L_mm = L_eff_m * 1000.0
-        K = 1.0
-        N_cr = (math.pi**2 * E_MPa * I_mm4) / ((K * L_mm)**2)
+        N_cr = (math.pi ** 2 * E_MPa * I_mm4) / (L_mm ** 2)
         buckling_util = N_Ed / N_cr if N_cr > 0 else 999.0
-            
         combined_util = util_stress + buckling_util
-        
         if combined_util <= UTILIZATION_CAP:
             return name, {
-                "util": combined_util,
-                "N_Ed_kN": N_Ed_axial_kN,
-                "M_Ed_kNm": M_Ed_kNm,
-                "total_DL_kN": total_DL_kN,
-                "steel_DL_kN": steel_DL_kN,
-                "membrane_DL_kN": membrane_DL_kN,
-                "L_eff_m": L_eff_m,
+                "util": combined_util, "N_Ed_kN": N_Ed_axial_kN, "M_Ed_kNm": M_Ed_kNm,
+                "total_DL_kN": total_DL_kN, "steel_DL_kN": steel_DL_kN,
+                "membrane_DL_kN": membrane_DL_kN, "L_eff_m": L_eff_m,
             }
-    
     A_mm2, name, props = candidates[-1]
     return name, {
-        "util": 1.0,
-        "N_Ed_kN": N_Ed_axial_kN,
-        "M_Ed_kNm": M_Ed_kNm,
-        "total_DL_kN": total_DL_kN,
-        "steel_DL_kN": steel_DL_kN,
-        "membrane_DL_kN": membrane_DL_kN,
-        "L_eff_m": L_eff_m,
+        "util": 1.0, "N_Ed_kN": N_Ed_axial_kN, "M_Ed_kNm": M_Ed_kNm,
+        "total_DL_kN": total_DL_kN, "steel_DL_kN": steel_DL_kN,
+        "membrane_DL_kN": membrane_DL_kN, "L_eff_m": L_eff_m,
     }
 
 
@@ -266,15 +221,13 @@ def _cone_arc_positions(n_cones, spacing, total):
         half = (n_cones - 1) // 2
         ks = [0]
         for i in range(1, half + 1):
-            ks.append(+i)
-            ks.append(-i)
+            ks.append(+i); ks.append(-i)
     else:
         half = n_cones // 2
         ks = []
         for i in range(half):
             k = i + 0.5
-            ks.append(+k)
-            ks.append(-k)
+            ks.append(+k); ks.append(-k)
     positions = [mid + k * spacing for k in ks]
     for p in positions:
         if p < 0.0 or p > total:
@@ -301,21 +254,16 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
     for i in range(3):
         members.append({"member_id": "Rib_Beam_%d" % (i+1), "member_type": "rib_beam", "length_m": float(rib_length), "section": sections["rib"], "material": "S355", "role": "Secondary arched beam from primary beam to ground"})
 
-    # NOTE: Stub column REMOVED. The arches spring directly from the ground at z=0.
-
     for k in range(len(ring_indices)):
         ring_no = k + 1
         idx_list = ring_indices[k]
         n_poly = len(idx_list)
         ring_length = 0.0
         for i in range(n_poly):
-            a = int(idx_list[i])
-            b = int(idx_list[(i + 1) % n_poly])
+            a = int(idx_list[i]); b = int(idx_list[(i + 1) % n_poly])
             ring_length += float(np.linalg.norm(coords[b] - coords[a]))
         members.append({"member_id": "Ring_%d_Ring_Beam" % ring_no, "member_type": "ring_beam", "length_m": float(ring_length), "section": sections["ring"], "material": "S355", "role": "closed ring beam, one per cone"})
-        
-        centre_i = int(centre_indices[k])
-        beam_i = int(beam_top_indices[k])
+        centre_i = int(centre_indices[k]); beam_i = int(beam_top_indices[k])
         L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
         members.append({"member_id": "Ring_%d_Drop_Member" % ring_no, "member_type": "drop_member", "length_m": L, "section": sections["drop"], "material": "S355", "role": "vertical drop from primary beam to ring centre"})
 
@@ -350,39 +298,29 @@ def _format_member_table(members):
 # =============================================================================
 
 def _compute_fabric_utilization(dr_result, fabric_name, fabric_family):
-    """Find the max principal membrane stress and compare to fabric f_u."""
     if not dr_result or "membrane_stress" not in dr_result:
         return None
-    
     max_principal_N_m = 0.0
     for ms in dr_result["membrane_stress"]:
         sigma = ms.get("sigma", None)
         if sigma is None:
             continue
-        s_xx = float(sigma[0, 0])
-        s_yy = float(sigma[1, 1])
-        s_xy = float(sigma[0, 1])
+        s_xx, s_yy, s_xy = float(sigma[0, 0]), float(sigma[1, 1]), float(sigma[0, 1])
         mean = 0.5 * (s_xx + s_yy)
-        diff = 0.5 * (s_xx - s_yy)
-        radius = math.sqrt(diff**2 + s_xy**2)
+        radius = math.sqrt((0.5 * (s_xx - s_yy)) ** 2 + s_xy ** 2)
         principal = mean + radius
         if principal > max_principal_N_m:
             max_principal_N_m = principal
-    
     family = FABRIC_PROPERTIES.get(fabric_family, {})
     fabric = family.get(fabric_name, {})
     f_u_warp = fabric.get("f_u_warp", None)
     f_u_weft = fabric.get("f_u_weft", None)
-    
     if not f_u_warp or not f_u_weft:
         return None
-    
     f_u_min_kN_m = min(float(f_u_warp), float(f_u_weft))
     util = (max_principal_N_m / 1000.0) / f_u_min_kN_m if f_u_min_kN_m > 0 else 999.0
-    
     return {
-        "fabric": fabric_name,
-        "family": fabric_family,
+        "fabric": fabric_name, "family": fabric_family,
         "f_u_min_kN_m": f_u_min_kN_m,
         "max_stress_kN_m": max_principal_N_m / 1000.0,
         "utilization": util,
@@ -397,12 +335,10 @@ def render_tester_multi_cone():
     bcol1, bcol2, bcol3 = st.columns([1, 1, 3])
     with bcol1:
         if st.button("← Back to Lab", key="mc_back_lab", use_container_width=True):
-            st.session_state.page = "lab"
-            st.rerun()
+            st.session_state.page = "lab"; st.rerun()
     with bcol2:
         if st.button("← Back to Landing", key="mc_back_landing", use_container_width=True):
-            st.session_state.page = "landing"
-            st.rerun()
+            st.session_state.page = "landing"; st.rerun()
 
     st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>Step 1: Find Form (FDM). Step 2: Automated Structural Solve.</p>", unsafe_allow_html=True)
 
@@ -411,36 +347,29 @@ def render_tester_multi_cone():
         span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5, key="mc_span")
     with c2:
         apex = st.number_input("Primary apex (m)", 1.0, 30.0, 5.0, 0.5, key="mc_apex")
-
     c1, c2 = st.columns(2)
     with c1:
         mid_width = st.number_input("Mid-span width (m)", 6.0, 60.0, 10.0, 0.5, key="mc_width")
     with c2:
         eave_height = st.number_input("Eave height (m)", 0.5, 10.0, 2.8, 0.1, key="mc_eave")
-
     c1, c2 = st.columns(2)
     with c1:
         ring_diameter = st.number_input("Ring diameter (m)", 0.5, 10.0, 1.0, 0.1, key="mc_rd")
     with c2:
         curve_type = st.selectbox("Curve type", ["parabolic", "circular", "catenary"], index=0, key="mc_curve")
-
     c1, c2 = st.columns(2)
     with c1:
         secondary_count = int(st.number_input("Secondary count", 2, 20, 3, 1, key="mc_nribs"))
     with c2:
         optional_ends = st.toggle("Optional ends", value=False, key="mc_optends")
-
     subdivisions = int(st.number_input("Subdivisions per edge", 5, 25, 5, 1, key="mc_subdiv"))
-
     c1, c2 = st.columns(2)
     with c1:
         number_of_cones = int(st.number_input("Number of cones", 1, 20, 1, 1, key="mc_ncones"))
     with c2:
         ring_spacing = st.number_input("Distance between adjacent cones (m, along beam)", 0.5, 10.0, 5.0, 0.1, key="mc_spacing")
-
     ring_clearance = st.number_input("Ring clearance below beam (m)", 0.1, 5.0, 1.0, 0.1, key="mc_clr")
 
-    # --- FABRIC SELECTION ---
     st.markdown("### Fabric Selection")
     fabric_families = [k for k in FABRIC_PROPERTIES.keys() if k != "default"]
     c1, c2 = st.columns(2)
@@ -456,23 +385,19 @@ def render_tester_multi_cone():
         warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp")
     with c2:
         weft_q_input = st.number_input("Weft pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_weft")
-
     edge_q_input = st.number_input("Edge cable pretension (kN/m)", 0.1, 500.0, 5.0, 0.1, key="mc_edgeq")
 
     st.markdown("### Environmental Loads & Design Philosophy")
-    
     c1, c2 = st.columns(2)
     with c1:
         code_choice = st.selectbox("Building Code", ["MS 1553", "ASCE 7", "EN 1991"], index=0, key="mc_code")
     with c2:
         design_philosophy = st.selectbox("Design Philosophy", ["Serviceability (Unfactored)", "Ultimate Limit State (Factored)"], index=0, key="mc_design_philosophy")
-
     c1, c2 = st.columns(2)
     with c1:
         wind_speed = st.number_input("Wind Speed (m/s)", 0.0, 80.0, 33.5, 1.0, key="mc_wind_speed")
     with c2:
         snow_depth = st.number_input("Snow Depth (m)", 0.0, 2.0, 0.0, 0.1, key="mc_snow_depth")
-    
     payload_kg = st.number_input("Payload at apex (kg)", 0.0, 1000.0, 0.0, 10.0, key="mc_payload")
 
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
@@ -485,11 +410,9 @@ def render_tester_multi_cone():
         xp = np.linspace(-span / 2.0, span / 2.0, 200)
         zp = beam_curve(xp, span, apex, curve_type)
         s_p, total_p = arclength_parametrisation(xp, zp)
-
         rib_x = _rib_stations(secondary_count, optional_ends, span, xp, s_p, total_p)
         rib_peak_z = np.interp(rib_x, xp, zp)
         rib_half_width = np.array([_ellipse_y(float(xr), span, mid_width) for xr in rib_x], dtype=float)
-
         try:
             s_rings = _cone_arc_positions(number_of_cones, ring_spacing, total_p)
             ring_specs = []
@@ -499,8 +422,7 @@ def render_tester_multi_cone():
                 rz_val = bz_val - float(ring_clearance)
                 ring_specs.append({"cx": x_val, "cy": 0.0, "cz": rz_val, "r": float(ring_diameter) / 2.0, "beam_z": bz_val})
         except ValueError as e:
-            st.error("Placement refused: " + str(e))
-            return
+            st.error("Placement refused: " + str(e)); return
 
         tip_x = _tip_x_at_eave(span, apex, eave_height, curve_type)
         anchors = _build_eave_anchors(rib_x, rib_half_width, rib_peak_z, eave_height, tip_x)
@@ -510,12 +432,8 @@ def render_tester_multi_cone():
         target_len = max(L_avg, 1e-6)
 
         built = SDSe_mesh_rings(perimeter_loop=perimeter_loop, anchor_idx=anchor_idx, ring_specs=ring_specs, eave_height=eave_height, target_len=target_len)
-
-        pts = built["points"]
-        edges = built["edges"]
-        boundary_edge_set = built["boundary_edges"]
-        tris = built["triangles"]
-        fixed = built["fixed_indices"]
+        pts = built["points"]; edges = built["edges"]; boundary_edge_set = built["boundary_edges"]
+        tris = built["triangles"]; fixed = built["fixed_indices"]
 
         warp_q = max(float(warp_q_input), 0.1) * 1000.0
         weft_q = max(float(weft_q_input), 0.1) * 1000.0
@@ -524,7 +442,6 @@ def render_tester_multi_cone():
         pts_2d = pts[:, :2]
         warp_dir = np.array([1.0, 0.0])
         q_interior = SDSe_blend_q_per_edge(edges, pts_2d, warp_dir, warp_q, weft_q)
-
         q = np.empty(len(edges), dtype=float)
         for k, (i, j) in enumerate(edges):
             key = (i, j) if i < j else (j, i)
@@ -534,13 +451,9 @@ def render_tester_multi_cone():
             fdm = solve_fdm(pts, edges, fixed, q)
             coords_fdm = fdm["coordinates"]
             residual_fdm = float(fdm["residual_norm"])
-            solve_ok = True
-            solve_err = ""
+            solve_ok = True; solve_err = ""
         except Exception as e:
-            coords_fdm = pts.copy()
-            residual_fdm = float("nan")
-            solve_ok = False
-            solve_err = str(e)
+            coords_fdm = pts.copy(); residual_fdm = float("nan"); solve_ok = False; solve_err = str(e)
 
         max_edge_tension_N = edge_q_scalar * L_avg
         fdm["max_edge_tension_N"] = max_edge_tension_N
@@ -564,67 +477,80 @@ def render_tester_multi_cone():
     if btn_newton:
         with st.spinner("Running Automated Structural Calculation..."):
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
-
             cables = []
-            n_a = len(data["anchor_idx"])
-            pts = data["pts"]
-            coords_fdm = data["coords_fdm"]
-
+            n_a = len(data["anchor_idx"]); pts = data["pts"]; coords_fdm = data["coords_fdm"]
             for k in range(n_a):
-                a_idx = data["anchor_idx"][k]
-                b_idx = data["anchor_idx"][(k + 1) % n_a]
-                chain = [int(a_idx)]
-                i_cur = (a_idx + 1) % pts.shape[0]
-                b_int = int(b_idx)
-                safety = 0
+                a_idx = data["anchor_idx"][k]; b_idx = data["anchor_idx"][(k + 1) % n_a]
+                chain = [int(a_idx)]; i_cur = (a_idx + 1) % pts.shape[0]; b_int = int(b_idx); safety = 0
                 while i_cur != b_int and safety < pts.shape[0]:
-                    chain.append(int(i_cur))
-                    i_cur = (i_cur + 1) % pts.shape[0]
-                    safety += 1
+                    chain.append(int(i_cur)); i_cur = (i_cur + 1) % pts.shape[0]; safety += 1
                 chain.append(int(b_int))
                 for m in range(len(chain) - 1):
-                    ia = chain[m]
-                    ib = chain[m + 1]
+                    ia = chain[m]; ib = chain[m + 1]
                     L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
-                    if L_ref < 1e-9:
-                        continue
+                    if L_ref < 1e-9: continue
                     cables.append({"a": ia, "b": ib, "L0": L_ref * 1.001, "EA": EA_cable})
 
             apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
-            
+
+            # --- COLLECT GEOMETRY PARAMETERS FOR WIND CP MAP ---
+            h_over_d = apex / span if span > 0 else 0.0
+            cone_radius_m = ring_diameter / 2.0
+            cone_apexes_3d = []
+            for k, c_idx in enumerate(data["built"]["centre_indices"]):
+                beam_top_i = data["built"]["beam_top_indices"][k]
+                cone_apexes_3d.append(np.array(data["coords_fdm"][beam_top_i]))
+
+            # --- GET REAL FABRIC MASS ---
+            fabric_props = FABRIC_PROPERTIES.get(fabric_family, {}).get(fabric_name, {})
+            membrane_kg_m2 = float(fabric_props.get("kg_m2", 1.102) or 1.102)
+
             if design_philosophy == "Ultimate Limit State (Factored)":
-                loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["uplift"]
-                st.info("Running ULS Uplift Case. Check Diagnostics for Foundation Uplift design.")
+                loads_dict = generate_uls_loads(
+                    coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx,
+                    shape_type="multi_cone",
+                    h_over_d=h_over_d,
+                    cone_apexes=cone_apexes_3d,
+                    cone_radius_m=cone_radius_m,
+                    membrane_kg_m2=membrane_kg_m2,
+                )
+                loads = loads_dict["uplift"]
+                wind_diag = loads_dict.get("wind_diagnostics", {})
+                st.session_state["wind_diagnostics"] = wind_diag
+                st.info("Running ULS Uplift Case with Cp map (multi-cone). See Diagnostics for wind pressures.")
             else:
-                loads = generate_uls_loads(coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx)["service"]
+                loads_dict = generate_uls_loads(
+                    coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx,
+                    shape_type="multi_cone",
+                    h_over_d=h_over_d,
+                    cone_apexes=cone_apexes_3d,
+                    cone_radius_m=cone_radius_m,
+                    membrane_kg_m2=membrane_kg_m2,
+                )
+                loads = loads_dict["service"]
+                wind_diag = loads_dict.get("wind_diagnostics", {})
+                st.session_state["wind_diagnostics"] = wind_diag
 
             dr_result = None
             final_pretension = None
-            
             for p_factor in PRETENSION_STEPS:
                 cur_warp = p_factor * 1000.0
                 cur_weft = p_factor * 1000.0
-                
                 mat = make_membrane_material(
                     E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, nu=0.34, G_MPa=50.0,
                     warp_prestress_N_per_m=cur_warp, weft_prestress_N_per_m=cur_weft,
                 )
-                
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=loads,
                     max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-4, max_total_steps=50, max_wall_seconds=10.0, seed_z_amplitude=0.001 * data["span"],
                 )
-                
                 if res["converged"]:
-                    dr_result = res
-                    final_pretension = p_factor
-                    break
+                    dr_result = res; final_pretension = p_factor; break
 
             if dr_result is None:
                 st.error("This geometry requires a membrane pretension above %.1f kN/m to hold its shape under %.1f m/s wind. That is outside the practical range for PVDF fabric (typical limit: 4-6 kN/m). Consider increasing the apex height, adding more cones, or reducing the span." % (PRETENSION_STEPS[-1], wind_speed))
                 return
-
             if final_pretension > 0.1:
                 st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
 
@@ -632,71 +558,33 @@ def render_tester_multi_cone():
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
             else:
                 max_actual_T = data["fdm"]["max_edge_tension_N"]
-                
             design_tension_N = max(max_actual_T, data["fdm"]["max_edge_tension_N"])
-            
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(design_tension_N, safety_factor=2.0)
 
             if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
-                max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)/1000.0 for r in dr_result["reactions"]])
+                max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2) / 1000.0 for r in dr_result["reactions"]])
             else:
                 max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
 
-            # --- MEMBER-SPECIFIC SIZING WITH SELF-WEIGHT ---
-            sec_primary, det_primary = _select_steel_section(
-                max_reaction_kN, 
-                length_m=data["span"],
-                tributary_width_m=data["mid_width"],
-                code_choice=code_choice,
-                family="CHS", grade="S355"
-            )
-            
-            sec_rib, det_rib = _select_steel_section(
-                max_reaction_kN * 0.5, 
-                length_m=data["mid_width"],
-                tributary_width_m=data["mid_width"] / (secondary_count + 1.0),
-                code_choice=code_choice,
-                family="CHS", grade="S355"
-            )
-            
-            sec_ring, det_ring = _select_steel_section(
-                max_reaction_kN * 0.25, 
-                length_m=ring_diameter,
-                tributary_width_m=ring_diameter,
-                code_choice=code_choice,
-                family="CHS", grade="S355"
-            )
-            
-            sec_drop, det_drop = _select_steel_section(
-                max_reaction_kN * 0.25, 
-                length_m=ring_clearance,
-                tributary_width_m=1.0,
-                code_choice=code_choice,
-                family="CHS", grade="S355"
-            )
-            
+            sec_primary, det_primary = _select_steel_section(max_reaction_kN, length_m=data["span"], tributary_width_m=data["mid_width"], code_choice=code_choice, family="CHS", grade="S355")
+            sec_rib, det_rib = _select_steel_section(max_reaction_kN * 0.5, length_m=data["mid_width"], tributary_width_m=data["mid_width"] / (secondary_count + 1.0), code_choice=code_choice, family="CHS", grade="S355")
+            sec_ring, det_ring = _select_steel_section(max_reaction_kN * 0.25, length_m=ring_diameter, tributary_width_m=ring_diameter, code_choice=code_choice, family="CHS", grade="S355")
+            sec_drop, det_drop = _select_steel_section(max_reaction_kN * 0.25, length_m=ring_clearance, tributary_width_m=1.0, code_choice=code_choice, family="CHS", grade="S355")
+
             if "Oversize required" in [sec_primary, sec_rib, sec_ring, sec_drop]:
-                st.error("One or more steel sections exceed the catalogue. Increase pretension, reduce span, or add ribs.")
-                return
+                st.error("One or more steel sections exceed the catalogue. Increase pretension, reduce span, or add ribs."); return
 
             if det_primary is not None:
                 util = det_primary["util"]
                 if util > UTILIZATION_WARN_THRESHOLD:
-                    st.warning(
-                        "Warning: Primary Beam utilization is at %.0f%%. "
-                        "Consider adding more ribs to reduce the unsupported membrane surface." % (util * 100)
-                    )
+                    st.warning("Warning: Primary Beam utilization is at %.0f%%." % (util * 100))
 
             coords_to_draw = dr_result["coordinates"]
             st.session_state["newton_results"] = {
                 "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
                 "cable_d_mm": cable_d_mm,
-                "sections": {
-                    "primary": sec_primary, "rib": sec_rib, "ring": sec_ring, "drop": sec_drop
-                },
-                "details": {
-                    "primary": det_primary, "rib": det_rib, "ring": det_ring, "drop": det_drop
-                },
+                "sections": {"primary": sec_primary, "rib": sec_rib, "ring": sec_ring, "drop": sec_drop},
+                "details": {"primary": det_primary, "rib": det_rib, "ring": det_ring, "drop": det_drop},
                 "beam_axial_kN": max_reaction_kN,
                 "cables": cables, "material": mat, "final_pretension": final_pretension,
                 "fabric_family": fabric_family, "fabric_name": fabric_name,
@@ -708,20 +596,15 @@ def render_tester_multi_cone():
         dr_result = newton_data["dr_result"]
 
     fig = go.Figure()
-
     if len(data["tris"]) > 0:
         tri = np.asarray(data["tris"], dtype=int)
         fig.add_trace(go.Mesh3d(x=coords_to_draw[:, 0], y=coords_to_draw[:, 1], z=coords_to_draw[:, 2], i=tri[:, 0], j=tri[:, 1], k=tri[:, 2], color=COL_MEMBRANE, opacity=0.55, flatshading=True, name="membrane", showlegend=False, hoverinfo="skip"))
-
     fig.add_trace(go.Scatter3d(x=data["xp"], y=np.zeros_like(data["xp"]), z=data["zp"], mode="lines", line=dict(color=COL_PRIMARY, width=7), name="primary beam", showlegend=False, hoverinfo="skip"))
-
     for i in range(len(data["rib_x"])):
         rp = _rib_polyline(float(data["rib_x"][i]), float(data["rib_half_width"][i]), float(data["rib_peak_z"][i]), RIB_SEGMENTS)
         fig.add_trace(go.Scatter3d(x=rp[:, 0], y=rp[:, 1], z=rp[:, 2], mode="lines", line=dict(color=COL_RIB, width=5), name="rib", showlegend=False, hoverinfo="skip"))
-
     for k, idx_list in enumerate(data["built"]["ring_indices"]):
-        pp = coords_to_draw[idx_list]
-        closed = np.vstack([pp, pp[:1]])
+        pp = coords_to_draw[idx_list]; closed = np.vstack([pp, pp[:1]])
         fig.add_trace(go.Scatter3d(x=closed[:, 0], y=closed[:, 1], z=closed[:, 2], mode="lines", line=dict(color=COL_RING_EDGE, width=5), name="ring", showlegend=False, hoverinfo="skip"))
         centre_i, beam_i = data["built"]["centre_indices"][k], data["built"]["beam_top_indices"][k]
         cx, cy, cz = coords_to_draw[centre_i]
@@ -729,9 +612,7 @@ def render_tester_multi_cone():
             fig.add_trace(go.Scatter3d(x=[cx, coords_to_draw[poly_i, 0]], y=[cy, coords_to_draw[poly_i, 1]], z=[cz, coords_to_draw[poly_i, 2]], mode="lines", line=dict(color=COL_SPOKE, width=2), name="spoke", showlegend=False, hoverinfo="skip"))
         bx, by, bz = coords_to_draw[beam_i]
         fig.add_trace(go.Scatter3d(x=[cx, bx], y=[cy, by], z=[cz, bz], mode="lines", line=dict(color=COL_DROP, width=4), name="drop", showlegend=False, hoverinfo="skip"))
-
     apply_common_layout(fig, data["apex"])
-    
     geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}"
     st.plotly_chart(fig, use_container_width=True, key=f"mc_3d_{geom_hash}")
 
@@ -764,7 +645,20 @@ def render_tester_multi_cone():
             st.write("Newton last step size: %.4f mm" % (nd.get("last_step_m", 0.0) * 1000.0))
             st.write("Newton time (s): %.2f" % nd["elapsed_seconds"])
             st.write("Newton reason: %s" % nd.get("reason", ""))
-            
+
+            # --- WIND CP DIAGNOSTIC ---
+            wind_diag = st.session_state.get("wind_diagnostics", {})
+            if wind_diag:
+                st.write("---")
+                st.write("**Wind Cp Diagnostic (%s, Multi-Cone):**" % code_choice)
+                st.write("Dynamic pressure (q): %.1f Pa" % wind_diag.get("q_Pa", 0.0))
+                st.write("Total uplift force: %.1f kN" % wind_diag.get("total_uplift_kN", 0.0))
+                st.write("Max suction per node: %.2f kPa" % wind_diag.get("max_pressure_kPa", 0.0))
+                st.write("Mean pressure: %.2f kPa" % wind_diag.get("mean_pressure_kPa", 0.0))
+                st.write("Cp range: %.2f to %.2f" % (wind_diag.get("min_cp", 0.0), wind_diag.get("max_cp", 0.0)))
+                st.write("h/d ratio: %.3f" % (data["apex"] / data["span"]))
+                st.write("Cone radius: %.2f m" % (ring_diameter / 2.0))
+
             st.write("---")
             st.write("**Membrane Utilization:**")
             fab_util = _compute_fabric_utilization(nd, newton_data.get("fabric_name", fabric_name), newton_data.get("fabric_family", fabric_family))
@@ -774,25 +668,19 @@ def render_tester_multi_cone():
                 st.write("Max membrane tension: %.2f kN/m" % fab_util["max_stress_kN_m"])
                 util_pct = fab_util["utilization"] * 100
                 if fab_util["utilization"] > 0.7:
-                    st.error("Utilization: %.0f%% → **DANGER: fabric may rupture.** Increase pretension, add cones, or choose a stronger fabric." % util_pct)
+                    st.error("Utilization: %.0f%% → **DANGER: fabric may rupture.**" % util_pct)
                 elif fab_util["utilization"] > 0.5:
-                    st.warning("Utilization: %.0f%% → **WARNING: approaching ULS.** Consider a stronger fabric." % util_pct)
+                    st.warning("Utilization: %.0f%% → **WARNING: approaching ULS.**" % util_pct)
                 else:
                     st.success("Utilization: %.0f%% → **SAFE.**" % util_pct)
-            else:
-                st.write("Fabric utilization unavailable (missing f_u data).")
-            
+
             st.write("---")
             st.write("**Steel Sizing Details (with self-weight):**")
-            det = newton_data.get("details", {})
-            sec = newton_data.get("sections", {})
+            det = newton_data.get("details", {}); sec = newton_data.get("sections", {})
             for key, label in [("primary", "Primary"), ("rib", "Rib"), ("ring", "Ring"), ("drop", "Drop")]:
                 if key in det and det[key] is not None:
                     d = det[key]
-                    st.write(
-                        "**%s** → `%s` | L_eff=%.2fm | Steel DL=%.1f kN | Membrane DL=%.1f kN | N_Ed=%.1f kN | Util=%.0f%%"
-                        % (label, sec[key], d["L_eff_m"], d["steel_DL_kN"], d["membrane_DL_kN"], d["N_Ed_kN"], d["util"] * 100)
-                    )
+                    st.write("**%s** → `%s` | L_eff=%.2fm | Steel DL=%.1f kN | Membrane DL=%.1f kN | N_Ed=%.1f kN | Util=%.0f%%" % (label, sec[key], d["L_eff_m"], d["steel_DL_kN"], d["membrane_DL_kN"], d["N_Ed_kN"], d["util"] * 100))
 
             st.write("---")
             st.write("**Reaction Forces & Foundation Design:**")
@@ -802,118 +690,62 @@ def render_tester_multi_cone():
                 if len(fixed_indices) > 0:
                     anchor_idx = data["anchor_idx"]
                     st.write("**Baseplate Table (All Anchor Nodes):**")
-                    st.code(
-                        "%-6s  %-8s  %-8s  %-10s  %-10s  %-10s  %-12s  %-10s  %-10s  %-12s" 
-                        % ("Node", "X(m)", "Y(m)", "Fx(kN)", "Fy(kN)", "Fz(kN)", "Moment(kNm)", "Plate(mm)", "Bolts", "Pad(mm)"),
-                        language="text"
-                    )
+                    st.code("%-6s  %-8s  %-8s  %-10s  %-10s  %-10s  %-12s  %-10s  %-10s  %-12s" % ("Node", "X(m)", "Y(m)", "Fx(kN)", "Fy(kN)", "Fz(kN)", "Moment(kNm)", "Plate(mm)", "Bolts", "Pad(mm)"), language="text")
                     for idx in anchor_idx:
                         r = R[idx]
                         design = design_baseplate_and_foundation(r, newton_data["sections"]["primary"], 0.0)
-                        st.code(
-                            "%-6d  %-8.2f  %-8.2f  %-10.1f  %-10.1f  %-10.1f  %-12.1f  %-10s  %-10s  %-12s"
-                            % (
-                                idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], 
-                                r[0]/1000.0, r[1]/1000.0, r[2]/1000.0, design["overturning_moment_kNm"],
-                                "%dx%d" % (design["plate_side_mm"], design["plate_side_mm"]),
-                                "%dxM%d" % (design["bolt_count"], design["bolt_diameter_mm"]),
-                                "%dx%d" % (design["pad_side_mm"], design["pad_side_mm"])
-                            ),
-                            language="text"
-                        )
-                    
+                        st.code("%-6d  %-8.2f  %-8.2f  %-10.1f  %-10.1f  %-10.1f  %-12.1f  %-10s  %-10s  %-12s" % (idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], r[0]/1000.0, r[1]/1000.0, r[2]/1000.0, design["overturning_moment_kNm"], "%dx%d" % (design["plate_side_mm"], design["plate_side_mm"]), "%dxM%d" % (design["bolt_count"], design["bolt_diameter_mm"]), "%dx%d" % (design["pad_side_mm"], design["pad_side_mm"])), language="text")
+
                     st.write("---")
                     st.write("**Cone Drop Table:**")
-                    st.code(
-                        "%-8s  %-10s  %-10s  %-10s  %-10s" % ("Cone", "X(m)", "Y(m)", "Fz(kN)", "Drop(mm)"),
-                        language="text"
-                    )
+                    st.code("%-8s  %-10s  %-10s  %-10s  %-10s" % ("Cone", "X(m)", "Y(m)", "Fz(kN)", "Drop(mm)"), language="text")
                     for k in range(len(data["built"]["centre_indices"])):
-                        ci = data["built"]["centre_indices"][k]
-                        bi = data["built"]["beam_top_indices"][k]
+                        ci = data["built"]["centre_indices"][k]; bi = data["built"]["beam_top_indices"][k]
                         r_drop = R[bi]
-                        st.code(
-                            "%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s"
-                            % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, newton_data["sections"]["drop"]),
-                            language="text"
-                        )
+                        st.code("%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s" % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, newton_data["sections"]["drop"]), language="text")
 
                     st.write("---")
                     st.write("**Corner Plate Table (All Anchor Nodes):**")
-                    st.code(
-                        "%-6s  %-8s  %-8s  %-12s  %-14s  %-12s  %-10s  %-9s  %-9s" 
-                        % ("Node", "X(m)", "Y(m)", "T_cable(kN)", "Plate(mm)", "Weld(mm)", "Pin(mm)", "WeldUtil", "PinUtil"),
-                        language="text"
-                    )
-                    
+                    st.code("%-6s  %-8s  %-8s  %-12s  %-14s  %-12s  %-10s  %-9s  %-9s" % ("Node", "X(m)", "Y(m)", "T_cable(kN)", "Plate(mm)", "Weld(mm)", "Pin(mm)", "WeldUtil", "PinUtil"), language="text")
                     any_corner_warn = False
                     n_anchors = len(anchor_idx)
-                    
                     for k in range(n_anchors):
                         idx = anchor_idx[k]
                         try:
-                            prev_idx = anchor_idx[(k - 1) % n_anchors]
-                            next_idx = anchor_idx[(k + 1) % n_anchors]
-                            
+                            prev_idx = anchor_idx[(k - 1) % n_anchors]; next_idx = anchor_idx[(k + 1) % n_anchors]
                             v_prev = data["coords_fdm"][prev_idx] - data["coords_fdm"][idx]
                             v_next = data["coords_fdm"][next_idx] - data["coords_fdm"][idx]
-                            
-                            L_prev = np.linalg.norm(v_prev)
-                            L_next = np.linalg.norm(v_next)
-                            
+                            L_prev = np.linalg.norm(v_prev); L_next = np.linalg.norm(v_next)
                             if L_prev > 1e-9 and L_next > 1e-9:
-                                u_prev = v_prev / L_prev
-                                u_next = v_next / L_next
+                                u_prev = v_prev / L_prev; u_next = v_next / L_next
                                 T = design_tension_N
                                 F_resultant = T * np.linalg.norm(u_prev + u_next)
                             else:
                                 F_resultant = design_tension_N
-                                
                             cp = design_corner_plate(F_resultant, newton_data["cable_d_mm"], steel_fy_MPa=355)
-                            
                             plate_str = "%dx%dx%d" % (cp["plate_thickness_mm"], cp["plate_width_mm"], cp["plate_length_mm"])
                             weld_str = "%dx%d" % (cp["weld_size_mm"], cp["weld_length_mm"])
                             pin_str = "%d" % cp["pin_diameter_mm"]
                             weld_util_str = "%.0f%%" % (cp["weld_utilization"] * 100)
                             pin_util_str = "%.0f%%" % (cp["pin_utilization"] * 100)
-                            
-                            st.code(
-                                "%-6d  %-8.2f  %-8.2f  %-12.1f  %-14s  %-12s  %-10s  %-9s  %-9s"
-                                % (
-                                    idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], 
-                                    F_resultant / 1000.0, plate_str, weld_str, pin_str, weld_util_str, pin_util_str
-                                ),
-                                language="text"
-                            )
-                            
+                            st.code("%-6d  %-8.2f  %-8.2f  %-12.1f  %-14s  %-12s  %-10s  %-9s  %-9s" % (idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], F_resultant / 1000.0, plate_str, weld_str, pin_str, weld_util_str, pin_util_str), language="text")
                             if cp["weld_utilization"] > 0.9 or cp["pin_utilization"] > 0.9:
                                 any_corner_warn = True
-                                
                         except Exception as e:
-                            st.code(
-                                "%-6d  %-8.2f  %-8.2f  ERROR: %s"
-                                % (idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], str(e)),
-                                language="text"
-                            )
-                            
+                            st.code("%-6d  %-8.2f  %-8.2f  ERROR: %s" % (idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], str(e)), language="text")
                     if any_corner_warn:
-                        st.warning("Corner plate utilization exceeds 90% at one or more nodes. Consider increasing plate thickness or pin diameter.")
+                        st.warning("Corner plate utilization exceeds 90% at one or more nodes.")
 
                     st.write("---")
                     st.write("**Deflection Check:**")
-                    max_deflection_mm = 0.0
-                    max_def_idx = -1
+                    max_deflection_mm = 0.0; max_def_idx = -1
                     for i in range(len(data["coords_fdm"])):
                         d = np.linalg.norm(coords_to_draw[i] - data["coords_fdm"][i])
                         if d > max_deflection_mm:
-                            max_deflection_mm = d * 1000.0
-                            max_def_idx = i
+                            max_deflection_mm = d * 1000.0; max_def_idx = i
                     limit_mm = (data["span"] * 1000.0) / 200.0
                     status = "PASS" if max_deflection_mm <= limit_mm else "FAIL"
-                    st.code(
-                        "Max Deflection: %.2f mm at Node %d (Limit: %.1f mm) -> %s" % (max_deflection_mm, max_def_idx, limit_mm, status),
-                        language="text"
-                    )
+                    st.code("Max Deflection: %.2f mm at Node %d (Limit: %.1f mm) -> %s" % (max_deflection_mm, max_def_idx, limit_mm, status), language="text")
             else:
                 st.write("Reactions not available in solver output.")
 
@@ -933,13 +765,11 @@ def render_tester_multi_cone():
                 st.write("Total members recorded: %d" % len(members))
                 st.code(_format_member_table(members), language="text")
 
-            # --- SDSe ANALYSIS REPORT BUTTON ---
             st.markdown("---")
             st.markdown("### 📄 SDSe Analysis Report")
-            st.write("Generate the formal SDSe PE sign-off report with all analysis results, member schedules, and connections.")
+            st.write("Generate the formal SDSe PE sign-off report.")
             if st.button("📄 Open SDSe Analysis Report", key="SDSe_open_report_btn", use_container_width=True):
-                st.session_state.page = "analysis_report"
-                st.rerun()
+                st.session_state.page = "analysis_report"; st.rerun()
 
 # =============================================================================
 # END OF ui/workshops/tester_multi_cone.py
