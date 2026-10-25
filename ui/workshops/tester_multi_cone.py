@@ -369,7 +369,6 @@ def _compute_fabric_utilization(dr_result, fabric_name, fabric_family):
         if principal > max_principal_N_m:
             max_principal_N_m = principal
     
-    # Fabric strength in kN/m
     family = FABRIC_PROPERTIES.get(fabric_family, {})
     fabric = family.get(fabric_name, {})
     f_u_warp = fabric.get("f_u_warp", None)
@@ -629,7 +628,6 @@ def render_tester_multi_cone():
             if final_pretension > 0.1:
                 st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
 
-            # Local max cable tension
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
             else:
@@ -639,14 +637,12 @@ def render_tester_multi_cone():
             
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(design_tension_N, safety_factor=2.0)
 
-            # Get the max reaction force for steel sizing
             if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
                 max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)/1000.0 for r in dr_result["reactions"]])
             else:
                 max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
 
             # --- MEMBER-SPECIFIC SIZING WITH SELF-WEIGHT ---
-            # Primary beam: full span length
             sec_primary, det_primary = _select_steel_section(
                 max_reaction_kN, 
                 length_m=data["span"],
@@ -655,7 +651,6 @@ def render_tester_multi_cone():
                 family="CHS", grade="S355"
             )
             
-            # Ribs: span across the width
             sec_rib, det_rib = _select_steel_section(
                 max_reaction_kN * 0.5, 
                 length_m=data["mid_width"],
@@ -664,7 +659,6 @@ def render_tester_multi_cone():
                 family="CHS", grade="S355"
             )
             
-            # Ring beams: ring diameter (small compression ring)
             sec_ring, det_ring = _select_steel_section(
                 max_reaction_kN * 0.25, 
                 length_m=ring_diameter,
@@ -673,7 +667,6 @@ def render_tester_multi_cone():
                 family="CHS", grade="S355"
             )
             
-            # Drop members: ring clearance (short vertical, low load)
             sec_drop, det_drop = _select_steel_section(
                 max_reaction_kN * 0.25, 
                 length_m=ring_clearance,
@@ -686,7 +679,6 @@ def render_tester_multi_cone():
                 st.error("One or more steel sections exceed the catalogue. Increase pretension, reduce span, or add ribs.")
                 return
 
-            # Compute utilization for warning
             if det_primary is not None:
                 util = det_primary["util"]
                 if util > UTILIZATION_WARN_THRESHOLD:
@@ -740,7 +732,6 @@ def render_tester_multi_cone():
 
     apply_common_layout(fig, data["apex"])
     
-    # Auto-reset viewer via geometry hash
     geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}"
     st.plotly_chart(fig, use_container_width=True, key=f"mc_3d_{geom_hash}")
 
@@ -774,7 +765,6 @@ def render_tester_multi_cone():
             st.write("Newton time (s): %.2f" % nd["elapsed_seconds"])
             st.write("Newton reason: %s" % nd.get("reason", ""))
             
-            # --- FABRIC UTILIZATION ---
             st.write("---")
             st.write("**Membrane Utilization:**")
             fab_util = _compute_fabric_utilization(nd, newton_data.get("fabric_name", fabric_name), newton_data.get("fabric_family", fabric_family))
@@ -942,6 +932,14 @@ def render_tester_multi_cone():
                 st.write("Drop Members: **%s**" % newton_data["sections"]["drop"])
                 st.write("Total members recorded: %d" % len(members))
                 st.code(_format_member_table(members), language="text")
+
+            # --- SDSe ANALYSIS REPORT BUTTON ---
+            st.markdown("---")
+            st.markdown("### 📄 SDSe Analysis Report")
+            st.write("Generate the formal SDSe PE sign-off report with all analysis results, member schedules, and connections.")
+            if st.button("📄 Open SDSe Analysis Report", key="SDSe_open_report_btn", use_container_width=True):
+                st.session_state.page = "analysis_report"
+                st.rerun()
 
 # =============================================================================
 # END OF ui/workshops/tester_multi_cone.py
