@@ -90,7 +90,7 @@ def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
 def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, family="CHS", grade="S355"):
     """
     Iterative steel sizing that includes self-weight.
-    Uses proper transverse load moment, not axial*length.
+    Separates Axial Demand (Buckling) from Transverse Demand (Bending).
     """
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
     E_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000)
@@ -106,7 +106,7 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
         gamma_DL = 1.0
         gamma_WL = 1.5
         
-    # Effective length: for a straight beam, L_eff = L. For an arch, assume 0.7 * L.
+    # Effective length: arch assumption
     L_eff_m = 0.7 * length_m
     
     # Membrane dead load on this member's tributary area (in kN)
@@ -122,8 +122,8 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
         candidates.append((props.get("A", 1e9), name, props))
     candidates.sort(key=lambda c: c[0])
     
-    # Limit to first 30 candidates (avoid looping over every single section)
-    candidates = candidates[:30]
+    # Limit to first 40 candidates to keep it fast
+    candidates = candidates[:40]
     
     for A_mm2, name, props in candidates:
         W_el_mm3 = props.get("W_el", 1.0)
@@ -135,17 +135,15 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
         # Total dead load (in kN)
         total_DL_kN = steel_DL_kN + membrane_DL_kN
         
-        # Transverse distributed load (wind + self-weight)
-        # For an arch under uplift, the net transverse load is small
-        w_transverse_kN_m = (gamma_WL * n_wind_kN - gamma_DL * total_DL_kN) / length_m
-        if w_transverse_kN_m < 0:
-            w_transverse_kN_m = 0.0  # no downward push
+        # 1. AXIAL DEMAND (N_Ed)
+        # Wind pushes up, self-weight pulls down. Net axial = 1.5*WL - 0.9*DL
+        N_Ed_axial_kN = max(0.0, gamma_WL * n_wind_kN - gamma_DL * total_DL_kN)
         
-        # Simple beam moment approximation for transverse load
+        # 2. TRANSVERSE BENDING DEMAND (M_Ed)
+        # The transverse load is the self-weight of the member acting sideways as a distributed load.
+        w_transverse_kN_m = total_DL_kN / length_m
+        # Simple beam approximation M = w * L^2 / 8
         M_Ed_kNm = w_transverse_kN_m * length_m**2 / 8.0
-        
-        # Axial force is the wind reaction directly (already in kN)
-        N_Ed_axial_kN = gamma_WL * n_wind_kN
         
         # Capacity checks
         N_Ed = N_Ed_axial_kN * 1000.0
@@ -155,7 +153,7 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
         
         util_stress = (N_Ed / N_cap) + (M_Ed / M_cap)
         
-        # Buckling
+        # 3. EULER BUCKLING
         buckling_util = 0.0
         I_mm4 = props["I"]
         L_mm = L_eff_m * 1000.0
