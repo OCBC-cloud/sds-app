@@ -28,7 +28,7 @@ from engine.connection_design import (
     design_baseplate_and_foundation,
     design_corner_plate,
 )
-from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS
+from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS, FABRIC_PROPERTIES
 from data.sections import SECTION_PROPERTIES
 from viewers.figures._shared import (
     apply_common_layout,
@@ -48,6 +48,7 @@ COL_DROP = "#a0a0a0"
 
 PRETENSION_STEPS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0]
 UTILIZATION_WARN_THRESHOLD = 0.60
+UTILIZATION_CAP = 0.70  # Chief's rule: never exceed 70%
 
 # Membrane dead load (PVDF Type III) in kg/m²
 MEMBRANE_DEAD_LOAD_KG_M2 = 1.102
@@ -91,13 +92,14 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
     """
     Iterative steel sizing that includes self-weight.
     Separates Axial Demand (Buckling) from Transverse Demand (Bending).
+    Enforces 70% utilization cap.
     """
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
     E_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000)
     
     # Load factors for ULS Uplift case
     if code_choice == "MS 1553":
-        gamma_DL = 0.9   # minimum DL for uplift case
+        gamma_DL = 0.9
         gamma_WL = 1.5
     elif code_choice == "ASCE 7":
         gamma_DL = 0.9
@@ -121,8 +123,6 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
             continue
         candidates.append((props.get("A", 1e9), name, props))
     candidates.sort(key=lambda c: c[0])
-    
-    # Limit to first 40 candidates to keep it fast
     candidates = candidates[:40]
     
     for A_mm2, name, props in candidates:
@@ -131,18 +131,13 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
         
         # Steel self-weight (in kN)
         steel_DL_kN = weight_kg_m * GRAVITY * length_m / 1000.0
-        
-        # Total dead load (in kN)
         total_DL_kN = steel_DL_kN + membrane_DL_kN
         
-        # 1. AXIAL DEMAND (N_Ed)
-        # Wind pushes up, self-weight pulls down. Net axial = 1.5*WL - 0.9*DL
+        # 1. AXIAL DEMAND
         N_Ed_axial_kN = max(0.0, gamma_WL * n_wind_kN - gamma_DL * total_DL_kN)
         
-        # 2. TRANSVERSE BENDING DEMAND (M_Ed)
-        # The transverse load is the self-weight of the member acting sideways as a distributed load.
+        # 2. TRANSVERSE BENDING DEMAND
         w_transverse_kN_m = total_DL_kN / length_m
-        # Simple beam approximation M = w * L^2 / 8
         M_Ed_kNm = w_transverse_kN_m * length_m**2 / 8.0
         
         # Capacity checks
@@ -163,7 +158,7 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
             
         combined_util = util_stress + buckling_util
         
-        if combined_util <= 0.9:
+        if combined_util <= UTILIZATION_CAP:
             return name, {
                 "util": combined_util,
                 "N_Ed_kN": N_Ed_axial_kN,
@@ -174,7 +169,6 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
                 "L_eff_m": L_eff_m,
             }
     
-    # If we didn't find a suitable one, return the largest
     A_mm2, name, props = candidates[-1]
     return name, {
         "util": 1.0,
@@ -307,9 +301,7 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
     for i in range(3):
         members.append({"member_id": "Rib_Beam_%d" % (i+1), "member_type": "rib_beam", "length_m": float(rib_length), "section": sections["rib"], "material": "S355", "role": "Secondary arched beam from primary beam to ground"})
 
-    stub_length = eave_height
-    for i in range(len(anchor_idx)):
-        members.append({"member_id": "Stub_Col_%d" % (i+1), "member_type": "stub_column", "length_m": float(stub_length), "section": sections["stub"], "material": "S355", "role": "Vertical stub from eave to baseplate"})
+    # NOTE: Stub column REMOVED. The arches spring directly from the ground at z=0.
 
     for k in range(len(ring_indices)):
         ring_no = k + 1
@@ -351,6 +343,51 @@ def _format_member_table(members):
     for m in members:
         lines.append("%-26s  %-18s  %-9.4f  %-20s  %-20s  %s" % (m["member_id"], m["member_type"], m["length_m"], str(m["section"])[:20], str(m["material"])[:20], m["role"]))
     return "\n".join(lines)
+
+
+# =============================================================================
+# Fabric Utilization
+# =============================================================================
+
+def _compute_fabric_utilization(dr_result, fabric_name, fabric_family):
+    """Find the max principal membrane stress and compare to fabric f_u."""
+    if not dr_result or "membrane_stress" not in dr_result:
+        return None
+    
+    max_principal_N_m = 0.0
+    for ms in dr_result["membrane_stress"]:
+        sigma = ms.get("sigma", None)
+        if sigma is None:
+            continue
+        s_xx = float(sigma[0, 0])
+        s_yy = float(sigma[1, 1])
+        s_xy = float(sigma[0, 1])
+        mean = 0.5 * (s_xx + s_yy)
+        diff = 0.5 * (s_xx - s_yy)
+        radius = math.sqrt(diff**2 + s_xy**2)
+        principal = mean + radius
+        if principal > max_principal_N_m:
+            max_principal_N_m = principal
+    
+    # Fabric strength in kN/m
+    family = FABRIC_PROPERTIES.get(fabric_family, {})
+    fabric = family.get(fabric_name, {})
+    f_u_warp = fabric.get("f_u_warp", None)
+    f_u_weft = fabric.get("f_u_weft", None)
+    
+    if not f_u_warp or not f_u_weft:
+        return None
+    
+    f_u_min_kN_m = min(float(f_u_warp), float(f_u_weft))
+    util = (max_principal_N_m / 1000.0) / f_u_min_kN_m if f_u_min_kN_m > 0 else 999.0
+    
+    return {
+        "fabric": fabric_name,
+        "family": fabric_family,
+        "f_u_min_kN_m": f_u_min_kN_m,
+        "max_stress_kN_m": max_principal_N_m / 1000.0,
+        "utilization": util,
+    }
 
 
 # =============================================================================
@@ -404,6 +441,17 @@ def render_tester_multi_cone():
 
     ring_clearance = st.number_input("Ring clearance below beam (m)", 0.1, 5.0, 1.0, 0.1, key="mc_clr")
 
+    # --- FABRIC SELECTION ---
+    st.markdown("### Fabric Selection")
+    fabric_families = [k for k in FABRIC_PROPERTIES.keys() if k != "default"]
+    c1, c2 = st.columns(2)
+    with c1:
+        fabric_family = st.selectbox("Fabric Family", fabric_families, index=fabric_families.index("PVDF") if "PVDF" in fabric_families else 0, key="mc_fabric_family")
+    with c2:
+        fabric_names = [k for k in FABRIC_PROPERTIES.get(fabric_family, {}).keys() if k != "default"]
+        fabric_name = st.selectbox("Fabric Type", fabric_names, index=0, key="mc_fabric_name")
+
+    st.markdown("### Pretension & Loads")
     c1, c2 = st.columns(2)
     with c1:
         warp_q_input = st.number_input("Warp pretension (kN/m)", 0.1, 100.0, 1.0, 0.1, key="mc_warp")
@@ -616,16 +664,7 @@ def render_tester_multi_cone():
                 family="CHS", grade="S355"
             )
             
-            # Stub columns: eave height
-            sec_stub, det_stub = _select_steel_section(
-                max_reaction_kN * 0.5, 
-                length_m=data["eave_height"],
-                tributary_width_m=2.0,
-                code_choice=code_choice,
-                family="CHS", grade="S355"
-            )
-            
-            # Ring beams: ring diameter
+            # Ring beams: ring diameter (small compression ring)
             sec_ring, det_ring = _select_steel_section(
                 max_reaction_kN * 0.25, 
                 length_m=ring_diameter,
@@ -634,7 +673,7 @@ def render_tester_multi_cone():
                 family="CHS", grade="S355"
             )
             
-            # Drop members: ring clearance
+            # Drop members: ring clearance (short vertical, low load)
             sec_drop, det_drop = _select_steel_section(
                 max_reaction_kN * 0.25, 
                 length_m=ring_clearance,
@@ -643,7 +682,7 @@ def render_tester_multi_cone():
                 family="CHS", grade="S355"
             )
             
-            if "Oversize required" in [sec_primary, sec_rib, sec_stub, sec_ring, sec_drop]:
+            if "Oversize required" in [sec_primary, sec_rib, sec_ring, sec_drop]:
                 st.error("One or more steel sections exceed the catalogue. Increase pretension, reduce span, or add ribs.")
                 return
 
@@ -661,13 +700,14 @@ def render_tester_multi_cone():
                 "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
                 "cable_d_mm": cable_d_mm,
                 "sections": {
-                    "primary": sec_primary, "rib": sec_rib, "stub": sec_stub, "ring": sec_ring, "drop": sec_drop
+                    "primary": sec_primary, "rib": sec_rib, "ring": sec_ring, "drop": sec_drop
                 },
                 "details": {
-                    "primary": det_primary, "rib": det_rib, "stub": det_stub, "ring": det_ring, "drop": det_drop
+                    "primary": det_primary, "rib": det_rib, "ring": det_ring, "drop": det_drop
                 },
                 "beam_axial_kN": max_reaction_kN,
-                "cables": cables, "material": mat, "final_pretension": final_pretension
+                "cables": cables, "material": mat, "final_pretension": final_pretension,
+                "fabric_family": fabric_family, "fabric_name": fabric_name,
             }
 
     newton_data = st.session_state.get("newton_results")
@@ -700,14 +740,8 @@ def render_tester_multi_cone():
 
     apply_common_layout(fig, data["apex"])
     
-    col_reset1, col_reset2 = st.columns([1, 4])
-    with col_reset1:
-        if st.button("🔄 Reset Camera", use_container_width=True):
-            st.session_state["viewer_reset"] = st.session_state.get("viewer_reset", 0) + 1
-            st.rerun()
-
-    reset_state = st.session_state.get("viewer_reset", 0)
-    geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}_{reset_state}"
+    # Auto-reset viewer via geometry hash
+    geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}"
     st.plotly_chart(fig, use_container_width=True, key=f"mc_3d_{geom_hash}")
 
     with st.expander("Diagnostics", expanded=True):
@@ -740,11 +774,29 @@ def render_tester_multi_cone():
             st.write("Newton time (s): %.2f" % nd["elapsed_seconds"])
             st.write("Newton reason: %s" % nd.get("reason", ""))
             
+            # --- FABRIC UTILIZATION ---
+            st.write("---")
+            st.write("**Membrane Utilization:**")
+            fab_util = _compute_fabric_utilization(nd, newton_data.get("fabric_name", fabric_name), newton_data.get("fabric_family", fabric_family))
+            if fab_util:
+                st.write("Fabric: **%s** (%s)" % (fab_util["fabric"], fab_util["family"]))
+                st.write("f_u (min): %.1f kN/m" % fab_util["f_u_min_kN_m"])
+                st.write("Max membrane tension: %.2f kN/m" % fab_util["max_stress_kN_m"])
+                util_pct = fab_util["utilization"] * 100
+                if fab_util["utilization"] > 0.7:
+                    st.error("Utilization: %.0f%% → **DANGER: fabric may rupture.** Increase pretension, add cones, or choose a stronger fabric." % util_pct)
+                elif fab_util["utilization"] > 0.5:
+                    st.warning("Utilization: %.0f%% → **WARNING: approaching ULS.** Consider a stronger fabric." % util_pct)
+                else:
+                    st.success("Utilization: %.0f%% → **SAFE.**" % util_pct)
+            else:
+                st.write("Fabric utilization unavailable (missing f_u data).")
+            
             st.write("---")
             st.write("**Steel Sizing Details (with self-weight):**")
             det = newton_data.get("details", {})
             sec = newton_data.get("sections", {})
-            for key, label in [("primary", "Primary"), ("rib", "Rib"), ("stub", "Stub"), ("ring", "Ring"), ("drop", "Drop")]:
+            for key, label in [("primary", "Primary"), ("rib", "Rib"), ("ring", "Ring"), ("drop", "Drop")]:
                 if key in det and det[key] is not None:
                     d = det[key]
                     st.write(
