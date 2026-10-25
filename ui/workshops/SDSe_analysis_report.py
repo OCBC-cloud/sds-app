@@ -3,25 +3,79 @@
 PE-grade structured report for tension membrane structures.
 
 Structure (aligned with CEN/TS 19102 practice):
-  Page 1: Cover & Executive Summary
+  Page 1: Cover & Executive Summary (with 3D image)
   Page 2: Basis of Design
   Page 3: Form-Finding & Solver Traceability
   Page 4: Membrane Verification (with PE sign-off)
   Page 5: Steel & Cable Verification (with PE sign-off)
   Page 6: Foundation & Connection Verification (with PE sign-off)
   Page 7: Appendices (Solver Log, Assumptions, Disclaimer)
+  Page 8: Export & Final Authorisation
+
+Includes:
+  - Interactive Plotly 3D viewer (on-screen)
+  - Static PNG of 3D view for PDF/Markdown export
+  - Print CSS for clean Cmd+P → Save as PDF
+  - Base64-embedded image in Markdown export
 """
 
+import base64
 import datetime
+import io
 import math
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from data.materials import FABRIC_PROPERTIES, STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
 from engine.connection_design import design_baseplate_and_foundation, design_corner_plate
+from viewers.figures._shared import apply_common_layout
+
+
+# =============================================================================
+# PRINT CSS (hides Streamlit chrome when user does Cmd+P)
+# =============================================================================
+
+def _inject_print_css():
+    """Inject CSS to hide app chrome when printing to PDF."""
+    st.markdown(
+        """
+        <style>
+        @media print {
+            /* Hide Streamlit chrome */
+            header[data-testid="stHeader"] { display: none !important; }
+            [data-testid="stSidebar"] { display: none !important; }
+            .stDeployButton { display: none !important; }
+            .stApp > header { display: none !important; }
+            [data-testid="stToolbar"] { display: none !important; }
+            [data-testid="stDecoration"] { display: none !important; }
+            [data-testid="stStatusWidget"] { display: none !important; }
+            .stButton { display: none !important; }
+            .stDownloadButton { display: none !important; }
+            [data-testid="stExpander"] { display: block !important; }
+            
+            /* Print styling */
+            body { font-size: 11pt; }
+            .block-container {
+                padding-top: 0.5rem !important;
+                padding-bottom: 0.5rem !important;
+                max-width: 100% !important;
+            }
+            
+            /* Prevent awkward page breaks */
+            .stMarkdown > div { page-break-inside: avoid; }
+            div[data-testid="stVerticalBlock"] > div { page-break-inside: avoid; }
+            
+            /* Force page break before each SDSe section */
+            .SDSe-section-break { page-break-before: always; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # =============================================================================
@@ -41,7 +95,6 @@ def _title_block(title, subtitle, page_no=None):
             margin-top: 24px;
             margin-bottom: 18px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            page-break-before: always;
         ">
             <div style="font-size: 10px; color: #6c757d; letter-spacing: 2px; font-weight: 600; margin-bottom: 4px;">
                 SDSe ENGINEERING{page_tag}
@@ -59,7 +112,6 @@ def _title_block(title, subtitle, page_no=None):
 
 
 def _masthead():
-    """Render the report cover masthead."""
     st.markdown(
         f"""
         <div style="
@@ -94,7 +146,6 @@ def _masthead():
 
 
 def _signoff_block(section_name, statement):
-    """Render a PE sign-off block for a section."""
     st.markdown(
         f"""
         <div style="
@@ -104,7 +155,6 @@ def _signoff_block(section_name, statement):
             padding: 18px 22px;
             margin-top: 20px;
             margin-bottom: 20px;
-            page-break-inside: avoid;
         ">
             <div style="font-size: 11px; color: #7d6608; letter-spacing: 1px; font-weight: 700; margin-bottom: 8px;">
                 SDSe PE SIGN-OFF · {section_name}
@@ -131,7 +181,6 @@ def _signoff_block(section_name, statement):
 
 
 def _executive_summary_box(is_safe, critical_items):
-    """Render an executive summary with the safety verdict."""
     if is_safe:
         bg, border, icon, label = "#d4edda", "#28a745", "✓", "SAFE"
         text_color = "#155724"
@@ -155,10 +204,6 @@ def _executive_summary_box(is_safe, critical_items):
             <div style="font-size: 24px; font-weight: 800; color: {text_color}; margin-bottom: 10px;">
                 {icon} OVERALL VERDICT: {label}
             </div>
-            <div style="font-size: 14px; color: {text_color}; margin-bottom: 12px;">
-                The design has been evaluated against SDSe engineering rules.
-                Critical results are summarized below.
-            </div>
             <ul style="font-size: 13px; color: {text_color}; margin: 0; padding-left: 20px;">
                 {items_html}
             </ul>
@@ -169,11 +214,102 @@ def _executive_summary_box(is_safe, critical_items):
 
 
 # =============================================================================
+# 3D VIEW BUILDER (Reuses Lab page logic)
+# =============================================================================
+
+def _build_report_figure(data, newton_data, span, apex, mid_width, number_of_cones):
+    """Rebuild the 3D Plotly figure for the report, styled for print."""
+    coords_to_draw = newton_data["dr_result"]["coordinates"]
+
+    COL_MEMBRANE = "#4a7a9c"
+    COL_RING_EDGE = "#ffd166"
+    COL_PRIMARY = "#FF6B6B"
+    COL_RIB = "#e07b39"
+    COL_SPOKE = "#c0c0c0"
+    COL_DROP = "#a0a0a0"
+
+    fig = go.Figure()
+
+    # Membrane
+    if len(data["tris"]) > 0:
+        tri = np.asarray(data["tris"], dtype=int)
+        fig.add_trace(go.Mesh3d(
+            x=coords_to_draw[:, 0], y=coords_to_draw[:, 1], z=coords_to_draw[:, 2],
+            i=tri[:, 0], j=tri[:, 1], k=tri[:, 2],
+            color=COL_MEMBRANE, opacity=0.55, flatshading=True,
+            name="membrane", showlegend=False, hoverinfo="skip"
+        ))
+
+    # Primary beam (original xp/zp parabola)
+    fig.add_trace(go.Scatter3d(
+        x=data["xp"], y=np.zeros_like(data["xp"]), z=data["zp"],
+        mode="lines", line=dict(color=COL_PRIMARY, width=7),
+        name="primary beam", showlegend=False, hoverinfo="skip"
+    ))
+
+    # Ribs
+    def _rib_polyline(rib_x, half_width, peak_z, n):
+        y = np.linspace(-half_width, +half_width, n)
+        u = y / half_width
+        z = peak_z * (1.0 - u ** 2)
+        x = np.full_like(y, rib_x)
+        return np.column_stack([x, y, z])
+
+    for i in range(len(data["rib_x"])):
+        rp = _rib_polyline(float(data["rib_x"][i]), float(data["rib_half_width"][i]), float(data["rib_peak_z"][i]), 80)
+        fig.add_trace(go.Scatter3d(
+            x=rp[:, 0], y=rp[:, 1], z=rp[:, 2],
+            mode="lines", line=dict(color=COL_RIB, width=5),
+            name="rib", showlegend=False, hoverinfo="skip"
+        ))
+
+    # Rings, spokes, drops
+    for k, idx_list in enumerate(data["built"]["ring_indices"]):
+        pp = coords_to_draw[idx_list]
+        closed = np.vstack([pp, pp[:1]])
+        fig.add_trace(go.Scatter3d(
+            x=closed[:, 0], y=closed[:, 1], z=closed[:, 2],
+            mode="lines", line=dict(color=COL_RING_EDGE, width=5),
+            name="ring", showlegend=False, hoverinfo="skip"
+        ))
+        centre_i = data["built"]["centre_indices"][k]
+        beam_i = data["built"]["beam_top_indices"][k]
+        cx, cy, cz = coords_to_draw[centre_i]
+        for poly_i in idx_list:
+            fig.add_trace(go.Scatter3d(
+                x=[cx, coords_to_draw[poly_i, 0]],
+                y=[cy, coords_to_draw[poly_i, 1]],
+                z=[cz, coords_to_draw[poly_i, 2]],
+                mode="lines", line=dict(color=COL_SPOKE, width=2),
+                name="spoke", showlegend=False, hoverinfo="skip"
+            ))
+        bx, by, bz = coords_to_draw[beam_i]
+        fig.add_trace(go.Scatter3d(
+            x=[cx, bx], y=[cy, by], z=[cz, bz],
+            mode="lines", line=dict(color=COL_DROP, width=4),
+            name="drop", showlegend=False, hoverinfo="skip"
+        ))
+
+    apply_common_layout(fig, apex)
+    return fig
+
+
+def _render_figure_to_png_base64(fig):
+    """Render the figure to a PNG, return base64 string, or None if unavailable."""
+    try:
+        img_bytes = fig.to_image(format="png", width=1200, height=700, scale=2)
+        return base64.b64encode(img_bytes).decode("utf-8")
+    except Exception:
+        return None
+
+
+# =============================================================================
 # MAIN RENDERER
 # =============================================================================
 
 def render_SDSe_analysis_report():
-    """Render the structured SDSe Analysis Report."""
+    # Print CSS
+    _inject_print_css()
 
     # Back buttons
     bcol1, bcol2, bcol3 = st.columns([1, 1, 3])
@@ -186,16 +322,14 @@ def render_SDSe_analysis_report():
             st.session_state.page = "landing"
             st.rerun()
 
-    # Check for results
+    # Check results
     data = st.session_state.get("fdm_results")
     newton_data = st.session_state.get("newton_results")
     if not data or not newton_data:
         st.warning("⚠ No analysis results available. Run the Lab page through Step 1 (FDM) and Step 2 (Structural Calculation) first.")
         return
 
-    # =========================================================================
-    # EXTRACT DATA
-    # =========================================================================
+    # Extract
     nd = newton_data["dr_result"]
     det = newton_data.get("details", {})
     sec = newton_data.get("sections", {})
@@ -214,7 +348,7 @@ def render_SDSe_analysis_report():
     secondary_count = st.session_state.get("mc_nribs", 3)
     final_pretension = newton_data.get("final_pretension", 1.0)
 
-    # Compute membrane utilization for the summary
+    # Membrane utilization
     fabric_props_full = FABRIC_PROPERTIES.get(fabric_family, {}).get(fabric_name, {})
     f_u_warp = fabric_props_full.get("f_u_warp")
     f_u_weft = fabric_props_full.get("f_u_weft")
@@ -232,11 +366,11 @@ def render_SDSe_analysis_report():
             max_principal_N_m = principal
 
     membrane_util = 0.0
+    f_u_min = 0.0
     if f_u_warp and f_u_weft:
         f_u_min = min(float(f_u_warp), float(f_u_weft))
         membrane_util = (max_principal_N_m / 1000.0) / f_u_min if f_u_min > 0 else 999.0
 
-    # Compute steel utilization
     max_steel_util = 0.0
     for key in ("primary", "rib", "ring", "drop"):
         if key in det and det[key] is not None:
@@ -244,7 +378,6 @@ def render_SDSe_analysis_report():
             if u > max_steel_util:
                 max_steel_util = u
 
-    # Compute deflection
     coords_to_draw = nd["coordinates"]
     max_deflection_mm = 0.0
     for i in range(len(data["coords_fdm"])):
@@ -254,11 +387,11 @@ def render_SDSe_analysis_report():
     limit_mm = (span * 1000.0) / 200.0
 
     # =========================================================================
-    # PAGE 1: COVER & EXECUTIVE SUMMARY
+    # PAGE 1: COVER + EXECUTIVE SUMMARY + 3D VIEW
     # =========================================================================
     _masthead()
 
-    _title_block("Executive Summary", "Verdict and critical results at a glance.")
+    _title_block("Executive Summary", "Verdict and critical results at a glance.", page_no=1)
 
     is_safe = (membrane_util <= 0.70 and max_steel_util <= 0.70 and max_deflection_mm <= limit_mm)
     critical_items = [
@@ -270,7 +403,6 @@ def render_SDSe_analysis_report():
     ]
     _executive_summary_box(is_safe, critical_items)
 
-    # Document control table
     st.markdown("### Document Control")
     doc_control = pd.DataFrame([
         {"Field": "Project Name", "Value": "SDSe Multi-Cone Roof Analysis"},
@@ -284,10 +416,22 @@ def render_SDSe_analysis_report():
     ])
     st.dataframe(doc_control, use_container_width=True, hide_index=True)
 
+    # --- 3D VIEW ---
+    st.markdown("### Form-Found Geometry (SDSe-FDM Output)")
+    fig = _build_report_figure(data, newton_data, span, apex, mid_width, number_of_cones)
+    st.plotly_chart(fig, use_container_width=True, key="SDSe_report_3d_view")
+
+    # Render to PNG for export
+    png_base64 = _render_figure_to_png_base64(fig)
+    if png_base64:
+        st.caption("✓ 3D view embedded in export.")
+    else:
+        st.caption("⚠ 3D image export unavailable (kaleido not installed). Install kaleido==0.2.1 in requirements.txt to enable.")
+
     # =========================================================================
     # PAGE 2: BASIS OF DESIGN
     # =========================================================================
-    _title_block("Basis of Design", "Codes, loads, materials, and geometry.", page_no=2)
+    _title_block("Basis of Design", "Codes, materials, geometry, and loads.", page_no=2)
 
     st.markdown("### 2.1 Design Codes & Philosophy")
     st.markdown(f"""
@@ -299,17 +443,16 @@ def render_SDSe_analysis_report():
     """)
 
     st.markdown("### 2.2 Material Properties")
-    material_data = [
+    st.dataframe(pd.DataFrame([
         {"Material": "Membrane Fabric", "Property": f"{fabric_name} ({fabric_family})"},
-        {"Material": "Fabric f_u (min)", "Property": f"{min(f_u_warp or 0, f_u_weft or 0):.1f} kN/m"},
+        {"Material": "Fabric f_u (min)", "Property": f"{f_u_min:.1f} kN/m"},
         {"Material": "Steel", "Property": "S355 (fy=355 MPa, E=210000 MPa)"},
         {"Material": "Concrete", "Property": "C25/30 (fc=25 MPa)"},
         {"Material": "Anchor Bolts", "Property": "J-Bolt Grade 8.8"},
-    ]
-    st.dataframe(pd.DataFrame(material_data), use_container_width=True, hide_index=True)
+    ]), use_container_width=True, hide_index=True)
 
     st.markdown("### 2.3 Geometry")
-    geom_data = [
+    st.dataframe(pd.DataFrame([
         {"Parameter": "Primary Span", "Value": f"{span:.1f} m"},
         {"Parameter": "Primary Apex", "Value": f"{apex:.1f} m"},
         {"Parameter": "Mid-Span Width", "Value": f"{mid_width:.1f} m"},
@@ -318,18 +461,16 @@ def render_SDSe_analysis_report():
         {"Parameter": "Number of Ribs", "Value": str(secondary_count)},
         {"Parameter": "Mesh Nodes", "Value": str(data['pts'].shape[0])},
         {"Parameter": "Mesh Triangles", "Value": str(len(data['tris']))},
-    ]
-    st.dataframe(pd.DataFrame(geom_data), use_container_width=True, hide_index=True)
+    ]), use_container_width=True, hide_index=True)
 
     st.markdown("### 2.4 Applied Loads")
-    load_data = [
+    st.dataframe(pd.DataFrame([
         {"Load": "Wind Speed", "Value": f"{wind_speed:.1f} m/s"},
         {"Load": "Snow Depth", "Value": f"{snow_depth:.2f} m"},
         {"Load": "Payload at Apex", "Value": f"{payload_kg:.0f} kg"},
         {"Load": "Membrane Dead Load", "Value": "1.102 kg/m²"},
         {"Load": "Steel Self-Weight", "Value": "From SECTION_PROPERTIES"},
-    ]
-    st.dataframe(pd.DataFrame(load_data), use_container_width=True, hide_index=True)
+    ]), use_container_width=True, hide_index=True)
 
     # =========================================================================
     # PAGE 3: FORM-FINDING & SOLVER TRACEABILITY
@@ -341,7 +482,6 @@ def render_SDSe_analysis_report():
     - **Status:** {data['solve_ok']}
     - **Force Imbalance:** {data['residual_fdm']:.4e} N (numerically zero)
     - **Estimated Edge Tension:** {data['fdm']['max_edge_tension_N']:.1f} N
-    - **Interpretation:** The FDM found a stable pre-stressed shape at the specified pretension.
     """)
 
     st.markdown("### 3.2 SDSe-NFDM Newton Convergence")
@@ -349,81 +489,69 @@ def render_SDSe_analysis_report():
     - **Convergence Reason:** `{nd.get('reason', 'unknown')}`
     - **Newton Iterations:** {nd['iterations']}
     - **Total Steps:** {nd.get('total_steps', 0)}
-    - **Final Residual (N):** {nd['residual_norm']:.4e}
-    - **Max Residual (N):** {nd.get('max_residual', nd['residual_norm']):.4e}
+    - **Final Residual:** {nd['residual_norm']:.4e} N
+    - **Max Residual:** {nd.get('max_residual', nd['residual_norm']):.4e} N
     - **Last Step Size:** {nd.get('last_step_m', 0.0) * 1000:.4f} mm
     - **Solver Time:** {nd['elapsed_seconds']:.2f} s
     """)
 
-    if nd.get("reason") == "converged":
-        st.success("✓ Solver converged on residual force.")
-    elif nd.get("reason") == "converged_disp":
-        st.info(f"✓ Solver converged on displacement (<0.1 mm last step).")
-    else:
-        st.error(f"✗ Solver did not converge cleanly. Reason: `{nd.get('reason')}`.")
-
-    st.markdown("### 3.3 Newton Iteration History (last 10 steps)")
+    st.markdown("### 3.3 Newton History (last 10)")
     hist = nd.get("history", [])
     if hist:
-        hist_rows = [
+        st.dataframe(pd.DataFrame([
             {"Step": i + 1, "Outer": row[0], "Inner": row[1], "||R||": f"{row[2]:.4e}", "max|R|": f"{row[3]:.4e}"}
             for i, row in enumerate(hist[-10:])
-        ]
-        st.dataframe(pd.DataFrame(hist_rows), use_container_width=True, hide_index=True)
+        ]), use_container_width=True, hide_index=True)
 
     # =========================================================================
-    # PAGE 4: MEMBRANE VERIFICATION (with PE sign-off)
+    # PAGE 4: MEMBRANE VERIFICATION
     # =========================================================================
     _title_block("Membrane Verification", "Principal stress vs. fabric breaking strength.", page_no=4)
 
     if f_u_warp and f_u_weft:
-        f_u_min = min(float(f_u_warp), float(f_u_weft))
-
         st.markdown("### 4.1 Calculation")
-        st.markdown(f"""
-        **Max Principal Stress Formula:**  
+        st.markdown("""
+        **Max Principal Stress:**  
         `σ_max = (σ_xx + σ_yy)/2 + √(((σ_xx - σ_yy)/2)² + σ_xy²)`
 
-        **Utilization Formula:**  
+        **Utilization:**  
         `Util = σ_max / f_u_min`
         """)
 
-        calc_data = [
+        st.dataframe(pd.DataFrame([
             {"Parameter": "σ_max (max principal stress)", "Value": f"{max_principal_N_m / 1000.0:.2f} kN/m"},
             {"Parameter": "f_u (min of warp/weft)", "Value": f"{f_u_min:.1f} kN/m"},
             {"Parameter": "Utilization", "Value": f"{membrane_util * 100:.1f}%"},
             {"Parameter": "SDSe Limit", "Value": "70%"},
-        ]
-        st.dataframe(pd.DataFrame(calc_data), use_container_width=True, hide_index=True)
+        ]), use_container_width=True, hide_index=True)
 
         if membrane_util > 0.70:
-            st.error(f"✗ **DANGER:** Membrane utilization {membrane_util * 100:.0f}% exceeds 70% limit. Fabric may rupture.")
+            st.error(f"✗ **DANGER:** Membrane utilization {membrane_util * 100:.0f}% exceeds 70% limit.")
         elif membrane_util > 0.50:
-            st.warning(f"⚠ **WARNING:** Membrane utilization {membrane_util * 100:.0f}%. Approaching ULS.")
+            st.warning(f"⚠ **WARNING:** Membrane utilization {membrane_util * 100:.0f}%.")
         else:
-            st.success(f"✓ **SAFE:** Membrane utilization {membrane_util * 100:.0f}%. Acceptable margin.")
+            st.success(f"✓ **SAFE:** Membrane utilization {membrane_util * 100:.0f}%.")
 
         st.markdown("### 4.2 Deflection")
         st.markdown(f"""
-        **Max Deflection:** {max_deflection_mm:.2f} mm  
-        **Limit (L/200):** {limit_mm:.1f} mm  
-        **Status:** {'PASS ✓' if max_deflection_mm <= limit_mm else 'FAIL ✗'}
+        - **Max Deflection:** {max_deflection_mm:.2f} mm
+        - **Limit (L/200):** {limit_mm:.1f} mm
+        - **Status:** {'PASS ✓' if max_deflection_mm <= limit_mm else 'FAIL ✗'}
         """)
 
         _signoff_block(
             "Membrane Verification",
-            "I certify that the membrane structure has been verified against rupture and deflection under the specified loads, in accordance with the stated design code."
+            "I certify that the membrane has been verified against rupture and deflection under the specified loads."
         )
     else:
-        st.warning("Fabric strength data unavailable for this fabric type.")
+        st.warning("Fabric strength data unavailable.")
 
     # =========================================================================
-    # PAGE 5: STEEL & CABLE VERIFICATION (with PE sign-off)
+    # PAGE 5: STEEL & CABLE VERIFICATION
     # =========================================================================
     _title_block("Steel & Cable Verification", "Member checks: axial, bending, and Euler buckling.", page_no=5)
 
     st.markdown("### 5.1 Member Schedule with Calculation Traceability")
-
     member_rows = []
     for key, label in [("primary", "Primary_Arch"), ("rib", "Rib_Arch"), ("ring", "Ring_Beam"), ("drop", "Drop_Member")]:
         if key not in det or det[key] is None:
@@ -462,40 +590,33 @@ def render_SDSe_analysis_report():
 
         st.markdown("### 5.2 Calculation Formulas")
         st.markdown("""
-        **Stress Check:**  
-        `stress_util = N_Ed / N_cap + M_Ed / M_cap`
-
-        **Euler Buckling:**  
-        `N_cr = π² · E · I / L_eff²`  
-        `buckling_util = N_Ed / N_cr`
-
-        **Combined:**  
-        `combined_util = stress_util + buckling_util ≤ 0.70`
+        - **Stress Check:** `stress_util = N_Ed / N_cap + M_Ed / M_cap`
+        - **Euler Buckling:** `N_cr = π² · E · I / L_eff²`
+        - **Buckling Util:** `buckling_util = N_Ed / N_cr`
+        - **Combined:** `stress_util + buckling_util ≤ 0.70`
         """)
 
         warn_members = [r for r in member_rows if float(r["Utilization"].rstrip("%")) > 70.0]
         if warn_members:
-            st.error(f"✗ **DANGER:** {len(warn_members)} member(s) exceed 70% utilization cap.")
-            for r in warn_members:
-                st.write(f"- **{r['Member']}** ({r['Section']}): {r['Utilization']}")
+            st.error(f"✗ **DANGER:** {len(warn_members)} member(s) exceed 70% cap.")
         else:
             st.success("✓ All members pass the SDSe 70% utilization cap.")
 
     st.markdown("### 5.3 Edge Cable")
     st.markdown(f"""
-    - **Selected Cable:** {newton_data.get('cable_name', 'unknown')}
+    - **Cable:** {newton_data.get('cable_name', 'unknown')}
     - **Area:** {newton_data.get('cable_A_mm2', 0):.1f} mm²
-    - **Design Tension:** {max([c['T_N'] for c in nd.get('cable_tension_list', [])] + [0]) / 1000.0:.2f} kN (max local segment)
+    - **Max Local Tension:** {max([c['T_N'] for c in nd.get('cable_tension_list', [])] + [0]) / 1000.0:.2f} kN
     - **Sizing Rule:** smallest catalogue cable with `A · f_u ≥ 2.0 × T_max_local`
     """)
 
     _signoff_block(
         "Steel & Cable Verification",
-        "I certify that the steel frame, cables, and connections have been verified against yielding, buckling, and rupture under the specified load combinations."
+        "I certify that the steel frame, cables, and connections have been verified against yielding, buckling, and rupture."
     )
 
     # =========================================================================
-    # PAGE 6: FOUNDATION & CONNECTION VERIFICATION (with PE sign-off)
+    # PAGE 6: FOUNDATION & CONNECTION VERIFICATION
     # =========================================================================
     _title_block("Foundation & Connection Verification", "Baseplates, anchor bolts, pads, and corner plates.", page_no=6)
 
@@ -520,16 +641,14 @@ def render_SDSe_analysis_report():
         st.dataframe(pd.DataFrame(baseplate_rows), use_container_width=True, hide_index=True)
 
     st.markdown("### 6.2 Corner Plate Summary")
-    st.info("Corner plates are sized for **local vector forces** at each anchor node. See the Lab page Diagnostics for the full per-node table.")
+    st.info("Corner plates sized for **local vector forces** at each anchor node.")
     st.markdown("""
-    **Local Force Formula:**  
-    `F_resultant = T_cable · |u_prev + u_next|`  
-    where `u_prev` and `u_next` are the unit vectors to the two adjacent anchor nodes.
+    **Local Force:** `F_resultant = T_cable · |u_prev + u_next|`
     """)
 
     _signoff_block(
         "Foundation & Connection Verification",
-        "I certify that the baseplates, anchor bolts, concrete pads, and corner plate connections have been verified against uplift, shear, bearing, and weld capacity."
+        "I certify that the baseplates, anchor bolts, concrete pads, and corner plate connections have been verified."
     )
 
     # =========================================================================
@@ -540,11 +659,10 @@ def render_SDSe_analysis_report():
     st.markdown("### A. Assumptions & Limitations")
     st.markdown("""
     - **Analysis Type:** Linear elastic member checks with tension-field membrane model.
-    - **Load Case:** ULS Uplift only. Downward loads (snow, payload) are approximated. Long-term creep and prestress relaxation are not modeled.
-    - **Buckling:** Euler buckling with effective length `L_eff = 0.7 × L` (conservative for parabolic arches).
+    - **Load Case:** ULS Uplift only. Downward loads approximated. No creep/relaxation.
+    - **Buckling:** Euler with `L_eff = 0.7 × L` (conservative for parabolic arches).
     - **Cable Model:** Pre-tensioned, linear, stays taut.
-    - **Not Included:** Fatigue, dynamic wind (vortex shedding, flutter), seismic, weld detail verification, concrete reinforcement, anchorage to ground beyond basic geometry.
-    - **Geometry:** Based on the form-found shape from SDSe-FDM. Physical tolerances during fabrication are not included.
+    - **Not Included:** Fatigue, dynamic wind (vortex, flutter), seismic, weld detail verification, concrete reinforcement, anchorage beyond basic geometry.
     """)
 
     st.markdown("### B. Disclaimer")
@@ -561,7 +679,6 @@ def render_SDSe_analysis_report():
         <strong>This SDSe report is generated by the SDSe engineering app.</strong><br><br>
         It is a <strong>design aid</strong>, not a substitute for professional engineering judgment.<br>
         All results must be <strong>verified by a licensed Professional Engineer</strong> before construction.<br><br>
-        The app does not guarantee fitness for purpose, code compliance in your jurisdiction, or safety in extreme events.<br>
         <strong>Use at your own risk.</strong>
         </div>
         """,
@@ -569,39 +686,49 @@ def render_SDSe_analysis_report():
     )
 
     # =========================================================================
-    # EXPORT
+    # PAGE 8: EXPORT & FINAL AUTHORISATION
     # =========================================================================
-    _title_block("Export & Final Authorisation", "Download the report and sign off.", page_no="END")
+    _title_block("Export & Final Authorisation", "Download the report and sign off.", page_no=8)
 
     report_md = _build_SDSe_markdown_report(
         span, apex, mid_width, eave_height, number_of_cones, secondary_count,
         code_choice, design_philosophy, wind_speed, snow_depth, payload_kg,
         fabric_family, fabric_name, final_pretension, nd,
         member_rows, is_safe, max_deflection_mm, limit_mm, membrane_util, max_steel_util,
+        png_base64,
     )
     st.download_button(
-        label="📥 Download SDSe Report (Markdown)",
+        label="📥 Download SDSe Report (Markdown with 3D Image)",
         data=report_md,
         file_name=f"SDSe_Analysis_Report_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.md",
         mime="text/markdown",
         use_container_width=True,
     )
 
+    st.info("""
+    **To print this report as PDF:**
+    1. Press **Ctrl+P** (Windows) or **Cmd+P** (Mac).
+    2. Select **"Save as PDF"** as the destination.
+    3. Click **Save**.
+
+    The 3D view, tables, and sign-off blocks are formatted to print cleanly.
+    """)
+
     _signoff_block(
         "Final Report Authorisation",
-        "I authorise this report for issue. The structure is verified safe for construction under the stated loads, codes, and assumptions. This report supersedes all previous revisions."
+        "I authorise this report for issue. The structure is verified safe for construction under the stated loads, codes, and assumptions."
     )
 
 
 # =============================================================================
-# MARKDOWN EXPORT
+# MARKDOWN EXPORT (with embedded 3D image)
 # =============================================================================
 
 def _build_SDSe_markdown_report(span, apex, mid_width, eave_height, cones, ribs,
                                  code, philosophy, wind, snow, payload,
                                  fabric_family, fabric_name, pretension, nd,
                                  member_rows, is_safe, defl_val, defl_limit,
-                                 mem_util, steel_util):
+                                 mem_util, steel_util, png_base64):
     lines = [
         "# SDSe STRUCTURAL ANALYSIS REPORT",
         "",
@@ -619,6 +746,16 @@ def _build_SDSe_markdown_report(span, apex, mid_width, eave_height, cones, ribs,
         f"- Steel Max Utilization: {steel_util * 100:.1f}% (Limit 70%)",
         f"- Max Deflection: {defl_val:.2f} mm (Limit {defl_limit:.1f} mm)",
         "",
+    ]
+
+    # Embed 3D image if available
+    if png_base64:
+        lines.append("### Form-Found Geometry (SDSe-FDM Output)")
+        lines.append("")
+        lines.append(f"![SDSe 3D View](data:image/png;base64,{png_base64})")
+        lines.append("")
+
+    lines += [
         "---",
         "",
         "## 1. Basis of Design",
@@ -641,22 +778,21 @@ def _build_SDSe_markdown_report(span, apex, mid_width, eave_height, cones, ribs,
         "| Member | Section | L_eff (m) | N_Ed (kN) | N_cap (kN) | N_cr (kN) | Util |",
         "|---|---|---|---|---|---|---|",
     ]
+
     for r in member_rows:
         lines.append(f"| {r['Member']} | {r['Section']} | {r['L_eff (m)']} | {r['N_Ed (kN)']} | {r['N_cap (kN)']} | {r['N_cr (kN)']} | {r['Utilization']} |")
 
     lines += [
         "",
         "## 5. Membrane",
-        f"- Max Principal Stress: (see calculator)",
         f"- Utilization: {mem_util * 100:.1f}% (Limit 70%)",
         "",
         "## 6. Deflection",
-        f"- Max Deflection: {defl_val:.2f} mm",
-        f"- Limit (L/200): {defl_limit:.1f} mm",
+        f"- Max: {defl_val:.2f} mm (Limit {defl_limit:.1f} mm)",
         "",
         "## 7. Assumptions",
         "- Linear elastic members, tension-field membrane.",
-        "- ULS Uplift only; downward loads approximated.",
+        "- ULS Uplift only. Downward approximated.",
         "- No fatigue, dynamic wind, or seismic.",
         "",
         "## 8. Disclaimer",
