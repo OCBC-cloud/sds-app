@@ -5,3 +5,4 @@ numpy
 reportlab
 scipy
 streamlit-analytics2
+kaleido==0.2.1
