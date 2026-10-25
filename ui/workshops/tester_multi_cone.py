@@ -49,6 +49,10 @@ COL_DROP = "#a0a0a0"
 PRETENSION_STEPS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0]
 UTILIZATION_WARN_THRESHOLD = 0.60
 
+# Membrane dead load (PVDF Type III) in kg/m²
+MEMBRANE_DEAD_LOAD_KG_M2 = 1.102
+GRAVITY = 9.81
+
 
 # =============================================================================
 # AUTO-SIZING HELPERS
@@ -83,11 +87,34 @@ def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
     return ("Fallback 10mm strand", 63.0, 160000, 10e9, 10.0)
 
 
-def _select_steel_section(max_axial_kN, max_moment_kNm, family="CHS", grade="S355", effective_length_m=0.0):
-    """Pick the smallest section in the family that passes combined stress and buckling."""
+def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, family="CHS", grade="S355"):
+    """
+    Iterative steel sizing that includes self-weight.
+    Returns (section_name, total_demand_kN, util, total_weight_kg, L_eff_m).
+    """
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
     E_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000)
+    rho = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("rho", 7850)
+    
+    # Load factors
+    if code_choice == "MS 1553":
+        gamma_DL = 1.35
+        gamma_LL = 1.5
+    elif code_choice == "ASCE 7":
+        gamma_DL = 1.2
+        gamma_LL = 1.6
+    else:
+        gamma_DL = 1.5
+        gamma_LL = 1.5
+        
+    # Effective length: for a straight beam, L_eff = L. For an arch, assume 0.7 * L.
+    L_eff_m = 0.7 * length_m
+    
+    # Membrane dead load on this member's tributary area (in kN)
+    membrane_DL_kN = MEMBRANE_DEAD_LOAD_KG_M2 * GRAVITY * tributary_width_m * length_m / 1000.0
+    
     best = None
+    best_details = None
     
     for name, props in SECTION_PROPERTIES.items():
         if props.get("type") != family:
@@ -95,29 +122,53 @@ def _select_steel_section(max_axial_kN, max_moment_kNm, family="CHS", grade="S35
             
         A_mm2 = props.get("A", 1.0)
         W_el_mm3 = props.get("W_el", 1.0)
-        N_Ed = max_axial_kN * 1000.0
-        M_Ed = max_moment_kNm * 1e6
+        weight_kg_m = props.get("weight", 0.0)
+        
+        # Steel self-weight (in kN)
+        steel_DL_kN = weight_kg_m * GRAVITY * length_m / 1000.0
+        
+        # Total dead load
+        total_DL_kN = steel_DL_kN + membrane_DL_kN
+        
+        # Combined demand
+        N_Ed_ULS = gamma_DL * total_DL_kN + gamma_LL * n_wind_kN
+        
+        # Moment demand: simple beam approximation M = w * L^2 / 8
+        # For arch, we assume a much smaller moment, but check it anyway
+        M_Ed_kNm = (N_Ed_ULS * length_m) / 20.0  # simplified arch moment
+        
+        N_Ed = N_Ed_ULS * 1000.0
+        M_Ed = M_Ed_kNm * 1e6
         N_cap = A_mm2 * fy_MPa
         M_cap = W_el_mm3 * fy_MPa
         
-        # 1. Stress utilization
-        util = (N_Ed / N_cap) + (M_Ed / M_cap)
+        util_stress = (N_Ed / N_cap) + (M_Ed / M_cap)
         
-        # 2. Buckling utilization (Euler)
+        # Buckling
         buckling_util = 0.0
-        if effective_length_m > 0.0 and "I" in props:
+        if "I" in props:
             I_mm4 = props["I"]
-            L_mm = effective_length_m * 1000.0
-            K = 1.0 # Pinned-pinned assumption
+            L_mm = L_eff_m * 1000.0
+            K = 1.0
             N_cr = (math.pi**2 * E_MPa * I_mm4) / ((K * L_mm)**2)
             buckling_util = N_Ed / N_cr if N_cr > 0 else 999.0
             
-        combined_util = util + buckling_util
+        combined_util = util_stress + buckling_util
         
-        if combined_util <= 0.9 and best is None:
-            best = name
-            
-    return best if best else "Oversize required"
+        if combined_util <= 0.9:
+            if best is None or combined_util < best_details["util"]:
+                best = name
+                best_details = {
+                    "util": combined_util,
+                    "N_Ed_kN": N_Ed_ULS,
+                    "M_Ed_kNm": M_Ed_kNm,
+                    "total_DL_kN": total_DL_kN,
+                    "steel_DL_kN": steel_DL_kN,
+                    "membrane_DL_kN": membrane_DL_kN,
+                    "L_eff_m": L_eff_m,
+                }
+                
+    return best if best else "Oversize required", best_details
 
 
 # =============================================================================
@@ -225,7 +276,7 @@ def _cone_arc_positions(n_cones, spacing, total):
 # Member schedule
 # =============================================================================
 
-def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_scalar, warp_q, weft_q, cable_name, cable_A_mm2, steel_section, eave_height, span, mid_width):
+def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_scalar, warp_q, weft_q, cable_name, cable_A_mm2, sections, eave_height, span, mid_width, ring_diameter):
     members = []
     ring_indices = built["ring_indices"]
     centre_indices = built["centre_indices"]
@@ -234,15 +285,15 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
     n_perimeter = built["n_perimeter"]
 
     primary_beam_length = span * 1.2
-    members.append({"member_id": "Primary_Beam_Main", "member_type": "primary_beam", "length_m": float(primary_beam_length), "section": steel_section, "material": "S355", "role": "Main arched beam from ground to ground"})
+    members.append({"member_id": "Primary_Beam_Main", "member_type": "primary_beam", "length_m": float(primary_beam_length), "section": sections["primary"], "material": "S355", "role": "Main arched beam from ground to ground"})
 
     rib_length = mid_width * 1.5
     for i in range(3):
-        members.append({"member_id": "Rib_Beam_%d" % (i+1), "member_type": "rib_beam", "length_m": float(rib_length), "section": steel_section, "material": "S355", "role": "Secondary arched beam from primary beam to ground"})
+        members.append({"member_id": "Rib_Beam_%d" % (i+1), "member_type": "rib_beam", "length_m": float(rib_length), "section": sections["rib"], "material": "S355", "role": "Secondary arched beam from primary beam to ground"})
 
     stub_length = eave_height
     for i in range(len(anchor_idx)):
-        members.append({"member_id": "Stub_Col_%d" % (i+1), "member_type": "stub_column", "length_m": float(stub_length), "section": steel_section, "material": "S355", "role": "Vertical stub from eave to baseplate"})
+        members.append({"member_id": "Stub_Col_%d" % (i+1), "member_type": "stub_column", "length_m": float(stub_length), "section": sections["stub"], "material": "S355", "role": "Vertical stub from eave to baseplate"})
 
     for k in range(len(ring_indices)):
         ring_no = k + 1
@@ -253,12 +304,12 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
             a = int(idx_list[i])
             b = int(idx_list[(i + 1) % n_poly])
             ring_length += float(np.linalg.norm(coords[b] - coords[a]))
-        members.append({"member_id": "Ring_%d_Ring_Beam" % ring_no, "member_type": "ring_beam", "length_m": float(ring_length), "section": steel_section, "material": "S355", "role": "closed ring beam, one per cone"})
+        members.append({"member_id": "Ring_%d_Ring_Beam" % ring_no, "member_type": "ring_beam", "length_m": float(ring_length), "section": sections["ring"], "material": "S355", "role": "closed ring beam, one per cone"})
         
         centre_i = int(centre_indices[k])
         beam_i = int(beam_top_indices[k])
         L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
-        members.append({"member_id": "Ring_%d_Drop_Member" % ring_no, "member_type": "drop_member", "length_m": L, "section": steel_section, "material": "S355", "role": "vertical drop from primary beam to ring centre"})
+        members.append({"member_id": "Ring_%d_Drop_Member" % ring_no, "member_type": "drop_member", "length_m": L, "section": sections["drop"], "material": "S355", "role": "vertical drop from primary beam to ring centre"})
 
     total_cable_length = 0.0
     for i in range(n_perimeter):
@@ -349,7 +400,7 @@ def render_tester_multi_cone():
     
     c1, c2 = st.columns(2)
     with c1:
-        code_choice = st.selectbox("Building Code", list(CODE_PARAMS.keys()), index=0, key="mc_code")
+        code_choice = st.selectbox("Building Code", ["MS 1553", "ASCE 7", "EN 1991"], index=0, key="mc_code")
     with c2:
         design_philosophy = st.selectbox("Design Philosophy", ["Serviceability (Unfactored)", "Ultimate Limit State (Factored)"], index=0, key="mc_design_philosophy")
 
@@ -496,7 +547,6 @@ def render_tester_multi_cone():
                     warp_prestress_N_per_m=cur_warp, weft_prestress_N_per_m=cur_weft,
                 )
                 
-                # Accept convergence if the nodes are moving less than 0.1mm (1e-4 m).
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=loads,
@@ -515,58 +565,92 @@ def render_tester_multi_cone():
             if final_pretension > 0.1:
                 st.warning("Converged at increased pretension: %.1f kN/m membrane, %.1f kN/m cable." % (final_pretension, final_pretension * 5.0))
 
-            # --- FIXED CABLE SIZING LOGIC ---
-            # Find the true maximum tension in ANY single cable segment from the solver
+            # Local max cable tension
             if "cable_tension_list" in dr_result and len(dr_result["cable_tension_list"]) > 0:
                 max_actual_T = max([c["T_N"] for c in dr_result["cable_tension_list"]])
             else:
                 max_actual_T = data["fdm"]["max_edge_tension_N"]
                 
-            # Ensure we account for the FDM baseline tension
             design_tension_N = max(max_actual_T, data["fdm"]["max_edge_tension_N"])
             
-            # Size the cable based on this local maximum, NOT a global perimeter sum.
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(design_tension_N, safety_factor=2.0)
 
+            # Get the max reaction force for steel sizing
             if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
                 max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)/1000.0 for r in dr_result["reactions"]])
             else:
                 max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
-                
-            steel_section = _select_steel_section(
+
+            # --- MEMBER-SPECIFIC SIZING WITH SELF-WEIGHT ---
+            # Primary beam: full span length
+            sec_primary, det_primary = _select_steel_section(
                 max_reaction_kN, 
-                (max_reaction_kN * data["span"]) / 8.0, 
-                family="CHS", 
-                grade="S355",
-                effective_length_m=data["span"]
+                length_m=data["span"],
+                tributary_width_m=data["mid_width"],
+                code_choice=code_choice,
+                family="CHS", grade="S355"
             )
             
-            if steel_section == "Oversize required":
-                st.error("Steel section required exceeds catalogue. Increase membrane pretension, reduce span, or add ribs.")
+            # Ribs: span across the width
+            sec_rib, det_rib = _select_steel_section(
+                max_reaction_kN * 0.5, 
+                length_m=data["mid_width"],
+                tributary_width_m=data["mid_width"] / (secondary_count + 1.0),
+                code_choice=code_choice,
+                family="CHS", grade="S355"
+            )
+            
+            # Stub columns: eave height
+            sec_stub, det_stub = _select_steel_section(
+                max_reaction_kN * 0.5, 
+                length_m=data["eave_height"],
+                tributary_width_m=2.0,
+                code_choice=code_choice,
+                family="CHS", grade="S355"
+            )
+            
+            # Ring beams: ring diameter
+            sec_ring, det_ring = _select_steel_section(
+                max_reaction_kN * 0.25, 
+                length_m=ring_diameter,
+                tributary_width_m=ring_diameter,
+                code_choice=code_choice,
+                family="CHS", grade="S355"
+            )
+            
+            # Drop members: ring clearance
+            sec_drop, det_drop = _select_steel_section(
+                max_reaction_kN * 0.25, 
+                length_m=ring_clearance,
+                tributary_width_m=1.0,
+                code_choice=code_choice,
+                family="CHS", grade="S355"
+            )
+            
+            if "Oversize required" in [sec_primary, sec_rib, sec_stub, sec_ring, sec_drop]:
+                st.error("One or more steel sections exceed the catalogue. Increase pretension, reduce span, or add ribs.")
                 return
 
-            fy_MPa = STEEL_MATERIALS.get("Steel", {}).get("S355", {}).get("fy", 355)
-            props = SECTION_PROPERTIES.get(steel_section, {})
-            A_mm2 = props.get("A", 1.0)
-            W_el_mm3 = props.get("W_el", 1.0)
-            N_Ed = max_reaction_kN * 1000.0
-            M_Ed = (max_reaction_kN * data["span"] / 8.0) * 1e6
-            N_cap = A_mm2 * fy_MPa
-            M_cap = W_el_mm3 * fy_MPa
-            util = (N_Ed / N_cap) + (M_Ed / M_cap)
-
-            if util > UTILIZATION_WARN_THRESHOLD:
-                st.warning(
-                    "Warning: Steel section utilization is at %.0f%%. "
-                    "Consider adding more ribs to reduce the unsupported membrane surface, "
-                    "or adding more cones to provide more pull holding supports." % (util * 100)
-                )
+            # Compute utilization for warning
+            if det_primary is not None:
+                util = det_primary["util"]
+                if util > UTILIZATION_WARN_THRESHOLD:
+                    st.warning(
+                        "Warning: Primary Beam utilization is at %.0f%%. "
+                        "Consider adding more ribs to reduce the unsupported membrane surface." % (util * 100)
+                    )
 
             coords_to_draw = dr_result["coordinates"]
             st.session_state["newton_results"] = {
                 "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
                 "cable_d_mm": cable_d_mm,
-                "steel_section": steel_section, "beam_axial_kN": max_reaction_kN, "beam_moment_kNm": (max_reaction_kN * data["span"]) / 8.0,
+                "sections": {
+                    "primary": sec_primary, "rib": sec_rib, "stub": sec_stub, "ring": sec_ring, "drop": sec_drop
+                },
+                "details": {
+                    "primary": det_primary, "rib": det_rib, "stub": det_stub, "ring": det_ring, "drop": det_drop
+                },
+                "beam_axial_kN": max_reaction_kN,
                 "cables": cables, "material": mat, "final_pretension": final_pretension
             }
 
@@ -600,17 +684,14 @@ def render_tester_multi_cone():
 
     apply_common_layout(fig, data["apex"])
     
-    # --- FIX: Manual Viewer Reset Button ---
     col_reset1, col_reset2 = st.columns([1, 4])
     with col_reset1:
         if st.button("🔄 Reset Camera", use_container_width=True):
             st.session_state["viewer_reset"] = st.session_state.get("viewer_reset", 0) + 1
             st.rerun()
 
-    # The key changes if the button is pressed OR if the geometry changes.
     reset_state = st.session_state.get("viewer_reset", 0)
     geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}_{reset_state}"
-    
     st.plotly_chart(fig, use_container_width=True, key=f"mc_3d_{geom_hash}")
 
     with st.expander("Diagnostics", expanded=True):
@@ -644,6 +725,18 @@ def render_tester_multi_cone():
             st.write("Newton reason: %s" % nd.get("reason", ""))
             
             st.write("---")
+            st.write("**Steel Sizing Details (with self-weight):**")
+            det = newton_data.get("details", {})
+            sec = newton_data.get("sections", {})
+            for key, label in [("primary", "Primary"), ("rib", "Rib"), ("stub", "Stub"), ("ring", "Ring"), ("drop", "Drop")]:
+                if key in det and det[key] is not None:
+                    d = det[key]
+                    st.write(
+                        "**%s** → `%s` | L_eff=%.2fm | Steel DL=%.1f kN | Membrane DL=%.1f kN | N_Ed=%.1f kN | Util=%.0f%%"
+                        % (label, sec[key], d["L_eff_m"], d["steel_DL_kN"], d["membrane_DL_kN"], d["N_Ed_kN"], d["util"] * 100)
+                    )
+
+            st.write("---")
             st.write("**Reaction Forces & Foundation Design:**")
             R = nd.get("reactions", None)
             if R is not None:
@@ -658,7 +751,7 @@ def render_tester_multi_cone():
                     )
                     for idx in anchor_idx:
                         r = R[idx]
-                        design = design_baseplate_and_foundation(r, newton_data["steel_section"], 0.0)
+                        design = design_baseplate_and_foundation(r, newton_data["sections"]["primary"], 0.0)
                         st.code(
                             "%-6d  %-8.2f  %-8.2f  %-10.1f  %-10.1f  %-10.1f  %-12.1f  %-10s  %-10s  %-12s"
                             % (
@@ -683,7 +776,7 @@ def render_tester_multi_cone():
                         r_drop = R[bi]
                         st.code(
                             "%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s"
-                            % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, newton_data["steel_section"]),
+                            % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, newton_data["sections"]["drop"]),
                             language="text"
                         )
 
@@ -772,10 +865,13 @@ def render_tester_multi_cone():
                 for row in hist[-5:]:
                     st.write("  outer=%s  inner=%s  ||R||=%.4e  max|R|=%.4e" % (row[0], row[1], row[2], row[3]))
 
-            members = _build_member_schedule(data["built"], coords_to_draw, data["x_rings"], data["anchor_idx"], data["edge_q_scalar"], data["warp_q"], data["weft_q"], newton_data["cable_name"], newton_data["cable_A_mm2"], newton_data["steel_section"], data["eave_height"], data["span"], data["mid_width"])
+            members = _build_member_schedule(data["built"], coords_to_draw, data["x_rings"], data["anchor_idx"], data["edge_q_scalar"], data["warp_q"], data["weft_q"], newton_data["cable_name"], newton_data["cable_A_mm2"], newton_data["sections"], data["eave_height"], data["span"], data["mid_width"], ring_diameter)
             with st.expander("Member schedule (auto-sized)", expanded=True):
                 st.write("Edge cable: **%s** (A=%.1f mm2)" % (newton_data["cable_name"], newton_data["cable_A_mm2"]))
-                st.write("Steel section: **%s**" % newton_data["steel_section"])
+                st.write("Primary Beam: **%s**" % newton_data["sections"]["primary"])
+                st.write("Rib Beams: **%s**" % newton_data["sections"]["rib"])
+                st.write("Ring Beams: **%s**" % newton_data["sections"]["ring"])
+                st.write("Drop Members: **%s**" % newton_data["sections"]["drop"])
                 st.write("Total members recorded: %d" % len(members))
                 st.code(_format_member_table(members), language="text")
 
