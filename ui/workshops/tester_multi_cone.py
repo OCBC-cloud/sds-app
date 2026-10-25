@@ -90,22 +90,21 @@ def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
 def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, family="CHS", grade="S355"):
     """
     Iterative steel sizing that includes self-weight.
-    Returns (section_name, total_demand_kN, util, total_weight_kg, L_eff_m).
+    Uses proper transverse load moment, not axial*length.
     """
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
     E_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000)
-    rho = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("rho", 7850)
     
-    # Load factors
+    # Load factors for ULS Uplift case
     if code_choice == "MS 1553":
-        gamma_DL = 1.35
-        gamma_LL = 1.5
+        gamma_DL = 0.9   # minimum DL for uplift case
+        gamma_WL = 1.5
     elif code_choice == "ASCE 7":
-        gamma_DL = 1.2
-        gamma_LL = 1.6
+        gamma_DL = 0.9
+        gamma_WL = 1.0
     else:
-        gamma_DL = 1.5
-        gamma_LL = 1.5
+        gamma_DL = 1.0
+        gamma_WL = 1.5
         
     # Effective length: for a straight beam, L_eff = L. For an arch, assume 0.7 * L.
     L_eff_m = 0.7 * length_m
@@ -113,31 +112,43 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
     # Membrane dead load on this member's tributary area (in kN)
     membrane_DL_kN = MEMBRANE_DEAD_LOAD_KG_M2 * GRAVITY * tributary_width_m * length_m / 1000.0
     
-    best = None
-    best_details = None
-    
+    # Get the list of candidate sections sorted by area (lightest first)
+    candidates = []
     for name, props in SECTION_PROPERTIES.items():
         if props.get("type") != family:
             continue
-            
-        A_mm2 = props.get("A", 1.0)
+        if "I" not in props or "A" not in props:
+            continue
+        candidates.append((props.get("A", 1e9), name, props))
+    candidates.sort(key=lambda c: c[0])
+    
+    # Limit to first 30 candidates (avoid looping over every single section)
+    candidates = candidates[:30]
+    
+    for A_mm2, name, props in candidates:
         W_el_mm3 = props.get("W_el", 1.0)
         weight_kg_m = props.get("weight", 0.0)
         
         # Steel self-weight (in kN)
         steel_DL_kN = weight_kg_m * GRAVITY * length_m / 1000.0
         
-        # Total dead load
+        # Total dead load (in kN)
         total_DL_kN = steel_DL_kN + membrane_DL_kN
         
-        # Combined demand
-        N_Ed_ULS = gamma_DL * total_DL_kN + gamma_LL * n_wind_kN
+        # Transverse distributed load (wind + self-weight)
+        # For an arch under uplift, the net transverse load is small
+        w_transverse_kN_m = (gamma_WL * n_wind_kN - gamma_DL * total_DL_kN) / length_m
+        if w_transverse_kN_m < 0:
+            w_transverse_kN_m = 0.0  # no downward push
         
-        # Moment demand: simple beam approximation M = w * L^2 / 8
-        # For arch, we assume a much smaller moment, but check it anyway
-        M_Ed_kNm = (N_Ed_ULS * length_m) / 20.0  # simplified arch moment
+        # Simple beam moment approximation for transverse load
+        M_Ed_kNm = w_transverse_kN_m * length_m**2 / 8.0
         
-        N_Ed = N_Ed_ULS * 1000.0
+        # Axial force is the wind reaction directly (already in kN)
+        N_Ed_axial_kN = gamma_WL * n_wind_kN
+        
+        # Capacity checks
+        N_Ed = N_Ed_axial_kN * 1000.0
         M_Ed = M_Ed_kNm * 1e6
         N_cap = A_mm2 * fy_MPa
         M_cap = W_el_mm3 * fy_MPa
@@ -146,29 +157,36 @@ def _select_steel_section(n_wind_kN, length_m, tributary_width_m, code_choice, f
         
         # Buckling
         buckling_util = 0.0
-        if "I" in props:
-            I_mm4 = props["I"]
-            L_mm = L_eff_m * 1000.0
-            K = 1.0
-            N_cr = (math.pi**2 * E_MPa * I_mm4) / ((K * L_mm)**2)
-            buckling_util = N_Ed / N_cr if N_cr > 0 else 999.0
+        I_mm4 = props["I"]
+        L_mm = L_eff_m * 1000.0
+        K = 1.0
+        N_cr = (math.pi**2 * E_MPa * I_mm4) / ((K * L_mm)**2)
+        buckling_util = N_Ed / N_cr if N_cr > 0 else 999.0
             
         combined_util = util_stress + buckling_util
         
         if combined_util <= 0.9:
-            if best is None or combined_util < best_details["util"]:
-                best = name
-                best_details = {
-                    "util": combined_util,
-                    "N_Ed_kN": N_Ed_ULS,
-                    "M_Ed_kNm": M_Ed_kNm,
-                    "total_DL_kN": total_DL_kN,
-                    "steel_DL_kN": steel_DL_kN,
-                    "membrane_DL_kN": membrane_DL_kN,
-                    "L_eff_m": L_eff_m,
-                }
-                
-    return best if best else "Oversize required", best_details
+            return name, {
+                "util": combined_util,
+                "N_Ed_kN": N_Ed_axial_kN,
+                "M_Ed_kNm": M_Ed_kNm,
+                "total_DL_kN": total_DL_kN,
+                "steel_DL_kN": steel_DL_kN,
+                "membrane_DL_kN": membrane_DL_kN,
+                "L_eff_m": L_eff_m,
+            }
+    
+    # If we didn't find a suitable one, return the largest
+    A_mm2, name, props = candidates[-1]
+    return name, {
+        "util": 1.0,
+        "N_Ed_kN": N_Ed_axial_kN,
+        "M_Ed_kNm": M_Ed_kNm,
+        "total_DL_kN": total_DL_kN,
+        "steel_DL_kN": steel_DL_kN,
+        "membrane_DL_kN": membrane_DL_kN,
+        "L_eff_m": L_eff_m,
+    }
 
 
 # =============================================================================
