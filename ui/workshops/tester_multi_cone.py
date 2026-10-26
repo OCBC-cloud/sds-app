@@ -694,12 +694,14 @@ def render_tester_multi_cone():
             # --- STAGE 3: 3D FRAME SOLVER (Automatic) ---
             stage3_results = None
             try:
-                # We must temporarily store newton_data to feed the builder
                 temp_newton_data = {"dr_result": dr_result}
                 
-                # Fire the sizer
+                # We need to pass the ring diameter into the data dictionary for the sizer
+                data_for_sizer = dict(data)
+                data_for_sizer["ring_diameter"] = ring_diameter
+                
                 stage3_results = size_steel_frame(
-                    data=data, 
+                    data=data_for_sizer, 
                     newton_data=temp_newton_data, 
                     code_choice=code_choice, 
                     grade="S355", 
@@ -716,7 +718,7 @@ def render_tester_multi_cone():
                 "cable_A_mm2": cable_A_mm2, 
                 "EA_cable": EA_cable,
                 "cable_d_mm": cable_d_mm,
-                "design_tension_N": design_tension_N, # FIX: Saving this for the report
+                "design_tension_N": design_tension_N,
                 "sections": {
                     "primary": sec_primary, "rib": sec_rib, "ring": sec_ring, "drop": sec_drop
                 },
@@ -730,6 +732,11 @@ def render_tester_multi_cone():
             
             if stage3_results:
                 st.session_state["stage3_results"] = stage3_results
+                # Update the sections in newton_data with the Stage 3 results
+                if "sections" in stage3_results:
+                    st.session_state["newton_results"]["sections"] = stage3_results["sections"]
+                if "details" in stage3_results:
+                    st.session_state["newton_results"]["details"] = stage3_results["details"]
 
     newton_data = st.session_state.get("newton_results")
     if newton_data and not btn_newton:
@@ -861,9 +868,17 @@ def render_tester_multi_cone():
                         % ("Node", "X(m)", "Y(m)", "Fx(kN)", "Fy(kN)", "Fz(kN)", "Moment(kNm)", "Plate(mm)", "Bolts", "Pad(mm)"),
                         language="text"
                     )
+                    
+                    # Determine primary section
+                    primary_sec = "CHS 100"
+                    if stage3_data and "sections" in stage3_data:
+                        primary_sec = stage3_data["sections"].get("primary", "CHS 100")
+                    elif "sections" in newton_data:
+                        primary_sec = newton_data["sections"].get("primary", "CHS 100")
+
                     for idx in anchor_idx:
                         r = R[idx]
-                        design = design_baseplate_and_foundation(r, newton_data["sections"]["primary"], 0.0)
+                        design = design_baseplate_and_foundation(r, primary_sec, data["eave_height"])
                         st.code(
                             "%-6d  %-8.2f  %-8.2f  %-10.1f  %-10.1f  %-10.1f  %-12.1f  %-10s  %-10s  %-12s"
                             % (
@@ -886,9 +901,14 @@ def render_tester_multi_cone():
                         ci = data["built"]["centre_indices"][k]
                         bi = data["built"]["beam_top_indices"][k]
                         r_drop = R[bi]
+                        drop_section = "CHS 21.3x2.3"
+                        if stage3_data and "sections" in stage3_data:
+                            drop_section = stage3_data["sections"].get("drop", drop_section)
+                        elif "sections" in newton_data:
+                            drop_section = newton_data["sections"].get("drop", drop_section)
                         st.code(
                             "%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s"
-                            % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, newton_data["sections"]["drop"]),
+                            % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, drop_section),
                             language="text"
                         )
 
