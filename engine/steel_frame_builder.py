@@ -10,36 +10,22 @@ The frame consists of:
   - Radial spokes       (from ring nodes to drop member)
   - Boundary cables     (tension-only edge cable)
 
-Node classification:
-  - BOUNDARY nodes: membrane edge anchors (where cables terminate)
-  - SPINE nodes:    along the primary beam
-  - RIB nodes:      along each longitudinal member
-  - RING nodes:     around each cone ring
-  - DROP nodes:     centre of each ring, at the top of the drop member
-  - SPOKE nodes:    ring nodes (spokes connect ring node → drop node)
-  - BASEPLATE nodes: ground anchors (fixed in the solver)
-
 Forces transferred from the membrane to the frame:
   - Cable end reactions at boundary anchors (CONNECTION_CABLE)
-  - Rigid membrane pull at ring nodes (CONNECTION_RIGID with spokes)
-  - Optional KADER transverse forces at rib nodes (future)
 
 The builder produces:
-  - nodes: (N, 3) coordinates
-  - elements: list of {"a": int, "b": int, "section": str}
-  - fixed_indices: nodes fixed in the 3D solver
-  - node_kind: list of str, one per node ("boundary", "spine", "ring", etc.)
-  - membrane_loads: (N, 3) array of forces from the membrane
-  - section_lookup: dict, "primary"→CHS, "rib"→CHS, etc.
+  - nodes:               (N, 3) coordinates
+  - elements:            list of {"a", "b", "section", "kind"}
+  - fixed_indices:       nodes fixed in the 3D solver
+  - node_kind:           list of str, one per node
+  - membrane_loads:      (N, 3) array of forces from membrane (in N)
+  - anchor_to_frame_id:  dict mapping membrane mesh index -> frame node id
+  - cone_drop_node_ids:  list of frame node ids (one per cone)
 """
 
 import numpy as np
 
 from engine.membrane_connections import (
-    CONNECTION_RIGID,
-    CONNECTION_CABLE,
-    CONNECTION_SPOKE,
-    transfer_connection,
     normalize,
     vector_sum,
 )
@@ -55,7 +41,6 @@ NODE_RIB = "rib"
 NODE_RING = "ring"
 NODE_DROP = "drop"
 NODE_BASEPLATE = "baseplate"
-NODE_SADDLE_TIP = "saddle_tip"  # For hypar shapes
 
 
 # =============================================================================
@@ -63,11 +48,7 @@ NODE_SADDLE_TIP = "saddle_tip"  # For hypar shapes
 # =============================================================================
 
 def _merge_close_nodes(nodes, tolerance=1e-4):
-    """Return a mapping that merges coincident nodes.
-    
-    Two nodes are coincident if their 3D distance is < tolerance.
-    Returns: (unique_nodes, merge_map) where merge_map[i] = index in unique_nodes.
-    """
+    """Return a mapping that merges coincident nodes."""
     if len(nodes) == 0:
         return np.zeros((0, 3)), np.zeros(0, dtype=int)
     
@@ -94,68 +75,50 @@ def _merge_close_nodes(nodes, tolerance=1e-4):
 # =============================================================================
 
 def build_steel_frame(data, newton_data, connection_types=None):
-    """
-    Build the 3D steel frame from the multi-cone mesh data.
-    
-    Returns a dict with:
-      nodes:              (N, 3) array
-      elements:           list of {"a": int, "b": int, "section": str, "kind": str}
-      fixed_indices:      list of node indices fixed in the solver
-      node_kind:          list of str, one per node
-      membrane_loads:     (N, 3) array of forces from membrane (in N)
-      cone_drop_node_ids: list of node ids (one per cone)
-      boundary_node_ids:  list of node ids (membrane anchors)
-    """
+    """Build the 3D steel frame from the multi-cone mesh data."""
     if connection_types is None:
-        # Default universal connection types
         connection_types = {
-            "boundary": CONNECTION_CABLE,
-            "ring": CONNECTION_RIGID,
+            "boundary": "cable",
+            "ring": "rigid",
         }
     
     # ==========================================================================
     # COLLECT ALL NODES
     # ==========================================================================
-    # We gather nodes from three sources:
-    #   1. Baseplate nodes (arch springing points)
-    #   2. Boundary anchor nodes (membrane boundary terminations)
-    #   3. Spine, rib, ring, drop nodes (frame nodes along each member)
-    # We then merge coincident nodes so the frame is connected.
-    
     all_nodes = []
     node_kind_list = []
-    node_meta = []  # (kind, source_dict) - for reconstructing indices
+    node_meta = []
     
-    # --- Baseplate / boundary nodes ---
     coords_fdm = newton_data["dr_result"]["coordinates"]
     anchor_idx = data["anchor_idx"]
-    anchor_to_frame_id = {}
+    anchor_to_frame_id_old = {}
     
+    # --- Boundary anchor nodes ---
     for mesh_idx in anchor_idx:
         pos = coords_fdm[mesh_idx].copy()
         all_nodes.append(pos)
         node_kind_list.append(NODE_BOUNDARY)
         node_meta.append(("boundary", mesh_idx))
-        anchor_to_frame_id[int(mesh_idx)] = len(all_nodes) - 1
+        anchor_to_frame_id_old[int(mesh_idx)] = len(all_nodes) - 1
     
-    # --- Spine nodes (from xp, zp) ---
-    xp = data["xp"]; zp = data["zp"]
-    spine_y = 0.0
+    # --- Spine nodes ---
+    xp = data["xp"]
+    zp = data["zp"]
     spine_start_idx = len(all_nodes)
     for k in range(len(xp)):
-        pos = np.array([xp[k], spine_y, zp[k]], dtype=float)
+        pos = np.array([xp[k], 0.0, zp[k]], dtype=float)
         all_nodes.append(pos)
         node_kind_list.append(NODE_SPINE)
         node_meta.append(("spine", k))
     
-    # --- Rib nodes (each rib polyline) ---
+    # --- Rib nodes ---
     rib_start_indices = []
     for i, rib_x in enumerate(data["rib_x"]):
         rib_start_idx = len(all_nodes)
         rib_start_indices.append(rib_start_idx)
         half_width = data["rib_half_width"][i]
         peak_z = data["rib_peak_z"][i]
-        n_rib = 12  # segments per rib
+        n_rib = 12
         for k in range(n_rib + 1):
             t = k / float(n_rib)
             y = -half_width + 2 * half_width * t
@@ -177,7 +140,6 @@ def build_steel_frame(data, newton_data, connection_types=None):
             all_nodes.append(pos)
             node_kind_list.append(NODE_RING)
             node_meta.append(("ring", k, mesh_node))
-        # Drop centre node
         centre_mesh_idx = data["built"]["centre_indices"][k]
         drop_pos = coords_fdm[centre_mesh_idx].copy()
         drop_start_indices.append(len(all_nodes))
@@ -189,22 +151,14 @@ def build_steel_frame(data, newton_data, connection_types=None):
     all_nodes = np.asarray(all_nodes, dtype=float)
     unique_nodes, merge_map = _merge_close_nodes(all_nodes)
     
-    # Rebuild anchor_to_frame_id with merge_map
-    for mesh_idx, old_id in anchor_to_frame_id.items():
+    anchor_to_frame_id = {}
+    for mesh_idx, old_id in anchor_to_frame_id_old.items():
         anchor_to_frame_id[mesh_idx] = int(merge_map[old_id])
     
-    # Rebuild spine/rib/ring/drop start indices with merge_map
-    merged_spine_start = int(merge_map[spine_start_idx]) if spine_start_idx < len(merge_map) else -1
-    merged_rib_starts = [int(merge_map[s]) for s in rib_start_indices]
-    merged_ring_starts = [int(merge_map[s]) for s in ring_start_indices]
-    merged_drop_starts = [int(merge_map[s]) for s in drop_start_indices]
-    
-    # Consolidate node_kind (use majority kind per merged node)
+    # Consolidate node_kind
     merged_node_kind = [""] * len(unique_nodes)
-    merged_node_sources = [[] for _ in range(len(unique_nodes))]
     for old_id, kind in enumerate(node_kind_list):
         new_id = int(merge_map[old_id])
-        merged_node_sources[new_id].append((kind, node_meta[old_id]))
         if not merged_node_kind[new_id]:
             merged_node_kind[new_id] = kind
     
@@ -213,7 +167,7 @@ def build_steel_frame(data, newton_data, connection_types=None):
     # ==========================================================================
     elements = []
     
-    # --- Spine elements (consecutive nodes along spine) ---
+    # Spine elements
     n_spine = len(xp)
     for k in range(n_spine - 1):
         old_a = spine_start_idx + k
@@ -223,7 +177,7 @@ def build_steel_frame(data, newton_data, connection_types=None):
         if a != b:
             elements.append({"a": a, "b": b, "section": "primary", "kind": NODE_SPINE})
     
-    # --- Rib elements (consecutive nodes along each rib) ---
+    # Rib elements
     n_rib_segments = 12
     for i, rib_start_idx in enumerate(rib_start_indices):
         for k in range(n_rib_segments):
@@ -234,7 +188,7 @@ def build_steel_frame(data, newton_data, connection_types=None):
             if a != b:
                 elements.append({"a": a, "b": b, "section": "rib", "kind": NODE_RIB})
     
-    # --- Ring elements (consecutive nodes around each ring) ---
+    # Ring elements
     for k, idx_list in enumerate(data["built"]["ring_indices"]):
         ring_start_idx = ring_start_indices[k]
         n_ring_nodes = len(idx_list)
@@ -246,14 +200,12 @@ def build_steel_frame(data, newton_data, connection_types=None):
             if a != b:
                 elements.append({"a": a, "b": b, "section": "ring", "kind": NODE_RING})
     
-    # --- Drop elements (drop centre to spine crossing node) ---
+    # Drop elements
     for k in range(len(data["built"]["centre_indices"])):
         drop_node_old = drop_start_indices[k]
         drop_node = int(merge_map[drop_node_old])
-        # Find spine node at same x
         centre_mesh_idx = data["built"]["centre_indices"][k]
         cx = coords_fdm[centre_mesh_idx, 0]
-        # Nearest spine node
         spine_xs = np.array([xp[m] for m in range(n_spine)])
         spine_k = int(np.argmin(np.abs(spine_xs - cx)))
         spine_node_old = spine_start_idx + spine_k
@@ -261,7 +213,7 @@ def build_steel_frame(data, newton_data, connection_types=None):
         if drop_node != spine_node:
             elements.append({"a": drop_node, "b": spine_node, "section": "drop", "kind": NODE_DROP})
     
-    # --- Spoke elements (ring node to drop node for each cone) ---
+    # Spoke elements (ring node to drop node)
     for k in range(len(data["built"]["ring_indices"])):
         ring_start_idx = ring_start_indices[k]
         drop_node_old = drop_start_indices[k]
@@ -276,7 +228,6 @@ def build_steel_frame(data, newton_data, connection_types=None):
     # ==========================================================================
     # FIXED NODES (baseplates)
     # ==========================================================================
-    # Any node at z < 0.05 is treated as a baseplate (fixed).
     fixed_indices = []
     for i, n in enumerate(unique_nodes):
         if abs(n[2]) < 0.05:
@@ -286,46 +237,54 @@ def build_steel_frame(data, newton_data, connection_types=None):
     # ==========================================================================
     # MEMBRANE LOADS → FRAME NODES
     # ==========================================================================
-    # For each boundary anchor, compute the cable end reactions at that node
-    # from the adjacent boundary cables, and transfer to the frame.
+    # This is the critical section. The membrane solver reports cable tension
+    # per segment in cable_tension_list, keyed by (a, b) membrane mesh indices.
+    # The boundary is SUBDIVIDED, so anchors are NOT directly connected to
+    # each other — there are intermediate mesh nodes between them.
+    #
+    # We must therefore build a full adjacency map of every cable segment,
+    # indexed by both endpoints. Then each anchor finds all segments touching
+    # it and sums their tension vectors.
     
     membrane_loads = np.zeros((len(unique_nodes), 3), dtype=float)
     
-    # Get cable tensions from the membrane solve
     cable_tension_list = newton_data["dr_result"].get("cable_tension_list", [])
-    cable_tension_by_segment = {}
-    for ct in cable_tension_list:
-        cable_tension_by_segment[(int(ct["a"]), int(ct["b"]))] = float(ct["T_N"])
     
-    # For each boundary anchor, sum the cable tension vectors from the two
-    # adjacent cable segments. Each adjacent cable pulls the anchor toward
-    # its far end.
-    n_anchors = len(anchor_idx)
-    for i, mesh_idx in enumerate(anchor_idx):
-        prev_anchor_mesh = anchor_idx[(i - 1) % n_anchors]
-        next_anchor_mesh = anchor_idx[(i + 1) % n_anchors]
-        anchor_pos = coords_fdm[mesh_idx]
+    # Build full adjacency: mesh_node -> list of (other_end, T_N, direction_from_this_node_to_other)
+    adjacent_cables = {}
+    for ct in cable_tension_list:
+        a = int(ct["a"])
+        b = int(ct["b"])
+        T_N = float(ct["T_N"])
+        if T_N <= 0:
+            continue
+        pos_a = coords_fdm[a]
+        pos_b = coords_fdm[b]
+        dir_a_to_b = normalize(pos_b - pos_a)
+        dir_b_to_a = normalize(pos_a - pos_b)
+        adjacent_cables.setdefault(a, []).append((b, T_N, dir_a_to_b))
+        adjacent_cables.setdefault(b, []).append((a, T_N, dir_b_to_a))
+    
+    # For each boundary anchor, sum the tension vectors from all segments touching it
+    n_cables_applied = 0
+    total_force_magnitude = 0.0
+    for mesh_idx in anchor_idx:
+        mesh_idx_int = int(mesh_idx)
+        anchor_pos = coords_fdm[mesh_idx_int]
         
         forces_at_anchor = []
+        cables_here = adjacent_cables.get(mesh_idx_int, [])
         
-        # Cable from prev to this anchor: tension pulls toward prev
-        key_prev = (min(mesh_idx, prev_anchor_mesh), max(mesh_idx, prev_anchor_mesh))
-        T_prev = cable_tension_by_segment.get(key_prev, 0.0)
-        if T_prev > 0:
-            direction = normalize(coords_fdm[prev_anchor_mesh] - anchor_pos)
-            forces_at_anchor.append(T_prev * direction)
-        
-        # Cable from this anchor to next: tension pulls toward next
-        key_next = (min(mesh_idx, next_anchor_mesh), max(mesh_idx, next_anchor_mesh))
-        T_next = cable_tension_by_segment.get(key_next, 0.0)
-        if T_next > 0:
-            direction = normalize(coords_fdm[next_anchor_mesh] - anchor_pos)
-            forces_at_anchor.append(T_next * direction)
+        for (other_idx, T_N, _dir) in cables_here:
+            other_pos = coords_fdm[other_idx]
+            direction = normalize(other_pos - anchor_pos)
+            forces_at_anchor.append(T_N * direction)
+            n_cables_applied += 1
         
         total_force = vector_sum(forces_at_anchor)
+        total_force_magnitude += float(np.linalg.norm(total_force))
         
-        # Transfer to frame node
-        frame_node_id = anchor_to_frame_id[mesh_idx]
+        frame_node_id = anchor_to_frame_id[mesh_idx_int]
         membrane_loads[frame_node_id] += total_force
     
     # ==========================================================================
@@ -339,5 +298,8 @@ def build_steel_frame(data, newton_data, connection_types=None):
         "membrane_loads": membrane_loads,
         "anchor_to_frame_id": anchor_to_frame_id,
         "cone_drop_node_ids": [int(merge_map[d]) for d in drop_start_indices],
-        "cone_ring_node_starts": merged_ring_starts,
+        "cone_ring_node_starts": [int(merge_map[s]) for s in ring_start_indices],
+        # Diagnostics
+        "diagnostic_n_cables_applied": n_cables_applied,
+        "diagnostic_total_force_magnitude_N": total_force_magnitude,
     }
