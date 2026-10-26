@@ -10,7 +10,6 @@ member passes:
 import math
 
 import numpy as np
-import streamlit as st
 
 from data.materials import STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
@@ -130,24 +129,19 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
 
     iteration_log = []
 
+    # Build the frame ONCE, outside the iteration loop. 
+    # The geometry and loads don't change, only the section properties.
+    frame = build_steel_frame(data, newton_data)
+    
+    # HARD CHECK: If the loads failed to map, kill it immediately
+    if frame["diagnostic_total_load_magnitude_N"] < 1.0:
+        return {
+            "sections": sections, "frame_result": None, 
+            "details": {"error": "zero_load_transfer"}, 
+            "iteration_log": []
+        }
+
     for iteration in range(max_iterations):
-        # BUILD THE FRAME
-        frame = build_steel_frame(data, newton_data)
-        frame["sections_map"] = sections
-
-        # =====================================================================
-        # HARD DIAGNOSTIC CHECK
-        # If the builder fails to map loads, stop immediately.
-        # =====================================================================
-        if frame["diagnostic_total_load_magnitude_N"] < 1.0:
-            st.error("STAGE 3 CRITICAL ERROR: The 3D Frame Builder received ZERO load. "
-                     "The mapping between membrane reactions and frame nodes has failed.")
-            return {
-                "sections": sections, "frame_result": None, 
-                "details": {"error": "zero_load_transfer"}, 
-                "iteration_log": []
-            }
-
         elements = []
         for elem in frame["elements"]:
             sec_name = sections.get(elem["section"], smallest)
@@ -161,6 +155,7 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
             })
 
         loads_6dof = np.zeros((len(frame["nodes"]), 6), dtype=float)
+        # FIX: Apply the membrane loads as calculated by the builder
         loads_6dof[:, 0:3] = frame["membrane_loads"]
 
         grade_props = {
