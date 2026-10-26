@@ -129,8 +129,7 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
 
     iteration_log = []
 
-    # Build the frame ONCE, outside the iteration loop. 
-    # The geometry and loads don't change, only the section properties.
+    # Build the frame ONCE, outside the iteration loop.
     frame = build_steel_frame(data, newton_data)
     
     # HARD CHECK: If the loads failed to map, kill it immediately
@@ -155,7 +154,6 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
             })
 
         loads_6dof = np.zeros((len(frame["nodes"]), 6), dtype=float)
-        # FIX: Apply the membrane loads as calculated by the builder
         loads_6dof[:, 0:3] = frame["membrane_loads"]
 
         grade_props = {
