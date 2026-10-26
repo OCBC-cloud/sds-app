@@ -27,35 +27,35 @@ GRAVITY = 9.81
 # =============================================================================
 
 CODE_PARAMS = {
-    "Malaysia (MS 1553)": {
+    "MS 1553": {
         "wind_cp": -0.7, "snow_density": 100.0,
         "factors": {"dead": 1.35, "wind": 1.5, "snow": 1.5, "uplift_dead": 0.9}
     },
-    "Eurocode (EN 1991)": {
+    "EN 1991": {
         "wind_cp": -0.7, "snow_density": 100.0,
         "factors": {"dead": 1.35, "wind": 1.5, "snow": 1.5, "uplift_dead": 1.0}
     },
-    "British (BS 6399)": {
+    "BS 6399": {
         "wind_cp": -0.8, "snow_density": 100.0,
         "factors": {"dead": 1.4, "wind": 1.4, "snow": 1.6, "uplift_dead": 1.0}
     },
-    "Australia (AS 1170)": {
+    "AS 1170": {
         "wind_cp": -0.7, "snow_density": 100.0,
         "factors": {"dead": 1.2, "wind": 1.0, "snow": 1.0, "uplift_dead": 0.9}
     },
-    "USA (ASCE 7)": {
+    "ASCE 7": {
         "wind_cp": -0.7, "snow_density": 100.0,
         "factors": {"dead": 1.2, "wind": 1.0, "snow": 1.6, "uplift_dead": 0.9}
     },
-    "Japan (AIJ)": {
+    "AIJ": {
         "wind_cp": -0.9, "snow_density": 150.0,
         "factors": {"dead": 1.2, "wind": 1.2, "snow": 1.4, "uplift_dead": 1.0}
     },
-    "Korea (KBC)": {
+    "KBC": {
         "wind_cp": -0.8, "snow_density": 100.0,
         "factors": {"dead": 1.2, "wind": 1.2, "snow": 1.4, "uplift_dead": 1.0}
     },
-    "China (GB 50009)": {
+    "GB 50009": {
         "wind_cp": -0.8, "snow_density": 150.0,
         "factors": {"dead": 1.2, "wind": 1.4, "snow": 1.4, "uplift_dead": 1.0}
     },
@@ -63,7 +63,7 @@ CODE_PARAMS = {
 
 
 def get_code_params(code_name):
-    return CODE_PARAMS.get(code_name, CODE_PARAMS["Malaysia (MS 1553)"])
+    return CODE_PARAMS.get(code_name, CODE_PARAMS["MS 1553"])
 
 
 # =============================================================================
