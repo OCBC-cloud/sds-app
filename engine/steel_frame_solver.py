@@ -165,7 +165,7 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     K_ff = K_global[np.ix_(free_dofs, free_dofs)]
     F_f = F_global[free_dofs]
 
-    # Solve (Using Pseudo-Inverse to prevent collapse to zero on floating nodes)
+    # Solve (Using Pseudo-Inverse fallback to prevent collapse to zero on floating nodes)
     try:
         u_f = np.linalg.solve(K_ff, F_f)
     except np.linalg.LinAlgError:
