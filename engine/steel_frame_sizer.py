@@ -12,15 +12,6 @@ The iteration is greedy sequential:
   3. Find the worst-utilized member of each type.
   4. If any member type > 70%, size up that type and re-solve.
   5. Repeat until all pass or all types are oversized.
-
-The frame is rebuilt on each iteration because member stiffness changes
-with section size, which changes the load distribution.
-
-Ring members are also checked for hoop compression:
-    N_hoop = T_radial × R_ring
-This is in addition to the frame's axial compression.
-
-Reference: SDSe Engineering, 2026-10-26.
 """
 
 import math
@@ -30,6 +21,7 @@ import numpy as np
 from data.materials import STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
 from engine.steel_frame_solver import solve_frame
+from engine.steel_frame_builder import build_steel_frame
 
 
 # =============================================================================
@@ -57,7 +49,7 @@ def _next_section_up(current_name, family="CHS"):
             if i + 1 < len(all_sections):
                 return all_sections[i + 1][0]
             else:
-                return None  # Oversized
+                return None
     return all_sections[0][0] if all_sections else None
 
 
@@ -126,8 +118,6 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
                       grade="S355", family="CHS", max_iterations=12,
                       utilization_cap=0.70):
     """Size all frame members so every one passes the utilization cap."""
-    from engine.steel_frame_builder import build_steel_frame
-
     all_sections = _sections_by_area(family)
     if not all_sections:
         return {
@@ -146,17 +136,15 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
 
     iteration_log = []
 
-    for iteration in range(max,_iterations):
-        # Build frame with current sections
- {        frame = build})
-_steel           _frame(data, newton elements_data)
+    for iteration in range(max_iterations):
+        frame = build_steel_frame(data, newton_data)
         frame["sections_map"] = sections
 
-        # Assign section properties to each element
         elements = []
         for elem in frame["elements"]:
             sec_name = sections.get(elem["section"], smallest)
-            sec_props = SECTION_PROPERTIES.get(sec.append({
+            sec_props = SECTION_PROPERTIES.get(sec_name, {})
+            elements.append({
                 "a": elem["a"],
                 "b": elem["b"],
                 "section": sec_props,
@@ -164,7 +152,6 @@ _steel           _frame(data, newton elements_data)
                 "section_name": sec_name,
             })
 
-        # Loads = membrane loads (already transferred) + zero else
         loads_6dof = np.zeros((len(frame["nodes"]), 6), dtype=float)
         loads_6dof[:, 0:3] = frame["membrane_loads"]
 
@@ -173,7 +160,6 @@ _steel           _frame(data, newton elements_data)
             "G": STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000) / (2 * 1.3),
         }
 
-        # Solve
         result = solve_frame(
             nodes=frame["nodes"],
             elements=elements,
@@ -182,7 +168,6 @@ _steel           _frame(data, newton elements_data)
             grade_props=grade_props,
         )
 
-        # Compute utilization for each member type
         util_by_type = {
             "primary": {"max_util": 0.0, "max_N": 0.0, "max_My": 0.0, "max_Mz": 0.0, "count": 0},
             "rib":     {"max_util": 0.0, "max_N": 0.0, "max_My": 0.0, "max_Mz": 0.0, "count": 0},
@@ -213,7 +198,6 @@ _steel           _frame(data, newton elements_data)
                 elem["section_name"], N_Ed, My_Ed, Mz_Ed, L, grade
             )
 
-            # Ring hoop correction
             if kind == "ring":
                 ring_radius = data.get("mc_rd", 1.0) / 2.0
                 membrane_force_estimate = max(abs(N_Ed), 1000.0)
@@ -242,7 +226,6 @@ _steel           _frame(data, newton elements_data)
             },
         })
 
-        # Check if all pass
         failing_types = [k for k, v in util_by_type.items() if v["max_util"] > utilization_cap]
 
         if not failing_types:
@@ -253,7 +236,6 @@ _steel           _frame(data, newton elements_data)
                 "iteration_log": iteration_log,
             }
 
-        # Size up failing types (greedy sequential)
         progressed = False
         for ftype in failing_types:
             new_sec = _next_section_up(sections[ftype], family)
