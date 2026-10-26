@@ -5,13 +5,6 @@ member passes:
   - Combined stress check (axial + bending)
   - Euler buckling check
   - 70% utilization cap
-
-The iteration is greedy sequential:
-  1. Start with the smallest catalogue section for each member type.
-  2. Run the frame solver.
-  3. Find the worst-utilized member of each type.
-  4. If any member type > 70%, size up that type and re-solve.
-  5. Repeat until all pass or all types are oversized.
 """
 
 import math
@@ -137,6 +130,7 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
     iteration_log = []
 
     for iteration in range(max_iterations):
+        # FIX: Ensure the builder receives the correct data keys
         frame = build_steel_frame(data, newton_data)
         frame["sections_map"] = sections
 
@@ -199,7 +193,7 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
             )
 
             if kind == "ring":
-                ring_radius = data.get("mc_rd", 1.0) / 2.0
+                ring_radius = data.get("ring_diameter", 1.0) / 2.0 # FIX: matched key from session state
                 membrane_force_estimate = max(abs(N_Ed), 1000.0)
                 hoop_util = _ring_hoop_utilization(
                     elem["section_name"], membrane_force_estimate, ring_radius, grade
