@@ -78,7 +78,6 @@ def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
 
 
 def _select_steel_section_simple(n_wind_kN, length_m, tributary_width_m, code_choice, family="CHS", grade="S355"):
-    """Simplified sizing for Stage 2 (not the rigorous frame)."""
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
     E_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000)
     if code_choice == "MS 1553":
@@ -484,6 +483,7 @@ def render_tester_multi_cone():
                 "beam_axial_kN": max_reaction_kN,
                 "cables": cables, "material": mat, "final_pretension": final_pretension,
                 "fabric_family": fabric_family, "fabric_name": fabric_name,
+                "design_tension_N": float(design_tension_N),
                 "frame_sections": None, "frame_details": None, "frame_iteration_log": None, "frame_error": None,
             }
 
@@ -586,6 +586,8 @@ def render_tester_multi_cone():
 
             R = nd.get("reactions", None)
             if R is not None:
+                # Read from session state - FIX
+                design_tension_N = float(newton_data.get("design_tension_N", 0.0))
                 anchor_idx = data["anchor_idx"]
                 primary_sec = newton_data["sections"]["primary"]
                 st.write("---")
