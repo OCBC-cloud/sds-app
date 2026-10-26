@@ -130,7 +130,6 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
     iteration_log = []
 
     for iteration in range(max_iterations):
-        # FIX: Ensure the builder receives the correct data keys
         frame = build_steel_frame(data, newton_data)
         frame["sections_map"] = sections
 
@@ -193,7 +192,7 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
             )
 
             if kind == "ring":
-                ring_radius = data.get("ring_diameter", 1.0) / 2.0 # FIX: matched key from session state
+                ring_radius = data.get("ring_diameter", 1.0) / 2.0
                 membrane_force_estimate = max(abs(N_Ed), 1000.0)
                 hoop_util = _ring_hoop_utilization(
                     elem["section_name"], membrane_force_estimate, ring_radius, grade
@@ -223,6 +222,7 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
         failing_types = [k for k, v in util_by_type.items() if v["max_util"] > utilization_cap]
 
         if not failing_types:
+            result["anchor_to_frame_id"] = frame["anchor_to_frame_id"]
             return {
                 "sections": sections,
                 "frame_result": result,
@@ -238,6 +238,7 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
                 progressed = True
 
         if not progressed:
+            result["anchor_to_frame_id"] = frame["anchor_to_frame_id"]
             return {
                 "sections": sections,
                 "frame_result": result,
@@ -246,6 +247,7 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
                 "error": "Oversize required — catalogue exhausted",
             }
 
+    result["anchor_to_frame_id"] = frame["anchor_to_frame_id"]
     return {
         "sections": sections,
         "frame_result": result,
