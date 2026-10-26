@@ -1,70 +1,62 @@
-"""SDSe Engine — 3D Steel Frame Builder.
+"""SDSe Engine — 3D Steel Frame Builder (Unified Topology).
 
-Builds a 3D frame model from the multi-cone membrane mesh data.
+Builds a 3D frame model from the multi-cone membrane mesh data using 
+automated topology discovery.
+
+Logic:
+1. Baseplates: Discovered by finding nodes at Z=0.
+2. Eave Anchors: Fused to the nearest arch/rib node. Not fixed.
+3. Cone (Ring + Spokes): Built automatically from the mesh indices.
+4. Load Transfer: True 3D reaction vectors applied directly to the fused nodes.
 """
 
 import numpy as np
 
-# =============================================================================
-# NODE CLASSIFICATION
-# =============================================================================
-
-NODE_BOUNDARY = "boundary"
-NODE_SPINE = "spine"
-NODE_RIB = "rib"
+NODE_ARCH = "arch"
 NODE_RING = "ring"
 NODE_DROP = "drop"
-NODE_BASEPLATE = "baseplate"
+NODE_SPOKE = "spoke"
 
+def _distance_sq(p1, p2):
+    return (p1[0] - p2[0])**2 + (p1[1] - p2[1])**2 + (p1[2] - p2[2])**2
 
 def build_steel_frame(data, newton_data):
-    """Build the 3D steel frame from the multi-cone mesh data."""
     coords_fdm = newton_data["dr_result"]["coordinates"]
-    anchor_idx = data["anchor_idx"]
     reactions = newton_data["dr_result"].get("reactions", None)
+    anchor_idx = data["anchor_idx"]
 
     nodes = []
     node_kind = []
-    elements = []
     membrane_loads = []
-    anchor_to_frame_id = {}
-    ring_to_frame_id = {}
-    drop_to_frame_id = {}
+    elements = []
     fixed_indices = []
-
+    
+    # Helper to add a node
     def add_node(pos, kind):
-        nodes.append(pos)
+        nodes.append(np.array(pos, dtype=float))
         node_kind.append(kind)
         membrane_loads.append(np.zeros(3, dtype=float))
         return len(nodes) - 1
 
-    # --- Boundary anchor nodes ---
-    for mesh_idx in anchor_idx:
-        pos = coords_fdm[int(mesh_idx)].copy()
-        frame_id = add_node(pos, NODE_BOUNDARY)
-        anchor_to_frame_id[int(mesh_idx)] = frame_id
-        
-        # FIX: Boundary anchors are ALWAYS fixed. No z-height check.
-        fixed_indices.append(frame_id)
-
-        # Transfer load: Force membrane exerts ON frame = -reaction
-        if reactions is not None:
-            r = reactions[mesh_idx]
-            membrane_loads[frame_id] += -np.asarray(r, dtype=float)
-
-    # --- Spine nodes ---
+    # =========================================================================
+    # 1. BUILD THE ARCH AND RIB SKELETON
+    # =========================================================================
+    # Note: In this code, we rebuild the arch and rib paths to ensure they 
+    # connect exactly to Z=0.
+    
+    spine_indices = []
     xp = data["xp"]
     zp = data["zp"]
-    spine_start_idx = len(nodes)
     for k in range(len(xp)):
         pos = np.array([xp[k], 0.0, zp[k]], dtype=float)
-        add_node(pos, NODE_SPINE)
+        spine_indices.append(add_node(pos, NODE_ARCH))
+        
+    for k in range(len(spine_indices) - 1):
+        elements.append({"a": spine_indices[k], "b": spine_indices[k+1], "section": "primary", "kind": NODE_ARCH})
 
-    # --- Rib nodes ---
-    rib_start_indices = []
+    rib_indices = []
     for i, rib_x in enumerate(data["rib_x"]):
-        rib_start_idx = len(nodes)
-        rib_start_indices.append(rib_start_idx)
+        rib_path = []
         half_width = data["rib_half_width"][i]
         peak_z = data["rib_peak_z"][i]
         n_rib = 12
@@ -74,95 +66,105 @@ def build_steel_frame(data, newton_data):
             u = y / half_width if half_width > 0 else 0
             z = peak_z * (1.0 - u ** 2)
             pos = np.array([rib_x, y, z], dtype=float)
-            add_node(pos, NODE_RIB)
+            rib_path.append(add_node(pos, NODE_ARCH))
+            
+        rib_indices.append(rib_path)
+        for k in range(len(rib_path) - 1):
+            elements.append({"a": rib_path[k], "b": rib_path[k+1], "section": "rib", "kind": NODE_ARCH})
 
-    # --- Ring nodes and drop nodes ---
-    ring_start_indices = []
-    drop_start_indices = []
+    # =========================================================================
+    # 2. DISCOVER BASEPLATES (Z=0)
+    # =========================================================================
+    # Scan all nodes. Any arch/rib node at Z=0 is a baseplate.
+    for i, pos in enumerate(nodes):
+        if abs(pos[2]) < 0.05:
+            fixed_indices.append(i)
+
+    # =========================================================================
+    # 3. FUSE EAVE ANCHORS AND APPLY LOADS
+    # =========================================================================
+    # The membrane eave anchors are at Z=2.8m. We must find the nearest 
+    # structural node (arch/rib) and apply the wind force there.
+    
+    anchor_to_frame_id = {}
+    for mesh_idx in anchor_idx:
+        anchor_pos = coords_fdm[int(mesh_idx)]
+        
+        # Find nearest arch/rib node
+        best_dist = float('inf')
+        best_node = -1
+        for i, node_pos in enumerate(nodes):
+            if node_kind[i] == NODE_ARCH:
+                dist = _distance_sq(anchor_pos, node_pos)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_node = i
+                    
+        # Apply load
+        if reactions is not None:
+            r = reactions[mesh_idx]
+            membrane_loads[best_node] += -np.asarray(r, dtype=float)
+            
+        anchor_to_frame_id[int(mesh_idx)] = best_node
+
+    # =========================================================================
+    # 4. BUILD CONE TOPOLOGY (RINGS, SPOKES, DROPS)
+    # =========================================================================
+    ring_to_frame_id = {}
+    drop_to_frame_id = {}
+    
     for k, idx_list in enumerate(data["built"]["ring_indices"]):
-        ring_start_idx = len(nodes)
-        ring_start_indices.append(ring_start_idx)
-        for j, mesh_node in enumerate(idx_list):
-            pos = coords_fdm[int(mesh_node)].copy()
+        # A. Build the Ring Beam
+        ring_nodes = []
+        for mesh_node in idx_list:
+            pos = coords_fdm[int(mesh_node)]
             frame_id = add_node(pos, NODE_RING)
+            ring_nodes.append(frame_id)
             ring_to_frame_id[int(mesh_node)] = frame_id
             
+            # Apply membrane load at ring node
             if reactions is not None:
-                r = reactions[mesh_node]
-                membrane_loads[frame_id] += -np.asarray(r, dtype=float)
+                membrane_loads[frame_id] += -np.asarray(reactions[mesh_node], dtype=float)
+                
+        # Connect ring nodes in a loop
+        for i in range(len(ring_nodes)):
+            a = ring_nodes[i]
+            b = ring_nodes[(i + 1) % len(ring_nodes)]
+            elements.append({"a": a, "b": b, "section": "ring", "kind": NODE_RING})
 
+        # B. Build the Drop Member
         centre_mesh_idx = int(data["built"]["centre_indices"][k])
-        drop_pos = coords_fdm[centre_mesh_idx].copy()
-        drop_start_indices.append(len(nodes))
-        frame_id = add_node(drop_pos, NODE_DROP)
-        drop_to_frame_id[centre_mesh_idx] = frame_id
+        drop_pos = coords_fdm[centre_mesh_idx]
+        drop_node_id = add_node(drop_pos, NODE_DROP)
+        drop_to_frame_id[centre_mesh_idx] = drop_node_id
         
+        # Apply membrane load at drop
         if reactions is not None:
-            r = reactions[centre_mesh_idx]
-            membrane_loads[frame_id] += -np.asarray(r, dtype=float)
+            membrane_loads[drop_node_id] += -np.asarray(reactions[centre_mesh_idx], dtype=float)
+            
+        # Connect Drop to nearest arch node
+        best_dist = float('inf')
+        best_arch = -1
+        for i, node_pos in enumerate(nodes):
+            if node_kind[i] == NODE_ARCH:
+                dist = _distance_sq(drop_pos, node_pos)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_arch = i
+        if best_arch != -1:
+            elements.append({"a": drop_node_id, "b": best_arch, "section": "drop", "kind": NODE_DROP})
 
+        # C. Build the Spokes
+        for r_node in ring_nodes:
+            if r_node != drop_node_id:
+                elements.append({"a": r_node, "b": drop_node_id, "section": "spoke", "kind": NODE_SPOKE})
+
+    # =========================================================================
+    # RETURN
+    # =========================================================================
     nodes = np.asarray(nodes, dtype=float)
     membrane_loads = np.asarray(membrane_loads, dtype=float)
 
-    # SAFETY: If somehow fixed_indices is still empty, grab the first 4 boundary nodes
-    if len(fixed_indices) == 0 and len(anchor_to_frame_id) > 0:
-        fixed_indices = list(anchor_to_frame_id.values())[:4]
-
-    # ==========================================================================
-    # BUILD ELEMENTS
-    # ==========================================================================
-    
-    # Spine elements
-    n_spine = len(xp)
-    for k in range(n_spine - 1):
-        a = spine_start_idx + k
-        b = spine_start_idx + k + 1
-        if a != b:
-            elements.append({"a": a, "b": b, "section": "primary", "kind": NODE_SPINE})
-
-    # Rib elements
-    n_rib_segments = 12
-    for i, rib_start_idx in enumerate(rib_start_indices):
-        for k in range(n_rib_segments):
-            a = rib_start_idx + k
-            b = rib_start_idx + k + 1
-            if a != b:
-                elements.append({"a": a, "b": b, "section": "rib", "kind": NODE_RIB})
-
-    # Ring elements
-    for k, idx_list in enumerate(data["built"]["ring_indices"]):
-        ring_start_idx = ring_start_indices[k]
-        n_ring_nodes = len(idx_list)
-        for i in range(n_ring_nodes):
-            a = ring_start_idx + i
-            b = ring_start_idx + (i + 1) % n_ring_nodes
-            if a != b:
-                elements.append({"a": a, "b": b, "section": "ring", "kind": NODE_RING})
-
-    # Drop elements
-    for k in range(len(data["built"]["centre_indices"])):
-        drop_node = drop_start_indices[k]
-        centre_mesh_idx = data["built"]["centre_indices"][k]
-        cx = coords_fdm[centre_mesh_idx, 0]
-        spine_xs = np.array([xp[m] for m in range(n_spine)])
-        spine_k = int(np.argmin(np.abs(spine_xs - cx)))
-        spine_node = spine_start_idx + spine_k
-        if drop_node != spine_node:
-            elements.append({"a": drop_node, "b": spine_node, "section": "drop", "kind": NODE_DROP})
-
-    # Spoke elements
-    for k in range(len(data["built"]["ring_indices"])):
-        ring_start_idx = ring_start_indices[k]
-        drop_node = drop_start_indices[k]
-        n_ring_nodes = len(data["built"]["ring_indices"][k])
-        for i in range(n_ring_nodes):
-            a = ring_start_idx + i
-            if a != drop_node:
-                elements.append({"a": a, "b": drop_node, "section": "spoke", "kind": NODE_RING})
-
-    # ==========================================================================
-    # RETURN
-    # ==========================================================================
     total_load_magnitude = float(np.sum(np.abs(membrane_loads)))
     total_reaction_magnitude = 0.0
     if reactions is not None:
@@ -178,10 +180,6 @@ def build_steel_frame(data, newton_data):
         "anchor_to_frame_id": anchor_to_frame_id,
         "ring_to_frame_id": ring_to_frame_id,
         "drop_to_frame_id": drop_to_frame_id,
-        # Diagnostics
         "diagnostic_total_load_magnitude_N": total_load_magnitude,
         "diagnostic_total_reaction_magnitude_N": total_reaction_magnitude,
-        "diagnostic_n_anchor_loads": len(anchor_to_frame_id),
-        "diagnostic_n_ring_loads": len(ring_to_frame_id),
-        "diagnostic_n_drop_loads": len(drop_to_frame_id),
     }
