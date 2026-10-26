@@ -137,6 +137,8 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
         if "A" not in sec or "I" not in sec:
             continue
         L = float(np.linalg.norm(nodes[b] - nodes[a]))
+        if L < EPS:
+            continue
         K_local = _element_stiffness_matrix_3d(
             E, G, sec["A"], sec.get("Iy", sec["I"]), sec.get("Iz", sec["I"]), sec.get("J", sec["I"] * 2), L
         )
@@ -186,6 +188,7 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
                 reactions[i, j] = R_global[6*i + j]
 
     # Compute member end forces
+    # FIX: extract the 12 element DOFs before transforming to local coords.
     member_end_forces = []
     for elem in elements:
         a = elem["a"]
@@ -194,11 +197,16 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
         if "A" not in sec or "I" not in sec:
             continue
         L = float(np.linalg.norm(nodes[b] - nodes[a]))
+        if L < EPS:
+            continue
         K_local = _element_stiffness_matrix_3d(
             E, G, sec["A"], sec.get("Iy", sec["I"]), sec.get("Iz", sec["I"]), sec.get("J", sec["I"] * 2), L
         )
         T = _transformation_matrix(nodes[a], nodes[b])
-        u_local = T @ u_global
+        # Extract the 12 DOFs of this element (6 for node a, 6 for node b)
+        elem_dofs = list(range(6 * a, 6 * a + 6)) + list(range(6 * b, 6 * b + 6))
+        u_elem = u_global[elem_dofs]
+        u_local = T @ u_elem
         f_local = K_local @ u_local
         member_end_forces.append({
             "a": a, "b": b,
