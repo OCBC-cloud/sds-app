@@ -126,7 +126,7 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
                       grade="S355", family="CHS", max_iterations=12,
                       utilization_cap=0.70):
     """Size all frame members so every one passes the utilization cap."""
-    from engine.steel_frame_builder import_name build_steel_frame
+    from engine.steel_frame_builder import build_steel_frame
 
     all_sections = _sections_by_area(family)
     if not all_sections:
