@@ -75,17 +75,11 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
                    wind_direction=(1.0, 0.0, 0.0)):
     """
     Generate surface-normal wind forces using the Cp map registry.
-    
-    Returns:
-        loads: (n_nodes, 3) array of force vectors
-        diagnostics: dict with total uplift, max pressure, etc.
     """
     q = 0.5 * RHO_AIR * (wind_speed_ms ** 2)  # dynamic pressure in Pa
     cp_map = get_cp_map(shape_type, code_name)
     
     loads = np.zeros((coords.shape[0], 3), dtype=float)
-    wind_dir = np.asarray(wind_direction, dtype=float)
-    wind_dir = wind_dir / np.linalg.norm(wind_dir)
     
     total_uplift_N = 0.0
     max_pressure_Pa = 0.0
@@ -106,10 +100,7 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
         # Local slope from vertical
         slope_deg = compute_slope_deg(normal)
         
-        # Position relative to wind: compare surface normal to wind direction
-        # If normal points against wind (-X), it's windward.
-        # If normal points with wind (+X), it's leeward.
-        # Otherwise side.
+        # Position relative to wind
         normal_x = float(normal[0])
         if normal_x < -0.3:
             position = "windward"
@@ -144,8 +135,7 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
         # Pressure in Pa (negative Cp = suction)
         pressure_Pa = cp * q
         
-        # Force on the surface = pressure × area, acting INWARD (opposite of outward normal)
-        # For a roof with +Z normal and negative Cp (suction), this yields upward force (+Z)
+        # Force on the surface (inward)
         force_vec = -pressure_Pa * area * normal
         
         # Distribute to 3 nodes
@@ -154,7 +144,7 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
         loads[c] += force_vec / 3.0
         
         # Track diagnostics
-        total_uplift_N += force_vec[2]  # Z-component
+        total_uplift_N += force_vec[2]
         if abs(pressure_Pa) > max_pressure_Pa:
             max_pressure_Pa = abs(pressure_Pa)
         pressures.append(pressure_Pa)
@@ -172,10 +162,7 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
 
 
 def _gen_snow_base(coords, tris, snow_depth_m, code_name):
-    """
-    Snow load with slope-dependent shape coefficient μ.
-    μ = 0.8 for slope < 30°, 0 for slope > 60°, linear between.
-    """
+    """Snow load with slope-dependent shape coefficient μ."""
     params = get_code_params(code_name)
     base_pressure_Pa = snow_depth_m * params["snow_density"] * GRAVITY
     
@@ -190,7 +177,6 @@ def _gen_snow_base(coords, tris, snow_depth_m, code_name):
         normal = cross / (2.0 * area)
         slope_deg = compute_slope_deg(normal)
         
-        # Shape coefficient
         if slope_deg <= 30.0:
             mu = 0.8
         elif slope_deg >= 60.0:
@@ -200,7 +186,7 @@ def _gen_snow_base(coords, tris, snow_depth_m, code_name):
             mu = 0.8 * (1.0 - t)
         
         pressure_Pa = mu * base_pressure_Pa
-        force_z = -pressure_Pa * area / 3.0  # downward
+        force_z = -pressure_Pa * area / 3.0
         loads[a, 2] += force_z
         loads[b, 2] += force_z
         loads[c, 2] += force_z
@@ -223,10 +209,7 @@ def _gen_dead_base(coords, tris, membrane_kg_m2=1.102):
 
 
 def generate_payload_load(coords_fdm, tris, apex_index, payload_kg):
-    """
-    Distribute payload over the apex node's tributary area (all adjacent
-    triangles). Prevents the point-load singularity.
-    """
+    """Distribute payload over the apex node's tributary area."""
     loads = np.zeros((coords_fdm.shape[0], 3), dtype=float)
     if apex_index is None or apex_index >= len(coords_fdm) or payload_kg <= 0:
         return loads
@@ -266,16 +249,16 @@ def generate_uls_loads(coords, tris, code_name, wind_speed, snow_depth,
                         membrane_kg_m2=1.102):
     """
     Generate factored loads for ULS.
-    Returns a dict with "gravity", "uplift", "service" load vectors,
-    plus a "wind_diagnostics" dict.
+    Returns a dict with "gravity", "uplift", "service" load vectors.
     """
     params = get_code_params(code_name)
     f = params["factors"]
     
-    # Base loads (unfactored)
+    # Base loads
     dead_load = _gen_dead_base(coords, tris, membrane_kg_m2)
     snow_load = _gen_snow_base(coords, tris, snow_depth, code_name)
     
+    # Wind load with full Cp map inputs
     wind_load, wind_diag = _gen_wind_base(
         coords, tris, wind_speed, code_name, shape_type,
         h_over_d, cone_apexes, cone_radius_m,
