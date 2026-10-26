@@ -31,7 +31,6 @@ def build_steel_frame(data, newton_data):
     elements = []
     fixed_indices = []
     
-    # Helper to add a node
     def add_node(pos, kind):
         nodes.append(np.array(pos, dtype=float))
         node_kind.append(kind)
@@ -41,9 +40,6 @@ def build_steel_frame(data, newton_data):
     # =========================================================================
     # 1. BUILD THE ARCH AND RIB SKELETON
     # =========================================================================
-    # Note: In this code, we rebuild the arch and rib paths to ensure they 
-    # connect exactly to Z=0.
-    
     spine_indices = []
     xp = data["xp"]
     zp = data["zp"]
@@ -75,7 +71,6 @@ def build_steel_frame(data, newton_data):
     # =========================================================================
     # 2. DISCOVER BASEPLATES (Z=0)
     # =========================================================================
-    # Scan all nodes. Any arch/rib node at Z=0 is a baseplate.
     for i, pos in enumerate(nodes):
         if abs(pos[2]) < 0.05:
             fixed_indices.append(i)
@@ -83,14 +78,9 @@ def build_steel_frame(data, newton_data):
     # =========================================================================
     # 3. FUSE EAVE ANCHORS AND APPLY LOADS
     # =========================================================================
-    # The membrane eave anchors are at Z=2.8m. We must find the nearest 
-    # structural node (arch/rib) and apply the wind force there.
-    
     anchor_to_frame_id = {}
     for mesh_idx in anchor_idx:
         anchor_pos = coords_fdm[int(mesh_idx)]
-        
-        # Find nearest arch/rib node
         best_dist = float('inf')
         best_node = -1
         for i, node_pos in enumerate(nodes):
@@ -100,7 +90,6 @@ def build_steel_frame(data, newton_data):
                     best_dist = dist
                     best_node = i
                     
-        # Apply load
         if reactions is not None:
             r = reactions[mesh_idx]
             membrane_loads[best_node] += -np.asarray(r, dtype=float)
@@ -114,35 +103,27 @@ def build_steel_frame(data, newton_data):
     drop_to_frame_id = {}
     
     for k, idx_list in enumerate(data["built"]["ring_indices"]):
-        # A. Build the Ring Beam
         ring_nodes = []
         for mesh_node in idx_list:
             pos = coords_fdm[int(mesh_node)]
             frame_id = add_node(pos, NODE_RING)
             ring_nodes.append(frame_id)
             ring_to_frame_id[int(mesh_node)] = frame_id
-            
-            # Apply membrane load at ring node
             if reactions is not None:
                 membrane_loads[frame_id] += -np.asarray(reactions[mesh_node], dtype=float)
                 
-        # Connect ring nodes in a loop
         for i in range(len(ring_nodes)):
             a = ring_nodes[i]
             b = ring_nodes[(i + 1) % len(ring_nodes)]
             elements.append({"a": a, "b": b, "section": "ring", "kind": NODE_RING})
 
-        # B. Build the Drop Member
         centre_mesh_idx = int(data["built"]["centre_indices"][k])
         drop_pos = coords_fdm[centre_mesh_idx]
         drop_node_id = add_node(drop_pos, NODE_DROP)
         drop_to_frame_id[centre_mesh_idx] = drop_node_id
-        
-        # Apply membrane load at drop
         if reactions is not None:
             membrane_loads[drop_node_id] += -np.asarray(reactions[centre_mesh_idx], dtype=float)
             
-        # Connect Drop to nearest arch node
         best_dist = float('inf')
         best_arch = -1
         for i, node_pos in enumerate(nodes):
@@ -154,7 +135,6 @@ def build_steel_frame(data, newton_data):
         if best_arch != -1:
             elements.append({"a": drop_node_id, "b": best_arch, "section": "drop", "kind": NODE_DROP})
 
-        # C. Build the Spokes
         for r_node in ring_nodes:
             if r_node != drop_node_id:
                 elements.append({"a": r_node, "b": drop_node_id, "section": "spoke", "kind": NODE_SPOKE})
