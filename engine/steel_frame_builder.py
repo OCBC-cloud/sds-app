@@ -1,29 +1,9 @@
 """SDSe Engine — 3D Steel Frame Builder.
 
 Builds a 3D frame model from the multi-cone membrane mesh data.
-
-Load transfer:
-    Every fixed node in the membrane solver is a point of load transfer
-    to the steel frame. There are three types:
-      - Boundary anchors (eave)
-      - Ring nodes (cones)
-      - Drop centres (cone apex)
-
-    The membrane solver returns `reactions[i]` at each fixed node `i`.
-    This is the force the support exerts ON the membrane. The force the
-    membrane exerts ON the frame is `-reactions[i]`.
-
-Substructure method (per industry standard, RFEM, Tensys, BATS):
-    The membrane is solved with fixed boundary conditions at the anchors,
-    rings, and drops. The resulting reactions are transferred as loads
-    onto the 3D steel frame. The frame then carries these loads to the
-    ground. This is a conservative substructuring approximation. Full
-    integrated analysis (membrane and frame solved simultaneously) is
-    a future upgrade.
 """
 
 import numpy as np
-
 
 # =============================================================================
 # NODE CLASSIFICATION
@@ -37,19 +17,12 @@ NODE_DROP = "drop"
 NODE_BASEPLATE = "baseplate"
 
 
-# =============================================================================
-# FRAME BUILDER
-# =============================================================================
-
 def build_steel_frame(data, newton_data):
     """Build the 3D steel frame from the multi-cone mesh data."""
     coords_fdm = newton_data["dr_result"]["coordinates"]
     anchor_idx = data["anchor_idx"]
     reactions = newton_data["dr_result"].get("reactions", None)
 
-    # ==========================================================================
-    # COLLECT ALL NODES
-    # ==========================================================================
     nodes = []
     node_kind = []
     elements = []
@@ -71,9 +44,8 @@ def build_steel_frame(data, newton_data):
         frame_id = add_node(pos, NODE_BOUNDARY)
         anchor_to_frame_id[int(mesh_idx)] = frame_id
         
-        # Boundary anchors are the baseplates (fixed to ground)
-        if abs(pos[2]) < 0.05:
-            fixed_indices.append(frame_id)
+        # FIX: Boundary anchors are ALWAYS fixed. No z-height check.
+        fixed_indices.append(frame_id)
 
         # Transfer load: Force membrane exerts ON frame = -reaction
         if reactions is not None:
@@ -131,6 +103,10 @@ def build_steel_frame(data, newton_data):
 
     nodes = np.asarray(nodes, dtype=float)
     membrane_loads = np.asarray(membrane_loads, dtype=float)
+
+    # SAFETY: If somehow fixed_indices is still empty, grab the first 4 boundary nodes
+    if len(fixed_indices) == 0 and len(anchor_to_frame_id) > 0:
+        fixed_indices = list(anchor_to_frame_id.values())[:4]
 
     # ==========================================================================
     # BUILD ELEMENTS
