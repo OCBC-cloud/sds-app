@@ -1,13 +1,10 @@
-"""SDSe Engine — 3D Steel Frame Builder (Unified Topology).
+"""SDSe Engine — 3D Steel Frame Builder (Final Fix).
 
-Builds a 3D frame model from the multi-cone membrane mesh data using 
-automated topology discovery.
+Builds the 3D steel frame from mesh data. Applies membrane reactions
+as real 3D point loads to the nearest arch/rib/ring/drop node.
 
-Logic:
-1. Baseplates: Discovered by finding nodes at Z=0.
-2. Eave Anchors: Fused to the nearest arch/rib node. Not fixed.
-3. Cone (Ring + Spokes): Built automatically from the mesh indices.
-4. Load Transfer: True 3D reaction vectors applied directly to the fused nodes.
+Fix: Only Z=0 nodes are fixed. Eave anchors at Z=2.8m are fused to the
+arch as free joints carrying real membrane loads.
 """
 
 import numpy as np
@@ -17,8 +14,10 @@ NODE_RING = "ring"
 NODE_DROP = "drop"
 NODE_SPOKE = "spoke"
 
-def _distance_sq(p1, p2):
-    return (p1[0] - p2[0])**2 + (p1[1] - p2[1])**2 + (p1[2] - p2[2])**2
+
+def _dist_sq(p1, p2):
+    return float((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2 + (p1[2]-p2[2])**2)
+
 
 def build_steel_frame(data, newton_data):
     coords_fdm = newton_data["dr_result"]["coordinates"]
@@ -26,140 +25,118 @@ def build_steel_frame(data, newton_data):
     anchor_idx = data["anchor_idx"]
 
     nodes = []
-    node_kind = []
-    membrane_loads = []
+    kinds = []
+    loads = []
     elements = []
-    fixed_indices = []
-    
-    def add_node(pos, kind):
+    fixed = []
+
+    def add(pos, kind):
         nodes.append(np.array(pos, dtype=float))
-        node_kind.append(kind)
-        membrane_loads.append(np.zeros(3, dtype=float))
+        kinds.append(kind)
+        loads.append(np.zeros(3))
         return len(nodes) - 1
 
-    # =========================================================================
-    # 1. BUILD THE ARCH AND RIB SKELETON
-    # =========================================================================
-    spine_indices = []
-    xp = data["xp"]
-    zp = data["zp"]
+    # ---- Build primary arches from Z=0 to Z=0 ----
+    spine_ids = []
+    xp = data["xp"]; zp = data["zp"]
     for k in range(len(xp)):
-        pos = np.array([xp[k], 0.0, zp[k]], dtype=float)
-        spine_indices.append(add_node(pos, NODE_ARCH))
-        
-    for k in range(len(spine_indices) - 1):
-        elements.append({"a": spine_indices[k], "b": spine_indices[k+1], "section": "primary", "kind": NODE_ARCH})
+        spine_ids.append(add([xp[k], 0.0, zp[k]], NODE_ARCH))
+    for k in range(len(spine_ids) - 1):
+        elements.append({"a": spine_ids[k], "b": spine_ids[k+1], "section": "primary", "kind": NODE_ARCH})
 
-    rib_indices = []
+    # ---- Build ribs from Z=0 to Z=0 ----
+    rib_paths = []
     for i, rib_x in enumerate(data["rib_x"]):
-        rib_path = []
-        half_width = data["rib_half_width"][i]
-        peak_z = data["rib_peak_z"][i]
-        n_rib = 12
-        for k in range(n_rib + 1):
-            t = k / float(n_rib)
-            y = -half_width + 2 * half_width * t
-            u = y / half_width if half_width > 0 else 0
-            z = peak_z * (1.0 - u ** 2)
-            pos = np.array([rib_x, y, z], dtype=float)
-            rib_path.append(add_node(pos, NODE_ARCH))
-            
-        rib_indices.append(rib_path)
-        for k in range(len(rib_path) - 1):
-            elements.append({"a": rib_path[k], "b": rib_path[k+1], "section": "rib", "kind": NODE_ARCH})
+        path = []
+        hw = data["rib_half_width"][i]
+        pz = data["rib_peak_z"][i]
+        n = 12
+        for k in range(n + 1):
+            t = k / float(n)
+            y = -hw + 2 * hw * t
+            u = y / hw if hw > 0 else 0.0
+            z = pz * (1.0 - u ** 2)
+            path.append(add([rib_x, y, z], NODE_ARCH))
+        rib_paths.append(path)
+        for k in range(len(path) - 1):
+            elements.append({"a": path[k], "b": path[k+1], "section": "rib", "kind": NODE_ARCH})
 
-    # =========================================================================
-    # 2. DISCOVER BASEPLATES (Z=0)
-    # =========================================================================
-    for i, pos in enumerate(nodes):
-        if abs(pos[2]) < 0.05:
-            fixed_indices.append(i)
+    # ---- Fix ONLY Z=0 baseplates ----
+    for i, p in enumerate(nodes):
+        if abs(p[2]) < 0.05:
+            fixed.append(i)
 
-    # =========================================================================
-    # 3. FUSE EAVE ANCHORS AND APPLY LOADS
-    # =========================================================================
-    anchor_to_frame_id = {}
+    # ---- Fuse eave anchors (Z=2.8m) to nearest arch node ----
+    anchor_map = {}
     for mesh_idx in anchor_idx:
-        anchor_pos = coords_fdm[int(mesh_idx)]
-        best_dist = float('inf')
-        best_node = -1
-        for i, node_pos in enumerate(nodes):
-            if node_kind[i] == NODE_ARCH:
-                dist = _distance_sq(anchor_pos, node_pos)
-                if dist < best_dist:
-                    best_dist = dist
-                    best_node = i
-                    
-        if reactions is not None:
-            r = reactions[mesh_idx]
-            membrane_loads[best_node] += -np.asarray(r, dtype=float)
-            
-        anchor_to_frame_id[int(mesh_idx)] = best_node
-
-    # =========================================================================
-    # 4. BUILD CONE TOPOLOGY (RINGS, SPOKES, DROPS)
-    # =========================================================================
-    ring_to_frame_id = {}
-    drop_to_frame_id = {}
-    
-    for k, idx_list in enumerate(data["built"]["ring_indices"]):
-        ring_nodes = []
-        for mesh_node in idx_list:
-            pos = coords_fdm[int(mesh_node)]
-            frame_id = add_node(pos, NODE_RING)
-            ring_nodes.append(frame_id)
-            ring_to_frame_id[int(mesh_node)] = frame_id
+        pos = coords_fdm[int(mesh_idx)]
+        best, bestd = -1, float("inf")
+        for i, np_ in enumerate(nodes):
+            if kinds[i] == NODE_ARCH:
+                d = _dist_sq(pos, np_)
+                if d < bestd:
+                    bestd, best = d, i
+        if best >= 0:
+            anchor_map[int(mesh_idx)] = best
             if reactions is not None:
-                membrane_loads[frame_id] += -np.asarray(reactions[mesh_node], dtype=float)
-                
-        for i in range(len(ring_nodes)):
-            a = ring_nodes[i]
-            b = ring_nodes[(i + 1) % len(ring_nodes)]
+                loads[best] += -np.asarray(reactions[mesh_idx], dtype=float)
+
+    # ---- Rings, drops, spokes ----
+    ring_map = {}
+    drop_map = {}
+    for k, idx_list in enumerate(data["built"]["ring_indices"]):
+        r_ids = []
+        for mesh_node in idx_list:
+            fid = add(coords_fdm[int(mesh_node)], NODE_RING)
+            r_ids.append(fid)
+            ring_map[int(mesh_node)] = fid
+            if reactions is not None:
+                loads[fid] += -np.asarray(reactions[mesh_node], dtype=float)
+        for i in range(len(r_ids)):
+            a, b = r_ids[i], r_ids[(i+1) % len(r_ids)]
             elements.append({"a": a, "b": b, "section": "ring", "kind": NODE_RING})
 
-        centre_mesh_idx = int(data["built"]["centre_indices"][k])
-        drop_pos = coords_fdm[centre_mesh_idx]
-        drop_node_id = add_node(drop_pos, NODE_DROP)
-        drop_to_frame_id[centre_mesh_idx] = drop_node_id
+        cidx = int(data["built"]["centre_indices"][k])
+        dpos = coords_fdm[cidx]
+        drop_id = add(dpos, NODE_DROP)
+        drop_map[cidx] = drop_id
         if reactions is not None:
-            membrane_loads[drop_node_id] += -np.asarray(reactions[centre_mesh_idx], dtype=float)
-            
-        best_dist = float('inf')
-        best_arch = -1
-        for i, node_pos in enumerate(nodes):
-            if node_kind[i] == NODE_ARCH:
-                dist = _distance_sq(drop_pos, node_pos)
-                if dist < best_dist:
-                    best_dist = dist
-                    best_arch = i
-        if best_arch != -1:
-            elements.append({"a": drop_node_id, "b": best_arch, "section": "drop", "kind": NODE_DROP})
+            loads[drop_id] += -np.asarray(reactions[cidx], dtype=float)
 
-        for r_node in ring_nodes:
-            if r_node != drop_node_id:
-                elements.append({"a": r_node, "b": drop_node_id, "section": "spoke", "kind": NODE_SPOKE})
+        best, bestd = -1, float("inf")
+        for i, np_ in enumerate(nodes):
+            if kinds[i] == NODE_ARCH:
+                d = _dist_sq(dpos, np_)
+                if d < bestd:
+                    bestd, best = d, i
+        if best >= 0:
+            elements.append({"a": drop_id, "b": best, "section": "drop", "kind": NODE_DROP})
 
-    # =========================================================================
-    # RETURN
-    # =========================================================================
+        for r_id in r_ids:
+            if r_id != drop_id:
+                elements.append({"a": r_id, "b": drop_id, "section": "spoke", "kind": NODE_SPOKE})
+
     nodes = np.asarray(nodes, dtype=float)
-    membrane_loads = np.asarray(membrane_loads, dtype=float)
+    loads = np.asarray(loads, dtype=float)
 
-    total_load_magnitude = float(np.sum(np.abs(membrane_loads)))
-    total_reaction_magnitude = 0.0
+    total_load = float(np.sum(np.abs(loads)))
+    total_reaction = 0.0
     if reactions is not None:
-        for mesh_idx in list(anchor_to_frame_id.keys()) + list(ring_to_frame_id.keys()) + list(drop_to_frame_id.keys()):
-            total_reaction_magnitude += float(np.linalg.norm(reactions[mesh_idx]))
+        for m in list(anchor_map) + list(ring_map) + list(drop_map):
+            total_reaction += float(np.linalg.norm(reactions[m]))
 
     return {
         "nodes": nodes,
         "elements": elements,
-        "fixed_indices": fixed_indices,
-        "node_kind": node_kind,
-        "membrane_loads": membrane_loads,
-        "anchor_to_frame_id": anchor_to_frame_id,
-        "ring_to_frame_id": ring_to_frame_id,
-        "drop_to_frame_id": drop_to_frame_id,
-        "diagnostic_total_load_magnitude_N": total_load_magnitude,
-        "diagnostic_total_reaction_magnitude_N": total_reaction_magnitude,
+        "fixed_indices": fixed,
+        "node_kind": kinds,
+        "membrane_loads": loads,
+        "anchor_to_frame_id": anchor_map,
+        "ring_to_frame_id": ring_map,
+        "drop_to_frame_id": drop_map,
+        "diagnostic_total_load_magnitude_N": total_load,
+        "diagnostic_total_reaction_magnitude_N": total_reaction,
+        "diagnostic_n_anchor_loads": len(anchor_map),
+        "diagnostic_n_ring_loads": len(ring_map),
+        "diagnostic_n_drop_loads": len(drop_map),
     }
