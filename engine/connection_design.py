@@ -161,8 +161,8 @@ def design_corner_plate(cable_tension_N, cable_diameter_mm, steel_fy_MPa=355):
     - Net-section rupture of the plate
     - Pin shear
     
-    Returns a dict with the plate thickness, weld size, pin diameter, and
-    utilization ratios.
+    Returns a dict with plate thickness, weld size, pin diameter, utilizations,
+    and the governing mode (which constraint set the final plate thickness).
     """
     # Ultimate strengths
     fu_steel_MPa = 1.2 * steel_fy_MPa   # ULS rupture
@@ -175,10 +175,8 @@ def design_corner_plate(cable_tension_N, cable_diameter_mm, steel_fy_MPa=355):
     T_design_N = cable_tension_N * design_factor
 
     # ---------------- Weld ----------------
-    # Two-sided fillet weld along the full plate length
     plate_length_mm = max(100.0, 4.0 * cable_diameter_mm)
     weld_throat_factor = 0.707
-    # Weld size from ULS shear capacity on the throat
     weld_area_mm2 = 2 * weld_throat_factor * plate_length_mm  # per mm of weld size
     weld_size_mm = T_design_N / (weld_area_mm2 * fu_weld_MPa)
     weld_size_mm = max(5.0, math.ceil(weld_size_mm))
@@ -198,23 +196,38 @@ def design_corner_plate(cable_tension_N, cable_diameter_mm, steel_fy_MPa=355):
 
     # ---------------- Pin shear ----------------
     pin_area_req_mm2 = T_design_N / (fu_pin_MPa * 0.6)  # 0.6 is the ULS shear factor
-    # Choose pin diameter from required area
     pin_d_mm = math.sqrt(4.0 * pin_area_req_mm2 / math.pi)
     pin_d_mm = max(cable_diameter_mm, math.ceil(pin_d_mm))
 
     # ---------------- Final plate thickness ----------------
-    plate_thickness_mm = max(
+    raw_required_thickness = max(
         plate_thickness_bearing,
         plate_thickness_tearout,
         plate_thickness_net,
-        10.0
     )
+    plate_thickness_mm = max(raw_required_thickness, 10.0)
     plate_thickness_mm = math.ceil(plate_thickness_mm)
 
     # ---------------- Utilizations ----------------
     weld_util = T_design_N / (weld_area_mm2 * weld_size_mm * fu_weld_MPa)
     pin_shear_capacity_N = math.pi * (pin_d_mm / 2.0)**2 * fu_pin_MPa * 0.6
     pin_util = T_design_N / pin_shear_capacity_N
+
+    # ---------------- Governing mode ----------------
+    # Determine which constraint set the final plate thickness.
+    # Order of precedence:
+    # 1. MINIMUM     — plate is at the 10mm fabrication minimum
+    # 2. CABLE_DIAMETER — pin is at cable diameter (force is small)
+    # 3. STRENGTH    — plate thickness is governed by net-section (or bearing/tearout)
+    # 4. WELD_SIZE   — plate is thin but weld requires a thick plate (rare)
+    if raw_required_thickness < 10.0:
+        governing_mode = "MINIMUM"
+    elif pin_d_mm <= cable_diameter_mm:
+        governing_mode = "CABLE_DIAMETER"
+    elif raw_required_thickness == plate_thickness_net:
+        governing_mode = "STRENGTH"
+    else:
+        governing_mode = "WELD_SIZE"
 
     return {
         "plate_thickness_mm": int(plate_thickness_mm),
@@ -226,4 +239,5 @@ def design_corner_plate(cable_tension_N, cable_diameter_mm, steel_fy_MPa=355):
         "edge_distance_mm": int(edge_distance_mm),
         "weld_utilization": float(weld_util),
         "pin_utilization": float(pin_util),
+        "governing_mode": governing_mode,
     }
