@@ -412,7 +412,7 @@ def render_tester_multi_cone():
     with c1:
         span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5, key="mc_span")
     with c2:
-        apex = st.number_input("Primary apex (m)", 1.0, 30.0, 5.0, 0.5, key="mc_apex")
+        apex = st.number_input("Primary apex (m)", 1.0, 30.0, 6.0, 0.5, key="mc_apex")
 
     c1, c2 = st.columns(2)
     with c1:
