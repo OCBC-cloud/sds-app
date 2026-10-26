@@ -5,16 +5,6 @@ PE-grade structured report for tension membrane structures.
 Legal stance:
   This is an AUTOMATED DESIGN AID, not a certified engineering document.
   No PE sign-off is provided by the app. The user assumes full responsibility.
-
-Structure (aligned with CEN/TS 19102 practice):
-  Page 1: Cover & Executive Summary
-  Page 2: Basis of Design
-  Page 3: Form-Finding & Solver Traceability
-  Page 4: Membrane Verification
-  Page 5: Steel & Cable Verification
-  Page 6: Foundation & Connection Verification
-  Page 7: Appendices & Legal Disclaimer
-  Page 8: Export (Copy, Download)
 """
 
 import base64
@@ -28,7 +18,7 @@ import streamlit as st
 
 from data.materials import FABRIC_PROPERTIES
 from data.sections import SECTION_PROPERTIES
-from engine.connection_design import design_baseplate_and_foundation
+from engine.connection_design import design_baseplate_and_foundation, design_corner_plate
 from viewers.figures._shared import apply_common_layout
 
 
@@ -162,7 +152,6 @@ def _build_report_figure(data, newton_data):
     coords_to_draw = newton_data["dr_result"]["coordinates"]
     COL_MEMBRANE = "#4a7a9c"; COL_RING_EDGE = "#ffd166"; COL_PRIMARY = "#FF6B6B"
     COL_RIB = "#e07b39"; COL_SPOKE = "#c0c0c0"; COL_DROP = "#a0a0a0"
-
     fig = go.Figure()
     if len(data["tris"]) > 0:
         tri = np.asarray(data["tris"], dtype=int)
@@ -178,13 +167,14 @@ def _build_report_figure(data, newton_data):
     ))
     for i in range(len(data["rib_x"])):
         y = np.linspace(-data["rib_half_width"][i], data["rib_half_width"][i], 80)
-        u = y / data["rib_half_width"][i]
+        u = y / data["rib_half_width"][i] if data["rib_half_width"][i] > 0 else np.zeros_like(y)
         z = data["rib_peak_z"][i] * (1.0 - u ** 2)
         x = np.full_like(y, data["rib_x"][i])
         fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode="lines",
             line=dict(color=COL_RIB, width=5), showlegend=False, hoverinfo="skip"))
     for k, idx_list in enumerate(data["built"]["ring_indices"]):
-        pp = coords_to_draw[idx_list]; closed = np.vstack([pp, pp[:1]])
+        pp = coords_to_draw[idx_list]
+        closed = np.vstack([pp, pp[:1]])
         fig.add_trace(go.Scatter3d(x=closed[:, 0], y=closed[:, 1], z=closed[:, 2],
             mode="lines", line=dict(color=COL_RING_EDGE, width=5), showlegend=False, hoverinfo="skip"))
         centre_i = data["built"]["centre_indices"][k]; beam_i = data["built"]["beam_top_indices"][k]
@@ -228,12 +218,12 @@ def render_SDSe_analysis_report():
     data = st.session_state.get("fdm_results")
     newton_data = st.session_state.get("newton_results")
     if not data or not newton_data:
-        st.warning("⚠ No analysis results available. Run the Lab page through Step 1 (FDM) and Step 2 (Structural Calculation) first.")
+        st.warning("⚠ No analysis results available. Run the Lab page through Stage 2 and Stage 3 first.")
         return
 
     nd = newton_data["dr_result"]
-    det = newton_data.get("details", {})
-    sec = newton_data.get("sections", {})
+    det = newton_data.get("details", {}) or {}
+    sec = newton_data.get("sections", {}) or {}
     fabric_family = newton_data.get("fabric_family", "PVDF")
     fabric_name = newton_data.get("fabric_name", "Unknown")
     code_choice = st.session_state.get("mc_code", "MS 1553")
@@ -253,7 +243,8 @@ def render_SDSe_analysis_report():
     max_principal_N_m = 0.0
     for ms in nd.get("membrane_stress", []):
         sigma = ms.get("sigma")
-        if sigma is None: continue
+        if sigma is None:
+            continue
         s_xx, s_yy, s_xy = float(sigma[0, 0]), float(sigma[1, 1]), float(sigma[0, 1])
         mean = 0.5 * (s_xx + s_yy)
         radius = math.sqrt((0.5 * (s_xx - s_yy)) ** 2 + s_xy ** 2)
@@ -261,31 +252,33 @@ def render_SDSe_analysis_report():
         if principal > max_principal_N_m:
             max_principal_N_m = principal
 
-    membrane_util = 0.0; f_u_min = 0.0
+    membrane_util = 0.0
+    f_u_min = 0.0
     if f_u_warp and f_u_weft:
         f_u_min = min(float(f_u_warp), float(f_u_weft))
         membrane_util = (max_principal_N_m / 1000.0) / f_u_min if f_u_min > 0 else 999.0
 
     max_steel_util = 0.0
-    for key in ("primary", "rib", "ring", "drop"):
+    for key in ("primary", "rib", "ring", "drop", "spoke"):
         if key in det and det[key] is not None:
-            u = det[key].get("util", 0.0)
-            if u > max_steel_util: max_steel_util = u
+            u = det[key].get("max_util", det[key].get("util", 0.0))
+            if u > max_steel_util:
+                max_steel_util = u
 
     coords_to_draw = nd["coordinates"]
     max_deflection_mm = 0.0
     for i in range(len(data["coords_fdm"])):
         d = np.linalg.norm(coords_to_draw[i] - data["coords_fdm"][i])
-        if d > max_deflection_mm: max_deflection_mm = d * 1000.0
+        if d > max_deflection_mm:
+            max_deflection_mm = d * 1000.0
     limit_mm = (span * 1000.0) / 200.0
 
     _masthead()
 
     # =========================================================================
-    # PAGE 1: EXECUTIVE SUMMARY + 3D VIEW
+    # PAGE 1: EXECUTIVE SUMMARY
     # =========================================================================
     _title_block("Executive Summary", "Verdict and critical results.", page_no=1)
-
     is_safe = (membrane_util <= 0.70 and max_steel_util <= 0.70 and max_deflection_mm <= limit_mm)
     critical_items = [
         ("Membrane Utilization", f"{membrane_util * 100:.1f}% (Limit 70%)"),
@@ -311,7 +304,6 @@ def render_SDSe_analysis_report():
     st.markdown("### Form-Found Geometry")
     fig = _build_report_figure(data, newton_data)
     st.plotly_chart(fig, use_container_width=True, key="SDSe_report_3d_view")
-
     png_base64 = _render_figure_to_png_base64(fig)
 
     # =========================================================================
@@ -365,7 +357,6 @@ def render_SDSe_analysis_report():
             st.warning(f"⚠ WARNING: {membrane_util * 100:.0f}%.")
         else:
             st.success(f"✓ SAFE: {membrane_util * 100:.0f}%.")
-
         st.markdown(f"**Deflection:** {max_deflection_mm:.2f} mm (Limit {limit_mm:.1f} mm) → {'PASS' if max_deflection_mm <= limit_mm else 'FAIL'}")
 
     # =========================================================================
@@ -373,19 +364,20 @@ def render_SDSe_analysis_report():
     # =========================================================================
     _title_block("Steel & Cable Verification", "Member checks with calculation traceability.", page_no=5)
     member_rows = []
-    for key, label in [("primary", "Primary_Arch"), ("rib", "Rib_Arch"), ("ring", "Ring_Beam"), ("drop", "Drop_Member")]:
-        if key not in det or det[key] is None: continue
+    for key, label in [("primary", "Primary_Arch"), ("rib", "Rib_Arch"), ("ring", "Ring_Beam"), ("drop", "Drop_Member"), ("spoke", "Radial_Spoke")]:
+        if key not in det or det[key] is None:
+            continue
         d = det[key]
         ms = sec.get(key, "?")
         props = SECTION_PROPERTIES.get(ms, {})
         A_mm2 = props.get("A", 1.0); W_el_mm3 = props.get("W_el", 1.0); I_mm4 = props.get("I", 1.0)
         N_cap = A_mm2 * 355; M_cap = W_el_mm3 * 355
-        L_mm = d["L_eff_m"] * 1000.0
+        L_mm = d.get("L_eff_m", 1.0) * 1000.0
         N_cr = (math.pi ** 2 * 210000 * I_mm4) / (L_mm ** 2) if L_mm > 0 else 1e18
         member_rows.append({
-            "Member": label, "Section": ms, "L_eff (m)": f"{d['L_eff_m']:.2f}",
-            "N_Ed (kN)": f"{d['N_Ed_kN']:.1f}", "N_cap (kN)": f"{N_cap / 1000.0:.1f}",
-            "N_cr (kN)": f"{N_cr / 1000.0:.1f}", "Util": f"{d['util'] * 100:.0f}%",
+            "Member": label, "Section": ms, "L_eff (m)": f"{d.get('L_eff_m', 0):.2f}",
+            "N_Ed (kN)": f"{d.get('N_Ed_kN', 0):.1f}", "N_cap (kN)": f"{N_cap / 1000.0:.1f}",
+            "N_cr (kN)": f"{N_cr / 1000.0:.1f}", "Util": f"{(d.get('max_util', d.get('util', 0.0))) * 100:.0f}%",
         })
     if member_rows:
         st.dataframe(pd.DataFrame(member_rows), use_container_width=True, hide_index=True)
@@ -398,23 +390,52 @@ def render_SDSe_analysis_report():
     st.markdown(f"**Edge Cable:** {newton_data.get('cable_name', '?')} (A={newton_data.get('cable_A_mm2', 0):.1f} mm²)")
 
     # =========================================================================
-    # PAGE 6: FOUNDATION
+    # PAGE 6: FOUNDATION & CONNECTIONS
     # =========================================================================
-    _title_block("Foundation & Connections", "Baseplates and anchor reactions.", page_no=6)
+    _title_block("Foundation & Connections", "Baseplates and corner plates.", page_no=6)
     R = nd.get("reactions", None)
-    if R is not None:
+    if R is not None and len(data["anchor_idx"]) > 0:
+        design_tension_N = float(newton_data.get("design_tension_N", 0.0))
+        anchor_idx = data["anchor_idx"]
+        primary_sec = sec.get("primary", "CHS 100")
+
+        st.markdown("### Baseplate Summary")
         bp_rows = []
-        for idx in data["anchor_idx"]:
+        for idx in anchor_idx:
             r = R[idx]
-            design = design_baseplate_and_foundation(r, sec.get("primary", "CHS 100"), 0.0)
+            design = design_baseplate_and_foundation(r, primary_sec, 0.0)
             bp_rows.append({
                 "Node": idx, "X": f"{data['coords_fdm'][idx, 0]:.2f}", "Y": f"{data['coords_fdm'][idx, 1]:.2f}",
                 "Fx (kN)": f"{r[0] / 1000.0:.1f}", "Fy (kN)": f"{r[1] / 1000.0:.1f}", "Fz (kN)": f"{r[2] / 1000.0:.1f}",
-                "Plate": f"{design['plate_side_mm']}×{design['plate_thickness_mm']}",
+                "Plate": f"{design['plate_side_mm']}×{design['plate_side_mm']}×{design['plate_thickness_mm']}",
                 "Bolts": f"{design['bolt_count']}×M{design['bolt_diameter_mm']}",
                 "Pad": f"{design['pad_side_mm']}×{design['pad_side_mm']}",
             })
         st.dataframe(pd.DataFrame(bp_rows), use_container_width=True, hide_index=True)
+
+        st.markdown("### Corner Plate Summary")
+        st.info("Corner plates sized for **local vector forces** at each anchor. Governing Mode explains which constraint set the final thickness.")
+        cp_rows = []
+        n_anchors = len(anchor_idx)
+        for k in range(n_anchors):
+            idx = anchor_idx[k]
+            prev_idx = anchor_idx[(k - 1) % n_anchors]
+            next_idx = anchor_idx[(k + 1) % n_anchors]
+            v_prev = data["coords_fdm"][prev_idx] - data["coords_fdm"][idx]
+            v_next = data["coords_fdm"][next_idx] - data["coords_fdm"][idx]
+            L_prev = np.linalg.norm(v_prev); L_next = np.linalg.norm(v_next)
+            F_res = design_tension_N * np.linalg.norm(v_prev / L_prev + v_next / L_next) if L_prev > 1e-9 and L_next > 1e-9 else design_tension_N
+            cp = design_corner_plate(F_res, newton_data.get("cable_d_mm", 10.0), steel_fy_MPa=355)
+            cp_rows.append({
+                "Node": idx, "T (kN)": f"{F_res / 1000.0:.1f}",
+                "Plate": f"{cp['plate_thickness_mm']}×{cp['plate_width_mm']}×{cp['plate_length_mm']}",
+                "Weld": f"{cp['weld_size_mm']}×{cp['weld_length_mm']}",
+                "Pin": str(cp['pin_diameter_mm']),
+                "Weld%": f"{cp['weld_utilization'] * 100:.0f}%",
+                "Pin%": f"{cp['pin_utilization'] * 100:.0f}%",
+                "Governing Mode": cp.get("governing_mode", "?"),
+            })
+        st.dataframe(pd.DataFrame(cp_rows), use_container_width=True, hide_index=True)
 
     # =========================================================================
     # PAGE 7: ASSUMPTIONS & DISCLAIMER
@@ -464,12 +485,10 @@ def render_SDSe_analysis_report():
         png_base64,
     )
 
-    # --- COPYABLE ON-SCREEN TEXT BLOCK ---
     st.markdown("### Copy the Report")
     st.write("Select the text below and copy it. Or use the download button.")
     st.code(report_md, language="markdown")
 
-    # --- DOWNLOAD ---
     st.download_button(
         label="📥 Download SDSe Report (Markdown)",
         data=report_md,
@@ -478,13 +497,17 @@ def render_SDSe_analysis_report():
         use_container_width=True,
     )
 
-    # --- PRINT TO PDF ---
     st.info("""
     **To print this report as PDF:**
-    - **iPhone:** Tap the Share button → "Print" → pinch-zoom the preview → Share → "Save to Files".
-    - **Android:** Tap the ⋮ menu → "Print" → "Save as PDF".
-    - **Desktop:** Press Ctrl+P (Windows) or Cmd+P (Mac) → "Save as PDF".
+    - **iPhone:** Tap Share → "Print" → pinch-zoom the preview → Share → "Save to Files".
+    - **Android:** Tap ⋮ → "Print" → "Save as PDF".
+    - **Desktop:** Ctrl+P (Windows) / Cmd+P (Mac) → "Save as PDF".
     """)
+
+    st.markdown("---")
+    if st.button("← Back to Lab", key="SDSe_report_bottom_back_lab", use_container_width=True):
+        st.session_state.page = "lab"
+        st.rerun()
 
 
 # =============================================================================
