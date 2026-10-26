@@ -223,23 +223,18 @@ def build_steel_frame(data, newton_data):
     # ==========================================================================
     # FIXED NODES (baseplates)
     # ==========================================================================
+    # BUG FIX: Only fix nodes that are actual boundary anchors (eave).
+    # Previously this swept all nodes near z=0, over-constraining the frame.
     fixed_indices = []
     for i, n in enumerate(unique_nodes):
-        if abs(n[2]) < 0.05:
+        if merged_node_kind[i] == NODE_BOUNDARY and abs(n[2]) < 0.05:
             fixed_indices.append(i)
-            merged_node_kind[i] = NODE_BASEPLATE
+            # Note: Do NOT overwrite merged_node_kind[i] here.
 
     # ==========================================================================
     # LOAD TRANSFER: MEMBRANE REACTIONS -> FRAME LOADS
     # ==========================================================================
-    # Every fixed membrane node transfers its reaction to the frame.
-    # The membrane solver returns the force the SUPPORT exerts ON the membrane.
-    # The force the MEMBRANE exerts ON the frame is -reaction.
-    #
-    # We apply -reaction at every boundary anchor, ring node, and drop centre.
-
     membrane_loads = np.zeros((len(unique_nodes), 3), dtype=float)
-
     reactions = newton_data["dr_result"].get("reactions", None)
 
     if reactions is not None:
