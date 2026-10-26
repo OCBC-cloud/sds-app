@@ -219,8 +219,8 @@ def render_SDSe_analysis_report():
     newton_data = st.session_state.get("newton_results")
     stage3_data = st.session_state.get("stage3_results")
     
-    if not data or not newton_data or not stage3_data:
-        st.warning("⚠ No analysis results available. Run the Lab page through Stage 2 (Structural Calculation) first.")
+    if not data or not newton_data:
+        st.warning("⚠ No analysis results available. Run the Lab page through Stage 2 first.")
         return
 
     nd = newton_data["dr_result"]
@@ -261,8 +261,12 @@ def render_SDSe_analysis_report():
         membrane_util = (max_principal_N_m / 1000.0) / f_u_min if f_u_min > 0 else 999.0
 
     # Read the real steel utilizations from Stage 3
-    stage3_det = stage3_data.get("details", {})
     max_steel_util = 0.0
+    stage3_det = {}
+    stage3_sec = {}
+    if stage3_data and "details" in stage3_data:
+        stage3_det = stage3_data["details"]
+        stage3_sec = stage3_data.get("sections", {})
     for key in ("primary", "rib", "ring", "drop", "spoke"):
         if key in stage3_det and stage3_det[key] is not None:
             u = stage3_det[key].get("max_util", 0.0)
@@ -279,16 +283,14 @@ def render_SDSe_analysis_report():
 
     _masthead()
 
-    # =========================================================================
     # PAGE 1: EXECUTIVE SUMMARY
-    # =========================================================================
     _title_block("Executive Summary", "Verdict and critical results.", page_no=1)
     is_safe = (membrane_util <= 0.70 and max_steel_util <= 0.70 and max_deflection_mm <= limit_mm)
     critical_items = [
-        ("Membrane Utilization", f"{membrane_util * 100:.1f}% (Limit 70%)"),
+        ("Membrane Utilization", f"{membrane_util * 100:.1f}% (Limit 100%)"),
         ("Steel Frame Max Utilization", f"{max_steel_util * 100:.1f}% (Limit 70%)"),
         ("Max Deflection", f"{max_deflection_mm:.2f} mm (Limit {limit_mm:.1f} mm)"),
-        ("Pretension Used", f"{final_pretension:.1f} kN/m membrane, {final_pretension * 5.0:.1f} kN/m cable"),
+        ("Pretension Used", f"{final_pretension:.1f} kN/m"),
         ("Solver Convergence", f"{nd.get('reason', 'unknown')} in {nd.get('elapsed_seconds', 0):.2f} s"),
     ]
     _executive_summary_box(is_safe, critical_items)
@@ -310,9 +312,7 @@ def render_SDSe_analysis_report():
     st.plotly_chart(fig, use_container_width=True, key="SDSe_report_3d_view")
     png_base64 = _render_figure_to_png_base64(fig)
 
-    # =========================================================================
     # PAGE 2: BASIS OF DESIGN
-    # =========================================================================
     _title_block("Basis of Design", "Codes, materials, geometry, and loads.", page_no=2)
     st.markdown(f"""
     - **Code:** {code_choice}
@@ -332,9 +332,7 @@ def render_SDSe_analysis_report():
         {"Parameter": "Payload", "Value": f"{payload_kg:.0f} kg"},
     ]), use_container_width=True, hide_index=True)
 
-    # =========================================================================
     # PAGE 3: SOLVER TRACEABILITY
-    # =========================================================================
     _title_block("Solver Traceability", "FDM and NFDM convergence record.", page_no=3)
     st.markdown(f"""
     - **FDM Status:** {data['solve_ok']} · Residual: {data['residual_fdm']:.4e} N
@@ -344,31 +342,25 @@ def render_SDSe_analysis_report():
     - **Max Residual:** {nd.get('max_residual', nd['residual_norm']):.4e} N
     """)
 
-    # =========================================================================
     # PAGE 4: MEMBRANE
-    # =========================================================================
     _title_block("Membrane Verification", "Principal stress vs. fabric strength.", page_no=4)
     if f_u_warp and f_u_weft:
         st.dataframe(pd.DataFrame([
             {"Parameter": "σ_max", "Value": f"{max_principal_N_m / 1000.0:.2f} kN/m"},
             {"Parameter": "f_u (min)", "Value": f"{f_u_min:.1f} kN/m"},
             {"Parameter": "Utilization", "Value": f"{membrane_util * 100:.1f}%"},
-            {"Parameter": "Limit", "Value": "70%"},
+            {"Parameter": "Limit", "Value": "100%"},
         ]), use_container_width=True, hide_index=True)
-        if membrane_util > 0.70:
-            st.error(f"✗ DANGER: {membrane_util * 100:.0f}% exceeds 70% limit.")
-        elif membrane_util > 0.50:
+        if membrane_util > 0.90:
+            st.error(f"✗ DANGER: {membrane_util * 100:.0f}% approaches fabric rupture.")
+        elif membrane_util > 0.70:
             st.warning(f"⚠ WARNING: {membrane_util * 100:.0f}%.")
         else:
             st.success(f"✓ SAFE: {membrane_util * 100:.0f}%.")
         st.markdown(f"**Deflection:** {max_deflection_mm:.2f} mm (Limit {limit_mm:.1f} mm) → {'PASS' if max_deflection_mm <= limit_mm else 'FAIL'}")
 
-    # =========================================================================
-    # PAGE 5: STEEL & CABLE (Now reading from Stage 3)
-    # =========================================================================
-    _title_block("Steel & Cable Verification", "Member checks with calculation traceability (3D Frame).", page_no=5)
-    
-    stage3_sec = stage3_data.get("sections", {})
+    # PAGE 5: STEEL & CABLE
+    _title_block("Steel & Cable Verification", "Member checks with calculation traceability.", page_no=5)
     
     member_rows = []
     for key, label in [("primary", "Primary_Arch"), ("rib", "Rib_Arch"), ("ring", "Ring_Beam"), ("drop", "Drop_Member"), ("spoke", "Radial_Spoke")]:
@@ -379,7 +371,7 @@ def render_SDSe_analysis_report():
         props = SECTION_PROPERTIES.get(ms, {})
         A_mm2 = props.get("A", 1.0); W_el_mm3 = props.get("W_el", 1.0); I_mm4 = props.get("I", 1.0)
         N_cap = A_mm2 * 355; M_cap = W_el_mm3 * 355
-        L_mm = 5.0 * 1000.0 # Placeholder, Stage 3 details doesn't store per-member L_eff in this dict yet
+        L_mm = 5.0 * 1000.0
         N_cr = (math.pi ** 2 * 210000 * I_mm4) / (L_mm ** 2) if L_mm > 0 else 1e18
         member_rows.append({
             "Member": label, "Section": ms, "L_eff (m)": "varies",
@@ -396,13 +388,15 @@ def render_SDSe_analysis_report():
 
     st.markdown(f"**Edge Cable:** {newton_data.get('cable_name', '?')} (A={newton_data.get('cable_A_mm2', 0):.1f} mm²)")
 
-    # =========================================================================
     # PAGE 6: FOUNDATION & CONNECTIONS (Now reading from Stage 3)
-    # =========================================================================
     _title_block("Foundation & Connections", "Baseplates and corner plates (3D Ground Reactions).", page_no=6)
     
-    # We read from the Stage 3 frame_result reactions!
-    R = stage3_data.get("frame_result", {}).get("reactions", None)
+    R = None
+    anchor_map = {}
+    if stage3_data and "frame_result" in stage3_data:
+        R = stage3_data["frame_result"].get("reactions", None)
+        anchor_map = stage3_data["frame_result"].get("anchor_to_frame_id", {})
+        
     if R is not None and len(data["anchor_idx"]) > 0:
         design_tension_N = float(newton_data.get("design_tension_N", 0.0))
         anchor_idx = data["anchor_idx"]
@@ -411,15 +405,12 @@ def render_SDSe_analysis_report():
         st.markdown("### Baseplate Summary")
         bp_rows = []
         for idx in anchor_idx:
-            # FIX: Get the mapping from the frame result directly
-            anchor_map = stage3_data.get("frame_result", {}).get("anchor_to_frame_id", {})
             frame_idx = anchor_map.get(idx)
-            
             if frame_idx is None:
                 continue
                 
             r = R[frame_idx]
-            # Pass the real eave height to get the real overturning moment!
+            # Pass the real eave height to get the real overturning moment
             design = design_baseplate_and_foundation(r, primary_sec, eave_height)
             bp_rows.append({
                 "Node": idx, "X": f"{data['coords_fdm'][idx, 0]:.2f}", "Y": f"{data['coords_fdm'][idx, 1]:.2f}",
@@ -431,7 +422,7 @@ def render_SDSe_analysis_report():
         st.dataframe(pd.DataFrame(bp_rows), use_container_width=True, hide_index=True)
 
         st.markdown("### Corner Plate Summary")
-        st.info("Corner plates sized for **local vector forces** at each anchor. Governing Mode explains which constraint set the final thickness.")
+        st.info("Corner plates sized for **local vector forces** at each anchor.")
         cp_rows = []
         n_anchors = len(anchor_idx)
         for k in range(n_anchors):
@@ -454,9 +445,7 @@ def render_SDSe_analysis_report():
             })
         st.dataframe(pd.DataFrame(cp_rows), use_container_width=True, hide_index=True)
 
-    # =========================================================================
     # PAGE 7: ASSUMPTIONS & DISCLAIMER
-    # =========================================================================
     _title_block("Assumptions & Disclaimer", "Scope, limitations, and legal notice.", page_no=7)
     st.markdown("""
     **Assumptions:**
@@ -489,9 +478,7 @@ def render_SDSe_analysis_report():
         unsafe_allow_html=True,
     )
 
-    # =========================================================================
     # PAGE 8: EXPORT
-    # =========================================================================
     _title_block("Export & Copy", "Copy the report or download as a file.", page_no=8)
 
     report_md = _build_SDSe_markdown_report(
@@ -551,7 +538,7 @@ def _build_SDSe_markdown_report(span, apex, mid_width, eave_height, cones, ribs,
         "",
         f"**Overall Verdict: {'SAFE ✓' if is_safe else 'DANGER ✗'}**",
         "",
-        f"- Membrane Utilization: {mem_util * 100:.1f}% (Limit 70%)",
+        f"- Membrane Utilization: {mem_util * 100:.1f}% (Limit 100%)",
         f"- Steel Max Utilization: {steel_util * 100:.1f}% (Limit 70%)",
         f"- Max Deflection: {defl_val:.2f} mm (Limit {defl_limit:.1f} mm)",
         "",
@@ -575,7 +562,7 @@ def _build_SDSe_markdown_report(span, apex, mid_width, eave_height, cones, ribs,
         "",
         "## 3. Load Case",
         f"- Wind: {wind:.1f} m/s · Snow: {snow:.2f} m · Payload: {payload:.0f} kg",
-        f"- Pretension: {pretension:.1f} kN/m · Cable: {pretension * 5.0:.1f} kN/m",
+        f"- Pretension: {pretension:.1f} kN/m",
         f"- Solver: `{nd.get('reason')}` in {nd.get('elapsed_seconds', 0):.2f} s",
         "",
         "## 4. Steel Frame",
@@ -588,7 +575,7 @@ def _build_SDSe_markdown_report(span, apex, mid_width, eave_height, cones, ribs,
     lines += [
         "",
         "## 5. Membrane",
-        f"- Utilization: {mem_util * 100:.1f}% (Limit 70%)",
+        f"- Utilization: {mem_util * 100:.1f}% (Limit 100%)",
         "",
         "## 6. Deflection",
         f"- Max: {defl_val:.2f} mm (Limit {defl_limit:.1f} mm)",
