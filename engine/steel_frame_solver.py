@@ -165,15 +165,13 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     K_ff = K_global[np.ix_(free_dofs, free_dofs)]
     F_f = F_global[free_dofs]
 
-    # Solve
+    # Solve (Using Pseudo-Inverse to prevent collapse to zero on floating nodes)
     try:
         u_f = np.linalg.solve(K_ff, F_f)
     except np.linalg.LinAlgError:
-        # Regularize
-        K_ff_reg = K_ff + 1e-6 * np.eye(K_ff.shape[0])
         try:
-            u_f = np.linalg.solve(K_ff_reg, F_f)
-        except np.linalg.LinAlgError:
+            u_f, _, _, _ = np.linalg.lstsq(K_ff, F_f, rcond=None)
+        except Exception:
             u_f = np.zeros_like(F_f)
 
     u_global = np.zeros(n_dof)
@@ -188,7 +186,6 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
                 reactions[i, j] = R_global[6*i + j]
 
     # Compute member end forces
-    # FIX: extract the 12 element DOFs before transforming to local coords.
     member_end_forces = []
     for elem in elements:
         a = elem["a"]
@@ -203,7 +200,6 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
             E, G, sec["A"], sec.get("Iy", sec["I"]), sec.get("Iz", sec["I"]), sec.get("J", sec["I"] * 2), L
         )
         T = _transformation_matrix(nodes[a], nodes[b])
-        # Extract the 12 DOFs of this element (6 for node a, 6 for node b)
         elem_dofs = list(range(6 * a, 6 * a + 6)) + list(range(6 * b, 6 * b + 6))
         u_elem = u_global[elem_dofs]
         u_local = T @ u_elem
