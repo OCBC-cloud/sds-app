@@ -517,7 +517,7 @@ def render_tester_multi_cone():
                 cone_apexes=[(data["coords_fdm"][c][0], data["coords_fdm"][c][1], data["coords_fdm"][c][2]) for c in data["built"]["centre_indices"]],
                 cone_radius_m=ring_diameter / 2.0
             )
-            
+            st.write("DEBUG WIND:", load_output["wind_diagnostics"])
             if design_philosophy == "Ultimate Limit State (Factored)":
                 loads = load_output["uplift"]
                 st.info("Running ULS Uplift Case. Check Diagnostics for Foundation Uplift design.")
