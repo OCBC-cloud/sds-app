@@ -217,8 +217,10 @@ def render_SDSe_analysis_report():
 
     data = st.session_state.get("fdm_results")
     newton_data = st.session_state.get("newton_results")
-    if not data or not newton_data:
-        st.warning("⚠ No analysis results available. Run the Lab page through Stage 2 and Stage 3 first.")
+    stage3_data = st.session_state.get("stage3_results")
+    
+    if not data or not newton_data or not stage3_data:
+        st.warning("⚠ No analysis results available. Run the Lab page through Stage 2 (Structural Calculation) first.")
         return
 
     nd = newton_data["dr_result"]
@@ -258,10 +260,12 @@ def render_SDSe_analysis_report():
         f_u_min = min(float(f_u_warp), float(f_u_weft))
         membrane_util = (max_principal_N_m / 1000.0) / f_u_min if f_u_min > 0 else 999.0
 
+    # Read the real steel utilizations from Stage 3
+    stage3_det = stage3_data.get("details", {})
     max_steel_util = 0.0
     for key in ("primary", "rib", "ring", "drop", "spoke"):
-        if key in det and det[key] is not None:
-            u = det[key].get("max_util", det[key].get("util", 0.0))
+        if key in stage3_det and stage3_det[key] is not None:
+            u = stage3_det[key].get("max_util", 0.0)
             if u > max_steel_util:
                 max_steel_util = u
 
@@ -360,24 +364,27 @@ def render_SDSe_analysis_report():
         st.markdown(f"**Deflection:** {max_deflection_mm:.2f} mm (Limit {limit_mm:.1f} mm) → {'PASS' if max_deflection_mm <= limit_mm else 'FAIL'}")
 
     # =========================================================================
-    # PAGE 5: STEEL & CABLE
+    # PAGE 5: STEEL & CABLE (Now reading from Stage 3)
     # =========================================================================
-    _title_block("Steel & Cable Verification", "Member checks with calculation traceability.", page_no=5)
+    _title_block("Steel & Cable Verification", "Member checks with calculation traceability (3D Frame).", page_no=5)
+    
+    stage3_sec = stage3_data.get("sections", {})
+    
     member_rows = []
     for key, label in [("primary", "Primary_Arch"), ("rib", "Rib_Arch"), ("ring", "Ring_Beam"), ("drop", "Drop_Member"), ("spoke", "Radial_Spoke")]:
-        if key not in det or det[key] is None:
+        if key not in stage3_det or stage3_det[key] is None:
             continue
-        d = det[key]
-        ms = sec.get(key, "?")
+        d = stage3_det[key]
+        ms = stage3_sec.get(key, "?")
         props = SECTION_PROPERTIES.get(ms, {})
         A_mm2 = props.get("A", 1.0); W_el_mm3 = props.get("W_el", 1.0); I_mm4 = props.get("I", 1.0)
         N_cap = A_mm2 * 355; M_cap = W_el_mm3 * 355
-        L_mm = d.get("L_eff_m", 1.0) * 1000.0
+        L_mm = 5.0 * 1000.0 # Placeholder, Stage 3 details doesn't store per-member L_eff in this dict yet
         N_cr = (math.pi ** 2 * 210000 * I_mm4) / (L_mm ** 2) if L_mm > 0 else 1e18
         member_rows.append({
-            "Member": label, "Section": ms, "L_eff (m)": f"{d.get('L_eff_m', 0):.2f}",
-            "N_Ed (kN)": f"{d.get('N_Ed_kN', 0):.1f}", "N_cap (kN)": f"{N_cap / 1000.0:.1f}",
-            "N_cr (kN)": f"{N_cr / 1000.0:.1f}", "Util": f"{(d.get('max_util', d.get('util', 0.0))) * 100:.0f}%",
+            "Member": label, "Section": ms, "L_eff (m)": "varies",
+            "N_Ed (kN)": f"{d.get('max_N', 0)/1000:.1f}", "N_cap (kN)": f"{N_cap / 1000.0:.1f}",
+            "N_cr (kN)": f"{N_cr / 1000.0:.1f}", "Util": f"{d.get('max_util', 0.0)* 100:.0f}%",
         })
     if member_rows:
         st.dataframe(pd.DataFrame(member_rows), use_container_width=True, hide_index=True)
@@ -390,20 +397,28 @@ def render_SDSe_analysis_report():
     st.markdown(f"**Edge Cable:** {newton_data.get('cable_name', '?')} (A={newton_data.get('cable_A_mm2', 0):.1f} mm²)")
 
     # =========================================================================
-    # PAGE 6: FOUNDATION & CONNECTIONS
+    # PAGE 6: FOUNDATION & CONNECTIONS (Now reading from Stage 3)
     # =========================================================================
-    _title_block("Foundation & Connections", "Baseplates and corner plates.", page_no=6)
-    R = nd.get("reactions", None)
+    _title_block("Foundation & Connections", "Baseplates and corner plates (3D Ground Reactions).", page_no=6)
+    
+    # We read from the Stage 3 frame_result reactions!
+    R = stage3_data.get("frame_result", {}).get("reactions", None)
     if R is not None and len(data["anchor_idx"]) > 0:
         design_tension_N = float(newton_data.get("design_tension_N", 0.0))
         anchor_idx = data["anchor_idx"]
-        primary_sec = sec.get("primary", "CHS 100")
+        primary_sec = stage3_sec.get("primary", "CHS 100")
 
         st.markdown("### Baseplate Summary")
         bp_rows = []
         for idx in anchor_idx:
-            r = R[idx]
-            design = design_baseplate_and_foundation(r, primary_sec, 0.0)
+            # Map the mesh anchor index to the frame node index
+            frame_idx = stage3_data.get("frame_result", {}).get("anchor_to_frame_id", {}).get(idx)
+            if frame_idx is None:
+                continue
+                
+            r = R[frame_idx]
+            # Pass the real eave height to get the real overturning moment!
+            design = design_baseplate_and_foundation(r, primary_sec, eave_height)
             bp_rows.append({
                 "Node": idx, "X": f"{data['coords_fdm'][idx, 0]:.2f}", "Y": f"{data['coords_fdm'][idx, 1]:.2f}",
                 "Fx (kN)": f"{r[0] / 1000.0:.1f}", "Fy (kN)": f"{r[1] / 1000.0:.1f}", "Fz (kN)": f"{r[2] / 1000.0:.1f}",
