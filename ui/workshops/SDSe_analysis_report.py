@@ -411,8 +411,10 @@ def render_SDSe_analysis_report():
         st.markdown("### Baseplate Summary")
         bp_rows = []
         for idx in anchor_idx:
-            # Map the mesh anchor index to the frame node index
-            frame_idx = stage3_data.get("frame_result", {}).get("anchor_to_frame_id", {}).get(idx)
+            # FIX: Get the mapping from the frame result directly
+            anchor_map = stage3_data.get("frame_result", {}).get("anchor_to_frame_id", {})
+            frame_idx = anchor_map.get(idx)
+            
             if frame_idx is None:
                 continue
                 
