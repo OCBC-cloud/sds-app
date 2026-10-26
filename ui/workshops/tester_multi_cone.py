@@ -3,6 +3,7 @@
 Two-stage workflow:
     Stage 1: FDM finds the shape.
     Stage 2: Automated pretension search + Newton solve.
+    Stage 3: 3D Steel Frame solver (Triggered automatically inside Stage 2).
 """
 
 import math
@@ -28,6 +29,7 @@ from engine.connection_design import (
     design_baseplate_and_foundation,
     design_corner_plate,
 )
+from engine.steel_frame_sizer import size_steel_frame
 from data.materials import CABLE_PROPERTIES, STEEL_MATERIALS, FABRIC_PROPERTIES
 from data.sections import SECTION_PROPERTIES
 from viewers.figures._shared import (
@@ -562,7 +564,7 @@ def render_tester_multi_cone():
     dr_result = None
 
     if btn_newton:
-        with st.spinner("Running Automated Structural Calculation..."):
+        with st.spinner("Running Automated Structural Calculation (Membrane + Frame)..."):
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
 
             cables = []
@@ -637,12 +639,12 @@ def render_tester_multi_cone():
             
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(design_tension_N, safety_factor=2.0)
 
+            # --- STAGE 2 MEMBRANE SIZING (Proxy forces) ---
             if "reactions" in dr_result and len(dr_result["reactions"]) > 0:
                 max_reaction_kN = max([math.sqrt(r[0]**2 + r[1]**2 + r[2]**2)/1000.0 for r in dr_result["reactions"]])
             else:
                 max_reaction_kN = data["fdm"]["max_edge_tension_N"] / 1000.0
 
-            # --- MEMBER-SPECIFIC SIZING WITH SELF-WEIGHT ---
             sec_primary, det_primary = _select_steel_section(
                 max_reaction_kN, 
                 length_m=data["span"],
@@ -688,9 +690,33 @@ def render_tester_multi_cone():
                     )
 
             coords_to_draw = dr_result["coordinates"]
+
+            # --- STAGE 3: 3D FRAME SOLVER (Automatic) ---
+            stage3_results = None
+            try:
+                # We must temporarily store newton_data to feed the builder
+                temp_newton_data = {"dr_result": dr_result}
+                
+                # Fire the sizer
+                stage3_results = size_steel_frame(
+                    data=data, 
+                    newton_data=temp_newton_data, 
+                    code_choice=code_choice, 
+                    grade="S355", 
+                    family="CHS"
+                )
+            except Exception as e:
+                st.error(f"Stage 3 Frame Solver failed: {e}")
+                stage3_results = None
+
+            # Save everything to session state
             st.session_state["newton_results"] = {
-                "dr_result": dr_result, "cable_name": cable_name, "cable_A_mm2": cable_A_mm2, "EA_cable": EA_cable,
+                "dr_result": dr_result, 
+                "cable_name": cable_name, 
+                "cable_A_mm2": cable_A_mm2, 
+                "EA_cable": EA_cable,
                 "cable_d_mm": cable_d_mm,
+                "design_tension_N": design_tension_N, # FIX: Saving this for the report
                 "sections": {
                     "primary": sec_primary, "rib": sec_rib, "ring": sec_ring, "drop": sec_drop
                 },
@@ -701,6 +727,9 @@ def render_tester_multi_cone():
                 "cables": cables, "material": mat, "final_pretension": final_pretension,
                 "fabric_family": fabric_family, "fabric_name": fabric_name,
             }
+            
+            if stage3_results:
+                st.session_state["stage3_results"] = stage3_results
 
     newton_data = st.session_state.get("newton_results")
     if newton_data and not btn_newton:
@@ -783,7 +812,7 @@ def render_tester_multi_cone():
                 st.write("Fabric utilization unavailable (missing f_u data).")
             
             st.write("---")
-            st.write("**Steel Sizing Details (with self-weight):**")
+            st.write("**Stage 2 — Steel Sizing Details (Proxy - Overwritten by Stage 3):**")
             det = newton_data.get("details", {})
             sec = newton_data.get("sections", {})
             for key, label in [("primary", "Primary"), ("rib", "Rib"), ("ring", "Ring"), ("drop", "Drop")]:
@@ -795,7 +824,32 @@ def render_tester_multi_cone():
                     )
 
             st.write("---")
-            st.write("**Reaction Forces & Foundation Design:**")
+            st.write("**Stage 3 — 3D Frame Solver Results:**")
+            stage3_data = st.session_state.get("stage3_results")
+            if stage3_data:
+                if "error" in stage3_data:
+                    st.error(f"Stage 3 Error: {stage3_data['error']}")
+                else:
+                    st.success("Stage 3 Frame Solve Successful.")
+                    frame_res = stage3_data.get("frame_result", {})
+                    s3_sections = stage3_data.get("sections", {})
+                    s3_details = stage3_data.get("details", {})
+                    
+                    st.write("Final Frame Sections (Auto-Sized):")
+                    st.write(f"- Primary: **{s3_sections.get('primary')}**")
+                    st.write(f"- Rib: **{s3_sections.get('rib')}**")
+                    st.write(f"- Ring: **{s3_sections.get('ring')}**")
+                    st.write(f"- Spoke: **{s3_sections.get('spoke')}**")
+                    st.write(f"- Drop: **{s3_sections.get('drop')}**")
+                    
+                    st.write("Frame Max Utilizations:")
+                    for k, v in s3_details.items():
+                        st.write(f"- {k.capitalize()}: {v['max_util']*100:.0f}% (Max N: {v['max_N']/1000.0:.1f} kN)")
+            else:
+                st.info("Stage 3 has not been run yet.")
+
+            st.write("---")
+            st.write("**Reaction Forces & Foundation Design (Membrane Proxy):**")
             R = nd.get("reactions", None)
             if R is not None:
                 fixed_indices = data["fixed"]
@@ -815,7 +869,7 @@ def render_tester_multi_cone():
                             % (
                                 idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1], 
                                 r[0]/1000.0, r[1]/1000.0, r[2]/1000.0, design["overturning_moment_kNm"],
-                                "%dx%d" % (design["plate_side_mm"], design["plate_side_mm"]),
+                                "%dx%dx%d" % (design["plate_side_mm"], design["plate_side_mm"], design["plate_thickness_mm"]),
                                 "%dxM%d" % (design["bolt_count"], design["bolt_diameter_mm"]),
                                 "%dx%d" % (design["pad_side_mm"], design["pad_side_mm"])
                             ),
