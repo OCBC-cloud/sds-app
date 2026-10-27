@@ -1,22 +1,7 @@
-# =============================================================================
-# SDSe - Lab: Cantilever Leaf Tester (Universal Pipeline)
-# =============================================================================
-# 1. Geometry -> 2. Membrane Mesh -> 3. FDM Solver -> 4. Steel Frame ->
-# 5. Universal Frame Analysis & Auto-Sizing.
-# =============================================================================
-
 import streamlit as st
 import numpy as np
-import math
-import plotly.graph_objects as go
-from scipy.spatial import Delaunay
 
-from viewers.figures.cantilever_leaf_lab import (
-    compute_lab_leaf_geometry,
-    build_cantilever_leaf_lab_figure,
-)
-from viewers.figures._shared import apply_common_layout
-
+from viewers.figures.cantilever_leaf_lab import compute_lab_leaf_geometry, build_cantilever_leaf_lab_figure
 from engine.form_finding_test import solve_fdm
 from engine.cantilever_frame_builder import build_cantilever_frame
 from engine.frame_analysis import analyze_and_size_frame
@@ -38,106 +23,85 @@ def render_tester_cantilever_leaf():
     st.markdown(LAB_TESTER_CSS, unsafe_allow_html=True)
     st.markdown('<div class="ctl-topbar"><div class="ctl-wordmark">SDSe LAB</div><div></div></div>', unsafe_allow_html=True)
     st.markdown('<div class="ctl-header">Cantilever Leaf — Universal Structural Test</div>', unsafe_allow_html=True)
-    st.markdown('<div class="ctl-sub">Runs membrane form-finding, extracts forces, and auto-sizes the steel frame.</div>', unsafe_allow_html=True)
+    
+    # Sliders for dynamic testing
+    with st.sidebar:
+        st.markdown("### Leaf Geometry")
+        col_h = st.slider("Column Height (m)", 3.0, 12.0, 6.0, 0.5)
+        outreach = st.slider("Outreach (m)", 2.0, 15.0, 5.0, 0.5)
+        half_w = st.slider("Middle Half-Width (m)", 0.5, 5.0, 2.0, 0.5)
+        tilt = st.slider("Rib Tilt (deg)", -45.0, 45.0, 0.0, 1.0)
+        arc_r = st.slider("Arc Radius (m)", 0.0, 5.0, 1.0, 0.1)
+        strut_j = st.slider("Strut Joint (m)", 1.0, col_h, 3.0, 0.5)
+        strut_a = st.slider("Strut Angle (deg)", 20.0, 80.0, 42.0, 1.0)
+        n_ribs = st.slider("Rib Pairs", 1, 8, 3, 1)
 
-    # 1. Base Geometry
-    geom = compute_lab_leaf_geometry()
+    geom = compute_lab_leaf_geometry(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
     
     col_l, col_r = st.columns([2, 1])
-
     with col_l:
         st.plotly_chart(build_cantilever_leaf_lab_figure(geom), use_container_width=True, config={"displayModeBar": False})
 
     with col_r:
         st.markdown("### Structural Auto-Sizing")
-        st.write("Click below to solve membrane physics and size the steel.")
-        
         if st.button("Run Structural Analysis", type="primary", use_container_width=True):
-            with st.spinner("1. Meshing Membrane..."):
-                # A. Build a simple membrane mesh from the rib tips to the spine
+            with st.spinner("Running Pipeline..."):
+                # 1. FDM (Simplified)
                 b = geom["beam"]
                 spine_pts = np.column_stack([b["x"], b["y"], b["z"]])
                 mesh_pts = list(spine_pts)
                 mesh_edges = []
                 fixed_nodes = []
                 
-                # Add rib tips and connect them to the spine
                 for rib in geom["ribs"]:
-                    # Left rib
                     l_idx = len(mesh_pts)
                     mesh_pts.append(rib["left_tip"])
-                    # Find nearest spine node
                     ax, ay, az = rib["attach"]
                     spine_idx = np.argmin(np.linalg.norm(spine_pts - np.array([ax, ay, az]), axis=1))
                     mesh_edges.append((spine_idx, l_idx))
-                    fixed_nodes.append(spine_idx) # fix the spine
+                    fixed_nodes.append(spine_idx)
                     
-                    # Right rib
                     r_idx = len(mesh_pts)
                     mesh_pts.append(rib["right_tip"])
                     mesh_edges.append((spine_idx, r_idx))
                 
-                # Add perimeter connecting left tips to right tips
-                n_ribs = len(geom["ribs"])
-                for i in range(n_ribs - 1):
+                for i in range(len(geom["ribs"]) - 1):
                     l1 = len(spine_pts) + i*2
                     l2 = len(spine_pts) + (i+1)*2
-                    r1 = l1 + 1
-                    r2 = l2 + 1
-                    mesh_edges.append((l1, l2))
-                    mesh_edges.append((r1, r2))
+                    mesh_edges.extend([(l1, l2), (l1+1, l2+1)])
                 
-                pts_array = np.array(mesh_pts)
-                fixed_nodes = list(set(fixed_nodes))
+                q = np.full(len(mesh_edges), 5000.0)
+                fdm_res = solve_fdm(np.array(mesh_pts), mesh_edges, list(set(fixed_nodes)), q)
+                reactions_N = fdm_res["reactions"] * 1000.0
                 
-            with st.spinner("2. Running FDM Membrane Physics..."):
-                # B. Run FDM Solver
-                # We use a uniform force density for the membrane edges
-                q = np.full(len(mesh_edges), 5000.0) # 5kN/m tension
-                fdm_res = solve_fdm(pts_array, mesh_edges, fixed_nodes, q)
+                # 2. Build Frame
+                frame_data = build_cantilever_frame(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
                 
-                # The FDM returns reactions in kN. We need them in N for the steel solver.
-                reactions_kN = fdm_res["reactions"]
-                reactions_N = reactions_kN * 1000.0
-                
-            with st.spinner("3. Building Steel Frame & Applying Loads..."):
-                # C. Build Steel Frame
-                frame_data = build_cantilever_frame()
-                
-                # D. Map membrane reactions to the steel frame
-                # For this simple test, we map the FDM fixed nodes (spine) to the frame nodes
+                # 3. Apply Loads
                 applied_loads = {}
-                for i, f_node in enumerate(fixed_nodes):
-                    # The FDM reaction is the force the fabric pulls on the spine
-                    # (Note: FDM reactions are already negative of the applied load)
+                for i, f_node in enumerate(list(set(fixed_nodes))):
                     applied_loads[f_node] = -reactions_N[f_node]
-                    
-            with st.spinner("4. Running 3D Steel Solver & Auto-Sizing..."):
-                # E. Analyze and Size
-                result = analyze_and_size_frame(
-                    frame_data=frame_data,
-                    applied_loads=applied_loads,
-                    grade="S355",
-                    family="CHS"
-                )
                 
-            if "error" in result:
-                st.error(f"Sizing Failed: {result['error']}")
-            else:
-                st.success(f"Sizing Converged in {result.get('iterations', '?')} iterations!")
+                # Add Wind Load to Rib Tips (1.0 kN downward for testing)
+                for elem in frame_data["elements"]:
+                    if elem["kind"] == "rib":
+                        tip_node = elem["b"]
+                        applied_loads[tip_node] = np.array([0.0, 0.0, -1000.0])
                 
-                st.markdown("#### Selected Sections:")
-                for kind, sec in result["sections"].items():
-                    st.write(f"- **{kind.capitalize()}**: `{sec}`")
-                    
-                st.markdown("#### Utilization:")
-                for kind, util in result["details"].items():
-                    color = "#ff4b4b" if util > 0.85 else "#00cc66"
-                    st.markdown(f"- **{kind.capitalize()}**: <span style='color:{color}'>{util*100:.1f}%</span>", unsafe_allow_html=True)
-
-        st.markdown("---")
-        st.markdown("### Geometry Dump")
-        st.markdown(f"<div class='ctl-card ctl-mono'>Outreach: 5.0 m\nRibs: 3 pairs\nColumn: 6.0 m</div>", unsafe_allow_html=True)
+                # 4. Size
+                result = analyze_and_size_frame(frame_data, applied_loads, grade="S355", family="CHS")
+                
+                if "error" in result:
+                    st.error(f"Sizing Failed: {result['error']}")
+                else:
+                    st.success(f"Sizing Converged in {result.get('iterations', '?')} iterations!")
+                    st.markdown("#### Selected Sections:")
+                    for kind, sec in result["sections"].items():
+                        st.write(f"- **{kind.capitalize()}**: `{sec}`")
+                    st.markdown("#### Utilization:")
+                    for kind, util in result["details"].items():
+                        color = "#ff4b4b" if util > 0.85 else "#00cc66"
+                        st.markdown(f"- **{kind.capitalize()}**: <span style='color:{color}'>{util*100:.1f}%</span>", unsafe_allow_html=True)
 
     if st.button("Back to Lab", key="tcl_back", use_container_width=True):
         st.session_state.page = "lab"
