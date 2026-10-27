@@ -1,7 +1,7 @@
 """Multi-Cone Roof — Lab test page.
 
-DIAGNOSTIC MODE: Cables disabled.
-Runs membrane-only to test if the membrane Newton solver converges without cable interference.
+Diagnostic mode: cables disabled.
+Adds prestress equilibration step after FDM.
 """
 
 import math
@@ -44,10 +44,8 @@ COL_DROP = "#a0a0a0"
 GRAVITY = 9.81
 MEMBRANE_DEAD_LOAD_KG_M2 = 1.102
 
-# =============================================================================
-# DIAGNOSTIC FLAG — SET TO False TO DISABLE CABLES
-# =============================================================================
 ENABLE_CABLES = False
+ENABLE_PRESTRESS_EQUILIBRATION = True
 
 
 def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
@@ -229,7 +227,7 @@ def render_tester_multi_cone():
         if st.button("← Back to Landing", key="mc_back_landing", use_container_width=True):
             st.session_state.page = "landing"; st.rerun()
 
-    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>DIAGNOSTIC MODE: Cables disabled. Testing membrane-only solve.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>Diagnostic + prestress equilibration.</p>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
     with c1: span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5, key="mc_span")
@@ -334,11 +332,10 @@ def render_tester_multi_cone():
     coords_to_draw = data["coords_fdm"]
 
     if btn_analysis:
-        with st.spinner("Running two load cases (NO CABLES)..."):
+        with st.spinner("Running prestress equilibration + two load cases..."):
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(
                 data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
 
-            # --- DIAGNOSTIC: cables DISABLED ---
             cables = []
             if ENABLE_CABLES:
                 n_a = len(data["anchor_idx"]); pts = data["pts"]; coords_fdm = data["coords_fdm"]
@@ -354,37 +351,60 @@ def render_tester_multi_cone():
                         if L_ref < 1e-9:
                             continue
                         T_edge = data["edge_q_scalar"] * L_ref
-                        if EA_cable > 0:
-                            L0 = L_ref / (1.0 + T_edge / EA_cable)
-                        else:
-                            L0 = L_ref
+                        L0 = L_ref / (1.0 + T_edge / EA_cable) if EA_cable > 0 else L_ref
                         cables.append({"a": ia, "b": ib, "L0": L0, "EA": EA_cable})
 
-            st.info(f"Diagnostic: ENABLE_CABLES = {ENABLE_CABLES}, cable count = {len(cables)}")
+            st.info(f"Diagnostic: ENABLE_CABLES = {ENABLE_CABLES}, ENABLE_PRESTRESS = {ENABLE_PRESTRESS_EQUILIBRATION}")
 
-            apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
-            load_output = generate_uls_loads(
-                coords_fdm if ENABLE_CABLES else data["coords_fdm"],
-                data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx,
-                shape_type="multi_cone", h_over_d=apex / span if span > 0 else 0.0,
-                cone_apexes=[(data["coords_fdm"][c][0], data["coords_fdm"][c][1], data["coords_fdm"][c][2]) for c in data["built"]["centre_indices"]],
-                cone_radius_m=ring_diameter / 2.0)
             mat = make_membrane_material(
                 E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, nu=0.34, G_MPa=50.0,
                 warp_prestress_N_per_m=data["warp_q"], weft_prestress_N_per_m=data["weft_q"])
-            results_by_case = {}
-            converged_cases = {}
-            for case_name in ("uplift", "downforce"):
-                res = solve_nonlinear_equilibrium(
+
+            # ==============================================================
+            # NEW STEP: PRESTRESS EQUILIBRATION
+            # ==============================================================
+            starting_coords = data["coords_fdm"].copy()
+            if ENABLE_PRESTRESS_EQUILIBRATION:
+                st.write("**Prestress equilibration step:** finding shape in equilibrium under pretension only...")
+                equil_res = solve_nonlinear_equilibrium(
                     points=data["coords_fdm"].copy(),
                     triangles=data["tris"],
                     fixed_indices=data["fixed"],
                     reference_points=data["coords_fdm"].copy(),
+                    membrane_material=mat,
+                    cables=cables,
+                    loads=None,
+                    max_iter=300, max_outer=25, tol=0.01, tol_disp=1e-4,
+                    max_total_steps=5000, max_wall_seconds=120.0,
+                    seed_z_amplitude=0.0)
+                if equil_res.get("converged", False):
+                    starting_coords = equil_res["coordinates"]
+                    st.success(f"Prestress equilibration converged in {equil_res['iterations']} iterations, {equil_res['elapsed_seconds']:.2f}s.")
+                else:
+                    st.warning(f"Prestress equilibration did NOT converge (reason: {equil_res.get('reason')}). Using FDM shape as-is.")
+
+            # ==============================================================
+            # LOAD CASES FROM THE EQUILIBRATED SHAPE
+            # ==============================================================
+            apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
+            load_output = generate_uls_loads(
+                starting_coords, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx,
+                shape_type="multi_cone", h_over_d=apex / span if span > 0 else 0.0,
+                cone_apexes=[(starting_coords[c][0], starting_coords[c][1], starting_coords[c][2]) for c in data["built"]["centre_indices"]],
+                cone_radius_m=ring_diameter / 2.0)
+            results_by_case = {}
+            converged_cases = {}
+            for case_name in ("uplift", "downforce"):
+                res = solve_nonlinear_equilibrium(
+                    points=starting_coords.copy(),
+                    triangles=data["tris"],
+                    fixed_indices=data["fixed"],
+                    reference_points=starting_coords.copy(),
                     membrane_material=mat, cables=cables,
                     loads=load_output[case_name],
                     max_iter=300, max_outer=25, tol=0.01, tol_disp=1e-4,
                     max_total_steps=5000, max_wall_seconds=120.0,
-                    seed_z_amplitude=0.001 * data["span"])
+                    seed_z_amplitude=0.0)
                 results_by_case[case_name] = res
                 if res.get("converged", False):
                     converged_cases[case_name] = {"dr_result": res}
@@ -461,7 +481,7 @@ def render_tester_multi_cone():
 
         if newton_data and "cases" in newton_data:
             st.write("---")
-            st.write("**Stage 2 — Two Load Cases (NO CABLES):**")
+            st.write("**Stage 2 — Two Load Cases:**")
             for case_name in ("uplift", "downforce"):
                 res = newton_data["cases"][case_name]
                 st.write(f"- {case_name}: converged={res['converged']} · iterations={res['iterations']} · time={res['elapsed_seconds']:.2f}s")
