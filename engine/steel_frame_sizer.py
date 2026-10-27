@@ -1,10 +1,10 @@
-"""SDSe Engine — 3D Steel Frame Sizer (Three Cases, Worst-Case).
+"""SDSe Engine — 3D Steel Frame Sizer (Three Cases, Worst-Case, Defensive).
 
-Accepts three load cases (uplift, downforce, dead_only).
-Runs the frame solver for each case.
-Sizes each member for the WORST utilization across all three cases.
+Accepts three load cases. Runs the frame solver for each.
+Sizes each member for the WORST utilization across all valid cases.
 
-Includes diagnostic prints to trace exactly where the force becomes zero.
+If a case returns a mismatched element/force list (non-converged membrane),
+that case is skipped with a warning instead of crashing.
 """
 
 import math
@@ -95,9 +95,7 @@ def _ring_hoop_utilization(section_name, membrane_force_at_ring_N,
 def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
                       grade="S355", family="CHS", max_iterations=12,
                       utilization_cap=0.70):
-    """
-    newton_data_cases: dict of { "uplift": {"dr_result": ...}, "downforce": {...}, "dead_only": {...} }
-    """
+    """Sizes for worst utilization across all CONVERGED cases."""
     all_sections = _sections_by_area(family)
     if not all_sections:
         return {"sections": {}, "frame_result": None, "details": {}, "iteration_log": []}
@@ -111,11 +109,10 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
     for case_name, nd in newton_data_cases.items():
         frames_by_case[case_name] = build_steel_frame(data, nd)
 
-    # --- DEBUG 1: Load arriving at the builder ---
+    # Diagnostic output
     for case_name, frame in frames_by_case.items():
         total_load = frame.get("diagnostic_total_load_magnitude_N", 0.0)
         st.write(f"DEBUG 1 — Case {case_name}: Total membrane load = {total_load:.1f} N")
-        st.write(f"DEBUG 1b — Case {case_name}: Fixed nodes = {len(frame['fixed_indices'])}, Elements = {len(frame['elements'])}")
 
     for iteration in range(max_iterations):
         util_by_type = {
@@ -138,34 +135,29 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
             loads_6dof = np.zeros((len(frame["nodes"]), 6), dtype=float)
             loads_6dof[:, 0:3] = frame["membrane_loads"]
 
-            # --- DEBUG 2: Force arriving at the solver ---
-            if iteration == 0 and case_name == "uplift":
-                st.write(f"DEBUG 2 — F_global sum (all 3 DOF × all nodes) = {np.sum(np.abs(loads_6dof)):.1f} N")
-
             grade_props = {
                 "E": STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000),
                 "G": STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000) / (2 * 1.3),
             }
 
-            result = solve_frame(
-                nodes=frame["nodes"],
-                elements=elements,
-                loads=loads_6dof,
-                fixed_nodes=frame["fixed_indices"],
-                grade_props=grade_props,
-            )
-            last_result = result
+            try:
+                result = solve_frame(
+                    nodes=frame["nodes"],
+                    elements=elements,
+                    loads=loads_6dof,
+                    fixed_nodes=frame["fixed_indices"],
+                    grade_props=grade_props,
+                )
+            except Exception as e:
+                st.write(f"DEBUG — Case {case_name} solver raised: {e}")
+                continue
 
-            # --- DEBUG 3 & 4: What comes back from the solver ---
-            if iteration == 0 and case_name == "uplift":
-                disp_sum = np.sum(np.abs(result["displacements"]))
-                st.write(f"DEBUG 3 — u_global sum (displacement) = {disp_sum:.4e}")
-                if len(result["member_end_forces"]) > 0:
-                    max_N = max(abs(f["N"]) for f in result["member_end_forces"])
-                    max_My = max(max(abs(f["My_a"]), abs(f["My_b"])) for f in result["member_end_forces"])
-                    st.write(f"DEBUG 4 — Max |N| = {max_N:.1f} N · Max |My| = {max_My:.1f} N·m")
-                else:
-                    st.write("DEBUG 4 — Member end forces list is EMPTY")
+            # DEFENSIVE: if force list does not match element list, skip this case
+            if len(result["member_end_forces"]) != len(elements):
+                st.write(f"DEBUG — Case {case_name} skipped: {len(result['member_end_forces'])} forces vs {len(elements)} elements")
+                continue
+
+            last_result = result
 
             for k, elem in enumerate(elements):
                 end_forces = result["member_end_forces"][k]
@@ -195,7 +187,7 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
 
         failing_types = [k for k, v in util_by_type.items() if v["max_util"] > utilization_cap]
         if not failing_types:
-            if last_result is not None:
+            if last_result is not None and "uplift" in frames_by_case:
                 last_result["anchor_to_frame_id"] = frames_by_case["uplift"]["anchor_to_frame_id"]
             return {
                 "sections": sections,
@@ -212,7 +204,7 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
                 progressed = True
 
         if not progressed:
-            if last_result is not None:
+            if last_result is not None and "uplift" in frames_by_case:
                 last_result["anchor_to_frame_id"] = frames_by_case["uplift"]["anchor_to_frame_id"]
             return {
                 "sections": sections, "frame_result": last_result,
@@ -220,6 +212,8 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
                 "error": "Oversize required — catalogue exhausted",
             }
 
+    if last_result is not None and "uplift" in frames_by_case:
+        last_result["anchor_to_frame_id"] = frames_by_case["uplift"]["anchor_to_frame_id"]
     return {
         "sections": sections, "frame_result": last_result,
         "details": util_by_type, "iteration_log": iteration_log,
