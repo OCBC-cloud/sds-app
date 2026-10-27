@@ -274,7 +274,6 @@ def render_tester_multi_cone():
 
     st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>1. Find Form (FDM). 2. Three load cases → sized for worst.</p>", unsafe_allow_html=True)
 
-    # Geometry
     c1, c2 = st.columns(2)
     with c1: span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5, key="mc_span")
     with c2: apex = st.number_input("Primary apex (m)", 1.0, 30.0, 6.0, 0.5, key="mc_apex")
@@ -293,7 +292,6 @@ def render_tester_multi_cone():
     with c2: ring_spacing = st.number_input("Distance between adjacent cones (m, along beam)", 0.5, 10.0, 5.0, 0.1, key="mc_spacing")
     ring_clearance = st.number_input("Ring clearance below beam (m)", 0.1, 5.0, 1.0, 0.1, key="mc_clr")
 
-    # Fabric
     st.markdown("### Fabric Selection")
     fabric_families = [k for k in FABRIC_PROPERTIES.keys() if k != "default"]
     c1, c2 = st.columns(2)
@@ -303,14 +301,12 @@ def render_tester_multi_cone():
         fabric_names = [k for k in FABRIC_PROPERTIES.get(fabric_family, {}).keys() if k != "default"]
         fabric_name = st.selectbox("Fabric Type", fabric_names, index=0, key="mc_fabric_name")
 
-    # c-values
     st.markdown("### Form Finding Inputs (c-values)")
     c1, c2, c3 = st.columns(3)
     with c1: warp_c = st.number_input("Warp c", 0.1, 10.0, 2.0, 0.1, key="mc_warp_c")
     with c2: weft_c = st.number_input("Weft c", 0.1, 10.0, 2.0, 0.1, key="mc_weft_c")
     with c3: cable_c = st.number_input("Cable c", 0.1, 50.0, 10.0, 0.5, key="mc_cable_c")
 
-    # Loads
     st.markdown("### Environmental Loads & Design Philosophy")
     c1, c2 = st.columns(2)
     with c1: code_choice = st.selectbox("Building Code", ["MS 1553", "ASCE 7", "EN 1991"], index=0, key="mc_code")
@@ -320,12 +316,10 @@ def render_tester_multi_cone():
     with c2: snow_depth = st.number_input("Snow Depth (m)", 0.0, 2.0, 0.0, 0.1, key="mc_snow_depth")
     payload_kg = st.number_input("Payload at apex (kg)", 0.0, 1000.0, 0.0, 10.0, key="mc_payload")
 
-    # Buttons
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
     with col_btn1: btn_fdm = st.button("1. Find Form (FDM)", use_container_width=True)
     with col_btn2: btn_analysis = st.button("2. Structural Analysis & Steel Sizing", use_container_width=True)
 
-    # STAGE 1
     if btn_fdm or "fdm_results" not in st.session_state:
         xp = np.linspace(-span / 2.0, span / 2.0, 200)
         zp = beam_curve(xp, span, apex, curve_type)
@@ -380,7 +374,6 @@ def render_tester_multi_cone():
     if not data: return
     coords_to_draw = data["coords_fdm"]
 
-    # STAGE 2 + 3
     if btn_analysis:
         with st.spinner("Running three load cases..."):
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
@@ -414,7 +407,7 @@ def render_tester_multi_cone():
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=load_output[case_name],
-                    max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-4, max_total_steps=50, max_wall_seconds=10.0, seed_z_amplitude=0.001 * data["span"],
+                    max_iter=300, max_outer=25, tol=0.01, tol_disp=1e-4, max_total_steps=5000, max_wall_seconds=120.0, seed_z_amplitude=0.001 * data["span"],
                 )
                 results_by_case[case_name] = res
                 if res.get("converged", False):
@@ -468,10 +461,12 @@ def render_tester_multi_cone():
 
     newton_data = st.session_state.get("newton_results")
     if newton_data and not btn_analysis and "cases" in newton_data:
-        coords_to_draw = newton_data["cases"]["uplift"]["coordinates"]
-        dr_result = newton_data["cases"]["uplift"]
+        view_case = "uplift" if newton_data["cases"]["uplift"].get("converged", False) else (
+            "downforce" if newton_data["cases"]["downforce"].get("converged", False) else "dead_only"
+        )
+        coords_to_draw = newton_data["cases"][view_case]["coordinates"]
+        dr_result = newton_data["cases"][view_case]
 
-    # DRAW
     fig = go.Figure()
     if len(data["tris"]) > 0:
         tri = np.asarray(data["tris"], dtype=int)
@@ -493,7 +488,6 @@ def render_tester_multi_cone():
     geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}"
     st.plotly_chart(fig, use_container_width=True, key=f"mc_3d_{geom_hash}")
 
-    # DIAGNOSTICS
     with st.expander("Diagnostics", expanded=True):
         st.write("**Stage 1 — FDM:**")
         st.write("FDM Solve OK: %s" % data["solve_ok"])
@@ -546,7 +540,6 @@ def render_tester_multi_cone():
             else:
                 st.info("Stage 3 has not been run yet.")
 
-            # Baseplate table (uplift case)
             st.write("---")
             st.write("**Reaction Forces & Foundation Design (Uplift case):**")
             R = newton_data["cases"]["uplift"].get("reactions", None)
@@ -566,7 +559,6 @@ def render_tester_multi_cone():
                         "%dx%d" % (design["pad_side_mm"], design["pad_side_mm"])
                     ), language="text")
 
-                # Corner plate table
                 st.write("---")
                 st.write("**Corner Plate Table (All Anchor Nodes):**")
                 st.code("%-6s  %-8s  %-8s  %-12s  %-14s  %-12s  %-10s  %-9s  %-9s" % ("Node", "X(m)", "Y(m)", "T_cable(kN)", "Plate(mm)", "Weld(mm)", "Pin(mm)", "WeldUtil", "PinUtil"), language="text")
@@ -595,7 +587,6 @@ def render_tester_multi_cone():
                         "%.0f%%" % (cp["pin_utilization"] * 100),
                     ), language="text")
 
-                # Cone drop table
                 st.write("---")
                 st.write("**Cone Drop Table:**")
                 st.code("%-8s  %-10s  %-10s  %-10s  %-10s" % ("Cone", "X(m)", "Y(m)", "Fz(kN)", "Drop(mm)"), language="text")
@@ -605,7 +596,6 @@ def render_tester_multi_cone():
                     r_drop = R[bi]
                     st.code("%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s" % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, newton_data["sections"].get("drop", "?")), language="text")
 
-                # Deflection
                 st.write("---")
                 st.write("**Deflection Check:**")
                 max_deflection_mm = 0.0
@@ -617,7 +607,6 @@ def render_tester_multi_cone():
                 status = "PASS" if max_deflection_mm <= limit_mm else "FAIL"
                 st.code("Max Deflection: %.2f mm (Limit: %.1f mm) -> %s" % (max_deflection_mm, limit_mm, status), language="text")
 
-            # Member schedule
             members = _build_member_schedule(data["built"], coords_to_draw, data["x_rings"], data["anchor_idx"], data["edge_q_scalar"], data["warp_q"], data["weft_q"], newton_data["cable_name"], newton_data["cable_A_mm2"], newton_data["sections"], data["eave_height"], data["span"], data["mid_width"], ring_diameter)
             with st.expander("Member schedule (auto-sized)", expanded=True):
                 st.code(_format_member_table(members), language="text")
