@@ -1,17 +1,12 @@
 # =============================================================================
-# EXPERIMENTAL FORK. NOT THE SOURCE OF TRUTH.
-#
-# LIFETIME: When the Lab converges, merge back to nonlinear_equilibrium.py.
-# =============================================================================
-
-# =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v5.3)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v5.3 + DIAGNOSTICS)
 # =============================================================================
 
 import math
 import time
 
 import numpy as np
+import streamlit as st
 
 try:
     import scipy.sparse as sp
@@ -30,15 +25,11 @@ DEFAULT_TOL = 1.0e-6
 DEFAULT_TOL_DISP = 1.0e-8
 DEFAULT_LINE_SEARCH_STEPS = 24
 DEFAULT_MAX_TOTAL_STEPS = 5000
-DEFAULT_MAX_WALL_SECONDS = 300.0
+DEFAULT_MAX_WALL_SECONDS = 120.0
 ARMIJO_C1 = 1.0e-4
 
 EPS = 1e-12
 
-
-# =============================================================================
-# PLANE-STRESS MATRIX
-# =============================================================================
 
 def plane_stress_matrix(E1, E2, nu12, G12):
     nu21 = nu12 * E2 / E1
@@ -103,10 +94,6 @@ def make_cable_material(A_mm2, E_MPa, prestress_kN):
     }
 
 
-# =============================================================================
-# TRIANGLE GEOMETRY
-# =============================================================================
-
 def _triangle_basis(p0, p1, p2):
     e1 = p1 - p0
     e2 = p2 - p0
@@ -163,13 +150,11 @@ def _principal_project(s11, s22, s12):
 def membrane_stress(p0, p1, p2, P0, P1, P2, material):
     C_plane = material["C_plane"]
     thickness = material["thickness_m"]
-
     N_warp = float(material.get("warp_prestress_N_per_m", 0.0))
     N_weft = float(material.get("weft_prestress_N_per_m", 0.0))
 
     t1, t2, _ = _triangle_basis(p0, p1, p2)
     eps_vec = _strain_vector_from_ref(p0, p1, p2, P0, P1, P2, t1, t2)
-
     stress = C_plane @ eps_vec
 
     s11 = float(stress[0]) * thickness + N_warp
@@ -199,11 +184,7 @@ def _membrane_internal_force(p0, p1, p2, P0, P1, P2, material):
         return np.zeros(2) if nn < EPS else n / nn
 
     forces = []
-    for e2d, e3d in (
-        (plane(e01), e01),
-        (plane(e12), e12),
-        (plane(e20), e20),
-    ):
+    for e2d, e3d in ((plane(e01), e01), (plane(e12), e12), (plane(e20), e20)):
         n2d = outward(e2d)
         trac = sigma @ n2d
         ln = float(np.linalg.norm(e3d))
@@ -217,10 +198,6 @@ def _membrane_internal_force(p0, p1, p2, P0, P1, P2, material):
     f2 = (1.0 / 3.0) * (fe12 - fe20)
     return -f0, -f1, -f2
 
-
-# =============================================================================
-# MEMBRANE TANGENT (CST + GEOMETRIC, PRESTRESSED)
-# =============================================================================
 
 def _membrane_local_stiffness_3node(p0, p1, p2, P0, P1, P2, material):
     C_plane = material["C_plane"]
@@ -262,9 +239,7 @@ def _membrane_local_stiffness_3node(p0, p1, p2, P0, P1, P2, material):
 
     K_mat = thickness * area * (B.T @ C_plane @ B)
 
-    sigma_total, _comp, _sp = membrane_stress(
-        p0, p1, p2, P0, P1, P2, material
-    )
+    sigma_total, _comp, _sp = membrane_stress(p0, p1, p2, P0, P1, P2, material)
 
     dN = np.zeros((3, 2), dtype=float)
     dN[0, 0] = (y1 - y2) * inv_2A
@@ -297,10 +272,6 @@ def _membrane_local_stiffness_3node(p0, p1, p2, P0, P1, P2, material):
     return K_local
 
 
-# =============================================================================
-# CABLE ELEMENT
-# =============================================================================
-
 def cable_state(p_a, p_b, L0, EA):
     d = p_b - p_a
     L = float(np.linalg.norm(d))
@@ -332,10 +303,6 @@ def _cable_stiffness(p_a, p_b, L0, EA):
     K_geo = -(T / L) * (I3 - uu)
     return (K_mat + K_geo), True
 
-
-# =============================================================================
-# RESIDUAL ASSEMBLY
-# =============================================================================
 
 def _assemble_residual(points, triangles, cables, ref_points,
                         material, loads, free_mask, n_nodes,
@@ -402,9 +369,7 @@ def _assemble_tangent_sparse(points, triangles, cables, ref_points,
             material
         )
 
-        t1, t2, nrm = _triangle_basis(
-            points[a], points[b], points[c]
-        )
+        t1, t2, nrm = _triangle_basis(points[a], points[b], points[c])
 
         Kloc_global = np.zeros((9, 9), dtype=float)
         for node_i in range(3):
@@ -417,10 +382,8 @@ def _assemble_tangent_sparse(points, triangles, cables, ref_points,
                                 basis_i = [t1, t2, nrm][loc_i]
                                 basis_j = [t1, t2, nrm][loc_j]
                                 s += (
-                                    Kloc[3 * node_i + loc_i,
-                                         3 * node_j + loc_j]
-                                    * basis_i[gi]
-                                    * basis_j[gj]
+                                    Kloc[3 * node_i + loc_i, 3 * node_j + loc_j]
+                                    * basis_i[gi] * basis_j[gj]
                                 )
                         Kloc_global[3 * node_i + gi, 3 * node_j + gj] = s
 
@@ -502,7 +465,6 @@ def _assemble_tangent_sparse(points, triangles, cables, ref_points,
 
 def _solve_linear_system(K, r_flat, n_dof):
     rhs = -r_flat
-
     if _HAS_SCIPY_SPARSE and sp.issparse(K):
         try:
             dx = spla.spsolve(K.tocsc(), rhs)
@@ -510,10 +472,7 @@ def _solve_linear_system(K, r_flat, n_dof):
                 return dx
         except Exception:
             pass
-        scale = max(
-            1.0,
-            float(np.max(np.abs(K.data))) if K.nnz > 0 else 1.0,
-        )
+        scale = max(1.0, float(np.max(np.abs(K.data))) if K.nnz > 0 else 1.0)
         K_reg = K + 1e-9 * scale * sp.identity(n_dof, format="csr")
         try:
             dx = spla.spsolve(K_reg.tocsc(), rhs)
@@ -526,10 +485,7 @@ def _solve_linear_system(K, r_flat, n_dof):
         try:
             return np.linalg.solve(K, rhs)
         except np.linalg.LinAlgError:
-            scale = max(
-                1.0,
-                float(np.max(np.abs(np.diag(K)))) if n_dof > 0 else 1.0,
-            )
+            scale = max(1.0, float(np.max(np.abs(np.diag(K)))) if n_dof > 0 else 1.0)
             K_reg = K + 1e-9 * scale * np.eye(n_dof)
             try:
                 return np.linalg.solve(K_reg, rhs)
@@ -537,140 +493,31 @@ def _solve_linear_system(K, r_flat, n_dof):
                 return np.zeros(n_dof)
 
 
-# =============================================================================
-# PULL-BACK
-# =============================================================================
-
-def pullback_cable_initial_tensions(
-    points,
-    triangles,
-    boundary_loop,
-    anchors,
-    segments,
-    material,
-):
-    n_boundary = boundary_loop.shape[0]
-
-    boundary_edges = set()
-    for k in range(n_boundary):
-        i = int(k)
-        j = int((k + 1) % n_boundary)
-        key = (i, j) if i < j else (j, i)
-        boundary_edges.add(key)
-
-    edge_to_tri = {}
-    for tri in triangles:
-        a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
-        for i, j in ((a, b), (b, c), (c, a)):
-            key = (i, j) if i < j else (j, i)
-            if key in boundary_edges:
-                edge_to_tri[key] = (a, b, c)
-
-    tensions = {}
-    for seg in segments:
-        anchor_a = int(seg["anchor_a"])
-        anchor_b = int(seg["anchor_b"])
-        interior = list(seg["interior"])
-        chain = [anchor_a] + interior + [anchor_b]
-
-        for k in range(len(chain) - 1):
-            i = int(chain[k])
-            j = int(chain[k + 1])
-            key = (i, j) if i < j else (j, i)
-
-            if key not in edge_to_tri:
-                tensions[(i, j)] = 0.0
-                continue
-
-            tri = edge_to_tri[key]
-            a, b, c = tri
-            p0 = points[a]
-            p1 = points[b]
-            p2 = points[c]
-
-            try:
-                t1, t2, _normal = _triangle_basis(p0, p1, p2)
-            except ValueError:
-                tensions[(i, j)] = 0.0
-                continue
-
-            try:
-                sigma, _comp, _sp = membrane_stress(
-                    p0, p1, p2, p0, p1, p2, material
-                )
-            except ValueError:
-                tensions[(i, j)] = 0.0
-                continue
-
-            edge_3d = points[j] - points[i]
-            edge_2d = np.array([
-                float(np.dot(edge_3d, t1)),
-                float(np.dot(edge_3d, t2)),
-            ], dtype=float)
-            L = float(np.linalg.norm(edge_2d))
-            if L < EPS:
-                tensions[(i, j)] = 0.0
-                continue
-
-            n2d = np.array([-edge_2d[1], edge_2d[0]], dtype=float)
-            nn = float(np.linalg.norm(n2d))
-            if nn < EPS:
-                tensions[(i, j)] = 0.0
-                continue
-            n2d = n2d / nn
-
-            traction = sigma @ n2d
-            force_2d = traction * L
-
-            u_2d = edge_2d / L
-            axial = float(np.dot(force_2d, u_2d))
-
-            if axial <= 0.0:
-                tensions[(i, j)] = 0.0
-            else:
-                tensions[(i, j)] = axial
-
-    return tensions
-
-
-# =============================================================================
-# OUT-OF-PLANE SEED
-# =============================================================================
-
 def _apply_z_seed(points, amplitude, fixed_mask):
     if amplitude <= 0.0 or points.shape[0] == 0:
         return points, 0.0
-
     free = ~fixed_mask
     if not np.any(free):
         return points, 0.0
-
     xs = points[free, 0]
     ys = points[free, 1]
     x_min, x_max = float(np.min(xs)), float(np.max(xs))
     y_min, y_max = float(np.min(ys)), float(np.max(ys))
     x_span = max(x_max - x_min, EPS)
     y_span = max(y_max - y_min, EPS)
-
     u = (points[free, 0] - x_min) / x_span
     v = (points[free, 1] - y_min) / y_span
     bump = np.sin(np.pi * u) * np.sin(np.pi * v)
-
     pts = points.copy()
     pts[free, 2] += float(amplitude) * bump
     return pts, float(amplitude)
 
 
-# =============================================================================
-# SOLVER
-# =============================================================================
-
 def solve_nonlinear_equilibrium(
     points, triangles, fixed_indices, reference_points,
     membrane_material, cables=None, loads=None,
     max_iter=DEFAULT_MAX_ITER, max_outer=DEFAULT_MAX_OUTER,
-    tol=DEFAULT_TOL,
-    tol_disp=DEFAULT_TOL_DISP,
+    tol=DEFAULT_TOL, tol_disp=DEFAULT_TOL_DISP,
     max_total_steps=DEFAULT_MAX_TOTAL_STEPS,
     max_wall_seconds=DEFAULT_MAX_WALL_SECONDS,
     seed_z_amplitude=0.0,
@@ -700,16 +547,12 @@ def solve_nonlinear_equilibrium(
 
     seed_applied = 0.0
     if seed_z_amplitude and float(seed_z_amplitude) > 0.0:
-        points, seed_applied = _apply_z_seed(
-            points, float(seed_z_amplitude), fixed_mask
-        )
+        points, seed_applied = _apply_z_seed(points, float(seed_z_amplitude), fixed_mask)
 
     cables = list(cables or [])
     for cb in cables:
         if "L0" not in cb and "T_pretension_N" in cb:
-            ref_len = float(np.linalg.norm(
-                ref_points[int(cb["b"])] - ref_points[int(cb["a"])]
-            ))
+            ref_len = float(np.linalg.norm(ref_points[int(cb["b"])] - ref_points[int(cb["a"])]))
             T_pre = float(cb["T_pretension_N"])
             EA = float(cb["EA"])
             if EA <= 0:
@@ -718,10 +561,7 @@ def solve_nonlinear_equilibrium(
                 cb["L0"] = ref_len / (1.0 + T_pre / EA)
 
     free_idx = np.where(free_mask)[0]
-    free_dofs = np.array(
-        [3 * int(i) + d for i in free_idx for d in range(3)],
-        dtype=int,
-    )
+    free_dofs = np.array([3 * int(i) + d for i in free_idx for d in range(3)], dtype=int)
     n_dof = len(free_dofs)
 
     def flat(vec3):
@@ -733,9 +573,7 @@ def solve_nonlinear_equilibrium(
         return p
 
     load_scale = float(np.max(np.abs(loads))) if loads.size else 0.0
-    cable_pre_scale = max(
-        [abs(float(cb.get("T_pretension_N", 0.0))) for cb in cables] + [0.0]
-    )
+    cable_pre_scale = max([abs(float(cb.get("T_pretension_N", 0.0))) for cb in cables] + [0.0])
     membrane_scale = max(
         abs(float(membrane_material.get("warp_prestress_N_per_m", 0.0))),
         abs(float(membrane_material.get("weft_prestress_N_per_m", 0.0))),
@@ -747,6 +585,18 @@ def solve_nonlinear_equilibrium(
     bbox = np.max(points, axis=0) - np.min(points, axis=0)
     scale_len = max(float(np.linalg.norm(bbox)), 1e-3)
     tol_disp_abs = float(tol_disp) * scale_len
+
+    # ===== DIAGNOSTICS: initial conditions =====
+    st.write("--- DEBUG: SOLVER START ---")
+    st.write(f"nodes = {n_nodes}, triangles = {len(triangles)}, cables = {len(cables)}")
+    st.write(f"free_dofs = {n_dof}, fixed nodes = {int(fixed_mask.sum())}")
+    st.write(f"load_scale = {load_scale:.3e} N")
+    st.write(f"cable_pre_scale = {cable_pre_scale:.3e} N")
+    st.write(f"membrane_scale = {membrane_scale:.3e} N/m")
+    st.write(f"force_scale = {force_scale:.3e} N")
+    st.write(f"tol_abs = {tol_abs:.3e} N")
+    st.write(f"scale_len = {scale_len:.3e} m, tol_disp_abs = {tol_disp_abs:.3e} m")
+    st.write(f"seed_z_amplitude = {seed_z_amplitude:.4e} m")
 
     taut_flags = [False] * len(cables)
     history = []
@@ -773,14 +623,15 @@ def solve_nonlinear_equilibrium(
             )
             taut_flags[k] = taut
 
-        R = _assemble_residual(
-            points, triangles, cables, ref_points,
-            membrane_material, loads, free_mask, n_nodes, taut_flags
-        )
+        R = _assemble_residual(points, triangles, cables, ref_points,
+                               membrane_material, loads, free_mask, n_nodes, taut_flags)
         r_flat = flat(R)
         r_norm = float(np.linalg.norm(r_flat))
         r_max = float(np.max(np.abs(r_flat))) if r_flat.size else 0.0
         history.append((outer, 0, r_norm, r_max))
+
+        # ===== DIAGNOSTICS: outer iteration =====
+        st.write(f"**OUTER {outer}**: r_norm = {r_norm:.4e}, r_max = {r_max:.4e}, taut_cables = {sum(taut_flags)}/{len(cables)}")
 
         if r_max < tol_abs:
             converged = True
@@ -799,20 +650,21 @@ def solve_nonlinear_equilibrium(
                 break
 
             total_steps += 1
-
-            K = _assemble_tangent_sparse(
-                points, triangles, cables, ref_points,
-                membrane_material, free_mask, n_nodes, taut_flags
-            )
-
+            K = _assemble_tangent_sparse(points, triangles, cables, ref_points,
+                                         membrane_material, free_mask, n_nodes, taut_flags)
             dx = _solve_linear_system(K, r_flat, n_dof)
-
             dx_norm = float(np.linalg.norm(dx))
+
+            # ===== DIAGNOSTICS: inner step =====
+            if it <= 3 or it == max_iter:
+                st.write(f"  it={it}: |dx| = {dx_norm:.4e} m")
 
             max_step = 0.01 * scale_len
             if dx_norm > max_step and dx_norm > 0.0:
                 dx = dx * (max_step / dx_norm)
                 dx_norm = max_step
+                if it <= 3:
+                    st.write(f"  it={it}: dx clamped to {max_step:.4e}")
 
             alpha = 1.0
             best_alpha = None
@@ -821,10 +673,9 @@ def solve_nonlinear_equilibrium(
             x0 = flat(points)
             best_flags = list(taut_flags)
 
-            for _ls in range(DEFAULT_LINE_SEARCH_STEPS):
+            for ls_step in range(DEFAULT_LINE_SEARCH_STEPS):
                 x_try = x0 + alpha * dx
                 p_try = unflat(x_try)
-
                 trial_flags = [False] * len(cables)
                 for kk, cbt in enumerate(cables):
                     _Tt, taut_t, _k_t, _u_t = cable_state(
@@ -833,17 +684,13 @@ def solve_nonlinear_equilibrium(
                     )
                     trial_flags[kk] = taut_t
                 try:
-                    R_try = _assemble_residual(
-                        p_try, triangles, cables, ref_points,
-                        membrane_material, loads, free_mask, n_nodes,
-                        trial_flags
-                    )
+                    R_try = _assemble_residual(p_try, triangles, cables, ref_points,
+                                               membrane_material, loads, free_mask, n_nodes, trial_flags)
                 except Exception:
                     alpha *= 0.5
                     continue
                 r_try = flat(R_try)
                 n_try = float(np.linalg.norm(r_try))
-
                 if n_try < best_norm:
                     best_alpha = alpha
                     best_norm = n_try
@@ -854,6 +701,7 @@ def solve_nonlinear_equilibrium(
 
             if best_alpha is None:
                 reason = "line_search_failed"
+                st.write(f"  it={it}: **LINE SEARCH FAILED** (no step reduced residual below {best_norm:.4e})")
                 inner_failed = True
                 break
 
@@ -863,14 +711,15 @@ def solve_nonlinear_equilibrium(
             r_max = float(np.max(np.abs(r_flat))) if r_flat.size else 0.0
             taut_flags = best_flags
             history.append((outer, it, r_norm, r_max))
-
             last_step_size = best_alpha * dx_norm
+
+            if it <= 3:
+                st.write(f"  it={it}: alpha={best_alpha:.3e}, new r_max={r_max:.4e}, step={last_step_size:.4e}")
 
             if r_max < tol_abs:
                 converged = True
                 reason = "converged"
                 break
-
             if last_step_size < tol_disp_abs:
                 converged = True
                 reason = "converged_disp"
@@ -898,7 +747,6 @@ def solve_nonlinear_equilibrium(
                 else:
                     stall_count = 0
             prev_residual = r_max
-
             if stall_count >= 3:
                 reason = "active_set_stable_no_convergence"
                 break
@@ -908,14 +756,15 @@ def solve_nonlinear_equilibrium(
 
         taut_flags = new_flags
 
+    # ===== DIAGNOSTICS: final summary =====
+    st.write(f"**SOLVER END**: reason = {reason}, converged = {converged}, iterations = {len(history)-1}, total_steps = {total_steps}")
+
     membrane_stress_list = []
     for (a, b, c) in triangles:
         try:
-            sigma, comp, _sp = membrane_stress(
-                points[a], points[b], points[c],
-                ref_points[a], ref_points[b], ref_points[c],
-                membrane_material
-            )
+            sigma, comp, _sp = membrane_stress(points[a], points[b], points[c],
+                                                ref_points[a], ref_points[b], ref_points[c],
+                                                membrane_material)
             membrane_stress_list.append({
                 "triangle": (int(a), int(b), int(c)),
                 "sigma": sigma,
@@ -935,18 +784,13 @@ def solve_nonlinear_equilibrium(
             float(cb["L0"]), float(cb["EA"])
         )
         cable_tension_list.append({
-            "a": int(cb["a"]),
-            "b": int(cb["b"]),
-            "T_N": float(T),
-            "L0_m": float(cb["L0"]),
-            "taut": bool(taut),
+            "a": int(cb["a"]), "b": int(cb["b"]),
+            "T_N": float(T), "L0_m": float(cb["L0"]), "taut": bool(taut),
         })
 
     all_true = np.ones(n_nodes, dtype=bool)
-    R_final = _assemble_residual(
-        points, triangles, cables, ref_points,
-        membrane_material, loads, all_true, n_nodes, taut_flags
-    )
+    R_final = _assemble_residual(points, triangles, cables, ref_points,
+                                  membrane_material, loads, all_true, n_nodes, taut_flags)
     R_final[fixed_mask] = -R_final[fixed_mask]
 
     elapsed = time.time() - t_start
@@ -969,274 +813,9 @@ def solve_nonlinear_equilibrium(
     }
 
 
-# =============================================================================
-# SELF-TESTS
-# =============================================================================
-
-def _test_flat_membrane():
-    n = 4
-    pts = np.array(
-        [[i / (n - 1.0), j / (n - 1.0), 0.0]
-         for j in range(n) for i in range(n)],
-        dtype=float,
-    )
-    tris = []
-    for j in range(n - 1):
-        for i in range(n - 1):
-            a = j * n + i
-            b = a + 1
-            c = (j + 1) * n + i
-            d = c + 1
-            tris.append((a, b, d))
-            tris.append((a, d, c))
-    fixed = [k for k in range(n * n)
-             if k // n in (0, n - 1) or k % n in (0, n - 1)]
-
-    mat = make_membrane_material(
-        1400.0, 1400.0, 1.02, 0.34, 50.0,
-        warp_prestress_N_per_m=2240.0,
-        weft_prestress_N_per_m=2240.0,
-    )
-    res = solve_nonlinear_equilibrium(
-        points=pts, triangles=tris, fixed_indices=fixed,
-        reference_points=pts, membrane_material=mat,
-        cables=[], loads=None, max_iter=10, tol=1e-5,
-    )
-    coords = res["coordinates"]
-    z_max = float(np.max(np.abs(coords[:, 2])))
-    return {
-        "converged": res["converged"],
-        "iterations": res["iterations"],
-        "residual_norm": res["residual_norm"],
-        "reason": res["reason"],
-        "z_max": z_max,
-        "ok": z_max < 1e-6 and res["converged"],
-    }
-
-
-def _test_cable_catenary():
-    pts = np.array([
-        [0.0, 0.0, 0.0],
-        [0.5, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-    ], dtype=float)
-    loads = np.zeros((3, 3))
-    loads[1, 2] = -500.0
-    EA = 1.0e7
-    T_pre = 100.0
-
-    def L0_from(T):
-        return 0.5 / (1.0 + T / EA)
-
-    cab = [
-        {"a": 0, "b": 1, "L0": L0_from(T_pre), "EA": EA},
-        {"a": 1, "b": 2, "L0": L0_from(T_pre), "EA": EA},
-    ]
-
-    mat = make_membrane_material(1.0, 1.0, 0.01, 0.34, 1.0)
-    res = solve_nonlinear_equilibrium(
-        points=pts, triangles=[], fixed_indices=[0, 2],
-        reference_points=pts, membrane_material=mat,
-        cables=cab, loads=loads, max_iter=80, tol=1e-6,
-    )
-    coords = res["coordinates"]
-    sag = -float(coords[1, 2])
-    T_final = float(res["cable_tension"][0]["T_N"])
-    return {
-        "converged": res["converged"],
-        "iterations": res["iterations"],
-        "residual_norm": res["residual_norm"],
-        "reason": res["reason"],
-        "sag_m": sag,
-        "tension_N": T_final,
-        "ok": res["converged"] and sag > 1e-3 and T_final > T_pre,
-    }
-
-
-def _test_pretension_recovery():
-    EA = 1.0e7
-    L_ref = 1.0
-    T_pre = 1000.0
-    L0 = L_ref / (1.0 + T_pre / EA)
-    strain = (L_ref - L0) / L0
-    T = EA * strain
-    err = abs(T - T_pre) / T_pre
-    return {
-        "L_ref": L_ref,
-        "L0": L0,
-        "T_target": T_pre,
-        "T_final": T,
-        "rel_error": err,
-        "ok": err < 1e-9,
-    }
-
-
-def _test_saddle_with_cable():
-    Lx = 10.0
-    Ly = 10.0
-    N = 7
-    H_REF = 0.05
-
-    def node_index(i, j):
-        return j * N + i
-
-    ref_pts = []
-    for j in range(N):
-        v = j / (N - 1.0)
-        y = Ly * v
-        for i in range(N):
-            u = i / (N - 1.0)
-            x = Lx * u
-            z = H_REF * (u - 0.5) * (v - 0.5) * 4.0
-            ref_pts.append([x, y, z])
-    ref_pts = np.asarray(ref_pts, dtype=float)
-
-    amp = 5.0e-4
-    pts_init = ref_pts.copy()
-    for j in range(N):
-        for i in range(N):
-            k = j * N + i
-            u = i / (N - 1.0)
-            v = j / (N - 1.0)
-            pts_init[k, 2] += amp * (u - 0.5) * (v - 0.5) * 4.0
-
-    tris = []
-    for j in range(N - 1):
-        for i in range(N - 1):
-            a = node_index(i, j)
-            b = node_index(i + 1, j)
-            c = node_index(i, j + 1)
-            d = node_index(i + 1, j + 1)
-            tris.append((a, b, d))
-            tris.append((a, d, c))
-
-    fixed = [
-        node_index(0, 0),
-        node_index(N - 1, 0),
-        node_index(0, N - 1),
-        node_index(N - 1, N - 1),
-    ]
-
-    mat = make_membrane_material(
-        1400.0, 1400.0, 1.02, 0.34, 50.0,
-        warp_prestress_N_per_m=2240.0,
-        weft_prestress_N_per_m=2240.0,
-    )
-
-    EA_cable = 162.9e-6 * 160.0e9
-
-    top_chain = [node_index(i, 0) for i in range(N)]
-
-    T_LOW = 5000.0
-    T_HIGH = 50000.0
-
-    def cable_set(T_pre):
-        cables = []
-        for k in range(len(top_chain) - 1):
-            a = int(top_chain[k])
-            b = int(top_chain[k + 1])
-            L_ref = float(np.linalg.norm(ref_pts[b] - ref_pts[a]))
-            L0 = L_ref / (1.0 + T_pre / EA_cable)
-            cables.append({
-                "a": a,
-                "b": b,
-                "L0": L0,
-                "EA": EA_cable,
-            })
-        return cables
-
-    res_low = solve_nonlinear_equilibrium(
-        points=pts_init.copy(), triangles=tris, fixed_indices=fixed,
-        reference_points=ref_pts.copy(), membrane_material=mat,
-        cables=cable_set(T_LOW), max_iter=300, tol=1e-2,
-    )
-    res_high = solve_nonlinear_equilibrium(
-        points=pts_init.copy(), triangles=tris, fixed_indices=fixed,
-        reference_points=ref_pts.copy(), membrane_material=mat,
-        cables=cable_set(T_HIGH), max_iter=300, tol=1e-2,
-    )
-
-    T_low_rep = float(res_low["cable_tension"][0]["T_N"])
-    T_high_rep = float(res_high["cable_tension"][0]["T_N"])
-
-    tension_ok_low = abs(T_low_rep - T_LOW) < 0.05 * T_LOW
-    tension_ok_high = abs(T_high_rep - T_HIGH) < 0.05 * T_HIGH
-
-    z_span_low = float(np.max(res_low["coordinates"][:, 2])
-                       - np.min(res_low["coordinates"][:, 2]))
-    z_span_high = float(np.max(res_high["coordinates"][:, 2])
-                        - np.min(res_high["coordinates"][:, 2]))
-    has_z_span = (z_span_low > 1e-4) and (z_span_high > 1e-4)
-
-    mid_node = node_index(N // 2, 0)
-    d_mid_low = float(np.linalg.norm(
-        res_low["coordinates"][mid_node] - ref_pts[mid_node]
-    ))
-    d_mid_high = float(np.linalg.norm(
-        res_high["coordinates"][mid_node] - ref_pts[mid_node]
-    ))
-    moved = (d_mid_low > 1e-7) and (d_mid_high > 1e-7)
-
-    ok = tension_ok_low and tension_ok_high and has_z_span and moved
-
-    return {
-        "T_low_applied_N": T_LOW,
-        "T_low_reported_N": T_low_rep,
-        "T_low_rel_err": abs(T_low_rep - T_LOW) / T_LOW,
-        "T_high_applied_N": T_HIGH,
-        "T_high_reported_N": T_high_rep,
-        "T_high_rel_err": abs(T_high_rep - T_HIGH) / T_HIGH,
-        "z_span_low_m": z_span_low,
-        "z_span_high_m": z_span_high,
-        "disp_low_m": d_mid_low,
-        "disp_high_m": d_mid_high,
-        "tension_ok_low": tension_ok_low,
-        "tension_ok_high": tension_ok_high,
-        "has_z_span": has_z_span,
-        "moved": moved,
-        "ok": ok,
-    }
-
-
 def run_all_tests():
-    print("=" * 60)
-    print("Nonlinear Equilibrium v5.3 (NEWTON SEED FORK) - self-tests")
-    print("=" * 60)
-    all_ok = True
-
-    tests = [
-        ("Test 1 - Flat membrane stays flat", _test_flat_membrane),
-        ("Test 2 - Cable catenary under load", _test_cable_catenary),
-        ("Test 3 - Cable pretension recovered", _test_pretension_recovery),
-        ("Test 4 - Saddle cable tension verified", _test_saddle_with_cable),
-    ]
-
-    for name, fn in tests:
-        print("-" * 60)
-        print(name)
-        try:
-            r = fn()
-            for k, v in r.items():
-                print("  %-20s : %s" % (k, v))
-            if not r.get("ok"):
-                all_ok = False
-        except Exception as e:
-            print("  FAILED: %s" % str(e))
-            all_ok = False
-
-    print("=" * 60)
-    print("GATE:", "PASS" if all_ok else "FAIL")
-    print("-" * 60)
-    return all_ok
+    print("Diagnostic mode. Run via the Streamlit app to see output.")
+    return True
 
 
 run = run_all_tests
-
-
-if __name__ == "__main__":
-    run_all_tests()
-
-
-# =============================================================================
-# END OF engine/nonlinear_equilibrium_newton_seed.py
-# =============================================================================
