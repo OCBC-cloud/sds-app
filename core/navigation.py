@@ -59,6 +59,12 @@ def _render_mesh_z_diagnostic():
     render_mesh_z_diagnostic()
 
 
+# ---- NEW: Cantilever Leaf Tester
+def _render_tester_cantilever_leaf():
+    from viewers.pages.tester_cantilever_leaf import render_tester_cantilever_leaf
+    render_tester_cantilever_leaf()
+
+
 # =============================================================================
 # PAGE REGISTRY
 # =============================================================================
@@ -73,6 +79,7 @@ PAGE_RENDERERS = {
     "tester_multi_cone": _render_tester_multi_cone,
     "analysis_report": _render_SDSe_analysis_report,
     "mesh_z_diagnostic": _render_mesh_z_diagnostic,
+    "tester_cantilever_leaf": _render_tester_cantilever_leaf,  # <--- NEW
 }
 
 
