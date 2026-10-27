@@ -8,14 +8,6 @@
 # The Lab is where experimental pages live while they are being built.
 # Nothing in the Lab is production-ready. Nothing in the Lab is visible
 # to a customer.
-#
-# History:
-#   2026-10-08 - First version. MBS Tester and Renderer Test moved
-#                here from the landing page.
-#   2026-10-09 - Added Star Diagnostic tile. Background test for the
-#                shared cable-membrane boundary node movement.
-#   2026-10-10 - Added Multi-Cone Roof Tester tile. Stage 1 Lab page
-#                for the multi-cone roof. Mesh only. Experimental.
 # =============================================================================
 
 import streamlit as st
@@ -182,7 +174,7 @@ def render_lab():
     if st.button("Open Multi-Cone Roof Tester", key="lab_tester_multi_cone", use_container_width=True):
         st.session_state.page = "tester_multi_cone"
         st.rerun()
-        
+
     # ---- Form Finding Lab
     st.markdown(
         '<div class="lab-tile">'
@@ -220,6 +212,23 @@ def render_lab():
         st.session_state.page = "mesh_z_diagnostic"
         st.rerun()
 
+    # ---- Cantilever Leaf Tester
+    st.markdown(
+        '<div class="lab-tile">'
+        '<div class="lab-tile-name">Cantilever Leaf Tester</div>'
+        '<div class="lab-tile-desc">'
+        'Structural-analysis test case. Fixed 6 m column, 5 m outreach, '
+        '3 rib pairs, 2 m middle half-width. Renders the leaf and dumps '
+        'the raw geometry (beam, ribs, strut, membrane grid) for the '
+        'structural solver.'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Cantilever Leaf Tester", key="lab_tcl",
+                 use_container_width=True):
+        st.session_state.page = "tester_cantilever_leaf"
+        st.rerun()
 
     # ---- Placeholder for future test pages
     st.markdown(
