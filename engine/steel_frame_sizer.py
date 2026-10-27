@@ -1,13 +1,16 @@
-"""SDSe Engine — 3D Steel Frame Sizer.
+"""SDSe Engine — 3D Steel Frame Sizer (Three Cases, Worst-Case).
 
 Accepts three load cases (uplift, downforce, dead_only).
 Runs the frame solver for each case.
 Sizes each member for the WORST utilization across all three cases.
+
+Includes diagnostic prints to trace exactly where the force becomes zero.
 """
 
 import math
 
 import numpy as np
+import streamlit as st
 
 from data.materials import STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
@@ -108,8 +111,13 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
     for case_name, nd in newton_data_cases.items():
         frames_by_case[case_name] = build_steel_frame(data, nd)
 
+    # --- DEBUG 1: Load arriving at the builder ---
+    for case_name, frame in frames_by_case.items():
+        total_load = frame.get("diagnostic_total_load_magnitude_N", 0.0)
+        st.write(f"DEBUG 1 — Case {case_name}: Total membrane load = {total_load:.1f} N")
+        st.write(f"DEBUG 1b — Case {case_name}: Fixed nodes = {len(frame['fixed_indices'])}, Elements = {len(frame['elements'])}")
+
     for iteration in range(max_iterations):
-        # For this iteration, we compute the worst utilization across ALL cases
         util_by_type = {
             k: {"max_util": 0.0, "max_N": 0.0, "governing_case": "n/a"}
             for k in ("primary", "rib", "ring", "drop", "spoke")
@@ -130,6 +138,10 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
             loads_6dof = np.zeros((len(frame["nodes"]), 6), dtype=float)
             loads_6dof[:, 0:3] = frame["membrane_loads"]
 
+            # --- DEBUG 2: Force arriving at the solver ---
+            if iteration == 0 and case_name == "uplift":
+                st.write(f"DEBUG 2 — F_global sum (all 3 DOF × all nodes) = {np.sum(np.abs(loads_6dof)):.1f} N")
+
             grade_props = {
                 "E": STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000),
                 "G": STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000) / (2 * 1.3),
@@ -143,6 +155,17 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
                 grade_props=grade_props,
             )
             last_result = result
+
+            # --- DEBUG 3 & 4: What comes back from the solver ---
+            if iteration == 0 and case_name == "uplift":
+                disp_sum = np.sum(np.abs(result["displacements"]))
+                st.write(f"DEBUG 3 — u_global sum (displacement) = {disp_sum:.4e}")
+                if len(result["member_end_forces"]) > 0:
+                    max_N = max(abs(f["N"]) for f in result["member_end_forces"])
+                    max_My = max(max(abs(f["My_a"]), abs(f["My_b"])) for f in result["member_end_forces"])
+                    st.write(f"DEBUG 4 — Max |N| = {max_N:.1f} N · Max |My| = {max_My:.1f} N·m")
+                else:
+                    st.write("DEBUG 4 — Member end forces list is EMPTY")
 
             for k, elem in enumerate(elements):
                 end_forces = result["member_end_forces"][k]
