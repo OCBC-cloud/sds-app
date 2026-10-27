@@ -1,12 +1,9 @@
-"""SDSe Engine - 3D Linear Frame Solver.
+"""SDSe Engine - 3D Linear Frame Solver (Pinned Baseplates).
 
-Takes a 3D frame (nodes, elements, sections) and solves for:
-    - Nodal displacements
-    - Member end forces
-    - Support reactions
-
-Fix: Baseplates are PINNED (translations fixed, rotations free).
-This allows the arch to bend. A fully fixed boundary cancels the load.
+Boundary conditions:
+    Baseplates are PINNED: translations (DOFs 0,1,2) fixed, rotations (3,4,5) free.
+    This allows the arch to bend under the eave loads. A fully fixed baseplate
+    would absorb all load with zero bending, hiding the real member forces.
 """
 
 import numpy as np
@@ -15,10 +12,8 @@ EPS = 1e-12
 
 
 def _element_stiffness_matrix_3d(E, G, A, Iy, Iz, J, L):
-    """Return a 12x12 local stiffness matrix for a 3D frame element."""
     if L < EPS:
         return np.zeros((12, 12))
-
     k_axial = E * A / L
     k_torsion = G * J / L
     k_bend_y = E * Iy / L**3
@@ -26,19 +21,16 @@ def _element_stiffness_matrix_3d(E, G, A, Iy, Iz, J, L):
 
     K = np.zeros((12, 12), dtype=float)
 
-    # Axial (DOF 1 and 7)
     K[0, 0] = k_axial
     K[0, 6] = -k_axial
     K[6, 0] = -k_axial
     K[6, 6] = k_axial
 
-    # Torsion (DOF 4 and 10)
     K[3, 3] = k_torsion
     K[3, 9] = -k_torsion
     K[9, 3] = -k_torsion
     K[9, 9] = k_torsion
 
-    # Bending about local Y (DOF 2, 6, 8, 12)
     K[1, 1] = 12 * k_bend_y
     K[1, 5] = 6 * L * k_bend_y
     K[1, 7] = -12 * k_bend_y
@@ -56,7 +48,6 @@ def _element_stiffness_matrix_3d(E, G, A, Iy, Iz, J, L):
     K[11, 7] = -6 * L * k_bend_y
     K[11, 11] = 4 * L**2 * k_bend_y
 
-    # Bending about local Z (DOF 3, 5, 9, 11)
     K[2, 2] = 12 * k_bend_z
     K[2, 4] = -6 * L * k_bend_z
     K[2, 8] = -12 * k_bend_z
@@ -78,7 +69,6 @@ def _element_stiffness_matrix_3d(E, G, A, Iy, Iz, J, L):
 
 
 def _transformation_matrix(p1, p2):
-    """Return the 12x12 transformation matrix from local to global axes."""
     d = p2 - p1
     L = float(np.linalg.norm(d))
     if L < EPS:
@@ -89,24 +79,18 @@ def _transformation_matrix(p1, p2):
         v = np.array([0.0, 0.0, 1.0])
     else:
         v = np.array([1.0, 0.0, 0.0])
-
     y_local = np.cross(v, x_local)
-    y_local = y_local / np.linalg.norm(y_local)
+    y_local = y_local / (np.linalg.norm(y_local) + EPS)
     z_local = np.cross(x_local, y_local)
 
     R = np.array([x_local, y_local, z_local], dtype=float)
     T = np.zeros((12, 12), dtype=float)
     for i in range(4):
         T[3*i:3*i+3, 3*i:3*i+3] = R
-
     return T
 
 
 def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
-    """
-    Solve a 3D linear frame.
-    Baseplate nodes are PINNED: translations fixed, rotations free.
-    """
     n_nodes = nodes.shape[0]
     n_dof = 6 * n_nodes
 
@@ -116,12 +100,10 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     K_global = np.zeros((n_dof, n_dof), dtype=float)
     F_global = np.zeros(n_dof, dtype=float)
 
-    # Assemble loads
     for i in range(n_nodes):
         for j in range(6):
             F_global[6*i + j] = loads[i, j]
 
-    # Assemble stiffness
     for elem in elements:
         a = elem["a"]
         b = elem["b"]
@@ -143,14 +125,13 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
                 gj = 6 * (a if j < 6 else b) + (j % 6)
                 K_global[gi, gj] += K_global_elem[i, j]
 
-    # Apply PINNED boundary conditions: fix only translations (DOF 0, 1, 2)
+    # PINNED BASEPLATES: translations fixed, rotations free
     fixed_set = set(int(i) for i in fixed_nodes)
     free_dofs = []
     for i in range(n_nodes):
         if i in fixed_set:
-            # Pinned baseplate: rotations free. Fix only translations.
-            # (This allows the arch to bend.)
-            pass  # Skip translations (do not add DOFs 0,1,2 to free list)
+            # Only rotations are free at the baseplate
+            free_dofs.extend([6*i + 3, 6*i + 4, 6*i + 5])
         else:
             for j in range(6):
                 free_dofs.append(6 * i + j)
@@ -162,7 +143,6 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     K_ff = K_global[np.ix_(free_dofs, free_dofs)]
     F_f = F_global[free_dofs]
 
-    # Solve (Using Pseudo-Inverse to prevent collapse to zero on floating nodes)
     try:
         u_f = np.linalg.solve(K_ff, F_f)
     except np.linalg.LinAlgError:
@@ -174,7 +154,6 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     u_global = np.zeros(n_dof)
     u_global[free_dofs] = u_f
 
-    # Compute reactions
     R_global = K_global @ u_global - F_global
     reactions = np.zeros((n_nodes, 6))
     for i in range(n_nodes):
@@ -182,7 +161,6 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
             for j in range(6):
                 reactions[i, j] = R_global[6*i + j]
 
-    # Compute member end forces
     member_end_forces = []
     for elem in elements:
         a = elem["a"]
