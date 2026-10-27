@@ -1,5 +1,5 @@
 # =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v5.3 + DIAGNOSTICS v2)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v5.4)
 # =============================================================================
 
 import math
@@ -36,11 +36,11 @@ def plane_stress_matrix(E1, E2, nu12, G12):
     denom = 1.0 - nu12 * nu21
     if abs(denom) < EPS:
         raise ValueError("Orthotropic matrix is singular")
-    C11 = E1 / denom
-    C22 = E2 / denom
-    C12 = nu12 * E2 / denom
-    C33 = G12
-    return np.array([[C11, C12, 0.0], [C12, C22, 0.0], [0.0, 0.0, C33]], dtype=float)
+    return np.array([
+        [E1 / denom, nu12 * E2 / denom, 0.0],
+        [nu12 * E2 / denom, E2 / denom, 0.0],
+        [0.0, 0.0, G12],
+    ], dtype=float)
 
 
 def make_membrane_material(E_warp_MPa, E_weft_MPa, thickness_mm,
@@ -220,8 +220,7 @@ def cable_state(p_a, p_b, L0, EA):
     if strain <= 0.0:
         return 0.0, False, 0.0, u
     T = EA * strain
-    k_axial = EA / L0
-    return float(T), True, float(k_axial), u
+    return float(T), True, float(EA / L0), u
 
 
 def _cable_stiffness(p_a, p_b, L0, EA):
@@ -243,16 +242,13 @@ def _cable_stiffness(p_a, p_b, L0, EA):
 
 
 def _assemble_residual(points, triangles, cables, ref_points,
-                        material, loads, free_mask, n_nodes,
-                        taut_flags):
+                        material, loads, free_mask, n_nodes, taut_flags):
     F = np.zeros((n_nodes, 3), dtype=float)
     for (a, b, c) in triangles:
         try:
             f0, f1, f2 = _membrane_internal_force(
                 points[a], points[b], points[c],
-                ref_points[a], ref_points[b], ref_points[c],
-                material
-            )
+                ref_points[a], ref_points[b], ref_points[c], material)
         except ValueError:
             continue
         F[a] += f0; F[b] += f1; F[c] += f2
@@ -270,8 +266,7 @@ def _assemble_residual(points, triangles, cables, ref_points,
 
 def _assemble_tangent_sparse(points, triangles, cables, ref_points,
                               material, free_mask, n_nodes, taut_flags):
-    n_free_nodes = int(free_mask.sum())
-    n_free = 3 * n_free_nodes
+    n_free = 3 * int(free_mask.sum())
     free_idx = np.where(free_mask)[0]
     dof_of_node = -np.ones(n_nodes, dtype=int)
     for pos, nd in enumerate(free_idx):
@@ -392,8 +387,7 @@ def _apply_z_seed(points, amplitude, fixed_mask):
     xs = points[free, 0]; ys = points[free, 1]
     x_min, x_max = float(np.min(xs)), float(np.max(xs))
     y_min, y_max = float(np.min(ys)), float(np.max(ys))
-    x_span = max(x_max - x_min, EPS)
-    y_span = max(y_max - y_min, EPS)
+    x_span = max(x_max - x_min, EPS); y_span = max(y_max - y_min, EPS)
     u = (points[free, 0] - x_min) / x_span
     v = (points[free, 1] - y_min) / y_span
     bump = np.sin(np.pi * u) * np.sin(np.pi * v)
@@ -429,6 +423,18 @@ def solve_nonlinear_equilibrium(
         if i < 0 or i >= n_nodes:
             raise ValueError("fixed index out of range")
         fixed_mask[i] = True
+
+    # --- FIX: exclude isolated nodes from the free DOF set ---
+    connected = np.zeros(n_nodes, dtype=bool)
+    for (a, b, c) in triangles:
+        connected[a] = True
+        connected[b] = True
+        connected[c] = True
+    isolated = ~connected & ~fixed_mask
+    n_isolated = int(np.sum(isolated))
+    if n_isolated > 0:
+        fixed_mask[isolated] = True  # treat isolated nodes as fixed (zero displacement)
+
     free_mask = ~fixed_mask
     if free_mask.sum() == 0:
         raise ValueError("no free nodes")
@@ -441,8 +447,7 @@ def solve_nonlinear_equilibrium(
     for cb in cables:
         if "L0" not in cb and "T_pretension_N" in cb:
             ref_len = float(np.linalg.norm(ref_points[int(cb["b"])] - ref_points[int(cb["a"])]))
-            T_pre = float(cb["T_pretension_N"])
-            EA = float(cb["EA"])
+            T_pre = float(cb["T_pretension_N"]); EA = float(cb["EA"])
             if EA <= 0:
                 cb["L0"] = ref_len
             else:
@@ -460,38 +465,35 @@ def solve_nonlinear_equilibrium(
         p.ravel()[free_dofs] = v
         return p
 
+    # --- FIX: force_scale with correct units (N, not N/m) ---
     load_scale = float(np.max(np.abs(loads))) if loads.size else 0.0
     cable_pre_scale = max([abs(float(cb.get("T_pretension_N", 0.0))) for cb in cables] + [0.0])
-    membrane_scale = max(
+    membrane_N_per_m = max(
         abs(float(membrane_material.get("warp_prestress_N_per_m", 0.0))),
         abs(float(membrane_material.get("weft_prestress_N_per_m", 0.0))),
         1.0,
     )
-    force_scale = max(1.0, load_scale, cable_pre_scale, membrane_scale)
+    # characteristic edge length
+    edge_lengths = []
+    for (a, b, c) in triangles:
+        edge_lengths.append(float(np.linalg.norm(points[b] - points[a])))
+        edge_lengths.append(float(np.linalg.norm(points[c] - points[b])))
+        edge_lengths.append(float(np.linalg.norm(points[a] - points[c])))
+    char_len = float(np.median(edge_lengths)) if edge_lengths else 1.0
+    membrane_scale_N = membrane_N_per_m * char_len
+    force_scale = max(1.0, load_scale, cable_pre_scale, membrane_scale_N)
     tol_abs = float(tol) * force_scale
 
     bbox = np.max(points, axis=0) - np.min(points, axis=0)
     scale_len = max(float(np.linalg.norm(bbox)), 1e-3)
     tol_disp_abs = float(tol_disp) * scale_len
 
-    # ===== DIAGNOSTIC 1: connectivity =====
-    st.write("--- DEBUG: SOLVER START (v2) ---")
+    st.write("--- DEBUG: SOLVER START (v5.4) ---")
     st.write(f"nodes = {n_nodes}, triangles = {len(triangles)}, cables = {len(cables)}")
-    st.write(f"free_dofs = {n_dof}, fixed nodes = {int(fixed_mask.sum())}")
-    connected = np.zeros(n_nodes, dtype=bool)
-    for (a, b, c) in triangles:
-        connected[a] = True; connected[b] = True; connected[c] = True
-    isolated = int(np.sum(~connected))
-    st.write(f"**Nodes not connected to any triangle: {isolated} (out of {n_nodes})**")
-    if isolated > 0:
-        idx = np.where(~connected)[0]
-        st.write(f"  Isolated node indices (first 10): {idx[:10].tolist()}")
-
-    st.write(f"load_scale = {load_scale:.3e} N")
-    st.write(f"membrane_scale = {membrane_scale:.3e} N/m")
+    st.write(f"fixed (including {n_isolated} isolated) = {int(fixed_mask.sum())}, free nodes = {int(free_mask.sum())}")
+    st.write(f"char_len = {char_len:.3e} m")
+    st.write(f"load_scale = {load_scale:.3e} N, membrane_scale = {membrane_scale_N:.3e} N")
     st.write(f"force_scale = {force_scale:.3e} N, tol_abs = {tol_abs:.3e} N")
-    st.write(f"scale_len = {scale_len:.3e} m, tol_disp_abs = {tol_disp_abs:.3e} m")
-    st.write(f"seed_z_amplitude = {seed_z_amplitude:.4e} m")
 
     taut_flags = [False] * len(cables)
     history = []
@@ -509,41 +511,14 @@ def solve_nonlinear_equilibrium(
         if total_steps >= max_total_steps:
             reason = "step_budget_exhausted"; break
         for k, cb in enumerate(cables):
-            _T, taut, _k, _u = cable_state(
-                points[int(cb["a"])], points[int(cb["b"])],
-                float(cb["L0"]), float(cb["EA"]))
+            _T, taut, _k, _u = cable_state(points[int(cb["a"])], points[int(cb["b"])], float(cb["L0"]), float(cb["EA"]))
             taut_flags[k] = taut
-        R = _assemble_residual(points, triangles, cables, ref_points,
-                               membrane_material, loads, free_mask, n_nodes, taut_flags)
+        R = _assemble_residual(points, triangles, cables, ref_points, membrane_material, loads, free_mask, n_nodes, taut_flags)
         r_flat = flat(R)
         r_norm = float(np.linalg.norm(r_flat))
         r_max = float(np.max(np.abs(r_flat))) if r_flat.size else 0.0
         history.append((outer, 0, r_norm, r_max))
-
-        # ===== DIAGNOSTIC 2: residual breakdown =====
-        membrane_F = np.zeros((n_nodes, 3))
-        for (a, b, c) in triangles:
-            try:
-                f0, f1, f2 = _membrane_internal_force(
-                    points[a], points[b], points[c],
-                    ref_points[a], ref_points[b], ref_points[c], membrane_material)
-                membrane_F[a] += f0; membrane_F[b] += f1; membrane_F[c] += f2
-            except ValueError:
-                pass
-        cable_F = np.zeros((n_nodes, 3))
-        for k, cb in enumerate(cables):
-            if taut_flags[k]:
-                a = int(cb["a"]); b = int(cb["b"])
-                T, taut, _k_ax, u = cable_state(points[a], points[b], float(cb["L0"]), float(cb["EA"]))
-                if taut:
-                    cable_F[a] += T * u; cable_F[b] -= T * u
-        membrane_F[fixed_mask] = 0
-        cable_F[fixed_mask] = 0
-        loads_masked = loads.copy()
-        loads_masked[fixed_mask] = 0
-        st.write(f"**OUTER {outer}**: r_max = {r_max:.4e} N, r_norm = {r_norm:.4e} N, taut = {sum(taut_flags)}/{len(cables)}")
-        st.write(f"  breakdown: |F_membrane| = {np.linalg.norm(membrane_F):.3e}, |F_cables| = {np.linalg.norm(cable_F):.3e}, |F_load| = {np.linalg.norm(loads_masked):.3e}")
-
+        st.write(f"**OUTER {outer}**: r_max = {r_max:.4e} N, taut = {sum(taut_flags)}/{len(cables)}")
         if r_max < tol_abs:
             converged = True; reason = "converged"; break
 
@@ -554,18 +529,13 @@ def solve_nonlinear_equilibrium(
             if total_steps >= max_total_steps:
                 reason = "step_budget_exhausted"; inner_failed = True; break
             total_steps += 1
-            K = _assemble_tangent_sparse(points, triangles, cables, ref_points,
-                                         membrane_material, free_mask, n_nodes, taut_flags)
+            K = _assemble_tangent_sparse(points, triangles, cables, ref_points, membrane_material, free_mask, n_nodes, taut_flags)
             dx = _solve_linear_system(K, r_flat, n_dof)
             dx_norm = float(np.linalg.norm(dx))
-            if it <= 3:
-                st.write(f"  it={it}: |dx| = {dx_norm:.4e} m")
             max_step = 0.01 * scale_len
             if dx_norm > max_step and dx_norm > 0.0:
                 dx = dx * (max_step / dx_norm)
                 dx_norm = max_step
-                if it <= 3:
-                    st.write(f"  it={it}: dx clamped to {max_step:.4e}")
             alpha = 1.0
             best_alpha = None; best_r = None; best_norm = r_norm
             x0 = flat(points); best_flags = list(taut_flags)
@@ -574,34 +544,25 @@ def solve_nonlinear_equilibrium(
                 p_try = unflat(x_try)
                 trial_flags = [False] * len(cables)
                 for kk, cbt in enumerate(cables):
-                    _Tt, taut_t, _k_t, _u_t = cable_state(
-                        p_try[int(cbt["a"])], p_try[int(cbt["b"])],
-                        float(cbt["L0"]), float(cbt["EA"]))
+                    _Tt, taut_t, _k_t, _u_t = cable_state(p_try[int(cbt["a"])], p_try[int(cbt["b"])], float(cbt["L0"]), float(cbt["EA"]))
                     trial_flags[kk] = taut_t
                 try:
-                    R_try = _assemble_residual(p_try, triangles, cables, ref_points,
-                                               membrane_material, loads, free_mask, n_nodes, trial_flags)
+                    R_try = _assemble_residual(p_try, triangles, cables, ref_points, membrane_material, loads, free_mask, n_nodes, trial_flags)
                 except Exception:
                     alpha *= 0.5; continue
                 r_try = flat(R_try)
                 n_try = float(np.linalg.norm(r_try))
                 if n_try < best_norm:
-                    best_alpha = alpha; best_norm = n_try; best_r = r_try
-                    best_flags = trial_flags; break
+                    best_alpha = alpha; best_norm = n_try; best_r = r_try; best_flags = trial_flags; break
                 alpha *= 0.5
             if best_alpha is None:
-                reason = "line_search_failed"
-                st.write(f"  it={it}: **LINE SEARCH FAILED** (best r_norm = {best_norm:.4e})")
-                inner_failed = True; break
+                reason = "line_search_failed"; inner_failed = True; break
             points = unflat(x0 + best_alpha * dx)
-            r_flat = best_r
-            r_norm = best_norm
+            r_flat = best_r; r_norm = best_norm
             r_max = float(np.max(np.abs(r_flat))) if r_flat.size else 0.0
             taut_flags = best_flags
             history.append((outer, it, r_norm, r_max))
             last_step_size = best_alpha * dx_norm
-            if it <= 3:
-                st.write(f"  it={it}: alpha={best_alpha:.3e}, new r_max={r_max:.4e}, step={last_step_size:.4e}")
             if r_max < tol_abs:
                 converged = True; reason = "converged"; break
             if last_step_size < tol_disp_abs:
@@ -611,9 +572,7 @@ def solve_nonlinear_equilibrium(
 
         new_flags = [False] * len(cables)
         for k, cb in enumerate(cables):
-            _T, taut, _k, _u = cable_state(
-                points[int(cb["a"])], points[int(cb["b"])],
-                float(cb["L0"]), float(cb["EA"]))
+            _T, taut, _k, _u = cable_state(points[int(cb["a"])], points[int(cb["b"])], float(cb["L0"]), float(cb["EA"]))
             new_flags[k] = taut
         if new_flags == taut_flags:
             if prev_residual is not None:
@@ -630,26 +589,23 @@ def solve_nonlinear_equilibrium(
             stall_count = 0; prev_residual = r_max
         taut_flags = new_flags
 
-    st.write(f"**SOLVER END**: reason = {reason}, converged = {converged}, iterations = {len(history)-1}")
+    st.write(f"**SOLVER END**: reason = {reason}, converged = {converged}")
 
     membrane_stress_list = []
     for (a, b, c) in triangles:
         try:
-            sigma, comp, _sp = membrane_stress(
-                points[a], points[b], points[c], ref_points[a], ref_points[b], ref_points[c], membrane_material)
+            sigma, comp, _sp = membrane_stress(points[a], points[b], points[c], ref_points[a], ref_points[b], ref_points[c], membrane_material)
             membrane_stress_list.append({"triangle": (int(a), int(b), int(c)), "sigma": sigma, "compression_found": bool(comp)})
         except ValueError:
             membrane_stress_list.append({"triangle": (int(a), int(b), int(c)), "sigma": np.zeros((2, 2)), "compression_found": False})
 
     cable_tension_list = []
     for cb in cables:
-        T, taut, _k, _u = cable_state(
-            points[int(cb["a"])], points[int(cb["b"])], float(cb["L0"]), float(cb["EA"]))
+        T, taut, _k, _u = cable_state(points[int(cb["a"])], points[int(cb["b"])], float(cb["L0"]), float(cb["EA"]))
         cable_tension_list.append({"a": int(cb["a"]), "b": int(cb["b"]), "T_N": float(T), "L0_m": float(cb["L0"]), "taut": bool(taut)})
 
     all_true = np.ones(n_nodes, dtype=bool)
-    R_final = _assemble_residual(points, triangles, cables, ref_points,
-                                  membrane_material, loads, all_true, n_nodes, taut_flags)
+    R_final = _assemble_residual(points, triangles, cables, ref_points, membrane_material, loads, all_true, n_nodes, taut_flags)
     R_final[fixed_mask] = -R_final[fixed_mask]
 
     elapsed = time.time() - t_start
