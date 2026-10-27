@@ -1,5 +1,6 @@
 # =============================================================================
-# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v5.4)
+# SDSe Engine - Nonlinear Membrane + Cable Equilibrium (v5.5)
+# v5.5: removed converged_disp cheat. Solver now fails honestly.
 # =============================================================================
 
 import math
@@ -236,9 +237,7 @@ def _cable_stiffness(p_a, p_b, L0, EA):
     k_axial = EA / L0
     I3 = np.eye(3)
     uu = np.outer(u, u)
-    K_mat = -k_axial * uu
-    K_geo = -(T / L) * (I3 - uu)
-    return (K_mat + K_geo), True
+    return (-k_axial * uu - (T / L) * (I3 - uu)), True
 
 
 def _assemble_residual(points, triangles, cables, ref_points,
@@ -424,16 +423,12 @@ def solve_nonlinear_equilibrium(
             raise ValueError("fixed index out of range")
         fixed_mask[i] = True
 
-    # --- FIX: exclude isolated nodes from the free DOF set ---
     connected = np.zeros(n_nodes, dtype=bool)
     for (a, b, c) in triangles:
-        connected[a] = True
-        connected[b] = True
-        connected[c] = True
+        connected[a] = True; connected[b] = True; connected[c] = True
     isolated = ~connected & ~fixed_mask
-    n_isolated = int(np.sum(isolated))
-    if n_isolated > 0:
-        fixed_mask[isolated] = True  # treat isolated nodes as fixed (zero displacement)
+    if np.sum(isolated) > 0:
+        fixed_mask[isolated] = True
 
     free_mask = ~fixed_mask
     if free_mask.sum() == 0:
@@ -448,10 +443,7 @@ def solve_nonlinear_equilibrium(
         if "L0" not in cb and "T_pretension_N" in cb:
             ref_len = float(np.linalg.norm(ref_points[int(cb["b"])] - ref_points[int(cb["a"])]))
             T_pre = float(cb["T_pretension_N"]); EA = float(cb["EA"])
-            if EA <= 0:
-                cb["L0"] = ref_len
-            else:
-                cb["L0"] = ref_len / (1.0 + T_pre / EA)
+            cb["L0"] = ref_len if EA <= 0 else ref_len / (1.0 + T_pre / EA)
 
     free_idx = np.where(free_mask)[0]
     free_dofs = np.array([3 * int(i) + d for i in free_idx for d in range(3)], dtype=int)
@@ -465,15 +457,12 @@ def solve_nonlinear_equilibrium(
         p.ravel()[free_dofs] = v
         return p
 
-    # --- FIX: force_scale with correct units (N, not N/m) ---
     load_scale = float(np.max(np.abs(loads))) if loads.size else 0.0
     cable_pre_scale = max([abs(float(cb.get("T_pretension_N", 0.0))) for cb in cables] + [0.0])
     membrane_N_per_m = max(
         abs(float(membrane_material.get("warp_prestress_N_per_m", 0.0))),
         abs(float(membrane_material.get("weft_prestress_N_per_m", 0.0))),
-        1.0,
-    )
-    # characteristic edge length
+        1.0)
     edge_lengths = []
     for (a, b, c) in triangles:
         edge_lengths.append(float(np.linalg.norm(points[b] - points[a])))
@@ -488,9 +477,9 @@ def solve_nonlinear_equilibrium(
     scale_len = max(float(np.linalg.norm(bbox)), 1e-3)
     tol_disp_abs = float(tol_disp) * scale_len
 
-    st.write("--- DEBUG: SOLVER START (v5.4) ---")
+    st.write("--- DEBUG: SOLVER START (v5.5) ---")
     st.write(f"nodes = {n_nodes}, triangles = {len(triangles)}, cables = {len(cables)}")
-    st.write(f"fixed (including {n_isolated} isolated) = {int(fixed_mask.sum())}, free nodes = {int(free_mask.sum())}")
+    st.write(f"fixed = {int(fixed_mask.sum())}, free = {int(free_mask.sum())}")
     st.write(f"char_len = {char_len:.3e} m")
     st.write(f"load_scale = {load_scale:.3e} N, membrane_scale = {membrane_scale_N:.3e} N")
     st.write(f"force_scale = {force_scale:.3e} N, tol_abs = {tol_abs:.3e} N")
@@ -519,6 +508,7 @@ def solve_nonlinear_equilibrium(
         r_max = float(np.max(np.abs(r_flat))) if r_flat.size else 0.0
         history.append((outer, 0, r_norm, r_max))
         st.write(f"**OUTER {outer}**: r_max = {r_max:.4e} N, taut = {sum(taut_flags)}/{len(cables)}")
+
         if r_max < tol_abs:
             converged = True; reason = "converged"; break
 
@@ -563,10 +553,20 @@ def solve_nonlinear_equilibrium(
             taut_flags = best_flags
             history.append((outer, it, r_norm, r_max))
             last_step_size = best_alpha * dx_norm
+
             if r_max < tol_abs:
                 converged = True; reason = "converged"; break
+
+            # v5.5: converged_disp removed. Never accept small step as convergence.
             if last_step_size < tol_disp_abs:
-                converged = True; reason = "converged_disp"; break
+                # Only accept if residual is also small (10x tolerance)
+                if r_max < tol_abs * 10.0:
+                    converged = True; reason = "converged_disp_but_residual_ok"; break
+                else:
+                    reason = "stalled_step_small_residual_large"
+                    inner_failed = True
+                    break
+
         if converged: break
         if inner_failed: break
 
@@ -589,7 +589,7 @@ def solve_nonlinear_equilibrium(
             stall_count = 0; prev_residual = r_max
         taut_flags = new_flags
 
-    st.write(f"**SOLVER END**: reason = {reason}, converged = {converged}")
+    st.write(f"**SOLVER END**: reason = {reason}, converged = {converged}, r_max = {r_max:.4e} N, tol_abs = {tol_abs:.4e} N")
 
     membrane_stress_list = []
     for (a, b, c) in triangles:
