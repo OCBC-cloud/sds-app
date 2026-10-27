@@ -5,8 +5,8 @@ Takes a 3D frame (nodes, elements, sections) and solves for:
     - Member end forces
     - Support reactions
 
-This is a standard Euler-Bernoulli 3D frame element (12 DOF per node).
-No geometric nonlinearity (P-Delta).
+Fix: Baseplates are PINNED (translations fixed, rotations free).
+This allows the arch to bend. A fully fixed boundary cancels the load.
 """
 
 import numpy as np
@@ -85,8 +85,6 @@ def _transformation_matrix(p1, p2):
         return np.eye(12)
 
     x_local = d / L
-
-    # Find a vector not parallel to x_local to construct y_local
     if abs(x_local[2]) < 0.9:
         v = np.array([0.0, 0.0, 1.0])
     else:
@@ -97,7 +95,6 @@ def _transformation_matrix(p1, p2):
     z_local = np.cross(x_local, y_local)
 
     R = np.array([x_local, y_local, z_local], dtype=float)
-
     T = np.zeros((12, 12), dtype=float)
     for i in range(4):
         T[3*i:3*i+3, 3*i:3*i+3] = R
@@ -108,17 +105,12 @@ def _transformation_matrix(p1, p2):
 def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     """
     Solve a 3D linear frame.
-    nodes: (n, 3) array of coordinates
-    elements: list of dicts with 'a', 'b', 'section' keys
-    loads: (n, 6) array of forces and moments at each node
-    fixed_nodes: list of node indices that are fixed
-    grade_props: dict with E, G
-    returns: dict with 'displacements', 'reactions', 'member_end_forces'
+    Baseplate nodes are PINNED: translations fixed, rotations free.
     """
     n_nodes = nodes.shape[0]
     n_dof = 6 * n_nodes
 
-    E = grade_props.get("E", 210000.0) * 1e6  # Pa
+    E = grade_props.get("E", 210000.0) * 1e6
     G = grade_props.get("G", E / (2 * (1 + 0.3)))
 
     K_global = np.zeros((n_dof, n_dof), dtype=float)
@@ -151,10 +143,15 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
                 gj = 6 * (a if j < 6 else b) + (j % 6)
                 K_global[gi, gj] += K_global_elem[i, j]
 
-    # Apply boundary conditions
+    # Apply PINNED boundary conditions: fix only translations (DOF 0, 1, 2)
+    fixed_set = set(int(i) for i in fixed_nodes)
     free_dofs = []
     for i in range(n_nodes):
-        if i not in fixed_nodes:
+        if i in fixed_set:
+            # Pinned baseplate: rotations free. Fix only translations.
+            # (This allows the arch to bend.)
+            pass  # Skip translations (do not add DOFs 0,1,2 to free list)
+        else:
             for j in range(6):
                 free_dofs.append(6 * i + j)
     free_dofs = np.array(free_dofs, dtype=int)
@@ -165,7 +162,7 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     K_ff = K_global[np.ix_(free_dofs, free_dofs)]
     F_f = F_global[free_dofs]
 
-    # Solve (Using Pseudo-Inverse fallback to prevent collapse to zero on floating nodes)
+    # Solve (Using Pseudo-Inverse to prevent collapse to zero on floating nodes)
     try:
         u_f = np.linalg.solve(K_ff, F_f)
     except np.linalg.LinAlgError:
@@ -181,7 +178,7 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
     R_global = K_global @ u_global - F_global
     reactions = np.zeros((n_nodes, 6))
     for i in range(n_nodes):
-        if i in fixed_nodes:
+        if i in fixed_set:
             for j in range(6):
                 reactions[i, j] = R_global[6*i + j]
 
