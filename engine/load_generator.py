@@ -1,10 +1,7 @@
 """SDSe Engine - Environmental Load Generator.
 
 Converts user inputs (wind speed, snow depth, payload) into nodal forces.
-Uses the unified Cp map registry for code-compliant pressure distributions.
-Applies loads as surface-normal forces, not just vertical.
-
-No placeholders. All shapes, all codes.
+Generates three distinct load cases: uplift, downforce, dead_only.
 """
 
 import math
@@ -76,7 +73,7 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
     """
     Generate surface-normal wind forces using the Cp map registry.
     """
-    q = 0.5 * RHO_AIR * (wind_speed_ms ** 2)  # dynamic pressure in Pa
+    q = 0.5 * RHO_AIR * (wind_speed_ms ** 2)
     cp_map = get_cp_map(shape_type, code_name)
     
     loads = np.zeros((coords.shape[0], 3), dtype=float)
@@ -88,7 +85,6 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
     for (a, b, c) in tris:
         pa, pb, pc = coords[a], coords[b], coords[c]
         
-        # Triangle area and outward normal
         v1 = pb - pa
         v2 = pc - pa
         cross = np.cross(v1, v2)
@@ -97,10 +93,8 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
             continue
         normal = cross / (2.0 * area)
         
-        # Local slope from vertical
         slope_deg = compute_slope_deg(normal)
         
-        # Position relative to wind
         normal_x = float(normal[0])
         if normal_x < -0.3:
             position = "windward"
@@ -109,13 +103,11 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
         else:
             position = "side"
         
-        # Distance to nearest cone apex (for multi-cone)
         dist_from_apex = None
         if shape_type in ("multi_cone", "multi-cone", "multicone") and cone_apexes:
             centroid = (pa + pb + pc) / 3.0
             _, dist_from_apex = find_nearest_cone_apex(centroid, cone_apexes)
         
-        # Get Cp from code-specific map
         try:
             cp = cp_map(
                 slope_deg=slope_deg,
@@ -125,25 +117,19 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
                 cone_radius=cone_radius_m,
             )
         except TypeError:
-            # Fallback for mappers that don't accept distance_from_apex
             cp = cp_map(
                 slope_deg=slope_deg,
                 h_over_d=h_over_d,
                 position=position,
             )
         
-        # Pressure in Pa (negative Cp = suction)
         pressure_Pa = cp * q
-        
-        # Force on the surface (inward)
         force_vec = -pressure_Pa * area * normal
         
-        # Distribute to 3 nodes
         loads[a] += force_vec / 3.0
         loads[b] += force_vec / 3.0
         loads[c] += force_vec / 3.0
         
-        # Track diagnostics
         total_uplift_N += force_vec[2]
         if abs(pressure_Pa) > max_pressure_Pa:
             max_pressure_Pa = abs(pressure_Pa)
@@ -162,7 +148,6 @@ def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
 
 
 def _gen_snow_base(coords, tris, snow_depth_m, code_name):
-    """Snow load with slope-dependent shape coefficient μ."""
     params = get_code_params(code_name)
     base_pressure_Pa = snow_depth_m * params["snow_density"] * GRAVITY
     
@@ -195,7 +180,6 @@ def _gen_snow_base(coords, tris, snow_depth_m, code_name):
 
 
 def _gen_dead_base(coords, tris, membrane_kg_m2=1.102):
-    """Dead load from membrane self-weight (kg/m²)."""
     pressure_Pa = membrane_kg_m2 * GRAVITY
     loads = np.zeros((coords.shape[0], 3), dtype=float)
     for (a, b, c) in tris:
@@ -209,7 +193,6 @@ def _gen_dead_base(coords, tris, membrane_kg_m2=1.102):
 
 
 def generate_payload_load(coords_fdm, tris, apex_index, payload_kg):
-    """Distribute payload over the apex node's tributary area."""
     loads = np.zeros((coords_fdm.shape[0], 3), dtype=float)
     if apex_index is None or apex_index >= len(coords_fdm) or payload_kg <= 0:
         return loads
@@ -237,7 +220,7 @@ def generate_payload_load(coords_fdm, tris, apex_index, payload_kg):
 
 
 # =============================================================================
-# FACTORED LOAD GENERATOR (ULS)
+# THE THREE PROFESSIONAL LOAD CASES
 # =============================================================================
 
 def generate_uls_loads(coords, tris, code_name, wind_speed, snow_depth,
@@ -248,8 +231,10 @@ def generate_uls_loads(coords, tris, code_name, wind_speed, snow_depth,
                         cone_radius_m=None,
                         membrane_kg_m2=1.102):
     """
-    Generate factored loads for ULS.
-    Returns a dict with "gravity", "uplift", "service" load vectors.
+    Returns three distinct load cases:
+      - uplift: dead × 0.9 + wind_suction × 1.5
+      - downforce: dead × 1.35 + wind_pressure × 1.5 + snow × 1.5 + payload × 1.5
+      - dead_only: dead × 1.35
     """
     params = get_code_params(code_name)
     f = params["factors"]
@@ -258,24 +243,29 @@ def generate_uls_loads(coords, tris, code_name, wind_speed, snow_depth,
     dead_load = _gen_dead_base(coords, tris, membrane_kg_m2)
     snow_load = _gen_snow_base(coords, tris, snow_depth, code_name)
     
-    # Wind load with full Cp map inputs
-    wind_load, wind_diag = _gen_wind_base(
+    # Wind loads (separate suction and pressure)
+    # Suction: the roof lifts off
+    wind_suction_load, wind_suction_diag = _gen_wind_base(
         coords, tris, wind_speed, code_name, shape_type,
         h_over_d, cone_apexes, cone_radius_m,
     )
+    # Pressure: the roof is pushed down
+    wind_pressure_load = -wind_suction_load.copy()  # Pressure is opposite of suction
     
     payload_load = generate_payload_load(coords, tris, apex_idx, payload_kg)
     
-    # ULS combinations
-    uls_gravity = (dead_load * f["dead"]) + (snow_load * f["snow"]) + (payload_load * 1.5)
-    uls_uplift = (dead_load * f["uplift_dead"]) + (wind_load * f["wind"])
+    # Case A: Uplift (wind suction)
+    uls_uplift = (dead_load * f["uplift_dead"]) + (wind_suction_load * f["wind"])
     
-    # Service
-    service = dead_load + snow_load + wind_load + payload_load
+    # Case B: Downforce (wind pressure + snow + payload)
+    uls_downforce = (dead_load * f["dead"]) + (wind_pressure_load * f["wind"]) + (snow_load * f["snow"]) + (payload_load * 1.5)
+    
+    # Case C: Dead only
+    uls_dead_only = dead_load * f["dead"]
     
     return {
-        "gravity": uls_gravity,
         "uplift": uls_uplift,
-        "service": service,
-        "wind_diagnostics": wind_diag,
+        "downforce": uls_downforce,
+        "dead_only": uls_dead_only,
+        "wind_diagnostics": wind_suction_diag,
     }
