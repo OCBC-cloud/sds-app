@@ -294,6 +294,45 @@ def render_tester_multi_cone():
         L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
         target_len = max(L_avg, 1e-6)
         built = SDSe_mesh_rings(perimeter_loop=perimeter_loop, anchor_idx=anchor_idx, ring_specs=ring_specs, eave_height=eave_height, target_len=target_len)
+
+        # --- DIAGNOSTIC: find orphan nodes ---
+        n_nodes_local = built["points"].shape[0]
+        connected_local = np.zeros(n_nodes_local, dtype=bool)
+        for (a, b, c) in built["triangles"]:
+            connected_local[a] = True
+            connected_local[b] = True
+            connected_local[c] = True
+        orphan_indices = np.where(~connected_local)[0]
+        if len(orphan_indices) > 0:
+            st.warning(f"⚠ Mesh has {len(orphan_indices)} orphan nodes: {orphan_indices.tolist()}")
+            n_perim = built["n_perimeter"]
+            ring_vertex_set = set()
+            for ring_list in built["ring_indices"]:
+                for v in ring_list:
+                    ring_vertex_set.add(int(v))
+            centre_set = set(int(c) for c in built["centre_indices"])
+            beam_top_set = set(int(b) for b in built["beam_top_indices"])
+            st.write(f"Mesh breakdown: n_perimeter = {n_perim}, n_nodes = {n_nodes_local}")
+            for idx in orphan_indices:
+                pos = built["points"][idx]
+                idx = int(idx)
+                if idx < n_perim:
+                    role = "perimeter boundary (index < n_perimeter)"
+                elif idx in ring_vertex_set:
+                    role = "ring polygon vertex"
+                elif idx in centre_set:
+                    role = "ring centre"
+                elif idx in beam_top_set:
+                    role = "beam top"
+                else:
+                    role = "interior fabric (orphaned)"
+                st.write(f"  Node {idx}: role = {role}, position = ({pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f})")
+            st.write(f"First 5 perimeter x,y: {built['points'][:5, :2].tolist()}")
+            st.write(f"Ring centre (if any): {[built['points'][c, :].tolist() for c in built['centre_indices']]}")
+            st.write(f"Beam top (if any): {[built['points'][b, :].tolist() for b in built['beam_top_indices']]}")
+        else:
+            st.success(f"No orphan nodes. Mesh is fully connected ({n_nodes_local} nodes).")
+
         pts = built["points"]; edges = built["edges"]; boundary_edge_set = built["boundary_edges"]
         tris = built["triangles"]; fixed = built["fixed_indices"]
         warp_q = max(float(warp_c), 0.1) * 1000.0
@@ -334,7 +373,6 @@ def render_tester_multi_cone():
                 data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
             cables = []
             n_a = len(data["anchor_idx"]); pts = data["pts"]; coords_fdm = data["coords_fdm"]
-            # --- FIXED CABLE L0: pretension-based, not slack-based ---
             for k in range(n_a):
                 a_idx = data["anchor_idx"][k]; b_idx = data["anchor_idx"][(k + 1) % n_a]
                 chain = [int(a_idx)]; i_cur = (a_idx + 1) % pts.shape[0]; b_int = int(b_idx); safety = 0
