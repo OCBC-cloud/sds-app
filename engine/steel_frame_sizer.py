@@ -1,26 +1,19 @@
 """SDSe Engine — 3D Steel Frame Sizer.
 
-Iteratively sizes the member sections of a 3D steel frame so that every
-member passes:
-  - Combined stress check (axial + bending)
-  - Euler buckling check
-  - 70% utilization cap
+Accepts three load cases (uplift, downforce, dead_only).
+Runs the frame solver for each case.
+Sizes each member for the WORST utilization across all three cases.
 """
 
 import math
 
 import numpy as np
-import streamlit as st
 
 from data.materials import STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
 from engine.steel_frame_solver import solve_frame
 from engine.steel_frame_builder import build_steel_frame
 
-
-# =============================================================================
-# SECTION CATALOGUE HELPERS
-# =============================================================================
 
 def _sections_by_area(family="CHS"):
     items = []
@@ -44,10 +37,6 @@ def _next_section_up(current_name, family="CHS"):
                 return None
     return all_sections[0][0] if all_sections else None
 
-
-# =============================================================================
-# MEMBER UTILIZATION
-# =============================================================================
 
 def _member_utilization(section_name, N_Ed_N, My_Ed_Nm, Mz_Ed_Nm,
                          L_m, grade="S355", K=1.0):
@@ -100,142 +89,94 @@ def _ring_hoop_utilization(section_name, membrane_force_at_ring_N,
     return abs(N_hoop) / N_cap if N_cap > 0 else 999.0
 
 
-# =============================================================================
-# MAIN SIZER
-# =============================================================================
-
-def size_steel_frame(data, newton_data, code_choice="MS 1553",
+def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
                       grade="S355", family="CHS", max_iterations=12,
                       utilization_cap=0.70):
+    """
+    newton_data_cases: dict of { "uplift": {"dr_result": ...}, "downforce": {...}, "dead_only": {...} }
+    """
     all_sections = _sections_by_area(family)
     if not all_sections:
-        return {
-            "sections": {}, "frame_result": None, "details": {},
-            "iteration_log": [{"error": "No sections in catalogue"}]
-        }
+        return {"sections": {}, "frame_result": None, "details": {}, "iteration_log": []}
 
     smallest = all_sections[0][0]
-    sections = {
-        "primary": smallest,
-        "rib": smallest,
-        "ring": smallest,
-        "drop": smallest,
-        "spoke": smallest,
-    }
-
+    sections = {k: smallest for k in ("primary", "rib", "ring", "drop", "spoke")}
     iteration_log = []
 
-    # Build the frame ONCE
-    frame = build_steel_frame(data, newton_data)
-
-    # --- DEBUG TRACE ---
-    st.write("DEBUG 1 — Total membrane load (N):", frame["diagnostic_total_load_magnitude_N"])
-    st.write("DEBUG 2 — Number of fixed baseplates:", len(frame["fixed_indices"]))
-    st.write("DEBUG 3 — Number of elements:", len(frame["elements"]))
-    st.write("DEBUG 4 — Number of arch loads applied:", len(frame["anchor_to_frame_id"]))
-    # -------------------
-
-    if frame["diagnostic_total_load_magnitude_N"] < 1.0:
-        return {
-            "sections": sections, "frame_result": None, 
-            "details": {"error": "zero_load_transfer"}, 
-            "iteration_log": []
-        }
+    # Build the frame for each case
+    frames_by_case = {}
+    for case_name, nd in newton_data_cases.items():
+        frames_by_case[case_name] = build_steel_frame(data, nd)
 
     for iteration in range(max_iterations):
-        elements = []
-        for elem in frame["elements"]:
-            sec_name = sections.get(elem["section"], smallest)
-            sec_props = SECTION_PROPERTIES.get(sec_name, {})
-            elements.append({
-                "a": elem["a"],
-                "b": elem["b"],
-                "section": sec_props,
-                "kind": elem["kind"],
-                "section_name": sec_name,
-            })
-
-        loads_6dof = np.zeros((len(frame["nodes"]), 6), dtype=float)
-        loads_6dof[:, 0:3] = frame["membrane_loads"]
-
-        grade_props = {
-            "E": STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000),
-            "G": STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000) / (2 * 1.3),
-        }
-
-        result = solve_frame(
-            nodes=frame["nodes"],
-            elements=elements,
-            loads=loads_6dof,
-            fixed_nodes=frame["fixed_indices"],
-            grade_props=grade_props,
-        )
-
-        # --- DEBUG TRACE ---
-        if len(result["member_end_forces"]) > 0:
-            max_N = max(abs(f["N"]) for f in result["member_end_forces"])
-            st.write("DEBUG 5 — Max |N| from solver (N):", max_N)
-        else:
-            st.write("DEBUG 5 — Solver returned ZERO members")
-        # -------------------
-
+        # For this iteration, we compute the worst utilization across ALL cases
         util_by_type = {
-            "primary": {"max_util": 0.0, "max_N": 0.0, "max_My": 0.0, "max_Mz": 0.0, "count": 0},
-            "rib":     {"max_util": 0.0, "max_N": 0.0, "max_My": 0.0, "max_Mz": 0.0, "count": 0},
-            "ring":    {"max_util": 0.0, "max_N": 0.0, "max_My": 0.0, "max_Mz": 0.0, "count": 0},
-            "drop":    {"max_util": 0.0, "max_N": 0.0, "max_My": 0.0, "max_Mz": 0.0, "count": 0},
-            "spoke":   {"max_util": 0.0, "max_N": 0.0, "max_My": 0.0, "max_Mz": 0.0, "count": 0},
+            k: {"max_util": 0.0, "max_N": 0.0, "governing_case": "n/a"}
+            for k in ("primary", "rib", "ring", "drop", "spoke")
         }
+        last_result = None
 
-        for k, elem in enumerate(elements):
-            end_forces = result["member_end_forces"][k]
-            kind = elem["kind"]
-            if kind not in util_by_type:
-                continue
+        for case_name, frame in frames_by_case.items():
+            elements = []
+            for elem in frame["elements"]:
+                sec_name = sections.get(elem["section"], smallest)
+                sec_props = SECTION_PROPERTIES.get(sec_name, {})
+                elements.append({
+                    "a": elem["a"], "b": elem["b"],
+                    "section": sec_props, "kind": elem["kind"],
+                    "section_name": sec_name,
+                })
 
-            N_Ed = end_forces.get("N", 0.0)
-            My_a = end_forces.get("My_a", 0.0)
-            My_b = end_forces.get("My_b", 0.0)
-            Mz_a = end_forces.get("Mz_a", 0.0)
-            Mz_b = end_forces.get("Mz_b", 0.0)
-            My_Ed = max(abs(My_a), abs(My_b))
-            Mz_Ed = max(abs(Mz_a), abs(Mz_b))
+            loads_6dof = np.zeros((len(frame["nodes"]), 6), dtype=float)
+            loads_6dof[:, 0:3] = frame["membrane_loads"]
 
-            L = float(np.linalg.norm(
-                frame["nodes"][elem["b"]] - frame["nodes"][elem["a"]]
-            ))
+            grade_props = {
+                "E": STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000),
+                "G": STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("E", 210000) / (2 * 1.3),
+            }
 
-            util, _, _, _, _ = _member_utilization(
-                elem["section_name"], N_Ed, My_Ed, Mz_Ed, L, grade
+            result = solve_frame(
+                nodes=frame["nodes"],
+                elements=elements,
+                loads=loads_6dof,
+                fixed_nodes=frame["fixed_indices"],
+                grade_props=grade_props,
             )
+            last_result = result
 
-            if kind == "ring":
-                ring_radius = data.get("ring_diameter", 1.0) / 2.0
-                membrane_force_estimate = max(abs(N_Ed), 1000.0)
-                hoop_util = _ring_hoop_utilization(
-                    elem["section_name"], membrane_force_estimate, ring_radius, grade
-                )
-                util = max(util, hoop_util)
+            for k, elem in enumerate(elements):
+                end_forces = result["member_end_forces"][k]
+                kind = elem["kind"]
+                if kind not in util_by_type:
+                    continue
 
-            util_by_type[kind]["max_util"] = max(util_by_type[kind]["max_util"], util)
-            util_by_type[kind]["max_N"] = max(util_by_type[kind]["max_N"], abs(N_Ed))
-            util_by_type[kind]["max_My"] = max(util_by_type[kind]["max_My"], My_Ed)
-            util_by_type[kind]["max_Mz"] = max(util_by_type[kind]["max_Mz"], Mz_Ed)
-            util_by_type[kind]["count"] += 1
+                N_Ed = end_forces.get("N", 0.0)
+                My_Ed = max(abs(end_forces.get("My_a", 0.0)), abs(end_forces.get("My_b", 0.0)))
+                Mz_Ed = max(abs(end_forces.get("Mz_a", 0.0)), abs(end_forces.get("Mz_b", 0.0)))
+                L = float(np.linalg.norm(frame["nodes"][elem["b"]] - frame["nodes"][elem["a"]]))
 
-        iteration_log.append({
-            "iteration": iteration,
-            "sections": dict(sections),
-            "utilizations": {k: v["max_util"] for k, v in util_by_type.items()},
-        })
+                util, _, _, _, _ = _member_utilization(elem["section_name"], N_Ed, My_Ed, Mz_Ed, L, grade)
+
+                if kind == "ring":
+                    ring_radius = data.get("mc_rd", data.get("ring_diameter", 1.0)) / 2.0
+                    membrane_force_estimate = max(abs(N_Ed), 1000.0)
+                    hoop_util = _ring_hoop_utilization(elem["section_name"], membrane_force_estimate, ring_radius, grade)
+                    util = max(util, hoop_util)
+
+                if util > util_by_type[kind]["max_util"]:
+                    util_by_type[kind]["max_util"] = util
+                    util_by_type[kind]["max_N"] = abs(N_Ed)
+                    util_by_type[kind]["governing_case"] = case_name
+
+        iteration_log.append({"iteration": iteration, "sections": dict(sections)})
 
         failing_types = [k for k, v in util_by_type.items() if v["max_util"] > utilization_cap]
-
         if not failing_types:
-            result["anchor_to_frame_id"] = frame["anchor_to_frame_id"]
+            if last_result is not None:
+                last_result["anchor_to_frame_id"] = frames_by_case["uplift"]["anchor_to_frame_id"]
             return {
                 "sections": sections,
-                "frame_result": result,
+                "frame_result": last_result,
                 "details": util_by_type,
                 "iteration_log": iteration_log,
             }
@@ -248,20 +189,16 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
                 progressed = True
 
         if not progressed:
-            result["anchor_to_frame_id"] = frame["anchor_to_frame_id"]
+            if last_result is not None:
+                last_result["anchor_to_frame_id"] = frames_by_case["uplift"]["anchor_to_frame_id"]
             return {
-                "sections": sections,
-                "frame_result": result,
-                "details": util_by_type,
-                "iteration_log": iteration_log,
+                "sections": sections, "frame_result": last_result,
+                "details": util_by_type, "iteration_log": iteration_log,
                 "error": "Oversize required — catalogue exhausted",
             }
 
-    result["anchor_to_frame_id"] = frame["anchor_to_frame_id"]
     return {
-        "sections": sections,
-        "frame_result": result,
-        "details": util_by_type,
-        "iteration_log": iteration_log,
+        "sections": sections, "frame_result": last_result,
+        "details": util_by_type, "iteration_log": iteration_log,
         "error": "Max iterations reached without convergence",
     }
