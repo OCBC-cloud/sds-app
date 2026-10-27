@@ -1,6 +1,7 @@
 """Multi-Cone Roof — Lab test page.
 
-Three load cases (uplift, downforce, dead_only) → membrane analysis + steel sizing.
+Two load cases (uplift, downforce) → membrane analysis + steel sizing.
+Dead load is captured implicitly (frame self-weight is handled by the sizer).
 """
 
 import math
@@ -272,7 +273,7 @@ def render_tester_multi_cone():
         if st.button("← Back to Landing", key="mc_back_landing", use_container_width=True):
             st.session_state.page = "landing"; st.rerun()
 
-    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>1. Find Form (FDM). 2. Three load cases → sized for worst.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>1. Find Form (FDM). 2. Two load cases → sized for worst.</p>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
     with c1: span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5, key="mc_span")
@@ -375,7 +376,7 @@ def render_tester_multi_cone():
     coords_to_draw = data["coords_fdm"]
 
     if btn_analysis:
-        with st.spinner("Running three load cases..."):
+        with st.spinner("Running two load cases..."):
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
             cables = []
             n_a = len(data["anchor_idx"]); pts = data["pts"]; coords_fdm = data["coords_fdm"]
@@ -403,7 +404,7 @@ def render_tester_multi_cone():
             )
             results_by_case = {}
             converged_cases = {}
-            for case_name in ("uplift", "downforce", "dead_only"):
+            for case_name in ("uplift", "downforce"):
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
                     membrane_material=mat, cables=cables, loads=load_output[case_name],
@@ -416,11 +417,10 @@ def render_tester_multi_cone():
                     st.warning(f"⚠ Case '{case_name}' did not converge. It will not be included in sizing.")
 
             view_case = "uplift" if "uplift" in converged_cases else (
-                "downforce" if "downforce" in converged_cases else
-                ("dead_only" if "dead_only" in converged_cases else None)
+                "downforce" if "downforce" in converged_cases else None
             )
             if view_case is None:
-                st.error("All load cases failed to converge. Cannot size steel. Check the geometry or loads.")
+                st.error("Both wind load cases failed to converge. Cannot size steel. Check the geometry or loads.")
                 return
 
             dr_result = results_by_case[view_case]
@@ -439,8 +439,6 @@ def render_tester_multi_cone():
                     )
                 except Exception as e:
                     st.error(f"Stage 3 Frame Solver failed: {e}")
-            else:
-                st.error("No converged load cases. Steel cannot be sized.")
 
             st.session_state["newton_results"] = {
                 "cases": results_by_case,
@@ -461,9 +459,7 @@ def render_tester_multi_cone():
 
     newton_data = st.session_state.get("newton_results")
     if newton_data and not btn_analysis and "cases" in newton_data:
-        view_case = "uplift" if newton_data["cases"]["uplift"].get("converged", False) else (
-            "downforce" if newton_data["cases"]["downforce"].get("converged", False) else "dead_only"
-        )
+        view_case = "uplift" if newton_data["cases"]["uplift"].get("converged", False) else "downforce"
         coords_to_draw = newton_data["cases"][view_case]["coordinates"]
         dr_result = newton_data["cases"][view_case]
 
@@ -498,8 +494,8 @@ def render_tester_multi_cone():
 
         if newton_data and "cases" in newton_data:
             st.write("---")
-            st.write("**Stage 2 — Three Load Cases:**")
-            for case_name in ("uplift", "downforce", "dead_only"):
+            st.write("**Stage 2 — Two Load Cases:**")
+            for case_name in ("uplift", "downforce"):
                 res = newton_data["cases"][case_name]
                 st.write(f"- {case_name}: converged={res['converged']} · iterations={res['iterations']} · time={res['elapsed_seconds']:.2f}s")
 
@@ -519,7 +515,7 @@ def render_tester_multi_cone():
                     st.success("Utilization: %.0f%% → **SAFE.**" % util_pct)
 
             st.write("---")
-            st.write("**Stage 3 — 3D Frame (Worst of 3 Cases):**")
+            st.write("**Stage 3 — 3D Frame (Worst of 2 Cases):**")
             stage3_data = st.session_state.get("stage3_results")
             if stage3_data:
                 if "error" in stage3_data:
