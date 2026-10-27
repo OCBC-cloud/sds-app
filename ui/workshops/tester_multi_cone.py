@@ -409,6 +409,7 @@ def render_tester_multi_cone():
                 warp_prestress_N_per_m=data["warp_q"], weft_prestress_N_per_m=data["weft_q"],
             )
             results_by_case = {}
+            converged_cases = {}
             for case_name in ("uplift", "downforce", "dead_only"):
                 res = solve_nonlinear_equilibrium(
                     points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
@@ -416,21 +417,37 @@ def render_tester_multi_cone():
                     max_iter=100, max_outer=25, tol=0.01, tol_disp=1e-4, max_total_steps=50, max_wall_seconds=10.0, seed_z_amplitude=0.001 * data["span"],
                 )
                 results_by_case[case_name] = res
-            dr_result = results_by_case["uplift"]
+                if res.get("converged", False):
+                    converged_cases[case_name] = {"dr_result": res}
+                else:
+                    st.warning(f"⚠ Case '{case_name}' did not converge. It will not be included in sizing.")
+
+            view_case = "uplift" if "uplift" in converged_cases else (
+                "downforce" if "downforce" in converged_cases else
+                ("dead_only" if "dead_only" in converged_cases else None)
+            )
+            if view_case is None:
+                st.error("All load cases failed to converge. Cannot size steel. Check the geometry or loads.")
+                return
+
+            dr_result = results_by_case[view_case]
             coords_to_draw = dr_result["coordinates"]
 
             stage3_results = None
-            try:
-                data_for_sizer = dict(data)
-                data_for_sizer["ring_diameter"] = ring_diameter
-                data_for_sizer["mc_rd"] = ring_diameter
-                stage3_results = size_steel_frame(
-                    data=data_for_sizer,
-                    newton_data_cases={k: {"dr_result": v} for k, v in results_by_case.items()},
-                    code_choice=code_choice, grade="S355", family="CHS",
-                )
-            except Exception as e:
-                st.error(f"Stage 3 Frame Solver failed: {e}")
+            if converged_cases:
+                try:
+                    data_for_sizer = dict(data)
+                    data_for_sizer["ring_diameter"] = ring_diameter
+                    data_for_sizer["mc_rd"] = ring_diameter
+                    stage3_results = size_steel_frame(
+                        data=data_for_sizer,
+                        newton_data_cases=converged_cases,
+                        code_choice=code_choice, grade="S355", family="CHS",
+                    )
+                except Exception as e:
+                    st.error(f"Stage 3 Frame Solver failed: {e}")
+            else:
+                st.error("No converged load cases. Steel cannot be sized.")
 
             st.session_state["newton_results"] = {
                 "cases": results_by_case,
