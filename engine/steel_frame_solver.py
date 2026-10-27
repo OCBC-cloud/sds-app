@@ -1,9 +1,9 @@
-"""SDSe Engine - 3D Linear Frame Solver (Pinned Baseplates).
+"""SDSe Engine - 3D Linear Frame Solver (Fixed Baseplates).
 
 Boundary conditions:
-    Baseplates are PINNED: translations (DOFs 0,1,2) fixed, rotations (3,4,5) free.
-    This allows the arch to bend under the eave loads. A fully fixed baseplate
-    would absorb all load with zero bending, hiding the real member forces.
+    Baseplates are FIXED: all 6 DOFs (translations and rotations) are fixed.
+    This is standard for a cantilever mast. A pinned baseplate (free rotations)
+    turns a 3D frame into an unstable mechanism without additional bracing.
 """
 
 import numpy as np
@@ -21,16 +21,19 @@ def _element_stiffness_matrix_3d(E, G, A, Iy, Iz, J, L):
 
     K = np.zeros((12, 12), dtype=float)
 
+    # Axial
     K[0, 0] = k_axial
     K[0, 6] = -k_axial
     K[6, 0] = -k_axial
     K[6, 6] = k_axial
 
+    # Torsion
     K[3, 3] = k_torsion
     K[3, 9] = -k_torsion
     K[9, 3] = -k_torsion
     K[9, 9] = k_torsion
 
+    # Bending about Y
     K[1, 1] = 12 * k_bend_y
     K[1, 5] = 6 * L * k_bend_y
     K[1, 7] = -12 * k_bend_y
@@ -48,6 +51,7 @@ def _element_stiffness_matrix_3d(E, G, A, Iy, Iz, J, L):
     K[11, 7] = -6 * L * k_bend_y
     K[11, 11] = 4 * L**2 * k_bend_y
 
+    # Bending about Z
     K[2, 2] = 12 * k_bend_z
     K[2, 4] = -6 * L * k_bend_z
     K[2, 8] = -12 * k_bend_z
@@ -75,10 +79,13 @@ def _transformation_matrix(p1, p2):
         return np.eye(12)
 
     x_local = d / L
+    
+    # Choose a global up vector to avoid gimbal lock
     if abs(x_local[2]) < 0.9:
         v = np.array([0.0, 0.0, 1.0])
     else:
         v = np.array([1.0, 0.0, 0.0])
+        
     y_local = np.cross(v, x_local)
     y_local = y_local / (np.linalg.norm(y_local) + EPS)
     z_local = np.cross(x_local, y_local)
@@ -125,16 +132,16 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
                 gj = 6 * (a if j < 6 else b) + (j % 6)
                 K_global[gi, gj] += K_global_elem[i, j]
 
-    # PINNED BASEPLATES: translations fixed, rotations free
+    # FIXED BASEPLATES: ALL 6 DOFs fixed
     fixed_set = set(int(i) for i in fixed_nodes)
     free_dofs = []
     for i in range(n_nodes):
         if i in fixed_set:
-            # Only rotations are free at the baseplate
-            free_dofs.extend([6*i + 3, 6*i + 4, 6*i + 5])
+            continue  # Skip adding any DOFs for fixed nodes
         else:
             for j in range(6):
                 free_dofs.append(6 * i + j)
+                
     free_dofs = np.array(free_dofs, dtype=int)
 
     if len(free_dofs) == 0:
