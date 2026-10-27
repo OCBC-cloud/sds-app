@@ -70,9 +70,7 @@ def get_code_params(code_name):
 def _gen_wind_base(coords, tris, wind_speed_ms, code_name, shape_type,
                    h_over_d, cone_apexes=None, cone_radius_m=None,
                    wind_direction=(1.0, 0.0, 0.0)):
-    """
-    Generate surface-normal wind forces using the Cp map registry.
-    """
+    """Generate surface-normal wind forces using the Cp map registry."""
     q = 0.5 * RHO_AIR * (wind_speed_ms ** 2)
     cp_map = get_cp_map(shape_type, code_name)
     
@@ -239,18 +237,15 @@ def generate_uls_loads(coords, tris, code_name, wind_speed, snow_depth,
     params = get_code_params(code_name)
     f = params["factors"]
     
-    # Base loads
     dead_load = _gen_dead_base(coords, tris, membrane_kg_m2)
     snow_load = _gen_snow_base(coords, tris, snow_depth, code_name)
     
-    # Wind loads (separate suction and pressure)
-    # Suction: the roof lifts off
     wind_suction_load, wind_suction_diag = _gen_wind_base(
         coords, tris, wind_speed, code_name, shape_type,
         h_over_d, cone_apexes, cone_radius_m,
     )
-    # Pressure: the roof is pushed down
-    wind_pressure_load = -wind_suction_load.copy()  # Pressure is opposite of suction
+    # Wind pressure (downforce) is the opposite of suction
+    wind_pressure_load = -wind_suction_load.copy()
     
     payload_load = generate_payload_load(coords, tris, apex_idx, payload_kg)
     
