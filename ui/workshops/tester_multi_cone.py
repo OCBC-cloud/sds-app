@@ -45,10 +45,6 @@ GRAVITY = 9.81
 MEMBRANE_DEAD_LOAD_KG_M2 = 1.102
 
 
-# =============================================================================
-# HELPERS
-# =============================================================================
-
 def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
     design_load_N = actual_max_tension_N * safety_factor
     candidates = []
@@ -138,8 +134,7 @@ def _subdivide_polygon(anchors, subdivisions):
     loop = []
     anchor_idx = []
     for i in range(n_a):
-        a = anchors[i]
-        b = anchors[(i + 1) % n_a]
+        a = anchors[i]; b = anchors[(i + 1) % n_a]
         anchor_idx.append(len(loop))
         for k in range(subdivisions):
             f = k / float(subdivisions)
@@ -155,15 +150,13 @@ def _cone_arc_positions(n_cones, spacing, total):
         half = (n_cones - 1) // 2
         ks = [0]
         for i in range(1, half + 1):
-            ks.append(+i)
-            ks.append(-i)
+            ks.append(+i); ks.append(-i)
     else:
         half = n_cones // 2
         ks = []
         for i in range(half):
             k = i + 0.5
-            ks.append(+k)
-            ks.append(-k)
+            ks.append(+k); ks.append(-k)
     positions = [mid + k * spacing for k in ks]
     for p in positions:
         if p < 0.0 or p > total:
@@ -173,55 +166,31 @@ def _cone_arc_positions(n_cones, spacing, total):
 
 def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_scalar, warp_q, weft_q, cable_name, cable_A_mm2, sections, eave_height, span, mid_width, ring_diameter):
     members = []
-    ring_indices = built["ring_indices"]
-    centre_indices = built["centre_indices"]
-    beam_top_indices = built["beam_top_indices"]
-    triangles = built["triangles"]
-    n_perimeter = built["n_perimeter"]
-
-    primary_beam_length = span * 1.2
-    members.append({"member_id": "Primary_Beam_Main", "member_type": "primary_beam", "length_m": float(primary_beam_length), "section": sections.get("primary", "?"), "material": "S355", "role": "Main arched beam"})
-
-    rib_length = mid_width * 1.5
+    ring_indices = built["ring_indices"]; centre_indices = built["centre_indices"]
+    beam_top_indices = built["beam_top_indices"]; triangles = built["triangles"]; n_perimeter = built["n_perimeter"]
+    members.append({"member_id": "Primary_Beam_Main", "member_type": "primary_beam", "length_m": float(span * 1.2), "section": sections.get("primary", "?"), "material": "S355", "role": "Main arched beam"})
     for i in range(3):
-        members.append({"member_id": "Rib_Beam_%d" % (i+1), "member_type": "rib_beam", "length_m": float(rib_length), "section": sections.get("rib", "?"), "material": "S355", "role": "Secondary arched beam"})
-
+        members.append({"member_id": "Rib_Beam_%d" % (i+1), "member_type": "rib_beam", "length_m": float(mid_width * 1.5), "section": sections.get("rib", "?"), "material": "S355", "role": "Secondary arched beam"})
     for k in range(len(ring_indices)):
-        ring_no = k + 1
-        idx_list = ring_indices[k]
-        n_poly = len(idx_list)
-        ring_length = 0.0
-        for i in range(n_poly):
-            a = int(idx_list[i])
-            b = int(idx_list[(i + 1) % n_poly])
-            ring_length += float(np.linalg.norm(coords[b] - coords[a]))
-        members.append({"member_id": "Ring_%d_Ring_Beam" % ring_no, "member_type": "ring_beam", "length_m": float(ring_length), "section": sections.get("ring", "?"), "material": "S355", "role": "closed ring beam"})
-        centre_i = int(centre_indices[k])
-        beam_i = int(beam_top_indices[k])
+        idx_list = ring_indices[k]; n_poly = len(idx_list)
+        ring_length = sum(float(np.linalg.norm(coords[int(idx_list[(i+1)%n_poly])] - coords[int(idx_list[i])])) for i in range(n_poly))
+        members.append({"member_id": "Ring_%d_Ring_Beam" % (k+1), "member_type": "ring_beam", "length_m": float(ring_length), "section": sections.get("ring", "?"), "material": "S355", "role": "closed ring beam"})
+        centre_i = int(centre_indices[k]); beam_i = int(beam_top_indices[k])
         L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
-        members.append({"member_id": "Ring_%d_Drop_Member" % ring_no, "member_type": "drop_member", "length_m": L, "section": sections.get("drop", "?"), "material": "S355", "role": "vertical drop"})
-
-    total_cable_length = 0.0
-    for i in range(n_perimeter):
-        j = (i + 1) % n_perimeter
-        total_cable_length += float(np.linalg.norm(coords[j] - coords[i]))
+        members.append({"member_id": "Ring_%d_Drop_Member" % (k+1), "member_type": "drop_member", "length_m": L, "section": sections.get("drop", "?"), "material": "S355", "role": "vertical drop"})
+    total_cable_length = sum(float(np.linalg.norm(coords[(i+1)%n_perimeter] - coords[i])) for i in range(n_perimeter))
     members.append({"member_id": "Edge_Cable", "member_type": "cable", "length_m": total_cable_length, "section": cable_name, "material": "A=%.1f mm2" % cable_A_mm2, "role": "perimeter edge cable"})
-
-    panel_no = 1
-    for (a, b, c) in triangles:
+    for idx, (a, b, c) in enumerate(triangles):
         pa, pb, pc = coords[a], coords[b], coords[c]
         mean_edge = (float(np.linalg.norm(pb - pa)) + float(np.linalg.norm(pc - pb)) + float(np.linalg.norm(pa - pc))) / 3.0
-        members.append({"member_id": "Membrane_Panel_%04d" % panel_no, "member_type": "membrane", "length_m": mean_edge, "section": "FABRIC", "material": "PVDF Type III", "role": "fabric panel"})
-        panel_no += 1
-
+        members.append({"member_id": "Membrane_Panel_%04d" % (idx+1), "member_type": "membrane", "length_m": mean_edge, "section": "FABRIC", "material": "PVDF Type III", "role": "fabric panel"})
     return members
 
 
 def _format_member_table(members):
     lines = []
     header = "%-26s  %-18s  %-9s  %-20s  %-20s  %s" % ("member_id", "member_type", "length_m", "section", "material", "role")
-    lines.append(header)
-    lines.append("-" * len(header))
+    lines.append(header); lines.append("-" * len(header))
     for m in members:
         lines.append("%-26s  %-18s  %-9.4f  %-20s  %-20s  %s" % (m["member_id"], m["member_type"], m["length_m"], str(m["section"])[:20], str(m["material"])[:20], m["role"]))
     return "\n".join(lines)
@@ -233,36 +202,18 @@ def _compute_fabric_utilization(dr_result, fabric_name, fabric_family):
     max_principal_N_m = 0.0
     for ms in dr_result["membrane_stress"]:
         sigma = ms.get("sigma", None)
-        if sigma is None:
-            continue
-        s_xx = float(sigma[0, 0])
-        s_yy = float(sigma[1, 1])
-        s_xy = float(sigma[0, 1])
-        mean = 0.5 * (s_xx + s_yy)
-        diff = 0.5 * (s_xx - s_yy)
-        radius = math.sqrt(diff**2 + s_xy**2)
+        if sigma is None: continue
+        s_xx = float(sigma[0, 0]); s_yy = float(sigma[1, 1]); s_xy = float(sigma[0, 1])
+        mean = 0.5 * (s_xx + s_yy); diff = 0.5 * (s_xx - s_yy); radius = math.sqrt(diff**2 + s_xy**2)
         principal = mean + radius
-        if principal > max_principal_N_m:
-            max_principal_N_m = principal
-    family = FABRIC_PROPERTIES.get(fabric_family, {})
-    fabric = family.get(fabric_name, {})
-    f_u_warp = fabric.get("f_u_warp", None)
-    f_u_weft = fabric.get("f_u_weft", None)
-    if not f_u_warp or not f_u_weft:
-        return None
+        if principal > max_principal_N_m: max_principal_N_m = principal
+    family = FABRIC_PROPERTIES.get(fabric_family, {}); fabric = family.get(fabric_name, {})
+    f_u_warp = fabric.get("f_u_warp", None); f_u_weft = fabric.get("f_u_weft", None)
+    if not f_u_warp or not f_u_weft: return None
     f_u_min_kN_m = min(float(f_u_warp), float(f_u_weft))
     util = (max_principal_N_m / 1000.0) / f_u_min_kN_m if f_u_min_kN_m > 0 else 999.0
-    return {
-        "fabric": fabric_name, "family": fabric_family,
-        "f_u_min_kN_m": f_u_min_kN_m,
-        "max_stress_kN_m": max_principal_N_m / 1000.0,
-        "utilization": util,
-    }
+    return {"fabric": fabric_name, "family": fabric_family, "f_u_min_kN_m": f_u_min_kN_m, "max_stress_kN_m": max_principal_N_m / 1000.0, "utilization": util}
 
-
-# =============================================================================
-# PAGE
-# =============================================================================
 
 def render_tester_multi_cone():
     bcol1, bcol2, bcol3 = st.columns([1, 1, 3])
@@ -296,8 +247,7 @@ def render_tester_multi_cone():
     st.markdown("### Fabric Selection")
     fabric_families = [k for k in FABRIC_PROPERTIES.keys() if k != "default"]
     c1, c2 = st.columns(2)
-    with c1:
-        fabric_family = st.selectbox("Fabric Family", fabric_families, index=fabric_families.index("PVDF") if "PVDF" in fabric_families else 0, key="mc_fabric_family")
+    with c1: fabric_family = st.selectbox("Fabric Family", fabric_families, index=fabric_families.index("PVDF") if "PVDF" in fabric_families else 0, key="mc_fabric_family")
     with c2:
         fabric_names = [k for k in FABRIC_PROPERTIES.get(fabric_family, {}).keys() if k != "default"]
         fabric_name = st.selectbox("Fabric Type", fabric_names, index=0, key="mc_fabric_name")
@@ -332,8 +282,7 @@ def render_tester_multi_cone():
             s_rings = _cone_arc_positions(number_of_cones, ring_spacing, total_p)
             ring_specs = []
             for s_val in s_rings:
-                x_val = float(np.interp(s_val, s_p, xp))
-                bz_val = float(np.interp(s_val, s_p, zp))
+                x_val = float(np.interp(s_val, s_p, xp)); bz_val = float(np.interp(s_val, s_p, zp))
                 rz_val = bz_val - float(ring_clearance)
                 ring_specs.append({"cx": x_val, "cy": 0.0, "cz": rz_val, "r": float(ring_diameter) / 2.0, "beam_z": bz_val})
         except ValueError as e:
@@ -345,8 +294,11 @@ def render_tester_multi_cone():
         L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
         target_len = max(L_avg, 1e-6)
         built = SDSe_mesh_rings(perimeter_loop=perimeter_loop, anchor_idx=anchor_idx, ring_specs=ring_specs, eave_height=eave_height, target_len=target_len)
-        pts = built["points"]; edges = built["edges"]; boundary_edge_set = built["boundary_edges"]; tris = built["triangles"]; fixed = built["fixed_indices"]
-        warp_q = max(float(warp_c), 0.1) * 1000.0; weft_q = max(float(weft_c), 0.1) * 1000.0; edge_q_scalar = max(float(cable_c), 0.1) * 1000.0
+        pts = built["points"]; edges = built["edges"]; boundary_edge_set = built["boundary_edges"]
+        tris = built["triangles"]; fixed = built["fixed_indices"]
+        warp_q = max(float(warp_c), 0.1) * 1000.0
+        weft_q = max(float(weft_c), 0.1) * 1000.0
+        edge_q_scalar = max(float(cable_c), 0.1) * 1000.0
         pts_2d = pts[:, :2]
         q_interior = SDSe_blend_q_per_edge(edges, pts_2d, np.array([1.0, 0.0]), warp_q, weft_q)
         q = np.empty(len(edges), dtype=float)
@@ -361,13 +313,14 @@ def render_tester_multi_cone():
         max_edge_tension_N = edge_q_scalar * L_avg
         fdm["max_edge_tension_N"] = max_edge_tension_N
         st.session_state["fdm_results"] = {
-            "built": built, "pts": pts, "edges": edges, "tris": tris, "fixed": fixed, "coords_fdm": coords_fdm, "fdm": fdm,
+            "built": built, "pts": pts, "edges": edges, "tris": tris, "fixed": fixed,
+            "coords_fdm": coords_fdm, "fdm": fdm,
             "residual_fdm": residual_fdm, "solve_ok": solve_ok, "solve_err": solve_err,
             "warp_q": warp_q, "weft_q": weft_q, "edge_q_scalar": edge_q_scalar,
             "span": span, "mid_width": mid_width, "apex": apex, "L_avg": L_avg,
-            "anchor_idx": anchor_idx, "x_rings": [np.interp(s, s_p, xp) for s in s_rings], "rib_x": rib_x,
-            "rib_peak_z": rib_peak_z, "rib_half_width": rib_half_width, "xp": xp, "zp": zp,
-            "eave_height": eave_height, "ring_diameter": ring_diameter,
+            "anchor_idx": anchor_idx, "x_rings": [np.interp(s, s_p, xp) for s in s_rings],
+            "rib_x": rib_x, "rib_peak_z": rib_peak_z, "rib_half_width": rib_half_width,
+            "xp": xp, "zp": zp, "eave_height": eave_height, "ring_diameter": ring_diameter,
             "warp_c": warp_c, "weft_c": weft_c, "cable_c": cable_c,
         }
 
@@ -377,9 +330,11 @@ def render_tester_multi_cone():
 
     if btn_analysis:
         with st.spinner("Running two load cases..."):
-            cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
+            cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(
+                data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
             cables = []
             n_a = len(data["anchor_idx"]); pts = data["pts"]; coords_fdm = data["coords_fdm"]
+            # --- FIXED CABLE L0: pretension-based, not slack-based ---
             for k in range(n_a):
                 a_idx = data["anchor_idx"][k]; b_idx = data["anchor_idx"][(k + 1) % n_a]
                 chain = [int(a_idx)]; i_cur = (a_idx + 1) % pts.shape[0]; b_int = int(b_idx); safety = 0
@@ -389,40 +344,43 @@ def render_tester_multi_cone():
                 for m in range(len(chain) - 1):
                     ia = chain[m]; ib = chain[m + 1]
                     L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
-                    if L_ref < 1e-9: continue
-                    cables.append({"a": ia, "b": ib, "L0": L_ref * 1.001, "EA": EA_cable})
+                    if L_ref < 1e-9:
+                        continue
+                    T_edge = data["edge_q_scalar"] * L_ref
+                    if EA_cable > 0:
+                        L0 = L_ref / (1.0 + T_edge / EA_cable)
+                    else:
+                        L0 = L_ref
+                    cables.append({"a": ia, "b": ib, "L0": L0, "EA": EA_cable})
             apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
             load_output = generate_uls_loads(
                 coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx,
                 shape_type="multi_cone", h_over_d=apex / span if span > 0 else 0.0,
                 cone_apexes=[(data["coords_fdm"][c][0], data["coords_fdm"][c][1], data["coords_fdm"][c][2]) for c in data["built"]["centre_indices"]],
-                cone_radius_m=ring_diameter / 2.0
-            )
+                cone_radius_m=ring_diameter / 2.0)
             mat = make_membrane_material(
                 E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, nu=0.34, G_MPa=50.0,
-                warp_prestress_N_per_m=data["warp_q"], weft_prestress_N_per_m=data["weft_q"],
-            )
+                warp_prestress_N_per_m=data["warp_q"], weft_prestress_N_per_m=data["weft_q"])
             results_by_case = {}
             converged_cases = {}
             for case_name in ("uplift", "downforce"):
                 res = solve_nonlinear_equilibrium(
-                    points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"], reference_points=coords_fdm.copy(),
-                    membrane_material=mat, cables=cables, loads=load_output[case_name],
-                    max_iter=300, max_outer=25, tol=0.01, tol_disp=1e-4, max_total_steps=5000, max_wall_seconds=120.0, seed_z_amplitude=0.001 * data["span"],
-                )
+                    points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"],
+                    reference_points=coords_fdm.copy(), membrane_material=mat, cables=cables,
+                    loads=load_output[case_name],
+                    max_iter=300, max_outer=25, tol=0.01, tol_disp=1e-4,
+                    max_total_steps=5000, max_wall_seconds=120.0,
+                    seed_z_amplitude=0.001 * data["span"])
                 results_by_case[case_name] = res
                 if res.get("converged", False):
                     converged_cases[case_name] = {"dr_result": res}
                 else:
                     st.warning(f"⚠ Case '{case_name}' did not converge. It will not be included in sizing.")
 
-            view_case = "uplift" if "uplift" in converged_cases else (
-                "downforce" if "downforce" in converged_cases else None
-            )
+            view_case = "uplift" if "uplift" in converged_cases else ("downforce" if "downforce" in converged_cases else None)
             if view_case is None:
                 st.error("Both wind load cases failed to converge. Cannot size steel. Check the geometry or loads.")
                 return
-
             dr_result = results_by_case[view_case]
             coords_to_draw = dr_result["coordinates"]
 
@@ -433,10 +391,8 @@ def render_tester_multi_cone():
                     data_for_sizer["ring_diameter"] = ring_diameter
                     data_for_sizer["mc_rd"] = ring_diameter
                     stage3_results = size_steel_frame(
-                        data=data_for_sizer,
-                        newton_data_cases=converged_cases,
-                        code_choice=code_choice, grade="S355", family="CHS",
-                    )
+                        data=data_for_sizer, newton_data_cases=converged_cases,
+                        code_choice=code_choice, grade="S355", family="CHS")
                 except Exception as e:
                     st.error(f"Stage 3 Frame Solver failed: {e}")
 
@@ -444,10 +400,10 @@ def render_tester_multi_cone():
                 "cases": results_by_case,
                 "cable_name": cable_name, "cable_A_mm2": cable_A_mm2,
                 "EA_cable": EA_cable, "cable_d_mm": cable_d_mm,
-                "design_tension_N": max(data["fdm"]["max_edge_tension_N"], max((c["T_N"] for c in dr_result.get("cable_tension_list", [])), default=0)),
+                "design_tension_N": max(data["fdm"]["max_edge_tension_N"],
+                                        max((c["T_N"] for c in dr_result.get("cable_tension_list", [])), default=0)),
                 "sections": {"primary": "Calculating", "rib": "Calculating", "ring": "Calculating", "drop": "Calculating"},
-                "details": {},
-                "cables": cables, "material": mat,
+                "details": {}, "cables": cables, "material": mat,
                 "fabric_family": fabric_family, "fabric_name": fabric_name,
             }
             if stage3_results:
@@ -466,20 +422,36 @@ def render_tester_multi_cone():
     fig = go.Figure()
     if len(data["tris"]) > 0:
         tri = np.asarray(data["tris"], dtype=int)
-        fig.add_trace(go.Mesh3d(x=coords_to_draw[:, 0], y=coords_to_draw[:, 1], z=coords_to_draw[:, 2], i=tri[:, 0], j=tri[:, 1], k=tri[:, 2], color=COL_MEMBRANE, opacity=0.55, flatshading=True, showlegend=False, hoverinfo="skip"))
-    fig.add_trace(go.Scatter3d(x=data["xp"], y=np.zeros_like(data["xp"]), z=data["zp"], mode="lines", line=dict(color=COL_PRIMARY, width=7), showlegend=False, hoverinfo="skip"))
+        fig.add_trace(go.Mesh3d(x=coords_to_draw[:, 0], y=coords_to_draw[:, 1], z=coords_to_draw[:, 2],
+                                i=tri[:, 0], j=tri[:, 1], k=tri[:, 2],
+                                color=COL_MEMBRANE, opacity=0.55, flatshading=True,
+                                showlegend=False, hoverinfo="skip"))
+    fig.add_trace(go.Scatter3d(x=data["xp"], y=np.zeros_like(data["xp"]), z=data["zp"],
+                               mode="lines", line=dict(color=COL_PRIMARY, width=7),
+                               showlegend=False, hoverinfo="skip"))
     for i in range(len(data["rib_x"])):
-        rp = _rib_polyline(float(data["rib_x"][i]), float(data["rib_half_width"][i]), float(data["rib_peak_z"][i]), RIB_SEGMENTS)
-        fig.add_trace(go.Scatter3d(x=rp[:, 0], y=rp[:, 1], z=rp[:, 2], mode="lines", line=dict(color=COL_RIB, width=5), showlegend=False, hoverinfo="skip"))
+        rp = _rib_polyline(float(data["rib_x"][i]), float(data["rib_half_width"][i]),
+                           float(data["rib_peak_z"][i]), RIB_SEGMENTS)
+        fig.add_trace(go.Scatter3d(x=rp[:, 0], y=rp[:, 1], z=rp[:, 2], mode="lines",
+                                   line=dict(color=COL_RIB, width=5),
+                                   showlegend=False, hoverinfo="skip"))
     for k, idx_list in enumerate(data["built"]["ring_indices"]):
         pp = coords_to_draw[idx_list]; closed = np.vstack([pp, pp[:1]])
-        fig.add_trace(go.Scatter3d(x=closed[:, 0], y=closed[:, 1], z=closed[:, 2], mode="lines", line=dict(color=COL_RING_EDGE, width=5), showlegend=False, hoverinfo="skip"))
-        centre_i, beam_i = data["built"]["centre_indices"][k], data["built"]["beam_top_indices"][k]
+        fig.add_trace(go.Scatter3d(x=closed[:, 0], y=closed[:, 1], z=closed[:, 2], mode="lines",
+                                   line=dict(color=COL_RING_EDGE, width=5),
+                                   showlegend=False, hoverinfo="skip"))
+        centre_i = data["built"]["centre_indices"][k]; beam_i = data["built"]["beam_top_indices"][k]
         cx, cy, cz = coords_to_draw[centre_i]
         for poly_i in idx_list:
-            fig.add_trace(go.Scatter3d(x=[cx, coords_to_draw[poly_i, 0]], y=[cy, coords_to_draw[poly_i, 1]], z=[cz, coords_to_draw[poly_i, 2]], mode="lines", line=dict(color=COL_SPOKE, width=2), showlegend=False, hoverinfo="skip"))
+            fig.add_trace(go.Scatter3d(x=[cx, coords_to_draw[poly_i, 0]],
+                                       y=[cy, coords_to_draw[poly_i, 1]],
+                                       z=[cz, coords_to_draw[poly_i, 2]],
+                                       mode="lines", line=dict(color=COL_SPOKE, width=2),
+                                       showlegend=False, hoverinfo="skip"))
         bx, by, bz = coords_to_draw[beam_i]
-        fig.add_trace(go.Scatter3d(x=[cx, bx], y=[cy, by], z=[cz, bz], mode="lines", line=dict(color=COL_DROP, width=4), showlegend=False, hoverinfo="skip"))
+        fig.add_trace(go.Scatter3d(x=[cx, bx], y=[cy, by], z=[cz, bz], mode="lines",
+                                   line=dict(color=COL_DROP, width=4),
+                                   showlegend=False, hoverinfo="skip"))
     apply_common_layout(fig, data["apex"])
     geom_hash = f"{span}_{apex}_{mid_width}_{number_of_cones}_{ring_spacing}_{secondary_count}"
     st.plotly_chart(fig, use_container_width=True, key=f"mc_3d_{geom_hash}")
@@ -542,7 +514,9 @@ def render_tester_multi_cone():
             if R is not None:
                 anchor_idx = data["anchor_idx"]
                 st.write("**Baseplate Table (All Anchor Nodes):**")
-                st.code("%-6s  %-8s  %-8s  %-10s  %-10s  %-10s  %-12s  %-10s  %-10s  %-12s" % ("Node", "X(m)", "Y(m)", "Fx(kN)", "Fy(kN)", "Fz(kN)", "Moment(kNm)", "Plate(mm)", "Bolts", "Pad(mm)"), language="text")
+                st.code("%-6s  %-8s  %-8s  %-10s  %-10s  %-10s  %-12s  %-10s  %-10s  %-12s" %
+                        ("Node", "X(m)", "Y(m)", "Fx(kN)", "Fy(kN)", "Fz(kN)", "Moment(kNm)", "Plate(mm)", "Bolts", "Pad(mm)"),
+                        language="text")
                 primary_sec = newton_data.get("sections", {}).get("primary", "CHS 100")
                 for idx in anchor_idx:
                     r = R[idx]
@@ -557,7 +531,9 @@ def render_tester_multi_cone():
 
                 st.write("---")
                 st.write("**Corner Plate Table (All Anchor Nodes):**")
-                st.code("%-6s  %-8s  %-8s  %-12s  %-14s  %-12s  %-10s  %-9s  %-9s" % ("Node", "X(m)", "Y(m)", "T_cable(kN)", "Plate(mm)", "Weld(mm)", "Pin(mm)", "WeldUtil", "PinUtil"), language="text")
+                st.code("%-6s  %-8s  %-8s  %-12s  %-14s  %-12s  %-10s  %-9s  %-9s" %
+                        ("Node", "X(m)", "Y(m)", "T_cable(kN)", "Plate(mm)", "Weld(mm)", "Pin(mm)", "WeldUtil", "PinUtil"),
+                        language="text")
                 design_tension_N = float(newton_data.get("design_tension_N", 0.0))
                 n_anchors = len(anchor_idx)
                 for k in range(n_anchors):
@@ -585,12 +561,15 @@ def render_tester_multi_cone():
 
                 st.write("---")
                 st.write("**Cone Drop Table:**")
-                st.code("%-8s  %-10s  %-10s  %-10s  %-10s" % ("Cone", "X(m)", "Y(m)", "Fz(kN)", "Drop(mm)"), language="text")
+                st.code("%-8s  %-10s  %-10s  %-10s  %-10s" %
+                        ("Cone", "X(m)", "Y(m)", "Fz(kN)", "Drop(mm)"), language="text")
                 for k in range(len(data["built"]["centre_indices"])):
                     ci = data["built"]["centre_indices"][k]
                     bi = data["built"]["beam_top_indices"][k]
                     r_drop = R[bi]
-                    st.code("%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s" % (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1], r_drop[2]/1000.0, newton_data["sections"].get("drop", "?")), language="text")
+                    st.code("%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s" %
+                            (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1],
+                             r_drop[2]/1000.0, newton_data["sections"].get("drop", "?")), language="text")
 
                 st.write("---")
                 st.write("**Deflection Check:**")
@@ -601,9 +580,15 @@ def render_tester_multi_cone():
                         max_deflection_mm = d * 1000.0
                 limit_mm = (data["span"] * 1000.0) / 200.0
                 status = "PASS" if max_deflection_mm <= limit_mm else "FAIL"
-                st.code("Max Deflection: %.2f mm (Limit: %.1f mm) -> %s" % (max_deflection_mm, limit_mm, status), language="text")
+                st.code("Max Deflection: %.2f mm (Limit: %.1f mm) -> %s" %
+                        (max_deflection_mm, limit_mm, status), language="text")
 
-            members = _build_member_schedule(data["built"], coords_to_draw, data["x_rings"], data["anchor_idx"], data["edge_q_scalar"], data["warp_q"], data["weft_q"], newton_data["cable_name"], newton_data["cable_A_mm2"], newton_data["sections"], data["eave_height"], data["span"], data["mid_width"], ring_diameter)
+            members = _build_member_schedule(
+                data["built"], coords_to_draw, data["x_rings"], data["anchor_idx"],
+                data["edge_q_scalar"], data["warp_q"], data["weft_q"],
+                newton_data["cable_name"], newton_data["cable_A_mm2"],
+                newton_data["sections"], data["eave_height"],
+                data["span"], data["mid_width"], ring_diameter)
             with st.expander("Member schedule (auto-sized)", expanded=True):
                 st.code(_format_member_table(members), language="text")
 
