@@ -10,6 +10,7 @@ member passes:
 import math
 
 import numpy as np
+import streamlit as st
 
 from data.materials import STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
@@ -22,7 +23,6 @@ from engine.steel_frame_builder import build_steel_frame
 # =============================================================================
 
 def _sections_by_area(family="CHS"):
-    """Return sections sorted by area (smallest first)."""
     items = []
     for name, props in SECTION_PROPERTIES.items():
         if props.get("type") != family:
@@ -35,7 +35,6 @@ def _sections_by_area(family="CHS"):
 
 
 def _next_section_up(current_name, family="CHS"):
-    """Return the next larger section by area."""
     all_sections = _sections_by_area(family)
     for i, (name, _) in enumerate(all_sections):
         if name == current_name:
@@ -52,7 +51,6 @@ def _next_section_up(current_name, family="CHS"):
 
 def _member_utilization(section_name, N_Ed_N, My_Ed_Nm, Mz_Ed_Nm,
                          L_m, grade="S355", K=1.0):
-    """Compute the utilization of a section for the given forces."""
     props = SECTION_PROPERTIES.get(section_name, {})
     if not props or "A" not in props:
         return 999.0, 1.0, 1.0, 1.0, 1.0
@@ -90,7 +88,6 @@ def _member_utilization(section_name, N_Ed_N, My_Ed_Nm, Mz_Ed_Nm,
 
 def _ring_hoop_utilization(section_name, membrane_force_at_ring_N,
                             ring_radius_m, grade="S355"):
-    """Check the ring's hoop compression."""
     props = SECTION_PROPERTIES.get(section_name, {})
     if not props or "A" not in props:
         return 999.0
@@ -110,7 +107,6 @@ def _ring_hoop_utilization(section_name, membrane_force_at_ring_N,
 def size_steel_frame(data, newton_data, code_choice="MS 1553",
                       grade="S355", family="CHS", max_iterations=12,
                       utilization_cap=0.70):
-    """Size all frame members so every one passes the utilization cap."""
     all_sections = _sections_by_area(family)
     if not all_sections:
         return {
@@ -129,10 +125,16 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
 
     iteration_log = []
 
-    # Build the frame ONCE, outside the iteration loop.
+    # Build the frame ONCE
     frame = build_steel_frame(data, newton_data)
-    
-    # HARD CHECK: If the loads failed to map, kill it immediately
+
+    # --- DEBUG TRACE ---
+    st.write("DEBUG 1 — Total membrane load (N):", frame["diagnostic_total_load_magnitude_N"])
+    st.write("DEBUG 2 — Number of fixed baseplates:", len(frame["fixed_indices"]))
+    st.write("DEBUG 3 — Number of elements:", len(frame["elements"]))
+    st.write("DEBUG 4 — Number of arch loads applied:", len(frame["anchor_to_frame_id"]))
+    # -------------------
+
     if frame["diagnostic_total_load_magnitude_N"] < 1.0:
         return {
             "sections": sections, "frame_result": None, 
@@ -168,6 +170,14 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
             fixed_nodes=frame["fixed_indices"],
             grade_props=grade_props,
         )
+
+        # --- DEBUG TRACE ---
+        if len(result["member_end_forces"]) > 0:
+            max_N = max(abs(f["N"]) for f in result["member_end_forces"])
+            st.write("DEBUG 5 — Max |N| from solver (N):", max_N)
+        else:
+            st.write("DEBUG 5 — Solver returned ZERO members")
+        # -------------------
 
         util_by_type = {
             "primary": {"max_util": 0.0, "max_N": 0.0, "max_My": 0.0, "max_Mz": 0.0, "count": 0},
@@ -217,14 +227,6 @@ def size_steel_frame(data, newton_data, code_choice="MS 1553",
             "iteration": iteration,
             "sections": dict(sections),
             "utilizations": {k: v["max_util"] for k, v in util_by_type.items()},
-            "forces": {
-                k: {
-                    "max_N_kN": v["max_N"] / 1000.0,
-                    "max_My_kNm": v["max_My"] / 1e6,
-                    "max_Mz_kNm": v["max_Mz"] / 1e6,
-                }
-                for k, v in util_by_type.items()
-            },
         })
 
         failing_types = [k for k, v in util_by_type.items() if v["max_util"] > utilization_cap]
