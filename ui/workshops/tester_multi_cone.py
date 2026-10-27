@@ -1,7 +1,7 @@
 """Multi-Cone Roof — Lab test page.
 
-Two load cases (uplift, downforce) → membrane analysis + steel sizing.
-Dead load is captured implicitly (frame self-weight is handled by the sizer).
+DIAGNOSTIC MODE: Cables disabled.
+Runs membrane-only to test if the membrane Newton solver converges without cable interference.
 """
 
 import math
@@ -43,6 +43,11 @@ COL_DROP = "#a0a0a0"
 
 GRAVITY = 9.81
 MEMBRANE_DEAD_LOAD_KG_M2 = 1.102
+
+# =============================================================================
+# DIAGNOSTIC FLAG — SET TO False TO DISABLE CABLES
+# =============================================================================
+ENABLE_CABLES = False
 
 
 def _select_edge_cable(actual_max_tension_N, safety_factor=2.0):
@@ -179,7 +184,7 @@ def _build_member_schedule(built, coords, ring_x_positions, anchor_idx, edge_q_s
         L = float(np.linalg.norm(coords[beam_i] - coords[centre_i]))
         members.append({"member_id": "Ring_%d_Drop_Member" % (k+1), "member_type": "drop_member", "length_m": L, "section": sections.get("drop", "?"), "material": "S355", "role": "vertical drop"})
     total_cable_length = sum(float(np.linalg.norm(coords[(i+1)%n_perimeter] - coords[i])) for i in range(n_perimeter))
-    members.append({"member_id": "Edge_Cable", "member_type": "cable", "length_m": total_cable_length, "section": cable_name, "material": "A=%.1f mm2" % cable_A_mm2, "role": "perimeter edge cable"})
+    members.append({"member_id": "Edge_Cable", "member_type": "cable", "length_m": total_cable_length, "section": cable_name, "material": "A=%.1f mm2" % cable_A_mm2, "role": "perimeter edge cable (DISABLED)"})
     for idx, (a, b, c) in enumerate(triangles):
         pa, pb, pc = coords[a], coords[b], coords[c]
         mean_edge = (float(np.linalg.norm(pb - pa)) + float(np.linalg.norm(pc - pb)) + float(np.linalg.norm(pa - pc))) / 3.0
@@ -224,7 +229,7 @@ def render_tester_multi_cone():
         if st.button("← Back to Landing", key="mc_back_landing", use_container_width=True):
             st.session_state.page = "landing"; st.rerun()
 
-    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>1. Find Form (FDM). 2. Two load cases → sized for worst.</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#f39c12;margin-bottom:0.2rem;'>Multi-Cone Roof — Tester</h2><p style='color:#a8b8c8;margin-top:0;'>DIAGNOSTIC MODE: Cables disabled. Testing membrane-only solve.</p>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
     with c1: span = st.number_input("Primary span (m)", 6.0, 60.0, 10.0, 0.5, key="mc_span")
@@ -256,7 +261,7 @@ def render_tester_multi_cone():
     c1, c2, c3 = st.columns(3)
     with c1: warp_c = st.number_input("Warp c", 0.1, 10.0, 2.0, 0.1, key="mc_warp_c")
     with c2: weft_c = st.number_input("Weft c", 0.1, 10.0, 2.0, 0.1, key="mc_weft_c")
-    with c3: cable_c = st.number_input("Cable c", 0.1, 50.0, 10.0, 0.5, key="mc_cable_c")
+    with c3: cable_c = st.number_input("Cable c (ignored in diagnostic)", 0.1, 50.0, 10.0, 0.5, key="mc_cable_c")
 
     st.markdown("### Environmental Loads & Design Philosophy")
     c1, c2 = st.columns(2)
@@ -294,45 +299,6 @@ def render_tester_multi_cone():
         L_avg = float(np.mean(np.linalg.norm(bd, axis=1)))
         target_len = max(L_avg, 1e-6)
         built = SDSe_mesh_rings(perimeter_loop=perimeter_loop, anchor_idx=anchor_idx, ring_specs=ring_specs, eave_height=eave_height, target_len=target_len)
-
-        # --- DIAGNOSTIC: find orphan nodes ---
-        n_nodes_local = built["points"].shape[0]
-        connected_local = np.zeros(n_nodes_local, dtype=bool)
-        for (a, b, c) in built["triangles"]:
-            connected_local[a] = True
-            connected_local[b] = True
-            connected_local[c] = True
-        orphan_indices = np.where(~connected_local)[0]
-        if len(orphan_indices) > 0:
-            st.warning(f"⚠ Mesh has {len(orphan_indices)} orphan nodes: {orphan_indices.tolist()}")
-            n_perim = built["n_perimeter"]
-            ring_vertex_set = set()
-            for ring_list in built["ring_indices"]:
-                for v in ring_list:
-                    ring_vertex_set.add(int(v))
-            centre_set = set(int(c) for c in built["centre_indices"])
-            beam_top_set = set(int(b) for b in built["beam_top_indices"])
-            st.write(f"Mesh breakdown: n_perimeter = {n_perim}, n_nodes = {n_nodes_local}")
-            for idx in orphan_indices:
-                pos = built["points"][idx]
-                idx = int(idx)
-                if idx < n_perim:
-                    role = "perimeter boundary (index < n_perimeter)"
-                elif idx in ring_vertex_set:
-                    role = "ring polygon vertex"
-                elif idx in centre_set:
-                    role = "ring centre"
-                elif idx in beam_top_set:
-                    role = "beam top"
-                else:
-                    role = "interior fabric (orphaned)"
-                st.write(f"  Node {idx}: role = {role}, position = ({pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f})")
-            st.write(f"First 5 perimeter x,y: {built['points'][:5, :2].tolist()}")
-            st.write(f"Ring centre (if any): {[built['points'][c, :].tolist() for c in built['centre_indices']]}")
-            st.write(f"Beam top (if any): {[built['points'][b, :].tolist() for b in built['beam_top_indices']]}")
-        else:
-            st.success(f"No orphan nodes. Mesh is fully connected ({n_nodes_local} nodes).")
-
         pts = built["points"]; edges = built["edges"]; boundary_edge_set = built["boundary_edges"]
         tris = built["triangles"]; fixed = built["fixed_indices"]
         warp_q = max(float(warp_c), 0.1) * 1000.0
@@ -368,31 +334,38 @@ def render_tester_multi_cone():
     coords_to_draw = data["coords_fdm"]
 
     if btn_analysis:
-        with st.spinner("Running two load cases..."):
+        with st.spinner("Running two load cases (NO CABLES)..."):
             cable_name, cable_A_mm2, cable_E_MPa, EA_cable, cable_d_mm = _select_edge_cable(
                 data["fdm"]["max_edge_tension_N"], safety_factor=2.0)
+
+            # --- DIAGNOSTIC: cables DISABLED ---
             cables = []
-            n_a = len(data["anchor_idx"]); pts = data["pts"]; coords_fdm = data["coords_fdm"]
-            for k in range(n_a):
-                a_idx = data["anchor_idx"][k]; b_idx = data["anchor_idx"][(k + 1) % n_a]
-                chain = [int(a_idx)]; i_cur = (a_idx + 1) % pts.shape[0]; b_int = int(b_idx); safety = 0
-                while i_cur != b_int and safety < pts.shape[0]:
-                    chain.append(int(i_cur)); i_cur = (i_cur + 1) % pts.shape[0]; safety += 1
-                chain.append(int(b_int))
-                for m in range(len(chain) - 1):
-                    ia = chain[m]; ib = chain[m + 1]
-                    L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
-                    if L_ref < 1e-9:
-                        continue
-                    T_edge = data["edge_q_scalar"] * L_ref
-                    if EA_cable > 0:
-                        L0 = L_ref / (1.0 + T_edge / EA_cable)
-                    else:
-                        L0 = L_ref
-                    cables.append({"a": ia, "b": ib, "L0": L0, "EA": EA_cable})
+            if ENABLE_CABLES:
+                n_a = len(data["anchor_idx"]); pts = data["pts"]; coords_fdm = data["coords_fdm"]
+                for k in range(n_a):
+                    a_idx = data["anchor_idx"][k]; b_idx = data["anchor_idx"][(k + 1) % n_a]
+                    chain = [int(a_idx)]; i_cur = (a_idx + 1) % pts.shape[0]; b_int = int(b_idx); safety = 0
+                    while i_cur != b_int and safety < pts.shape[0]:
+                        chain.append(int(i_cur)); i_cur = (i_cur + 1) % pts.shape[0]; safety += 1
+                    chain.append(int(b_int))
+                    for m in range(len(chain) - 1):
+                        ia = chain[m]; ib = chain[m + 1]
+                        L_ref = float(np.linalg.norm(coords_fdm[ib] - coords_fdm[ia]))
+                        if L_ref < 1e-9:
+                            continue
+                        T_edge = data["edge_q_scalar"] * L_ref
+                        if EA_cable > 0:
+                            L0 = L_ref / (1.0 + T_edge / EA_cable)
+                        else:
+                            L0 = L_ref
+                        cables.append({"a": ia, "b": ib, "L0": L0, "EA": EA_cable})
+
+            st.info(f"Diagnostic: ENABLE_CABLES = {ENABLE_CABLES}, cable count = {len(cables)}")
+
             apex_idx = data["built"]["beam_top_indices"][0] if len(data["built"]["beam_top_indices"]) > 0 else None
             load_output = generate_uls_loads(
-                coords_fdm, data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx,
+                coords_fdm if ENABLE_CABLES else data["coords_fdm"],
+                data["tris"], code_choice, wind_speed, snow_depth, payload_kg, apex_idx,
                 shape_type="multi_cone", h_over_d=apex / span if span > 0 else 0.0,
                 cone_apexes=[(data["coords_fdm"][c][0], data["coords_fdm"][c][1], data["coords_fdm"][c][2]) for c in data["built"]["centre_indices"]],
                 cone_radius_m=ring_diameter / 2.0)
@@ -403,8 +376,11 @@ def render_tester_multi_cone():
             converged_cases = {}
             for case_name in ("uplift", "downforce"):
                 res = solve_nonlinear_equilibrium(
-                    points=coords_fdm.copy(), triangles=data["tris"], fixed_indices=data["fixed"],
-                    reference_points=coords_fdm.copy(), membrane_material=mat, cables=cables,
+                    points=data["coords_fdm"].copy(),
+                    triangles=data["tris"],
+                    fixed_indices=data["fixed"],
+                    reference_points=data["coords_fdm"].copy(),
+                    membrane_material=mat, cables=cables,
                     loads=load_output[case_name],
                     max_iter=300, max_outer=25, tol=0.01, tol_disp=1e-4,
                     max_total_steps=5000, max_wall_seconds=120.0,
@@ -417,39 +393,20 @@ def render_tester_multi_cone():
 
             view_case = "uplift" if "uplift" in converged_cases else ("downforce" if "downforce" in converged_cases else None)
             if view_case is None:
-                st.error("Both wind load cases failed to converge. Cannot size steel. Check the geometry or loads.")
+                st.error("Both wind load cases failed to converge. Cannot size steel.")
                 return
             dr_result = results_by_case[view_case]
             coords_to_draw = dr_result["coordinates"]
-
-            stage3_results = None
-            if converged_cases:
-                try:
-                    data_for_sizer = dict(data)
-                    data_for_sizer["ring_diameter"] = ring_diameter
-                    data_for_sizer["mc_rd"] = ring_diameter
-                    stage3_results = size_steel_frame(
-                        data=data_for_sizer, newton_data_cases=converged_cases,
-                        code_choice=code_choice, grade="S355", family="CHS")
-                except Exception as e:
-                    st.error(f"Stage 3 Frame Solver failed: {e}")
 
             st.session_state["newton_results"] = {
                 "cases": results_by_case,
                 "cable_name": cable_name, "cable_A_mm2": cable_A_mm2,
                 "EA_cable": EA_cable, "cable_d_mm": cable_d_mm,
-                "design_tension_N": max(data["fdm"]["max_edge_tension_N"],
-                                        max((c["T_N"] for c in dr_result.get("cable_tension_list", [])), default=0)),
+                "design_tension_N": data["fdm"]["max_edge_tension_N"],
                 "sections": {"primary": "Calculating", "rib": "Calculating", "ring": "Calculating", "drop": "Calculating"},
                 "details": {}, "cables": cables, "material": mat,
                 "fabric_family": fabric_family, "fabric_name": fabric_name,
             }
-            if stage3_results:
-                st.session_state["stage3_results"] = stage3_results
-                if "sections" in stage3_results:
-                    st.session_state["newton_results"]["sections"] = stage3_results["sections"]
-                if "details" in stage3_results:
-                    st.session_state["newton_results"]["details"] = stage3_results["details"]
 
     newton_data = st.session_state.get("newton_results")
     if newton_data and not btn_analysis and "cases" in newton_data:
@@ -504,7 +461,7 @@ def render_tester_multi_cone():
 
         if newton_data and "cases" in newton_data:
             st.write("---")
-            st.write("**Stage 2 — Two Load Cases:**")
+            st.write("**Stage 2 — Two Load Cases (NO CABLES):**")
             for case_name in ("uplift", "downforce"):
                 res = newton_data["cases"][case_name]
                 st.write(f"- {case_name}: converged={res['converged']} · iterations={res['iterations']} · time={res['elapsed_seconds']:.2f}s")
@@ -523,115 +480,3 @@ def render_tester_multi_cone():
                     st.warning("Utilization: %.0f%% → **WARNING: approaching ULS.**" % util_pct)
                 else:
                     st.success("Utilization: %.0f%% → **SAFE.**" % util_pct)
-
-            st.write("---")
-            st.write("**Stage 3 — 3D Frame (Worst of 2 Cases):**")
-            stage3_data = st.session_state.get("stage3_results")
-            if stage3_data:
-                if "error" in stage3_data:
-                    st.error(f"Stage 3 Error: {stage3_data['error']}")
-                else:
-                    st.success("Stage 3 Frame Solve Successful.")
-                    s3_sections = stage3_data.get("sections", {})
-                    s3_details = stage3_data.get("details", {})
-                    st.write("Final Frame Sections (Auto-Sized):")
-                    st.write(f"- Primary: **{s3_sections.get('primary')}**")
-                    st.write(f"- Rib: **{s3_sections.get('rib')}**")
-                    st.write(f"- Ring: **{s3_sections.get('ring')}**")
-                    st.write(f"- Spoke: **{s3_sections.get('spoke')}**")
-                    st.write(f"- Drop: **{s3_sections.get('drop')}**")
-                    st.write("Frame Max Utilizations (governing case shown):")
-                    for k, v in s3_details.items():
-                        st.write(f"- {k.capitalize()}: {v['max_util']*100:.0f}% (Max N: {v['max_N']/1000.0:.1f} kN, Case: {v.get('governing_case', 'n/a')})")
-            else:
-                st.info("Stage 3 has not been run yet.")
-
-            st.write("---")
-            st.write("**Reaction Forces & Foundation Design (Uplift case):**")
-            R = newton_data["cases"]["uplift"].get("reactions", None)
-            if R is not None:
-                anchor_idx = data["anchor_idx"]
-                st.write("**Baseplate Table (All Anchor Nodes):**")
-                st.code("%-6s  %-8s  %-8s  %-10s  %-10s  %-10s  %-12s  %-10s  %-10s  %-12s" %
-                        ("Node", "X(m)", "Y(m)", "Fx(kN)", "Fy(kN)", "Fz(kN)", "Moment(kNm)", "Plate(mm)", "Bolts", "Pad(mm)"),
-                        language="text")
-                primary_sec = newton_data.get("sections", {}).get("primary", "CHS 100")
-                for idx in anchor_idx:
-                    r = R[idx]
-                    design = design_baseplate_and_foundation(r, primary_sec, data["eave_height"])
-                    st.code("%-6d  %-8.2f  %-8.2f  %-10.1f  %-10.1f  %-10.1f  %-12.1f  %-10s  %-10s  %-12s" % (
-                        idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1],
-                        r[0]/1000.0, r[1]/1000.0, r[2]/1000.0, design["overturning_moment_kNm"],
-                        "%dx%dx%d" % (design["plate_side_mm"], design["plate_side_mm"], design["plate_thickness_mm"]),
-                        "%dxM%d" % (design["bolt_count"], design["bolt_diameter_mm"]),
-                        "%dx%d" % (design["pad_side_mm"], design["pad_side_mm"])
-                    ), language="text")
-
-                st.write("---")
-                st.write("**Corner Plate Table (All Anchor Nodes):**")
-                st.code("%-6s  %-8s  %-8s  %-12s  %-14s  %-12s  %-10s  %-9s  %-9s" %
-                        ("Node", "X(m)", "Y(m)", "T_cable(kN)", "Plate(mm)", "Weld(mm)", "Pin(mm)", "WeldUtil", "PinUtil"),
-                        language="text")
-                design_tension_N = float(newton_data.get("design_tension_N", 0.0))
-                n_anchors = len(anchor_idx)
-                for k in range(n_anchors):
-                    idx = anchor_idx[k]
-                    prev_idx = anchor_idx[(k - 1) % n_anchors]
-                    next_idx = anchor_idx[(k + 1) % n_anchors]
-                    v_prev = data["coords_fdm"][prev_idx] - data["coords_fdm"][idx]
-                    v_next = data["coords_fdm"][next_idx] - data["coords_fdm"][idx]
-                    L_prev = np.linalg.norm(v_prev); L_next = np.linalg.norm(v_next)
-                    if L_prev > 1e-9 and L_next > 1e-9:
-                        u_prev = v_prev / L_prev; u_next = v_next / L_next
-                        F_resultant = design_tension_N * np.linalg.norm(u_prev + u_next)
-                    else:
-                        F_resultant = design_tension_N
-                    cp = design_corner_plate(F_resultant, newton_data["cable_d_mm"], steel_fy_MPa=355)
-                    st.code("%-6d  %-8.2f  %-8.2f  %-12.1f  %-14s  %-12s  %-10s  %-9s  %-9s" % (
-                        idx, data["coords_fdm"][idx, 0], data["coords_fdm"][idx, 1],
-                        F_resultant / 1000.0,
-                        "%dx%dx%d" % (cp["plate_thickness_mm"], cp["plate_width_mm"], cp["plate_length_mm"]),
-                        "%dx%d" % (cp["weld_size_mm"], cp["weld_length_mm"]),
-                        "%d" % cp["pin_diameter_mm"],
-                        "%.0f%%" % (cp["weld_utilization"] * 100),
-                        "%.0f%%" % (cp["pin_utilization"] * 100),
-                    ), language="text")
-
-                st.write("---")
-                st.write("**Cone Drop Table:**")
-                st.code("%-8s  %-10s  %-10s  %-10s  %-10s" %
-                        ("Cone", "X(m)", "Y(m)", "Fz(kN)", "Drop(mm)"), language="text")
-                for k in range(len(data["built"]["centre_indices"])):
-                    ci = data["built"]["centre_indices"][k]
-                    bi = data["built"]["beam_top_indices"][k]
-                    r_drop = R[bi]
-                    st.code("%-8d  %-10.2f  %-10.2f  %-10.1f  %-10s" %
-                            (k+1, data["coords_fdm"][ci, 0], data["coords_fdm"][ci, 1],
-                             r_drop[2]/1000.0, newton_data["sections"].get("drop", "?")), language="text")
-
-                st.write("---")
-                st.write("**Deflection Check:**")
-                max_deflection_mm = 0.0
-                for i in range(len(data["coords_fdm"])):
-                    d = np.linalg.norm(coords_to_draw[i] - data["coords_fdm"][i])
-                    if d > max_deflection_mm:
-                        max_deflection_mm = d * 1000.0
-                limit_mm = (data["span"] * 1000.0) / 200.0
-                status = "PASS" if max_deflection_mm <= limit_mm else "FAIL"
-                st.code("Max Deflection: %.2f mm (Limit: %.1f mm) -> %s" %
-                        (max_deflection_mm, limit_mm, status), language="text")
-
-            members = _build_member_schedule(
-                data["built"], coords_to_draw, data["x_rings"], data["anchor_idx"],
-                data["edge_q_scalar"], data["warp_q"], data["weft_q"],
-                newton_data["cable_name"], newton_data["cable_A_mm2"],
-                newton_data["sections"], data["eave_height"],
-                data["span"], data["mid_width"], ring_diameter)
-            with st.expander("Member schedule (auto-sized)", expanded=True):
-                st.code(_format_member_table(members), language="text")
-
-            st.markdown("---")
-            st.markdown("### 📄 SDSe Analysis Report")
-            if st.button("📄 Open SDSe Analysis Report", key="SDSe_open_report_btn", use_container_width=True):
-                st.session_state.page = "analysis_report"
-                st.rerun()
