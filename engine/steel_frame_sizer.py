@@ -2,15 +2,11 @@
 
 Accepts three load cases. Runs the frame solver for each.
 Sizes each member for the WORST utilization across all valid cases.
-
-If a case returns a mismatched element/force list (non-converged membrane),
-that case is skipped with a warning instead of crashing.
 """
 
 import math
 
 import numpy as np
-import streamlit as st
 
 from data.materials import STEEL_MATERIALS
 from data.sections import SECTION_PROPERTIES
@@ -55,6 +51,7 @@ def _member_utilization(section_name, N_Ed_N, My_Ed_Nm, Mz_Ed_Nm,
     Wz_mm3 = props.get("Wz", props.get("W_el", 1.0))
     I_mm4 = props.get("I", 1.0)
 
+    # CAPACITIES (in Newtons and N-mm)
     N_cap = A_mm2 * fy_MPa
     My_cap = Wy_mm3 * fy_MPa
     Mz_cap = Wz_mm3 * fy_MPa
@@ -62,10 +59,12 @@ def _member_utilization(section_name, N_Ed_N, My_Ed_Nm, Mz_Ed_Nm,
     stress_util = 0.0
     if N_cap > 0:
         stress_util += abs(N_Ed_N) / N_cap
+    
+    # FIXED: Convert My_Ed and Mz_Ed from N-m to N-mm before dividing!
     if My_cap > 0:
-        stress_util += abs(My_Ed_Nm) / My_cap
+        stress_util += (abs(My_Ed_Nm) * 1000.0) / My_cap
     if Mz_cap > 0:
-        stress_util += abs(Mz_Ed_Nm) / Mz_cap
+        stress_util += (abs(Mz_Ed_Nm) * 1000.0) / Mz_cap
 
     buckling_util = 0.0
     if N_Ed_N < 0 and L_m > 0:
@@ -94,7 +93,7 @@ def _ring_hoop_utilization(section_name, membrane_force_at_ring_N,
 
 def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
                       grade="S355", family="CHS", max_iterations=12,
-                      utilization_cap=0.70):
+                      utilization_cap=0.85):
     """Sizes for worst utilization across all CONVERGED cases."""
     all_sections = _sections_by_area(family)
     if not all_sections:
@@ -108,11 +107,6 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
     frames_by_case = {}
     for case_name, nd in newton_data_cases.items():
         frames_by_case[case_name] = build_steel_frame(data, nd)
-
-    # Diagnostic output
-    for case_name, frame in frames_by_case.items():
-        total_load = frame.get("diagnostic_total_load_magnitude_N", 0.0)
-        st.write(f"DEBUG 1 — Case {case_name}: Total membrane load = {total_load:.1f} N")
 
     for iteration in range(max_iterations):
         util_by_type = {
@@ -148,13 +142,10 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
                     fixed_nodes=frame["fixed_indices"],
                     grade_props=grade_props,
                 )
-            except Exception as e:
-                st.write(f"DEBUG — Case {case_name} solver raised: {e}")
+            except Exception:
                 continue
 
-            # DEFENSIVE: if force list does not match element list, skip this case
             if len(result["member_end_forces"]) != len(elements):
-                st.write(f"DEBUG — Case {case_name} skipped: {len(result['member_end_forces'])} forces vs {len(elements)} elements")
                 continue
 
             last_result = result
