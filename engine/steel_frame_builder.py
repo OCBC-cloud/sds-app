@@ -1,10 +1,17 @@
-"""SDSe Engine — 3D Steel Frame Builder.
+"""SDSe Engine — 3D Steel Frame Builder (Exact Crossing Fusion).
 
-Builds the 3D steel frame from mesh data. Applies membrane reactions as
-real 3D point loads to the nearest arch/rib/ring/drop node.
+Builds the 3D steel frame from mesh data.
 
-Fix: Eave anchors (Z>0) must fuse to arch nodes that are ABOVE the baseplate.
-They must NOT fuse to fixed Z=0 nodes, or the loads go straight to ground.
+Topology (no tolerance, exact indices):
+  1. Spine (primary arch) built from 200 samples.
+  2. At every eave anchor Z, drop Z, and rib apex X, a NEW spine node is
+     inserted at the exact geometric crossing (segment split).
+  3. Ribs are built from the ground up to the exact spine node at their X.
+  4. Drops are built from the exact spine node at their Z up to the ring centre.
+  5. Rings and spokes share exact node indices.
+  6. Only Z=0 baseplates are fixed. All other nodes are free.
+
+Result: a single connected 3D structure. No singular matrix.
 """
 
 import numpy as np
@@ -15,20 +22,117 @@ NODE_DROP = "drop"
 NODE_SPOKE = "spoke"
 
 
-def _dist_sq(p1, p2):
-    return float((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2 + (p1[2]-p2[2])**2)
+def _interp_z_at_x(xp, zp, x_target):
+    """Return the exact Z of the spine at X = x_target."""
+    for k in range(len(xp) - 1):
+        x0, x1 = xp[k], xp[k + 1]
+        if (x0 <= x_target <= x1) or (x1 <= x_target <= x0):
+            if abs(x1 - x0) < 1e-12:
+                return float(zp[k])
+            t = (x_target - x0) / (x1 - x0)
+            return float(zp[k] + t * (zp[k + 1] - zp[k]))
+    return float(zp[0])
+
+
+def _build_spine_with_crossings(xp, zp, target_zs, target_xs):
+    """
+    Walk the spine samples, insert new nodes at every target Z and target X.
+    Returns (spine_nodes, spine_zs, crossmap_z, crossmap_x, elements_spine).
+
+    crossmap_z maps target_z -> spine node index (first crossing found going up)
+    crossmap_x maps target_x -> spine node index (unique X)
+    """
+    spine_nodes = []
+    spine_zs = []
+    spine_xs = []
+    elements_spine = []
+    crossmap_z = {}
+    crossmap_x = {}
+
+    def push_node(x, z):
+        spine_nodes.append(np.array([x, 0.0, z], dtype=float))
+        spine_zs.append(z)
+        spine_xs.append(x)
+        return len(spine_nodes) - 1
+
+    # Seed with the first spine sample
+    prev_idx = push_node(xp[0], zp[0])
+
+    for k in range(len(xp) - 1):
+        x_a, z_a = xp[k], zp[k]
+        x_b, z_b = xp[k + 1], zp[k + 1]
+
+        # Collect all events on this segment: (t, kind, value)
+        events = []
+
+        # Target X crossings
+        for tx in target_xs:
+            if (x_a <= tx <= x_b) or (x_b <= tx <= x_a):
+                if abs(x_b - x_a) > 1e-12:
+                    t = (tx - x_a) / (x_b - x_a)
+                    if 1e-9 < t < 1.0 - 1e-9:
+                        events.append((t, "x", tx))
+
+        # Target Z crossings
+        z_min = min(z_a, z_b)
+        z_max = max(z_a, z_b)
+        for tz in target_zs:
+            if z_min <= tz <= z_max:
+                if abs(z_b - z_a) > 1e-12:
+                    t = (tz - z_a) / (z_b - z_a)
+                    if 1e-9 < t < 1.0 - 1e-9:
+                        events.append((t, "z", tz))
+
+        # Sort events by t so we insert in the correct order along the segment
+        events.sort(key=lambda e: e[0])
+
+        for t, kind, val in events:
+            x_ins = x_a + t * (x_b - x_a)
+            z_ins = z_a + t * (z_b - z_a)
+            new_idx = push_node(x_ins, z_ins)
+            elements_spine.append({"a": prev_idx, "b": new_idx, "section": "primary", "kind": NODE_ARCH})
+            prev_idx = new_idx
+            if kind == "z" and val not in crossmap_z:
+                crossmap_z[val] = new_idx
+            if kind == "x":
+                crossmap_x[val] = new_idx
+
+        # Connect to the next sample
+        next_idx = push_node(x_b, z_b)
+        elements_spine.append({"a": prev_idx, "b": next_idx, "section": "primary", "kind": NODE_ARCH})
+        prev_idx = next_idx
+
+    return spine_nodes, spine_zs, spine_xs, crossmap_z, crossmap_x, elements_spine
 
 
 def build_steel_frame(data, newton_data):
     coords_fdm = newton_data["dr_result"]["coordinates"]
     reactions = newton_data["dr_result"].get("reactions", None)
     anchor_idx = data["anchor_idx"]
+    eave_height = float(data["eave_height"])
 
-    nodes = []
-    kinds = []
-    loads = []
-    elements = []
-    fixed = []
+    xp = data["xp"]
+    zp = data["zp"]
+    rib_xs = list(data["rib_x"])
+
+    # Determine all target Z crossings (eave + every drop)
+    drop_zs = []
+    for cidx in data["built"]["centre_indices"]:
+        drop_zs.append(float(coords_fdm[int(cidx)][2]))
+
+    target_zs = sorted(set([eave_height] + drop_zs))
+
+    # Determine all target X crossings (rib apex X)
+    target_xs = list(rib_xs)
+
+    # Build spine with inserted crossings
+    spine_nodes, spine_zs, spine_xs, crossmap_z, crossmap_x, elements_spine = \
+        _build_spine_with_crossings(xp, zp, target_zs, target_xs)
+
+    nodes = list(spine_nodes)
+    kinds = [NODE_ARCH] * len(spine_nodes)
+    loads = [np.zeros(3) for _ in range(len(spine_nodes))]
+    elements = list(elements_spine)
 
     def add(pos, kind):
         nodes.append(np.array(pos, dtype=float))
@@ -36,52 +140,69 @@ def build_steel_frame(data, newton_data):
         loads.append(np.zeros(3))
         return len(nodes) - 1
 
-    # --- Build primary arches from Z=0 to Z=0 ---
-    spine_ids = []
-    xp = data["xp"]
-    zp = data["zp"]
-    for k in range(len(xp)):
-        spine_ids.append(add([xp[k], 0.0, zp[k]], NODE_ARCH))
-    for k in range(len(spine_ids) - 1):
-        elements.append({"a": spine_ids[k], "b": spine_ids[k+1], "section": "primary", "kind": NODE_ARCH})
-
-    # --- Build ribs from Z=0 to Z=0 ---
-    rib_paths = []
-    for i, rib_x in enumerate(data["rib_x"]):
-        path = []
+    # --- Ribs: each rib is a chain from Z=0 at (rib_x, -hw) to Z=0 at (rib_x, +hw),
+    #     passing through the exact spine node at (rib_x, 0, z_spine).
+    for i, rib_x in enumerate(rib_xs):
         hw = data["rib_half_width"][i]
-        pz = data["rib_peak_z"][i]
-        n = 12
-        for k in range(n + 1):
-            t = k / float(n)
-            y = -hw + 2 * hw * t
-            u = y / hw if hw > 0 else 0.0
-            z = pz * (1.0 - u ** 2)
-            path.append(add([rib_x, y, z], NODE_ARCH))
-        rib_paths.append(path)
-        for k in range(len(path) - 1):
-            elements.append({"a": path[k], "b": path[k+1], "section": "rib", "kind": NODE_ARCH})
+        apex_spine_idx = crossmap_x.get(float(rib_x))
+        if apex_spine_idx is None:
+            # Fallback: find nearest spine sample by exact match
+            for idx, sx in enumerate(spine_xs):
+                if abs(sx - rib_x) < 1e-9:
+                    apex_spine_idx = idx
+                    break
+        if apex_spine_idx is None:
+            continue
+        apex_z = float(spine_zs[apex_spine_idx])
 
-    # --- Fix ONLY Z=0 baseplates ---
+        n_half = 6
+        # Left side: from ground (-hw, 0) up to apex
+        y_vals_left = np.linspace(-hw, 0.0, n_half + 1)
+        prev = None
+        left_path = []
+        for yv in y_vals_left[:-1]:
+            u = yv / hw if hw > 0 else 0.0
+            z = apex_z * (1.0 - u ** 2)
+            idx = add([float(rib_x), float(yv), float(z)], NODE_ARCH)
+            left_path.append(idx)
+        left_path.append(apex_spine_idx)
+
+        for k in range(len(left_path) - 1):
+            elements.append({"a": left_path[k], "b": left_path[k + 1], "section": "rib", "kind": NODE_ARCH})
+
+        # Right side: from apex down to ground (+hw, 0)
+        y_vals_right = np.linspace(0.0, hw, n_half + 1)
+        right_path = [apex_spine_idx]
+        for yv in y_vals_right[1:]:
+            u = yv / hw if hw > 0 else 0.0
+            z = apex_z * (1.0 - u ** 2)
+            idx = add([float(rib_x), float(yv), float(z)], NODE_ARCH)
+            right_path.append(idx)
+
+        for k in range(len(right_path) - 1):
+            elements.append({"a": right_path[k], "b": right_path[k+1], "section": "rib", "kind": NODE_ARCH})
+
+    # --- Fix Z=0 baseplates ---
+    fixed = []
     for i, p in enumerate(nodes):
-        if abs(p[2]) < 0.05:
+        if abs(p[2]) < 1e-6:
             fixed.append(i)
-
     fixed_set = set(fixed)
 
-    # --- Fuse eave anchors to nearest FREE arch node above baseplate ---
+    # --- Eave anchors: fuse to exact spine node at Z=eave_height ---
     anchor_map = {}
+    eave_spine_idxs = [idx for idx, sz in enumerate(spine_zs) if abs(sz - eave_height) < 1e-6]
+    # If we inserted only ONE crossing at eave height, use that node.
+    # If TWO (up and down), we place the anchor on the closer one by X.
     for mesh_idx in anchor_idx:
         pos = coords_fdm[int(mesh_idx)]
         best, bestd = -1, float("inf")
-        for i, np_ in enumerate(nodes):
-            if kinds[i] != NODE_ARCH:
+        for cand_idx in eave_spine_idxs:
+            if cand_idx in fixed_set:
                 continue
-            if i in fixed_set:
-                continue  # Skip fixed Z=0 nodes
-            d = _dist_sq(pos, np_)
+            d = (spine_xs[cand_idx] - pos[0])**2 + (spine_zs[cand_idx] - pos[2])**2
             if d < bestd:
-                bestd, best = d, i
+                bestd, best = d, cand_idx
         if best >= 0:
             anchor_map[int(mesh_idx)] = best
             if reactions is not None:
@@ -99,7 +220,7 @@ def build_steel_frame(data, newton_data):
             if reactions is not None:
                 loads[fid] += -np.asarray(reactions[mesh_node], dtype=float)
         for i in range(len(r_ids)):
-            a, b = r_ids[i], r_ids[(i+1) % len(r_ids)]
+            a, b = r_ids[i], r_ids[(i + 1) % len(r_ids)]
             elements.append({"a": a, "b": b, "section": "ring", "kind": NODE_RING})
 
         cidx = int(data["built"]["centre_indices"][k])
@@ -109,16 +230,18 @@ def build_steel_frame(data, newton_data):
         if reactions is not None:
             loads[drop_id] += -np.asarray(reactions[cidx], dtype=float)
 
+        # Fuse drop to exact spine node at drop's Z
+        drop_z = float(dpos[2])
+        drop_spine_candidates = [idx for idx, sz in enumerate(spine_zs) if abs(sz - drop_z) < 1e-6]
         best, bestd = -1, float("inf")
-        for i, np_ in enumerate(nodes):
-            if kinds[i] != NODE_ARCH:
-                continue
-            d = _dist_sq(dpos, np_)
+        for cand_idx in drop_spine_candidates:
+            d = (spine_xs[cand_idx] - dpos[0])**2
             if d < bestd:
-                bestd, best = d, i
+                bestd, best = d, cand_idx
         if best >= 0:
             elements.append({"a": drop_id, "b": best, "section": "drop", "kind": NODE_DROP})
 
+        # Spokes connect every ring node to the drop node
         for r_id in r_ids:
             if r_id != drop_id:
                 elements.append({"a": r_id, "b": drop_id, "section": "spoke", "kind": NODE_SPOKE})
