@@ -1,108 +1,99 @@
-import streamlit as st
+# =============================================================================
+# SDSe - Cantilever Leaf LAB Figure Builder (Dynamic)
+# =============================================================================
+
+import math
 import numpy as np
+import plotly.graph_objects as go
+from viewers.figures._shared import apply_common_layout
 
-from viewers.figures.cantilever_leaf_lab import compute_lab_leaf_geometry, build_cantilever_leaf_lab_figure
-from engine.form_finding_test import solve_fdm
-from engine.cantilever_frame_builder import build_cantilever_frame
-from engine.frame_analysis import analyze_and_size_frame
+N_BEAM = 80
 
-LAB_TESTER_CSS = """
-    <style>
-    .stApp > header { display: none !important; }
-    .block-container { padding-top: 1.2rem !important; max-width: 1200px; }
-    .ctl-topbar { display: flex; justify-content: space-between; align-items: center; padding: 0 0 0.6rem 0; border-bottom: 1px solid #1e2a3a; margin-bottom: 1.2rem; }
-    .ctl-wordmark { font-size: 1.1rem; font-weight: 700; color: #f39c12; letter-spacing: 2px; }
-    .ctl-header { font-size: 1.4rem; font-weight: 700; color: #ffffff; margin: 0.4rem 0 0.3rem 0; }
-    .ctl-sub { font-size: 0.9rem; color: #a8b8c8; margin-bottom: 1.2rem; line-height: 1.4; }
-    .ctl-card { background-color: #121e2e; border: 1px solid #1e2a3a; border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: 0.7rem; }
-    .ctl-mono { font-family: 'SF Mono', Menlo, monospace; font-size: 0.8rem; color: #c8d8e8; white-space: pre-wrap; }
-    </style>
-"""
+def compute_lab_leaf_geometry(col_h=6.0, outreach=5.0, half_width_mid=2.0, 
+                              rib_tilt_deg=0.0, arc_r=1.0, strut_joint=3.0, 
+                              strut_angle=42.0, ribs_per_side=3):
+    # ---- Main beam (parabolic crown)
+    t_beam = np.linspace(0.0, 1.0, N_BEAM)
+    beam_x = outreach * t_beam
+    beam_y = np.zeros_like(t_beam)
+    S = arc_r * 0.5
+    beam_z = col_h + 4.0 * S * t_beam * (1.0 - t_beam)
 
-def render_tester_cantilever_leaf():
-    st.markdown(LAB_TESTER_CSS, unsafe_allow_html=True)
-    st.markdown('<div class="ctl-topbar"><div class="ctl-wordmark">SDSe LAB</div><div></div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="ctl-header">Cantilever Leaf — Universal Structural Test</div>', unsafe_allow_html=True)
+    # ---- Rib stations
+    rib_ts = np.linspace(0.08, 0.92, ribs_per_side)
+
+    def half_width(t):
+        return half_width_mid * (math.sin(math.pi * t) ** 0.7)
+
+    def tilt_rad(t):
+        return math.radians(rib_tilt_deg) * (math.sin(math.pi * t) ** 0.7)
+
+    # ---- Rib lines
+    ribs = []
+    for i, t in enumerate(rib_ts):
+        idx = int(round(t * (N_BEAM - 1)))
+        a_x = float(beam_x[idx])
+        a_z = float(beam_z[idx])
+        hw  = half_width(t)
+        tl  = tilt_rad(t)
+        tip_z = a_z + hw * math.tan(tl)
+        ribs.append({
+            "index": i, "t": float(t),
+            "attach": (a_x, 0.0, a_z),
+            "left_tip":  (a_x, -hw, tip_z),
+            "right_tip": (a_x, +hw, tip_z),
+            "half_width": hw,
+        })
+
+    # ---- Strut attach point
+    tan_a = math.tan(math.radians(strut_angle))
+    A_q = 4.0 * S / (outreach * outreach)
+    B_q = tan_a - (4.0 * S / outreach)
+    C_q = strut_joint - col_h
+    disc = B_q * B_q - 4.0 * A_q * C_q
+
+    strut_attach_local = outreach * 0.33
+    if disc >= 0.0 and A_q > 1e-9:
+        sq = math.sqrt(disc)
+        x1 = (-B_q + sq) / (2.0 * A_q)
+        x2 = (-B_q - sq) / (2.0 * A_q)
+        cand = [x for x in (x1, x2) if 0.0 < x < outreach]
+        if cand:
+            strut_attach_local = cand[0]
+
+    idx_a = max(0, min(N_BEAM - 1, int(round((strut_attach_local / outreach) * (N_BEAM - 1)))))
+    strut_attach = (float(beam_x[idx_a]), 0.0, float(beam_z[idx_a]))
+
+    return {
+        "spec": {
+            "column_height": col_h, "outreach": outreach, "ribs_per_side": ribs_per_side,
+            "half_width_mid": half_width_mid, "rib_tilt_deg": rib_tilt_deg,
+            "arc_radius": arc_r, "strut_joint": strut_joint, "strut_angle": strut_angle,
+        },
+        "beam": {"x": beam_x, "y": beam_y, "z": beam_z},
+        "ribs": ribs,
+        "strut": {"attach": strut_attach, "base": (0.0, 0.0, strut_joint)},
+        "column": {"base": (0.0, 0.0, 0.0), "top": (0.0, 0.0, col_h)},
+    }
+
+def build_cantilever_leaf_lab_figure(geom):
+    fig = go.Figure()
+    col_h = geom["spec"]["column_height"]
     
-    # Sliders for dynamic testing
-    with st.sidebar:
-        st.markdown("### Leaf Geometry")
-        col_h = st.slider("Column Height (m)", 3.0, 12.0, 6.0, 0.5)
-        outreach = st.slider("Outreach (m)", 2.0, 15.0, 5.0, 0.5)
-        half_w = st.slider("Middle Half-Width (m)", 0.5, 5.0, 2.0, 0.5)
-        tilt = st.slider("Rib Tilt (deg)", -45.0, 45.0, 0.0, 1.0)
-        arc_r = st.slider("Arc Radius (m)", 0.0, 5.0, 1.0, 0.1)
-        strut_j = st.slider("Strut Joint (m)", 1.0, col_h, 3.0, 0.5)
-        strut_a = st.slider("Strut Angle (deg)", 20.0, 80.0, 42.0, 1.0)
-        n_ribs = st.slider("Rib Pairs", 1, 8, 3, 1)
-
-    geom = compute_lab_leaf_geometry(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
+    # Column
+    fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, 0], z=[0, col_h], mode="lines", line=dict(color="#2ecc71", width=10), name="Column"))
+    # Beam
+    b = geom["beam"]
+    fig.add_trace(go.Scatter3d(x=b["x"], y=b["y"], z=b["z"], mode="lines", line=dict(color="#FF6B6B", width=8), name="Main beam"))
+    # Ribs
+    for rib in geom["ribs"]:
+        ax, ay, az = rib["attach"]
+        lx, ly, lz = rib["left_tip"]
+        rx, ry, rz = rib["right_tip"]
+        fig.add_trace(go.Scatter3d(x=[lx, ax, rx], y=[ly, ay, ry], z=[lz, az, rz], mode="lines", line=dict(color="#3498db", width=3), showlegend=False))
+    # Strut
+    sa = geom["strut"]["attach"]
+    sb = geom["strut"]["base"]
+    fig.add_trace(go.Scatter3d(x=[sa[0], sb[0]], y=[sa[1], sb[1]], z=[sa[2], sb[2]], mode="lines", line=dict(color="#e67e22", width=4), name="Strut"))
     
-    col_l, col_r = st.columns([2, 1])
-    with col_l:
-        st.plotly_chart(build_cantilever_leaf_lab_figure(geom), use_container_width=True, config={"displayModeBar": False})
-
-    with col_r:
-        st.markdown("### Structural Auto-Sizing")
-        if st.button("Run Structural Analysis", type="primary", use_container_width=True):
-            with st.spinner("Running Pipeline..."):
-                # 1. FDM (Simplified)
-                b = geom["beam"]
-                spine_pts = np.column_stack([b["x"], b["y"], b["z"]])
-                mesh_pts = list(spine_pts)
-                mesh_edges = []
-                fixed_nodes = []
-                
-                for rib in geom["ribs"]:
-                    l_idx = len(mesh_pts)
-                    mesh_pts.append(rib["left_tip"])
-                    ax, ay, az = rib["attach"]
-                    spine_idx = np.argmin(np.linalg.norm(spine_pts - np.array([ax, ay, az]), axis=1))
-                    mesh_edges.append((spine_idx, l_idx))
-                    fixed_nodes.append(spine_idx)
-                    
-                    r_idx = len(mesh_pts)
-                    mesh_pts.append(rib["right_tip"])
-                    mesh_edges.append((spine_idx, r_idx))
-                
-                for i in range(len(geom["ribs"]) - 1):
-                    l1 = len(spine_pts) + i*2
-                    l2 = len(spine_pts) + (i+1)*2
-                    mesh_edges.extend([(l1, l2), (l1+1, l2+1)])
-                
-                q = np.full(len(mesh_edges), 5000.0)
-                fdm_res = solve_fdm(np.array(mesh_pts), mesh_edges, list(set(fixed_nodes)), q)
-                reactions_N = fdm_res["reactions"] * 1000.0
-                
-                # 2. Build Frame
-                frame_data = build_cantilever_frame(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
-                
-                # 3. Apply Loads
-                applied_loads = {}
-                for i, f_node in enumerate(list(set(fixed_nodes))):
-                    applied_loads[f_node] = -reactions_N[f_node]
-                
-                # Add Wind Load to Rib Tips (1.0 kN downward for testing)
-                for elem in frame_data["elements"]:
-                    if elem["kind"] == "rib":
-                        tip_node = elem["b"]
-                        applied_loads[tip_node] = np.array([0.0, 0.0, -1000.0])
-                
-                # 4. Size
-                result = analyze_and_size_frame(frame_data, applied_loads, grade="S355", family="CHS")
-                
-                if "error" in result:
-                    st.error(f"Sizing Failed: {result['error']}")
-                else:
-                    st.success(f"Sizing Converged in {result.get('iterations', '?')} iterations!")
-                    st.markdown("#### Selected Sections:")
-                    for kind, sec in result["sections"].items():
-                        st.write(f"- **{kind.capitalize()}**: `{sec}`")
-                    st.markdown("#### Utilization:")
-                    for kind, util in result["details"].items():
-                        color = "#ff4b4b" if util > 0.85 else "#00cc66"
-                        st.markdown(f"- **{kind.capitalize()}**: <span style='color:{color}'>{util*100:.1f}%</span>", unsafe_allow_html=True)
-
-    if st.button("Back to Lab", key="tcl_back", use_container_width=True):
-        st.session_state.page = "lab"
-        st.rerun()
+    return apply_common_layout(fig, col_h)
