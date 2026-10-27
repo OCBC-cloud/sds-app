@@ -1,10 +1,10 @@
-"""SDSe Engine — 3D Steel Frame Builder (Final Fix).
+"""SDSe Engine — 3D Steel Frame Builder.
 
-Builds the 3D steel frame from mesh data. Applies membrane reactions
-as real 3D point loads to the nearest arch/rib/ring/drop node.
+Builds the 3D steel frame from mesh data. Applies membrane reactions as
+real 3D point loads to the nearest arch/rib/ring/drop node.
 
-Fix: Only Z=0 nodes are fixed. Eave anchors at Z=2.8m are fused to the
-arch as free joints carrying real membrane loads.
+Fix: Eave anchors (Z>0) must fuse to arch nodes that are ABOVE the baseplate.
+They must NOT fuse to fixed Z=0 nodes, or the loads go straight to ground.
 """
 
 import numpy as np
@@ -36,15 +36,16 @@ def build_steel_frame(data, newton_data):
         loads.append(np.zeros(3))
         return len(nodes) - 1
 
-    # ---- Build primary arches from Z=0 to Z=0 ----
+    # --- Build primary arches from Z=0 to Z=0 ---
     spine_ids = []
-    xp = data["xp"]; zp = data["zp"]
+    xp = data["xp"]
+    zp = data["zp"]
     for k in range(len(xp)):
         spine_ids.append(add([xp[k], 0.0, zp[k]], NODE_ARCH))
     for k in range(len(spine_ids) - 1):
         elements.append({"a": spine_ids[k], "b": spine_ids[k+1], "section": "primary", "kind": NODE_ARCH})
 
-    # ---- Build ribs from Z=0 to Z=0 ----
+    # --- Build ribs from Z=0 to Z=0 ---
     rib_paths = []
     for i, rib_x in enumerate(data["rib_x"]):
         path = []
@@ -61,27 +62,32 @@ def build_steel_frame(data, newton_data):
         for k in range(len(path) - 1):
             elements.append({"a": path[k], "b": path[k+1], "section": "rib", "kind": NODE_ARCH})
 
-    # ---- Fix ONLY Z=0 baseplates ----
+    # --- Fix ONLY Z=0 baseplates ---
     for i, p in enumerate(nodes):
         if abs(p[2]) < 0.05:
             fixed.append(i)
 
-    # ---- Fuse eave anchors (Z=2.8m) to nearest arch node ----
+    fixed_set = set(fixed)
+
+    # --- Fuse eave anchors to nearest FREE arch node above baseplate ---
     anchor_map = {}
     for mesh_idx in anchor_idx:
         pos = coords_fdm[int(mesh_idx)]
         best, bestd = -1, float("inf")
         for i, np_ in enumerate(nodes):
-            if kinds[i] == NODE_ARCH:
-                d = _dist_sq(pos, np_)
-                if d < bestd:
-                    bestd, best = d, i
+            if kinds[i] != NODE_ARCH:
+                continue
+            if i in fixed_set:
+                continue  # Skip fixed Z=0 nodes
+            d = _dist_sq(pos, np_)
+            if d < bestd:
+                bestd, best = d, i
         if best >= 0:
             anchor_map[int(mesh_idx)] = best
             if reactions is not None:
                 loads[best] += -np.asarray(reactions[mesh_idx], dtype=float)
 
-    # ---- Rings, drops, spokes ----
+    # --- Rings, drops, spokes ---
     ring_map = {}
     drop_map = {}
     for k, idx_list in enumerate(data["built"]["ring_indices"]):
@@ -105,10 +111,11 @@ def build_steel_frame(data, newton_data):
 
         best, bestd = -1, float("inf")
         for i, np_ in enumerate(nodes):
-            if kinds[i] == NODE_ARCH:
-                d = _dist_sq(dpos, np_)
-                if d < bestd:
-                    bestd, best = d, i
+            if kinds[i] != NODE_ARCH:
+                continue
+            d = _dist_sq(dpos, np_)
+            if d < bestd:
+                bestd, best = d, i
         if best >= 0:
             elements.append({"a": drop_id, "b": best, "section": "drop", "kind": NODE_DROP})
 
@@ -139,4 +146,7 @@ def build_steel_frame(data, newton_data):
         "diagnostic_n_anchor_loads": len(anchor_map),
         "diagnostic_n_ring_loads": len(ring_map),
         "diagnostic_n_drop_loads": len(drop_map),
+        "diagnostic_n_fixed": len(fixed),
+        "diagnostic_n_elements": len(elements),
+        "diagnostic_n_nodes": len(nodes),
     }
