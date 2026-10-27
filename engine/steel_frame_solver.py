@@ -167,9 +167,11 @@ def solve_frame(nodes, elements, loads, fixed_nodes, grade_props):
         b = elem["b"]
         sec = elem["section"]
         if "A" not in sec or "I" not in sec:
+            member_end_forces.append({"a": a, "b": b, "N": 0.0, "My_a": 0.0, "My_b": 0.0, "Mz_a": 0.0, "Mz_b": 0.0})
             continue
         L = float(np.linalg.norm(nodes[b] - nodes[a]))
         if L < EPS:
+            member_end_forces.append({"a": a, "b": b, "N": 0.0, "My_a": 0.0, "My_b": 0.0, "Mz_a": 0.0, "Mz_b": 0.0})
             continue
         K_local = _element_stiffness_matrix_3d(
             E, G, sec["A"], sec.get("Iy", sec["I"]), sec.get("Iz", sec["I"]), sec.get("J", sec["I"] * 2), L
