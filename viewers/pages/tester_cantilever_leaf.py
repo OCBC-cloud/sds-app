@@ -58,70 +58,94 @@ def render_tester_cantilever_leaf():
         st.markdown("### Structural Auto-Sizing")
         if st.button("Run Universal Mesh & Size Steel", type="primary", use_container_width=True):
             
-            with st.spinner("1. Constructing Boundary Loop & Anchors..."):
-                # Build the boundary: Beam tip -> Left Tips -> Root -> Right Tips -> Beam Tip
+            with st.spinner("1. Constructing Boundary Loop..."):
+                # 1. Build the master boundary loop (just the anchor points)
                 pts = []
+                
+                # Start at Beam Tip
+                b_tip = np.array([geom["beam"]["x"][-1], geom["beam"]["y"][-1], geom["beam"]["z"][-1]])
+                pts.append(b_tip)
+                
+                # Left side (Tip -> Root)
+                for rib in reversed(geom["ribs"]):
+                    pts.append(np.array(rib["left_tip"]))
+                
+                # Root (Column joint)
+                root_pt = np.array([0.0, 0.0, col_h])
+                pts.append(root_pt)
+                
+                # Right side (Root -> Tip)
+                for rib in geom["ribs"]:
+                    pts.append(np.array(rib["right_tip"]))
+                
+                # Now we subdivide the boundary to create a smooth mesh
+                subdiv_boundary = []
                 anchor_indices = []
                 edge_types = []
                 
-                # 1. Start at Beam Tip
-                b_tip = np.array([geom["beam"]["x"][-1], geom["beam"]["y"][-1], geom["beam"]["z"][-1]])
-                pts.append(b_tip)
-                anchor_indices.append(0)
-                edge_types.append("cable") # Tip cable
-                
-                # 2. Left side (Tip -> Root)
-                for rib in reversed(geom["ribs"]):
-                    pts.append(np.array(rib["left_tip"]))
-                    anchor_indices.append(len(pts)-1)
-                    edge_types.append("cable")
-                
-                # 3. Root (Column joint)
-                root_pt = np.array([0.0, 0.0, col_h])
-                pts.append(root_pt)
-                anchor_indices.append(len(pts)-1)
-                edge_types.append("cable")
-                
-                # 4. Right side (Root -> Tip)
-                for rib in geom["ribs"]:
-                    pts.append(np.array(rib["right_tip"]))
-                    anchor_indices.append(len(pts)-1)
-                    edge_types.append("cable")
-                
-                boundary = np.array(pts)
-                
-                # We subdivide the boundary lines so they have enough nodes to bow
-                subdiv_boundary = []
-                subdiv_anchors = []
-                subdiv_types = []
-                
-                for i in range(len(boundary)):
-                    a = boundary[i]
-                    b = boundary[(i + 1) % len(boundary)]
-                    is_anchor = i in anchor_indices
+                for i in range(len(pts)):
+                    a = pts[i]
+                    b = pts[(i + 1) % len(pts)]
                     
-                    # 5 points per segment
-                    for k in range(5):
-                        t = k / 5.0
+                    # Allocate 4 sub-nodes per segment
+                    n_sub = 4
+                    for k in range(n_sub):
+                        t = k / float(n_sub)
                         subdiv_boundary.append(a + (b - a) * t)
-                        subdiv_types.append("cable")
-                        # Only pin the exact anchor tip
-                        if k == 0 and is_anchor:
-                            subdiv_anchors.append(len(subdiv_boundary) - 1)
-                            
-                # Add the final loop closure point (same as first)
-                subdiv_boundary.append(boundary[0])
-                subdiv_types.append("cable")
+                    
+                    # Record the start index of the segment as an anchor
+                    anchor_indices.append(len(subdiv_boundary) - n_sub)
+                    edge_types.append("cable")
+                
+                # Add the final closure point
+                subdiv_boundary.append(pts[0])
                 
                 boundary_array = np.array(subdiv_boundary)
                 
+                # Since we passed anchor_indices and edge_types as lists of the segment starts,
+                # we need to map them correctly. The builder expects anchor_indices to point to 
+                # specific node indices in the boundary array.
+                # We will pass every node as an "anchor" but only the start of each segment as "cable" start.
+                # Actually, looking at the builder, it wants the indices of the nodes that separate edge types.
+                # Let's pass all nodes as anchors, and set the edge type for each segment.
+                full_anchor_indices = list(range(len(boundary_array)))
+                full_edge_types = []
+                for i in range(len(pts)):
+                    for k in range(4):
+                        full_edge_types.append("cable")
+                full_edge_types.append("cable") # final closure
+
+                # Wait, the builder requires `anchor_indices` and `edge_types` to be the same length.
+                # It uses the indices in `anchor_indices` to look up coordinates in `boundary`.
+                # We will pass the START of each segment.
+                
+                seg_starts = [i * 4 for i in range(len(pts))]
+                
+                # The builder logic for _boundary_as_four_sides wants to know the anchor points.
+                # To make it perfectly map to 4 sides, we will pass the 4 corners of the leaf.
+                # Let's just use the actual builder logic. It's much smarter than us!
+                
+                # Pass the exact corners
+                corners = [
+                    0,                                   # Beam Tip
+                    len(pts) // 2,                       # Root
+                    len(pts) - 1,                        # Rightmost tip
+                    0                                    # Back to start
+                ]
+                
+                # Actually, let's keep it simple and feed it the raw boundary.
+                # The builder will figure out the 4 sides based on the edge types.
+                # We will pass the edge types for the segments between anchors.
+                
+                raw_anchors = list(range(len(pts)))
+                raw_types = ["cable"] * len(pts)
+
             with st.spinner("2. Running Universal TFI Mesh + FDM..."):
-                # Run the Universal Mesh Boundary builder
-                # nx, ny = 21, 21 gives a nice dense grid
+                # Use the universal builder with the raw anchor loop
                 res = build_and_solve(
-                    boundary=boundary_array,
-                    anchor_indices=subdiv_anchors,
-                    edge_types=subdiv_types,
+                    boundary=np.array(pts),
+                    anchor_indices=raw_anchors,
+                    edge_types=raw_types,
                     nx=21, ny=21,
                     membrane_q=mem_q * 1000.0,
                     cable_q=cab_q * 1000.0,
@@ -163,7 +187,6 @@ def render_tester_cantilever_leaf():
                 applied_loads = {}
                 steel_nodes = frame_data["nodes"]
                 
-                # Map the reaction forces from the fixed FDM nodes to the steel frame
                 fixed_nodes = mesh["fixed_indices"]
                 for idx in fixed_nodes:
                     mem_pos = coords[idx]
