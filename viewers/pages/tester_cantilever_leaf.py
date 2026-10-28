@@ -23,20 +23,27 @@ def render_tester_cantilever_leaf():
     st.markdown('<div class="ctl-topbar"><div class="ctl-wordmark">SDSe LAB</div><div></div></div>', unsafe_allow_html=True)
     st.markdown('<div class="ctl-header">Cantilever Leaf — Real Mesh & Cable</div>', unsafe_allow_html=True)
     
-    # Sliders
+    # Number Inputs
     st.markdown("### Leaf Geometry Inputs")
     col1, col2, col3 = st.columns(3)
     with col1:
-        col_h = st.slider("Column Height (m)", 3.0, 12.0, 6.0, 0.5)
-        outreach = st.slider("Outreach (m)", 2.0, 15.0, 5.0, 0.5)
-        half_w = st.slider("Middle Half-Width (m)", 0.5, 5.0, 2.0, 0.5)
+        col_h = st.number_input("Column Height (m)", value=6.0, step=0.5, format="%.2f")
+        outreach = st.number_input("Outreach (m)", value=5.0, step=0.5, format="%.2f")
+        half_w = st.number_input("Middle Half-Width (m)", value=2.0, step=0.5, format="%.2f")
     with col2:
-        tilt = st.slider("Rib Tilt (deg)", -45.0, 45.0, 0.0, 1.0)
-        arc_r = st.slider("Arc Radius (m)", 0.0, 5.0, 1.0, 0.1)
+        tilt = st.number_input("Rib Tilt (deg)", value=0.0, step=1.0, format="%.1f")
+        arc_r = st.number_input("Arc Radius (m)", value=1.0, step=0.1, format="%.2f")
     with col3:
-        strut_j = st.slider("Strut Joint (m)", 1.0, col_h, 3.0, 0.5)
-        strut_a = st.slider("Strut Angle (deg)", 20.0, 80.0, 42.0, 1.0)
-        n_ribs = st.slider("Rib Pairs", 1, 8, 3, 1)
+        strut_j = st.number_input("Strut Joint (m)", value=3.0, step=0.5, format="%.2f")
+        strut_a = st.number_input("Strut Angle (deg)", value=42.0, step=1.0, format="%.1f")
+        n_ribs = st.number_input("Rib Pairs", value=3, step=1)
+
+    st.markdown("### Pretension Forces (kN)")
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        mem_tension = st.number_input("Membrane Pretension (kN)", value=2.0, step=0.5, format="%.2f")
+    with col_t2:
+        cable_tension = st.number_input("Cable Pretension (kN)", value=5.0, step=0.5, format="%.2f")
 
     geom = compute_lab_leaf_geometry(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
     
@@ -48,7 +55,12 @@ def render_tester_cantilever_leaf():
         st.markdown("### Structural Auto-Sizing")
         if st.button("Run Real FDM & Size Steel", type="primary", use_container_width=True):
             with st.spinner("1. Building Test Mesh & Cable Boundary..."):
-                mesh_data = build_leaf_test_mesh(geom)
+                # Convert kN to N for the solver
+                mesh_data = build_leaf_test_mesh(
+                    geom, 
+                    membrane_tension=mem_tension * 1000.0, 
+                    cable_tension=cable_tension * 1000.0
+                )
                 
             with st.spinner("2. Running FDM Solver..."):
                 fdm_res = solve_fdm(
@@ -66,7 +78,6 @@ def render_tester_cantilever_leaf():
                 applied_loads = {}
                 steel_nodes = frame_data["nodes"]
                 
-                # Map membrane reactions to nearest steel nodes
                 for i in range(len(coords)):
                     if i in mesh_data["fixed_indices"]:
                         mem_pos = coords[i]
