@@ -11,15 +11,18 @@ def build_cantilever_frame(col_h, outreach, half_width_mid, rib_tilt_deg, arc_r,
     nodes = [np.array([0.0, 0.0, 0.0])] # Node 0: Base
     fixed_indices = [0]
     
-    nodes.append(np.array([0.0, 0.0, strut_joint])) # Node 1: Strut Joint
-    nodes.append(np.array([0.0, 0.0, col_h]))       # Node 2: Top of Column
+    # Node 1: Strut Joint on Column
+    nodes.append(np.array([0.0, 0.0, strut_joint])) 
+    
+    # Node 2: Top of Column (Spine Start)
+    nodes.append(np.array([0.0, 0.0, col_h]))       
     
     elements = [
         {"a": 0, "b": 1, "section": KIND_PRIMARY, "kind": KIND_PRIMARY},
         {"a": 1, "b": 2, "section": KIND_PRIMARY, "kind": KIND_PRIMARY}
     ]
     
-    # Spine
+    # Build Spine
     b = geom["beam"]
     spine_indices = [2]
     for i in range(1, len(b["x"])):
@@ -28,7 +31,7 @@ def build_cantilever_frame(col_h, outreach, half_width_mid, rib_tilt_deg, arc_r,
         spine_indices.append(idx)
         elements.append({"a": spine_indices[-2], "b": idx, "section": KIND_PRIMARY, "kind": KIND_PRIMARY})
         
-    # Ribs
+    # Build Ribs
     for rib in geom["ribs"]:
         ax, ay, az = rib["attach"]
         attach_node = spine_indices[np.argmin(np.linalg.norm(np.array(nodes)[spine_indices] - np.array([ax, ay, az]), axis=1))]
@@ -41,9 +44,10 @@ def build_cantilever_frame(col_h, outreach, half_width_mid, rib_tilt_deg, arc_r,
         nodes.append(np.array(rib["right_tip"]))
         elements.append({"a": attach_node, "b": r_idx, "section": KIND_RIB, "kind": KIND_RIB})
 
-    # Strut
+    # Build Strut
     sa = geom["strut"]["attach"]
     strut_attach_node = spine_indices[np.argmin(np.linalg.norm(np.array(nodes)[spine_indices] - np.array(sa), axis=1))]
+    # The strut now connects from the spine attach point directly to Node 1 (the 3m joint)
     elements.append({"a": strut_attach_node, "b": 1, "section": KIND_STRUT, "kind": KIND_STRUT})
 
     return {"nodes": np.asarray(nodes, dtype=float), "elements": elements, "fixed_indices": fixed_indices}
