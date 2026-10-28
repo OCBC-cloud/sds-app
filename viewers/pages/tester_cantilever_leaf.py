@@ -1,5 +1,6 @@
 import streamlit as st
 import numpy as np
+import math
 
 from viewers.figures.cantilever_leaf_lab import compute_lab_leaf_geometry, build_cantilever_leaf_lab_figure
 from engine.form_finding_test import solve_fdm
@@ -22,9 +23,9 @@ LAB_TESTER_CSS = """
 def render_tester_cantilever_leaf():
     st.markdown(LAB_TESTER_CSS, unsafe_allow_html=True)
     st.markdown('<div class="ctl-topbar"><div class="ctl-wordmark">SDSe LAB</div><div></div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="ctl-header">Cantilever Leaf — Universal Structural Test</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ctl-header">Cantilever Leaf — True Perimeter Cable</div>', unsafe_allow_html=True)
     
-    # Sliders moved to the main page layout!
+    # Sliders
     st.markdown("### Leaf Geometry Inputs")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -41,58 +42,86 @@ def render_tester_cantilever_leaf():
 
     geom = compute_lab_leaf_geometry(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
     
-    st.markdown("---")
     col_l, col_r = st.columns([2, 1])
     with col_l:
         st.plotly_chart(build_cantilever_leaf_lab_figure(geom), use_container_width=True, config={"displayModeBar": False})
 
     with col_r:
         st.markdown("### Structural Auto-Sizing")
-        if st.button("Run Structural Analysis", type="primary", use_container_width=True):
-            with st.spinner("Running Pipeline..."):
-                # 1. FDM (Simplified)
-                b = geom["beam"]
-                spine_pts = np.column_stack([b["x"], b["y"], b["z"]])
-                mesh_pts = list(spine_pts)
-                mesh_edges = []
-                fixed_nodes = []
+        if st.button("Run True Cable Analysis", type="primary", use_container_width=True):
+            with st.spinner("1. Extracting Outer Boundary..."):
                 
-                for rib in geom["ribs"]:
-                    l_idx = len(mesh_pts)
-                    mesh_pts.append(rib["left_tip"])
-                    ax, ay, az = rib["attach"]
-                    spine_idx = np.argmin(np.linalg.norm(spine_pts - np.array([ax, ay, az]), axis=1))
-                    mesh_edges.append((spine_idx, l_idx))
-                    fixed_nodes.append(spine_idx)
-                    
-                    r_idx = len(mesh_pts)
-                    mesh_pts.append(rib["right_tip"])
-                    mesh_edges.append((spine_idx, r_idx))
+                # 1. Build the perimeter loop by following the outer edge of the fabric
+                # We trace the RIGHT side from column to tip, then LEFT side from tip to column.
+                m = geom["membrane"]
+                X, Y, Z = m["X"], m["Y"], m["Z"]
                 
-                for i in range(len(geom["ribs"]) - 1):
-                    l1 = len(spine_pts) + i*2
-                    l2 = len(spine_pts) + (i+1)*2
-                    mesh_edges.extend([(l1, l2), (l1+1, l2+1)])
+                # Right boundary (max Y at each X station)
+                right_boundary = []
+                for i in range(X.shape[0]):
+                    j_max = np.argmax(Y[i, :])
+                    right_boundary.append((X[i, j_max], Y[i, j_max], Z[i, j_max]))
                 
-                q = np.full(len(mesh_edges), 5000.0)
-                fdm_res = solve_fdm(np.array(mesh_pts), mesh_edges, list(set(fixed_nodes)), q)
+                # Left boundary (min Y at each X station)
+                left_boundary = []
+                for i in range(X.shape[0]):
+                    j_min = np.argmin(Y[i, :])
+                    left_boundary.append((X[i, j_min], Y[i, j_min], Z[i, j_min]))
+                
+                # Combine to make a continuous loop: Right (start to end) -> Left (end to start)
+                perimeter_pts = right_boundary + list(reversed(left_boundary))
+                perimeter_loop = np.array(perimeter_pts)
+                
+                # Subdivide for smooth cable bowing
+                subdiv = []
+                for i in range(len(perimeter_loop)):
+                    a = perimeter_loop[i]
+                    b = perimeter_loop[(i + 1) % len(perimeter_loop)]
+                    for k in range(3): # 3 points per segment
+                        subdiv.append(a + (b - a) * (k / 3.0))
+                perimeter_loop = np.array(subdiv)
+                
+                # We fix ALL perimeter nodes because they represent the tensioned cable
+                anchor_idx = list(range(len(perimeter_loop)))
+                
+                # Find the indices of the actual rib tips and beam tip to ensure they are anchored
+                # (Optional: we could assign structural anchors to specific steel points)
+                fixed = anchor_idx
+
+            with st.spinner("2. Running FDM Solver on Cable..."):
+                # 2. Build edges along the perimeter (a closed loop)
+                n_p = len(perimeter_loop)
+                edges = []
+                for i in range(n_p):
+                    edges.append((i, (i + 1) % n_p))
+                
+                # Cable tension (q) - very high for perimeter
+                q = np.full(len(edges), 5000.0) # 5.0 kN
+                
+                # Run FDM (Notice we pass the points twice to give it a starting shape)
+                fdm_res = solve_fdm(perimeter_loop, edges, fixed, q)
+                coords = fdm_res["coordinates"]
                 reactions_N = fdm_res["reactions"] * 1000.0
-                
-                # 2. Build Frame
+
+            with st.spinner("3. Transferring Cable Forces to Steel..."):
                 frame_data = build_cantilever_frame(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
                 
-                # 3. Apply Loads
                 applied_loads = {}
-                for i, f_node in enumerate(list(set(fixed_nodes))):
-                    applied_loads[f_node] = -reactions_N[f_node]
+                steel_nodes = frame_data["nodes"]
                 
-                # Add Wind Load to Rib Tips (1.0 kN downward for testing)
-                for elem in frame_data["elements"]:
-                    if elem["kind"] == "rib":
-                        tip_node = elem["b"]
-                        applied_loads[tip_node] = np.array([0.0, 0.0, -1000.0])
-                
-                # 4. Size
+                # Map the perimeter reactions directly to the steel frame
+                for i in range(len(coords)):
+                    if i in fixed:
+                        mem_pos = coords[i]
+                        dists = np.linalg.norm(steel_nodes - mem_pos, axis=1)
+                        s_idx = np.argmin(dists)
+                        
+                        force = -reactions_N[i]
+                        if s_idx not in applied_loads:
+                            applied_loads[s_idx] = np.zeros(3)
+                        applied_loads[s_idx] += force
+
+            with st.spinner("4. Auto-Sizing..."):
                 result = analyze_and_size_frame(frame_data, applied_loads, grade="S355", family="CHS")
                 
                 if "error" in result:
