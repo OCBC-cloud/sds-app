@@ -1,14 +1,11 @@
 import streamlit as st
 import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
 
 from viewers.figures.cantilever_leaf_lab import compute_lab_leaf_geometry, build_cantilever_leaf_lab_figure
 from engine.cantilever_leaf_test_mesh import build_leaf_test_mesh
 from engine.form_finding_test import solve_fdm
 from engine.cantilever_frame_builder import build_cantilever_frame
 from engine.frame_analysis import analyze_and_size_frame
-from viewers.figures._shared import apply_common_layout
 
 LAB_TESTER_CSS = """
     <style>
@@ -24,7 +21,7 @@ LAB_TESTER_CSS = """
 def render_tester_cantilever_leaf():
     st.markdown(LAB_TESTER_CSS, unsafe_allow_html=True)
     st.markdown('<div class="ctl-topbar"><div class="ctl-wordmark">SDSe LAB</div><div></div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="ctl-header">Cantilever Leaf — Visual Bowing Test</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ctl-header">Cantilever Leaf — Real Mesh & Cable</div>', unsafe_allow_html=True)
     
     # Number Inputs
     st.markdown("### Leaf Geometry Inputs")
@@ -53,16 +50,13 @@ def render_tester_cantilever_leaf():
     geom = compute_lab_leaf_geometry(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
     
     col_l, col_r = st.columns([2, 1])
-    
-    plot_placeholder = col_l.empty()
-
-    with plot_placeholder:
+    with col_l:
         st.plotly_chart(build_cantilever_leaf_lab_figure(geom), use_container_width=True, config={"displayModeBar": False})
 
     with col_r:
         st.markdown("### Structural Auto-Sizing")
         if st.button("Run Real FDM & Size Steel", type="primary", use_container_width=True):
-            with st.spinner("1. Building Test Mesh..."):
+            with st.spinner("1. Building Test Mesh & Cable Boundary..."):
                 mesh_data = build_leaf_test_mesh(
                     geom, 
                     membrane_tension=mem_tension * 1000.0, 
@@ -80,86 +74,25 @@ def render_tester_cantilever_leaf():
                 coords = fdm_res["coordinates"]
                 reactions_N = fdm_res["reactions"] * 1000.0
 
-            # --- UPDATE THE 3D VISUAL TO SHOW THE BOW ---
-            with plot_placeholder:
-                fig = go.Figure()
-                
-                # 1. Draw the settled membrane surface
-                # We only take the original 24x24 grid nodes for the surface
-                X = geom["membrane"]["X"]
-                n_u, n_v = X.shape
-                n_grid = n_u * n_v
-                
-                X_settled = coords[:n_grid, 0].reshape((n_u, n_v))
-                Y_settled = coords[:n_grid, 1].reshape((n_u, n_v))
-                Z_settled = coords[:n_grid, 2].reshape((n_u, n_v))
-                
-                fig.add_trace(go.Surface(
-                    x=X_settled, y=Y_settled, z=Z_settled,
-                    colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
-                    opacity=0.5, showscale=False, hoverinfo="skip"
-                ))
-
-                # 2. Draw the settled perimeter cables (Left and Right edges)
-                fig.add_trace(go.Scatter3d(
-                    x=X_settled[:, 0], y=Y_settled[:, 0], z=Z_settled[:, 0],
-                    mode="lines", line=dict(color="#00ffff", width=6), name="Bowed Cable (L)"
-                ))
-                fig.add_trace(go.Scatter3d(
-                    x=X_settled[:, -1], y=Y_settled[:, -1], z=Z_settled[:, -1],
-                    mode="lines", line=dict(color="#00ffff", width=6), name="Bowed Cable (R)"
-                ))
-
-                # 3. Draw the rigid steel frame
-                b = geom["beam"]
-                fig.add_trace(go.Scatter3d(x=b["x"], y=b["y"], z=b["z"], mode="lines", line=dict(color="#FF6B6B", width=8), name="Main beam"))
-                fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0,col_h], mode="lines", line=dict(color="#2ecc71", width=10), name="Column"))
-                
-                for rib in geom["ribs"]:
-                    ax, ay, az = rib["attach"]
-                    lx, ly, lz = rib["left_tip"]
-                    rx, ry, rz = rib["right_tip"]
-                    fig.add_trace(go.Scatter3d(x=[lx, ax, rx], y=[ly, ay, ry], z=[lz, az, rz], mode="lines", line=dict(color="#3498db", width=3), showlegend=False))
-                
-                sa = geom["strut"]["attach"]
-                sb = geom["strut"]["base"]
-                fig.add_trace(go.Scatter3d(x=[sa[0], sb[0]], y=[sa[1], sb[1]], z=[sa[2], sb[2]], mode="lines", line=dict(color="#e67e22", width=4), name="Strut"))
-
-                st.plotly_chart(apply_common_layout(fig, col_h), use_container_width=True, config={"displayModeBar": False})
-
-            # --- DIGITISED REPORT ---
-            st.markdown("### 📊 Digitised Nodes Report")
-            boundary_ids = []
-            for i in range(n_u):
-                boundary_ids.append(i * n_v + 0)
-                boundary_ids.append(i * n_v + (n_v - 1))
-            sample_ids = boundary_ids[::4] 
-            
-            report_data = []
-            for idx in sample_ids:
-                orig = mesh_data["points_3d"][idx]
-                settled = coords[idx]
-                report_data.append({
-                    "Node": idx,
-                    "Orig Y": round(orig[1], 3), "Settled Y": round(settled[1], 3), "Δ Y": round(settled[1] - orig[1], 3),
-                    "Orig Z": round(orig[2], 3), "Settled Z": round(settled[2], 3), "Δ Z": round(settled[2] - orig[2], 3),
-                })
-            st.dataframe(pd.DataFrame(report_data), use_container_width=True, hide_index=True)
-
-            with st.spinner("3. Auto-Sizing..."):
+            with st.spinner("3. Transferring Loads to Steel..."):
                 frame_data = build_cantilever_frame(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
+                
                 applied_loads = {}
                 steel_nodes = frame_data["nodes"]
+                
+                # Map membrane reactions to nearest steel nodes
                 for i in range(len(coords)):
                     if i in mesh_data["fixed_indices"]:
                         mem_pos = coords[i]
                         dists = np.linalg.norm(steel_nodes - mem_pos, axis=1)
                         s_idx = np.argmin(dists)
+                        
                         force = -reactions_N[i]
                         if s_idx not in applied_loads:
                             applied_loads[s_idx] = np.zeros(3)
                         applied_loads[s_idx] += force
 
+            with st.spinner("4. Auto-Sizing..."):
                 result = analyze_and_size_frame(frame_data, applied_loads, grade="S355", family="CHS")
                 
                 if "error" in result:
