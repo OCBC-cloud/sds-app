@@ -1,5 +1,5 @@
 # =============================================================================
-# SDSe - Cantilever Leaf LAB Figure Builder (Dynamic)
+# SDSe - Cantilever Leaf LAB Figure Builder (Dynamic with Membrane)
 # =============================================================================
 
 import math
@@ -64,6 +64,29 @@ def compute_lab_leaf_geometry(col_h=6.0, outreach=5.0, half_width_mid=2.0,
     idx_a = max(0, min(N_BEAM - 1, int(round((strut_attach_local / outreach) * (N_BEAM - 1)))))
     strut_attach = (float(beam_x[idx_a]), 0.0, float(beam_z[idx_a]))
 
+    # ---- Membrane Grid (Restored)
+    n_u, n_v = 24, 24
+    u_vals = np.linspace(0.02, 0.98, n_u)
+    v_vals = np.linspace(-1.0, 1.0, n_v)
+    X = np.zeros((n_u, n_v))
+    Y = np.zeros((n_u, n_v))
+    Z = np.zeros((n_u, n_v))
+    for i, t in enumerate(u_vals):
+        idx = int(round(t * (N_BEAM - 1)))
+        bx  = float(beam_x[idx])
+        bz  = float(beam_z[idx])
+        hw  = half_width(t)
+        tl  = tilt_rad(t)
+        tip_z = bz + hw * math.tan(tl)
+        for j, v in enumerate(v_vals):
+            y_loc = v * hw
+            z_edge = bz * (1 - abs(v)) + tip_z * abs(v)
+            sag = 0.15 * hw * (1 - (2 * abs(v) - 1) ** 2)
+            z_loc = z_edge - sag
+            X[i, j] = bx
+            Y[i, j] = y_loc
+            Z[i, j] = z_loc
+
     return {
         "spec": {
             "column_height": col_h, "outreach": outreach, "ribs_per_side": ribs_per_side,
@@ -74,6 +97,7 @@ def compute_lab_leaf_geometry(col_h=6.0, outreach=5.0, half_width_mid=2.0,
         "ribs": ribs,
         "strut": {"attach": strut_attach, "base": (0.0, 0.0, strut_joint)},
         "column": {"base": (0.0, 0.0, 0.0), "top": (0.0, 0.0, col_h)},
+        "membrane": {"X": X, "Y": Y, "Z": Z},
     }
 
 def build_cantilever_leaf_lab_figure(geom):
@@ -95,5 +119,15 @@ def build_cantilever_leaf_lab_figure(geom):
     sa = geom["strut"]["attach"]
     sb = geom["strut"]["base"]
     fig.add_trace(go.Scatter3d(x=[sa[0], sb[0]], y=[sa[1], sb[1]], z=[sa[2], sb[2]], mode="lines", line=dict(color="#e67e22", width=4), name="Strut"))
+    
+    # Membrane Surface
+    m = geom["membrane"]
+    fig.add_trace(go.Surface(
+        x=m["X"], y=m["Y"], z=m["Z"],
+        colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
+        opacity=0.55,
+        showscale=False,
+        hoverinfo="skip",
+    ))
     
     return apply_common_layout(fig, col_h)
