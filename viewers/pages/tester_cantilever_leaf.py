@@ -54,10 +54,8 @@ def render_tester_cantilever_leaf():
     
     col_l, col_r = st.columns([2, 1])
     
-    # Placeholder for the plot so we can update it after running
     plot_placeholder = col_l.empty()
 
-    # Draw initial geometry before running
     with plot_placeholder:
         st.plotly_chart(build_cantilever_leaf_lab_figure(geom), use_container_width=True, config={"displayModeBar": False})
 
@@ -87,11 +85,14 @@ def render_tester_cantilever_leaf():
                 fig = go.Figure()
                 
                 # 1. Draw the settled membrane surface
+                # We only take the original 24x24 grid nodes for the surface
                 X = geom["membrane"]["X"]
                 n_u, n_v = X.shape
-                X_settled = coords[:, 0].reshape((n_u, n_v))
-                Y_settled = coords[:, 1].reshape((n_u, n_v))
-                Z_settled = coords[:, 2].reshape((n_u, n_v))
+                n_grid = n_u * n_v
+                
+                X_settled = coords[:n_grid, 0].reshape((n_u, n_v))
+                Y_settled = coords[:n_grid, 1].reshape((n_u, n_v))
+                Z_settled = coords[:n_grid, 2].reshape((n_u, n_v))
                 
                 fig.add_trace(go.Surface(
                     x=X_settled, y=Y_settled, z=Z_settled,
@@ -100,12 +101,10 @@ def render_tester_cantilever_leaf():
                 ))
 
                 # 2. Draw the settled perimeter cables (Left and Right edges)
-                # Left edge
                 fig.add_trace(go.Scatter3d(
                     x=X_settled[:, 0], y=Y_settled[:, 0], z=Z_settled[:, 0],
                     mode="lines", line=dict(color="#00ffff", width=6), name="Bowed Cable (L)"
                 ))
-                # Right edge
                 fig.add_trace(go.Scatter3d(
                     x=X_settled[:, -1], y=Y_settled[:, -1], z=Z_settled[:, -1],
                     mode="lines", line=dict(color="#00ffff", width=6), name="Bowed Cable (R)"
