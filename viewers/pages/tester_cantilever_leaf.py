@@ -1,5 +1,6 @@
 import streamlit as st
 import numpy as np
+import pandas as pd
 
 from viewers.figures.cantilever_leaf_lab import compute_lab_leaf_geometry, build_cantilever_leaf_lab_figure
 from engine.cantilever_leaf_test_mesh import build_leaf_test_mesh
@@ -74,13 +75,47 @@ def render_tester_cantilever_leaf():
                 coords = fdm_res["coordinates"]
                 reactions_N = fdm_res["reactions"] * 1000.0
 
+            # --- DIAGNOSTIC REPORT ---
+            st.markdown("### 📊 Digitised Nodes Report (Perimeter)")
+            st.write("Comparing original vs. settled coordinates for the cable.")
+            
+            # Get the perimeter nodes (boundary IDs)
+            X = geom["membrane"]["X"]
+            n_u, n_v = X.shape
+            boundary_ids = []
+            for i in range(n_u):
+                boundary_ids.append(i * n_v + 0)          # Left edge
+                boundary_ids.append(i * n_v + (n_v - 1))  # Right edge
+            
+            # Sample a few nodes along the left edge to keep the table small
+            sample_ids = boundary_ids[::4] 
+            
+            report_data = []
+            for idx in sample_ids:
+                orig = mesh_data["points_3d"][idx]
+                settled = coords[idx]
+                report_data.append({
+                    "Node Index": idx,
+                    "Orig X": round(orig[0], 3),
+                    "Orig Y": round(orig[1], 3),
+                    "Orig Z": round(orig[2], 3),
+                    "Settled X": round(settled[0], 3),
+                    "Settled Y": round(settled[1], 3),
+                    "Settled Z": round(settled[2], 3),
+                    "Δ X": round(settled[0] - orig[0], 3),
+                    "Δ Y": round(settled[1] - orig[1], 3),
+                    "Δ Z": round(settled[2] - orig[2], 3),
+                })
+                
+            df = pd.DataFrame(report_data)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
             with st.spinner("3. Transferring Loads to Steel..."):
                 frame_data = build_cantilever_frame(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
                 
                 applied_loads = {}
                 steel_nodes = frame_data["nodes"]
                 
-                # Map membrane reactions to nearest steel nodes
                 for i in range(len(coords)):
                     if i in mesh_data["fixed_indices"]:
                         mem_pos = coords[i]
