@@ -21,7 +21,7 @@ LAB_TESTER_CSS = """
 def render_tester_cantilever_leaf():
     st.markdown(LAB_TESTER_CSS, unsafe_allow_html=True)
     st.markdown('<div class="ctl-topbar"><div class="ctl-wordmark">SDSe LAB</div><div></div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="ctl-header">Cantilever Leaf — Real Mesh & Cable</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ctl-header">Cantilever Leaf — True Bowing Cable</div>', unsafe_allow_html=True)
     
     # Number Inputs
     st.markdown("### Leaf Geometry Inputs")
@@ -64,7 +64,7 @@ def render_tester_cantilever_leaf():
                     attached_to_spine=attached_to_spine
                 )
                 
-            with st.spinner("2. Running FDM Solver..."):
+            with st.spinner("2. Running FDM Solver (Bowing)..."):
                 fdm_res = solve_fdm(
                     points=mesh_data["points_3d"], 
                     edges=mesh_data["edges"], 
