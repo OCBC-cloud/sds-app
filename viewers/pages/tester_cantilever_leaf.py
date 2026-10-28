@@ -161,7 +161,7 @@ def _render_3d_board():
 # PUBLIC FUNCTION
 # =============================================================================
 
-def render_saddle_leaf():
+def render_lab_cantilever_leaf():
     st.components.v1.html("""<script>window.parent.scrollTo(0, 0);</script>""", height=0, width=0)
     st.markdown(WORKSHOP_CSS, unsafe_allow_html=True)
     _init_defaults()
