@@ -1,8 +1,8 @@
 import streamlit as st
 import numpy as np
-import math
 
 from viewers.figures.cantilever_leaf_lab import compute_lab_leaf_geometry, build_cantilever_leaf_lab_figure
+from engine.cantilever_leaf_test_mesh import build_leaf_test_mesh
 from engine.form_finding_test import solve_fdm
 from engine.cantilever_frame_builder import build_cantilever_frame
 from engine.frame_analysis import analyze_and_size_frame
@@ -15,15 +15,13 @@ LAB_TESTER_CSS = """
     .ctl-wordmark { font-size: 1.1rem; font-weight: 700; color: #f39c12; letter-spacing: 2px; }
     .ctl-header { font-size: 1.4rem; font-weight: 700; color: #ffffff; margin: 0.4rem 0 0.3rem 0; }
     .ctl-sub { font-size: 0.9rem; color: #a8b8c8; margin-bottom: 1.2rem; line-height: 1.4; }
-    .ctl-card { background-color: #121e2e; border: 1px solid #1e2a3a; border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: 0.7rem; }
-    .ctl-mono { font-family: 'SF Mono', Menlo, monospace; font-size: 0.8rem; color: #c8d8e8; white-space: pre-wrap; }
     </style>
 """
 
 def render_tester_cantilever_leaf():
     st.markdown(LAB_TESTER_CSS, unsafe_allow_html=True)
     st.markdown('<div class="ctl-topbar"><div class="ctl-wordmark">SDSe LAB</div><div></div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="ctl-header">Cantilever Leaf — True Perimeter Cable</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ctl-header">Cantilever Leaf — Real Mesh & Cable</div>', unsafe_allow_html=True)
     
     # Sliders
     st.markdown("### Leaf Geometry Inputs")
@@ -48,70 +46,29 @@ def render_tester_cantilever_leaf():
 
     with col_r:
         st.markdown("### Structural Auto-Sizing")
-        if st.button("Run True Cable Analysis", type="primary", use_container_width=True):
-            with st.spinner("1. Extracting Outer Boundary..."):
+        if st.button("Run Real FDM & Size Steel", type="primary", use_container_width=True):
+            with st.spinner("1. Building Test Mesh & Cable Boundary..."):
+                mesh_data = build_leaf_test_mesh(geom)
                 
-                # 1. Build the perimeter loop by following the outer edge of the fabric
-                # We trace the RIGHT side from column to tip, then LEFT side from tip to column.
-                m = geom["membrane"]
-                X, Y, Z = m["X"], m["Y"], m["Z"]
-                
-                # Right boundary (max Y at each X station)
-                right_boundary = []
-                for i in range(X.shape[0]):
-                    j_max = np.argmax(Y[i, :])
-                    right_boundary.append((X[i, j_max], Y[i, j_max], Z[i, j_max]))
-                
-                # Left boundary (min Y at each X station)
-                left_boundary = []
-                for i in range(X.shape[0]):
-                    j_min = np.argmin(Y[i, :])
-                    left_boundary.append((X[i, j_min], Y[i, j_min], Z[i, j_min]))
-                
-                # Combine to make a continuous loop: Right (start to end) -> Left (end to start)
-                perimeter_pts = right_boundary + list(reversed(left_boundary))
-                perimeter_loop = np.array(perimeter_pts)
-                
-                # Subdivide for smooth cable bowing
-                subdiv = []
-                for i in range(len(perimeter_loop)):
-                    a = perimeter_loop[i]
-                    b = perimeter_loop[(i + 1) % len(perimeter_loop)]
-                    for k in range(3): # 3 points per segment
-                        subdiv.append(a + (b - a) * (k / 3.0))
-                perimeter_loop = np.array(subdiv)
-                
-                # We fix ALL perimeter nodes because they represent the tensioned cable
-                anchor_idx = list(range(len(perimeter_loop)))
-                
-                # Find the indices of the actual rib tips and beam tip to ensure they are anchored
-                # (Optional: we could assign structural anchors to specific steel points)
-                fixed = anchor_idx
-
-            with st.spinner("2. Running FDM Solver on Cable..."):
-                # 2. Build edges along the perimeter (a closed loop)
-                n_p = len(perimeter_loop)
-                edges = []
-                for i in range(n_p):
-                    edges.append((i, (i + 1) % n_p))
-                
-                # Cable tension (q) - very high for perimeter
-                q = np.full(len(edges), 5000.0) # 5.0 kN
-                
-                # Run FDM (Notice we pass the points twice to give it a starting shape)
-                fdm_res = solve_fdm(perimeter_loop, edges, fixed, q)
+            with st.spinner("2. Running FDM Solver..."):
+                fdm_res = solve_fdm(
+                    points=mesh_data["points_3d"], 
+                    edges=mesh_data["edges"], 
+                    fixed_indices=mesh_data["fixed_indices"], 
+                    force_densities=mesh_data["q"]
+                )
                 coords = fdm_res["coordinates"]
                 reactions_N = fdm_res["reactions"] * 1000.0
 
-            with st.spinner("3. Transferring Cable Forces to Steel..."):
+            with st.spinner("3. Transferring Loads to Steel..."):
                 frame_data = build_cantilever_frame(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
                 
                 applied_loads = {}
                 steel_nodes = frame_data["nodes"]
                 
-                # Map the perimeter reactions directly to the steel frame
+                # Map membrane reactions to nearest steel nodes
                 for i in range(len(coords)):
-                    if i in fixed:
+                    if i in mesh_data["fixed_indices"]:
                         mem_pos = coords[i]
                         dists = np.linalg.norm(steel_nodes - mem_pos, axis=1)
                         s_idx = np.argmin(dists)
