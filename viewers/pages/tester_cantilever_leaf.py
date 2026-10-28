@@ -24,20 +24,24 @@ def render_tester_cantilever_leaf():
     st.markdown('<div class="ctl-topbar"><div class="ctl-wordmark">SDSe LAB</div><div></div></div>', unsafe_allow_html=True)
     st.markdown('<div class="ctl-header">Cantilever Leaf — Universal Structural Test</div>', unsafe_allow_html=True)
     
-    # Sliders for dynamic testing
-    with st.sidebar:
-        st.markdown("### Leaf Geometry")
+    # Sliders moved to the main page layout!
+    st.markdown("### Leaf Geometry Inputs")
+    col1, col2, col3 = st.columns(3)
+    with col1:
         col_h = st.slider("Column Height (m)", 3.0, 12.0, 6.0, 0.5)
         outreach = st.slider("Outreach (m)", 2.0, 15.0, 5.0, 0.5)
         half_w = st.slider("Middle Half-Width (m)", 0.5, 5.0, 2.0, 0.5)
+    with col2:
         tilt = st.slider("Rib Tilt (deg)", -45.0, 45.0, 0.0, 1.0)
         arc_r = st.slider("Arc Radius (m)", 0.0, 5.0, 1.0, 0.1)
+    with col3:
         strut_j = st.slider("Strut Joint (m)", 1.0, col_h, 3.0, 0.5)
         strut_a = st.slider("Strut Angle (deg)", 20.0, 80.0, 42.0, 1.0)
         n_ribs = st.slider("Rib Pairs", 1, 8, 3, 1)
 
     geom = compute_lab_leaf_geometry(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
     
+    st.markdown("---")
     col_l, col_r = st.columns([2, 1])
     with col_l:
         st.plotly_chart(build_cantilever_leaf_lab_figure(geom), use_container_width=True, config={"displayModeBar": False})
