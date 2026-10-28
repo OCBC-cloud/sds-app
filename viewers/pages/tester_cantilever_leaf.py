@@ -428,12 +428,9 @@ def render_lab_cantilever_leaf():
     # ---- Bottom Action Buttons ----
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("---")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("Back to Registration", key="ws_sl_back_bottom", use_container_width=True):
-            st.session_state.page = "registration"
-            st.rerun()
-    with col_b:
-        if st.button("Intelligent Design Computing", key="ws_sl_run_bottom", use_container_width=True, type="primary"):
-            st.session_state.page = "results"
-            st.rerun()
+    # ---- Bottom Action Buttons (Lab Version) ----
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("---")
+    if st.button("Back to Lab", key="lab_leaf_back", use_container_width=True):
+        st.session_state.page = "lab"
+        st.rerun()
