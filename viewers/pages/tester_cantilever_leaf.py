@@ -44,6 +44,8 @@ def render_tester_cantilever_leaf():
         mem_tension = st.number_input("Membrane Pretension (kN)", value=2.0, step=0.5, format="%.2f")
     with col_t2:
         cable_tension = st.number_input("Cable Pretension (kN)", value=5.0, step=0.5, format="%.2f")
+        
+    attached_to_spine = st.toggle("Attach Membrane to Main Spine", value=True)
 
     geom = compute_lab_leaf_geometry(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
     
@@ -55,11 +57,11 @@ def render_tester_cantilever_leaf():
         st.markdown("### Structural Auto-Sizing")
         if st.button("Run Real FDM & Size Steel", type="primary", use_container_width=True):
             with st.spinner("1. Building Test Mesh & Cable Boundary..."):
-                # Convert kN to N for the solver
                 mesh_data = build_leaf_test_mesh(
                     geom, 
                     membrane_tension=mem_tension * 1000.0, 
-                    cable_tension=cable_tension * 1000.0
+                    cable_tension=cable_tension * 1000.0,
+                    attached_to_spine=attached_to_spine
                 )
                 
             with st.spinner("2. Running FDM Solver..."):
@@ -78,6 +80,7 @@ def render_tester_cantilever_leaf():
                 applied_loads = {}
                 steel_nodes = frame_data["nodes"]
                 
+                # Map membrane reactions to nearest steel nodes
                 for i in range(len(coords)):
                     if i in mesh_data["fixed_indices"]:
                         mem_pos = coords[i]
