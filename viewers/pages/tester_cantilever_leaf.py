@@ -1,11 +1,12 @@
 import streamlit as st
 import numpy as np
+import plotly.graph_objects as go
 
 from viewers.figures.cantilever_leaf_lab import compute_lab_leaf_geometry, build_cantilever_leaf_lab_figure
-from engine.cantilever_leaf_test_mesh import build_leaf_test_mesh
-from engine.form_finding_test import solve_fdm
+from engine.membrane_boundary import build_and_solve
 from engine.cantilever_frame_builder import build_cantilever_frame
 from engine.frame_analysis import analyze_and_size_frame
+from viewers.figures._shared import apply_common_layout
 
 LAB_TESTER_CSS = """
     <style>
@@ -21,7 +22,7 @@ LAB_TESTER_CSS = """
 def render_tester_cantilever_leaf():
     st.markdown(LAB_TESTER_CSS, unsafe_allow_html=True)
     st.markdown('<div class="ctl-topbar"><div class="ctl-wordmark">SDSe LAB</div><div></div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="ctl-header">Cantilever Leaf — Real Mesh & Cable</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ctl-header">Cantilever Leaf — Universal Boundary Engine</div>', unsafe_allow_html=True)
     
     # Number Inputs
     st.markdown("### Leaf Geometry Inputs")
@@ -41,58 +42,139 @@ def render_tester_cantilever_leaf():
     st.markdown("### Pretension Forces (kN)")
     col_t1, col_t2 = st.columns(2)
     with col_t1:
-        mem_tension = st.number_input("Membrane Pretension (kN)", value=2.0, step=0.5, format="%.2f")
+        mem_q = st.number_input("Membrane Pretension (kN)", value=2.0, step=0.5, format="%.2f")
     with col_t2:
-        cable_tension = st.number_input("Cable Pretension (kN)", value=5.0, step=0.5, format="%.2f")
-        
-    attached_to_spine = st.toggle("Attach Membrane to Main Spine", value=True)
+        cab_q = st.number_input("Cable Pretension (kN)", value=5.0, step=0.5, format="%.2f")
 
     geom = compute_lab_leaf_geometry(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
     
     col_l, col_r = st.columns([2, 1])
-    with col_l:
+    plot_placeholder = col_l.empty()
+
+    with plot_placeholder:
         st.plotly_chart(build_cantilever_leaf_lab_figure(geom), use_container_width=True, config={"displayModeBar": False})
 
     with col_r:
         st.markdown("### Structural Auto-Sizing")
-        if st.button("Run Real FDM & Size Steel", type="primary", use_container_width=True):
-            with st.spinner("1. Building Test Mesh & Cable Boundary..."):
-                mesh_data = build_leaf_test_mesh(
-                    geom, 
-                    membrane_tension=mem_tension * 1000.0, 
-                    cable_tension=cable_tension * 1000.0,
-                    attached_to_spine=attached_to_spine
-                )
+        if st.button("Run Universal Mesh & Size Steel", type="primary", use_container_width=True):
+            
+            with st.spinner("1. Constructing Boundary Loop & Anchors..."):
+                # Build the boundary: Beam tip -> Left Tips -> Root -> Right Tips -> Beam Tip
+                pts = []
+                anchor_indices = []
+                edge_types = []
                 
-            with st.spinner("2. Running FDM Solver..."):
-                fdm_res = solve_fdm(
-                    points=mesh_data["points_3d"], 
-                    edges=mesh_data["edges"], 
-                    fixed_indices=mesh_data["fixed_indices"], 
-                    force_densities=mesh_data["q"]
+                # 1. Start at Beam Tip
+                b_tip = np.array([geom["beam"]["x"][-1], geom["beam"]["y"][-1], geom["beam"]["z"][-1]])
+                pts.append(b_tip)
+                anchor_indices.append(0)
+                edge_types.append("cable") # Tip cable
+                
+                # 2. Left side (Tip -> Root)
+                for rib in reversed(geom["ribs"]):
+                    pts.append(np.array(rib["left_tip"]))
+                    anchor_indices.append(len(pts)-1)
+                    edge_types.append("cable")
+                
+                # 3. Root (Column joint)
+                root_pt = np.array([0.0, 0.0, col_h])
+                pts.append(root_pt)
+                anchor_indices.append(len(pts)-1)
+                edge_types.append("cable")
+                
+                # 4. Right side (Root -> Tip)
+                for rib in geom["ribs"]:
+                    pts.append(np.array(rib["right_tip"]))
+                    anchor_indices.append(len(pts)-1)
+                    edge_types.append("cable")
+                
+                boundary = np.array(pts)
+                
+                # We subdivide the boundary lines so they have enough nodes to bow
+                subdiv_boundary = []
+                subdiv_anchors = []
+                subdiv_types = []
+                
+                for i in range(len(boundary)):
+                    a = boundary[i]
+                    b = boundary[(i + 1) % len(boundary)]
+                    is_anchor = i in anchor_indices
+                    
+                    # 5 points per segment
+                    for k in range(5):
+                        t = k / 5.0
+                        subdiv_boundary.append(a + (b - a) * t)
+                        subdiv_types.append("cable")
+                        # Only pin the exact anchor tip
+                        if k == 0 and is_anchor:
+                            subdiv_anchors.append(len(subdiv_boundary) - 1)
+                            
+                # Add the final loop closure point (same as first)
+                subdiv_boundary.append(boundary[0])
+                subdiv_types.append("cable")
+                
+                boundary_array = np.array(subdiv_boundary)
+                
+            with st.spinner("2. Running Universal TFI Mesh + FDM..."):
+                # Run the Universal Mesh Boundary builder
+                # nx, ny = 21, 21 gives a nice dense grid
+                res = build_and_solve(
+                    boundary=boundary_array,
+                    anchor_indices=subdiv_anchors,
+                    edge_types=subdiv_types,
+                    nx=21, ny=21,
+                    membrane_q=mem_q * 1000.0,
+                    cable_q=cab_q * 1000.0,
                 )
-                coords = fdm_res["coordinates"]
-                reactions_N = fdm_res["reactions"] * 1000.0
+                coords = res["coordinates"]
+                mesh = res["mesh"]
+                reactions_N = res["solve_result"]["reactions"] * 1000.0
 
-            with st.spinner("3. Transferring Loads to Steel..."):
+            with st.spinner("3. Drawing the Bowed Shape..."):
+                fig = go.Figure()
+                
+                # Draw the settled membrane surface
+                X_settled = coords[:, 0].reshape((21, 21))
+                Y_settled = coords[:, 1].reshape((21, 21))
+                Z_settled = coords[:, 2].reshape((21, 21))
+                
+                fig.add_trace(go.Surface(
+                    x=X_settled, y=Y_settled, z=Z_settled,
+                    colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
+                    opacity=0.5, showscale=False, hoverinfo="skip"
+                ))
+
+                # Draw the rigid steel frame
+                b = geom["beam"]
+                fig.add_trace(go.Scatter3d(x=b["x"], y=b["y"], z=b["z"], mode="lines", line=dict(color="#FF6B6B", width=8), name="Main beam"))
+                fig.add_trace(go.Scatter3d(x=[0,0], y=[0,0], z=[0,col_h], mode="lines", line=dict(color="#2ecc71", width=10), name="Column"))
+                for rib in geom["ribs"]:
+                    ax, ay, az = rib["attach"]
+                    lx, ly, lz = rib["left_tip"]
+                    rx, ry, rz = rib["right_tip"]
+                    fig.add_trace(go.Scatter3d(x=[lx, ax, rx], y=[ly, ay, ry], z=[lz, az, rz], mode="lines", line=dict(color="#3498db", width=3), showlegend=False))
+
+                with plot_placeholder:
+                    st.plotly_chart(apply_common_layout(fig, col_h), use_container_width=True, config={"displayModeBar": False})
+
+            with st.spinner("4. Transferring Loads & Auto-Sizing..."):
                 frame_data = build_cantilever_frame(col_h, outreach, half_w, tilt, arc_r, strut_j, strut_a, n_ribs)
                 
                 applied_loads = {}
                 steel_nodes = frame_data["nodes"]
                 
-                # Map membrane reactions to nearest steel nodes
-                for i in range(len(coords)):
-                    if i in mesh_data["fixed_indices"]:
-                        mem_pos = coords[i]
-                        dists = np.linalg.norm(steel_nodes - mem_pos, axis=1)
-                        s_idx = np.argmin(dists)
-                        
-                        force = -reactions_N[i]
-                        if s_idx not in applied_loads:
-                            applied_loads[s_idx] = np.zeros(3)
-                        applied_loads[s_idx] += force
+                # Map the reaction forces from the fixed FDM nodes to the steel frame
+                fixed_nodes = mesh["fixed_indices"]
+                for idx in fixed_nodes:
+                    mem_pos = coords[idx]
+                    dists = np.linalg.norm(steel_nodes - mem_pos, axis=1)
+                    s_idx = np.argmin(dists)
+                    
+                    force = -reactions_N[idx]
+                    if s_idx not in applied_loads:
+                        applied_loads[s_idx] = np.zeros(3)
+                    applied_loads[s_idx] += force
 
-            with st.spinner("4. Auto-Sizing..."):
                 result = analyze_and_size_frame(frame_data, applied_loads, grade="S355", family="CHS")
                 
                 if "error" in result:
