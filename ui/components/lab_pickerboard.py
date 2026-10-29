@@ -4,7 +4,7 @@ import streamlit.components.v1 as components
 
 # Locate the HTML file relative to this python file
 _RELEASE = True
-_COMPONENT_NAME = "pickerboard"
+_COMPONENT_NAME = "lab_pickerboard"
 
 if not _RELEASE:
     _component_func = components.declare_component(
@@ -12,8 +12,9 @@ if not _RELEASE:
         url="http://localhost:3001", # for local dev if needed
     )
 else:
+    # This points to ui/components/lab_pickerboard/
     parent_dir = os.path.dirname(os.path.abspath(__file__))
-    build_dir = os.path.join(parent_dir, "pickerboard")
+    build_dir = os.path.join(parent_dir, "lab_pickerboard")
     _component_func = components.declare_component(_COMPONENT_NAME, path=build_dir)
 
 def lab_pickerboard(shape="leaf", reach=10.0, width=10.0, rib_reach=5.0, rib_lengths=None, key=None):
@@ -30,6 +31,6 @@ def lab_pickerboard(shape="leaf", reach=10.0, width=10.0, rib_reach=5.0, rib_len
         rib_reach=rib_reach,
         rib_lengths=rib_lengths,
         key=key,
-        default={"rib_lengths": rib_lengths}
+        default={"rib_lengths": rib_lengths, "active_dots": []}
     )
     return component_value
