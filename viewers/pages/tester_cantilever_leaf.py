@@ -11,7 +11,7 @@ def _init_lab_defaults():
         "lab_step": 1,
         "lab_support_type": "Ground Stand",
         "ws_sl_beam_landing_height": 4.0,
-        "ws_sl_column_top_height": 6.0, # Renamed from tie_landing
+        "ws_sl_column_top_height": 6.0,
         "ws_sl_outreach": 6.0,
         "ws_sl_arc_radius": 1.0,
         "lab_vein_length": 2.0,
@@ -27,7 +27,7 @@ def _init_lab_defaults():
 
 
 def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs):
-    """Draws a clean 3D preview with the diagonal tie beam."""
+    """Draws a clean 3D preview with correct rib attachments."""
     fig = go.Figure()
 
     # 1. Column
@@ -41,7 +41,7 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
     ))
 
     # 2. Midrib (Parabolic Arch)
-    n_beam = 40
+    n_beam = 80 # We use a high count so the ribs can grab exact points
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
     beam_y = np.zeros_like(t_beam)
@@ -53,29 +53,36 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
     ))
 
     # 3. Diagonal Tie Beam
-    # We find the height of the midrib at exactly 1/3 of the outreach
     tie_attach_x = outreach / 3.0
     tie_attach_z = beam_h + (arc_r * 0.5) * 4.0 * (1.0/3.0) * (1.0 - 1.0/3.0)
     
-    # The tie beam goes from the top of the column to the 1/3 mark
     fig.add_trace(go.Scatter3d(
         x=[0, tie_attach_x], y=[0, 0], z=[col_top_h, tie_attach_z],
         mode="lines", line=dict(color="#f39c12", width=6), name="Tie Beam"
     ))
 
-    # 4. Veins
+    # 4. Veins (Now correctly attached to the midrib)
     rib_ts = np.linspace(0.08, 0.92, n_ribs)
     for rt in rib_ts:
+        # Find the exact point on the midrib for this rib
         idx = int(rt * (n_beam - 1))
         rx = beam_x[idx]
         rz = beam_z[idx]
         
+        # Calculate the vein tips based on the user input
         hw = vein_length * (math.sin(math.pi * rt) ** 0.7)
         tilt_rad = math.radians(tilt_deg) * (math.sin(math.pi * rt) ** 0.7)
         tip_z = rz + hw * math.tan(tilt_rad)
         
+        # Draw LEFT vein (from centerline midrib to left tip)
         fig.add_trace(go.Scatter3d(
-            x=[rx, rx], y=[-hw, hw], z=[tip_z, tip_z],
+            x=[rx, rx], y=[0, -hw], z=[rz, tip_z],
+            mode="lines", line=dict(color="#3498db", width=3), showlegend=False
+        ))
+        
+        # Draw RIGHT vein (from centerline midrib to right tip)
+        fig.add_trace(go.Scatter3d(
+            x=[rx, rx], y=[0, hw], z=[rz, tip_z],
             mode="lines", line=dict(color="#3498db", width=3), showlegend=False
         ))
 
@@ -180,6 +187,10 @@ def render_tester_cantilever_leaf():
         with col6:
             tilt = st.number_input("Vein Tilt (deg)", min_value=-45.0, max_value=45.0, value=float(st.session_state["ws_sl_rib_tilt"]), step=1.0)
             st.session_state["ws_sl_rib_tilt"] = tilt
+            
+        # ADDED THE NUMBER OF RIBS INPUT HERE
+        n_ribs = st.number_input("Number of Ribs (Veins)", min_value=1, max_value=15, value=int(st.session_state["ws_sl_ribs_per_side"]), step=1)
+        st.session_state["ws_sl_ribs_per_side"] = n_ribs
 
         st.markdown("<br>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
