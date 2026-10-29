@@ -21,16 +21,20 @@ def _init_lab_defaults():
         "lab_warp_kN": 1.0,
         "lab_weft_kN": 1.0,
         "lab_cable_kN": 1.0,
-        "lab_boundary_connected": False,
+        "lab_active_dots": [],
         "lab_boundary_loop": [],
+        "lab_boundary_connected": False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 
-def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs):
-    """Draws a clean 3D preview with correct rib attachments."""
+def draw_wizard_preview(
+    beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs,
+    boundary_loop=None
+):
+    """Draws a clean 3D preview with correct rib attachments and the boundary loop."""
     fig = go.Figure()
 
     # 1. Column
@@ -111,28 +115,58 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
         opacity=0.55, showscale=False, hoverinfo="skip"
     ))
 
-    # Draw the boundary loop if it exists
-    if st.session_state.get("lab_boundary_connected") and st.session_state.get("lab_boundary_loop"):
-        loop_pts = st.session_state["lab_boundary_loop"]
-        lx = [p[0] for p in loop_pts]
-        ly = [p[1] for p in loop_pts]
-        lz = [p[2] for p in loop_pts]
+    # 6. Boundary Loop (if connected)
+    if boundary_loop and len(boundary_loop) > 1:
+        lx = [p[0] for p in boundary_loop]
+        ly = [p[1] for p in boundary_loop]
+        lz = [p[2] for p in boundary_loop]
         # Close the loop
-        lx.append(loop_pts[0][0])
-        ly.append(loop_pts[0][1])
-        lz.append(loop_pts[0][2])
+        lx.append(boundary_loop[0][0])
+        ly.append(boundary_loop[0][1])
+        lz.append(boundary_loop[0][2])
         fig.add_trace(go.Scatter3d(
             x=lx, y=ly, z=lz,
             mode="lines", line=dict(color="#f1c40f", width=6), name="Perimeter Cable"
+        ))
+        # Add markers at the picked anchor points
+        fig.add_trace(go.Scatter3d(
+            x=[p[0] for p in boundary_loop], 
+            y=[p[1] for p in boundary_loop], 
+            z=[p[2] for p in boundary_loop],
+            mode="markers", marker=dict(color="#f1c40f", size=6), name="Anchors"
         ))
 
     return apply_common_layout(fig, col_top_h)
 
 
+def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, vein_length, tilt):
+    """
+    Converts the active dot indices from the pickerboard into a 3D boundary loop.
+    Dots are indexed 0..n_ribs-1 for the ribs (right side), and -1 for the beam tip.
+    """
+    loop_pts = []
+    # We assume the user is picking the right-side tips (in +Y)
+    for dot in sorted(active_dots):
+        if dot == -1:
+            # Beam tip
+            bx = outreach
+            bz = beam_h + (arc_r * 0.5) * 4.0 * 1.0 * (1.0 - 1.0) # = beam_h
+            loop_pts.append([bx, 0.0, bz])
+        else:
+            rt = dot / max(1, n_ribs - 1)
+            bx = outreach * rt
+            bz = beam_h + (arc_r * 0.5) * 4.0 * rt * (1.0 - rt)
+            hw = vein_length * (math.sin(math.pi * rt) ** 0.7)
+            tilt_rad = math.radians(tilt) * (math.sin(math.pi * rt) ** 0.7)
+            tip_z = bz + hw * math.tan(tilt_rad)
+            loop_pts.append([bx, hw, tip_z])
+            
+    return loop_pts
+
+
 def render_tester_cantilever_leaf():
     _init_lab_defaults()
     
-    # Update total steps to 7
     step = st.session_state["lab_step"]
     progress = (step - 1) / 6.0
     st.progress(progress)
@@ -241,16 +275,20 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 6: PICK BOUNDARY =================
     elif step == 6:
         st.markdown("### Step 6: Pick Boundary Anchors")
-        st.info("Tap the dots on the plan to set the perimeter cable anchors.")
+        st.info("Tap the dots to set the anchor points, then click Connect Loop.")
+        
+        # Generate the rib_lengths array for the pickerboard to draw
+        n_ribs = int(st.session_state["ws_sl_ribs_per_side"])
+        outreach = float(st.session_state["ws_sl_outreach"])
+        rib_lengths = [outreach * (0.08 + 0.84 * i / max(1, n_ribs - 1)) for i in range(n_ribs)]
         
         # Render the pickerboard
-        # We pass the current rib lengths and the currently active dots
         picker_data = lab_pickerboard(
             shape="leaf",
-            reach=float(st.session_state["ws_sl_outreach"]),
+            reach=outreach,
             width=float(st.session_state["lab_vein_length"]),
-            rib_reach=float(st.session_state["ws_sl_outreach"] * 0.5),
-            rib_lengths=[],
+            rib_reach=outreach * 0.5,
+            rib_lengths=rib_lengths,
             key="lab_picker_1"
         )
         
@@ -260,38 +298,23 @@ def render_tester_cantilever_leaf():
             
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # The Connect Loop button
         if st.button("🔗 Connect Loop", type="secondary", use_container_width=True):
-            # Build the 3D coordinates for the boundary loop
-            # For now, we will approximate them based on the active dots
             active_dots = st.session_state.get("lab_active_dots", [])
             if len(active_dots) > 0:
-                loop_pts = []
-                n_ribs = int(st.session_state["ws_sl_ribs_per_side"])
-                outreach = st.session_state["ws_sl_outreach"]
-                arc_r = st.session_state["ws_sl_arc_radius"]
-                beam_h = st.session_state["ws_sl_beam_landing_height"]
-                vein_length = st.session_state["lab_vein_length"]
-                tilt = st.session_state["ws_sl_rib_tilt"]
-                
-                # Generate the coordinates for the selected dots
-                for dot_idx in sorted(active_dots):
-                    # Map dot index to rib position
-                    rt = dot_idx / max(1, n_ribs - 1)
-                    bx = outreach * rt
-                    bz = beam_h + (arc_r * 0.5) * 4.0 * rt * (1.0 - rt)
-                    hw = vein_length * (math.sin(math.pi * rt) ** 0.7)
-                    tilt_rad = math.radians(tilt) * (math.sin(math.pi * rt) ** 0.7)
-                    tip_z = bz + hw * math.tan(tilt_rad)
-                    
-                    # Assume we pick the right tip for now
-                    loop_pts.append([bx, hw, tip_z])
-                    
+                loop_pts = _build_boundary_loop_from_dots(
+                    active_dots=active_dots,
+                    n_ribs=n_ribs,
+                    outreach=outreach,
+                    arc_r=st.session_state["ws_sl_arc_radius"],
+                    beam_h=st.session_state["ws_sl_beam_landing_height"],
+                    vein_length=st.session_state["lab_vein_length"],
+                    tilt=st.session_state["ws_sl_rib_tilt"]
+                )
                 st.session_state["lab_boundary_loop"] = loop_pts
                 st.session_state["lab_boundary_connected"] = True
-                st.success("Boundary loop connected! You can now review the structure.")
+                st.success(f"Boundary loop connected with {len(loop_pts)} anchors.")
             else:
-                st.warning("Please pick at least one dot to connect the loop.")
+                st.warning("Please pick at least one dot to connect.")
 
         st.markdown("<br>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
@@ -313,7 +336,8 @@ def render_tester_cantilever_leaf():
             arc_r=st.session_state["ws_sl_arc_radius"],
             vein_length=st.session_state["lab_vein_length"],
             tilt_deg=st.session_state["ws_sl_rib_tilt"],
-            n_ribs=st.session_state["ws_sl_ribs_per_side"]
+            n_ribs=st.session_state["ws_sl_ribs_per_side"],
+            boundary_loop=st.session_state.get("lab_boundary_loop", [])
         )
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
