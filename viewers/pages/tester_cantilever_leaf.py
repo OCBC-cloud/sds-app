@@ -11,7 +11,7 @@ def _init_lab_defaults():
         "lab_step": 1,
         "lab_support_type": "Ground Stand",
         "ws_sl_beam_landing_height": 4.0,
-        "ws_sl_tie_landing_height": 5.0,
+        "ws_sl_column_top_height": 6.0, # Renamed from tie_landing
         "ws_sl_outreach": 6.0,
         "ws_sl_arc_radius": 1.0,
         "lab_vein_length": 2.0,
@@ -26,13 +26,13 @@ def _init_lab_defaults():
             st.session_state[k] = v
 
 
-def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n_ribs):
-    """Draws a clean 3D preview."""
+def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs):
+    """Draws a clean 3D preview with the diagonal tie beam."""
     fig = go.Figure()
 
     # 1. Column
     fig.add_trace(go.Scatter3d(
-        x=[0, 0], y=[0, 0], z=[0, tie_h],
+        x=[0, 0], y=[0, 0], z=[0, col_top_h],
         mode="lines", line=dict(color="#2ecc71", width=10), name="Column"
     ))
     fig.add_trace(go.Scatter3d(
@@ -52,25 +52,14 @@ def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n
         mode="lines", line=dict(color="#FF6B6B", width=8), name="Midrib"
     ))
 
-    # 3. Tie Beam (Horizontal)
-    tie_attach_x = outreach * 0.33
-    if arc_r > 0.01:
-        target_rise = tie_h - beam_h
-        max_rise = arc_r * 0.5
-        if 0 < target_rise <= max_rise:
-            S = arc_r * 0.5
-            A = -4.0 * S / (outreach ** 2)
-            B = 4.0 * S / outreach
-            C = -target_rise
-            disc = B**2 - 4*A*C
-            if disc >= 0:
-                x1 = (-B + math.sqrt(disc)) / (2*A)
-                if 0 < x1 < outreach:
-                    tie_attach_x = x1
-
-    tie_attach_z = tie_h 
+    # 3. Diagonal Tie Beam
+    # We find the height of the midrib at exactly 1/3 of the outreach
+    tie_attach_x = outreach / 3.0
+    tie_attach_z = beam_h + (arc_r * 0.5) * 4.0 * (1.0/3.0) * (1.0 - 1.0/3.0)
+    
+    # The tie beam goes from the top of the column to the 1/3 mark
     fig.add_trace(go.Scatter3d(
-        x=[0, tie_attach_x], y=[0, 0], z=[tie_h, tie_attach_z],
+        x=[0, tie_attach_x], y=[0, 0], z=[col_top_h, tie_attach_z],
         mode="lines", line=dict(color="#f39c12", width=6), name="Tie Beam"
     ))
 
@@ -90,7 +79,7 @@ def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n
             mode="lines", line=dict(color="#3498db", width=3), showlegend=False
         ))
 
-    # 5. Clean Membrane Surface
+    # 5. Membrane Surface
     n_u, n_v = 24, 24
     X_s, Y_s, Z_s = np.zeros((n_u, n_v)), np.zeros((n_u, n_v)), np.zeros((n_u, n_v))
     
@@ -116,13 +105,12 @@ def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n
         opacity=0.55, showscale=False, hoverinfo="skip"
     ))
 
-    return apply_common_layout(fig, tie_h)
+    return apply_common_layout(fig, col_top_h)
 
 
 def render_tester_cantilever_leaf():
     _init_lab_defaults()
     
-    # Progress Bar
     step = st.session_state["lab_step"]
     progress = (step - 1) / 5.0
     st.progress(progress)
@@ -132,8 +120,6 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 1: FOUNDATION =================
     if step == 1:
         st.markdown("### Step 1: Foundation & Support")
-        st.info("Define how the leaf touches the ground or structures.")
-        
         support_types = ["Ground Stand", "Wall Mounted", "Suspended"]
         support_idx = support_types.index(st.session_state["lab_support_type"])
         support = st.radio("Support Type", support_types, index=support_idx)
@@ -147,15 +133,13 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 2: COLUMN =================
     elif step == 2:
         st.markdown("### Step 2: Column Heights")
-        st.info("The midrib lands at the lower height. The tie beam sits at the upper height.")
-        
         col1, col2 = st.columns(2)
         with col1:
             beam_h = st.number_input("Beam Landing (m)", min_value=1.0, max_value=30.0, value=float(st.session_state["ws_sl_beam_landing_height"]), step=0.5)
             st.session_state["ws_sl_beam_landing_height"] = beam_h
         with col2:
-            tie_h = st.number_input("Tie Beam Landing (m)", min_value=beam_h + 0.5, max_value=40.0, value=max(float(st.session_state["ws_sl_tie_landing_height"]), beam_h + 0.5), step=0.5)
-            st.session_state["ws_sl_tie_landing_height"] = tie_h
+            col_top_h = st.number_input("Column Top Height (m)", min_value=beam_h + 0.5, max_value=40.0, value=max(float(st.session_state["ws_sl_column_top_height"]), beam_h + 0.5), step=0.5)
+            st.session_state["ws_sl_column_top_height"] = col_top_h
 
         st.markdown("<br>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
@@ -169,8 +153,6 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 3: MIDRIB =================
     elif step == 3:
         st.markdown("### Step 3: Midrib (Primary Beam)")
-        st.info("The main spine that carries the leaf outward.")
-        
         col3, col4 = st.columns(2)
         with col3:
             outreach = st.number_input("Midrib Length (m)", min_value=2.0, max_value=30.0, value=float(st.session_state["ws_sl_outreach"]), step=0.5)
@@ -191,8 +173,6 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 4: VEINS =================
     elif step == 4:
         st.markdown("### Step 4: Veins (Secondary Beams)")
-        st.info("The cross-beams that hold the fabric open.")
-        
         col5, col6 = st.columns(2)
         with col5:
             vein_length = st.number_input("Vein Length (m)", min_value=0.5, max_value=6.0, value=float(st.session_state["lab_vein_length"]), step=0.25)
@@ -213,8 +193,6 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 5: PRETENSIONS =================
     elif step == 5:
         st.markdown("### Step 5: Pretensions")
-        st.info("The forces that keep the fabric taut.")
-        
         col7, col8, col9 = st.columns(3)
         with col7:
             warp = st.number_input("Warp (kN)", min_value=0.1, max_value=20.0, value=float(st.session_state["lab_warp_kN"]), step=0.1)
@@ -239,10 +217,9 @@ def render_tester_cantilever_leaf():
     elif step == 6:
         st.markdown("### Step 6: Review & Analyze")
         
-        # Build the preview
         fig = draw_wizard_preview(
             beam_h=st.session_state["ws_sl_beam_landing_height"],
-            tie_h=st.session_state["ws_sl_tie_landing_height"],
+            col_top_h=st.session_state["ws_sl_column_top_height"],
             outreach=st.session_state["ws_sl_outreach"],
             arc_r=st.session_state["ws_sl_arc_radius"],
             vein_length=st.session_state["lab_vein_length"],
