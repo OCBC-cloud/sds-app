@@ -8,252 +8,187 @@ from viewers.figures._shared import apply_common_layout
 
 def _init_lab_defaults():
     defaults = {
-        "lab_has_column": True,
-        
-        # Column inputs
+        "lab_support_type": "Ground Stand",
         "ws_sl_beam_landing_height": 4.0,
         "ws_sl_tie_landing_height": 5.0,
-        
-        # Midrib
         "ws_sl_outreach": 6.0,
         "ws_sl_arc_radius": 1.0,
-        
-        # Veins
         "lab_vein_length": 2.0,
         "ws_sl_rib_tilt": 0,
         "ws_sl_ribs_per_side": 5,
-        
-        # Pretensions
         "lab_warp_kN": 1.0,
         "lab_weft_kN": 1.0,
         "lab_cable_kN": 1.0,
-        
-        # Grounded Arch defaults
-        "lab_parabolic_rise": 3.0,
-        "lab_stub_length": 0.3,
-        "lab_stub_direction": "+Y",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 
-def _draw_grounded_arch(outreach, rise, vein_length, tilt_deg, n_ribs, stub_length, stub_dir):
-    """Custom 3D drawing for the 'No Column' grounded arch configuration."""
-    fig = go.Figure()
+def generate_universal_leaf_data(
+    beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n_ribs
+):
+    """
+    Creates the Universal Payload (Nodes, Elements, Surfaces).
+    This is what the solver will eventually read.
+    """
+    nodes = []
+    elements = []
+    surfaces = []
 
-    t = np.linspace(0, 1, 80)
-    beam_x = outreach * t
-    beam_z = 4.0 * rise * t * (1.0 - t)
-    beam_y = np.zeros_like(t)
+    # 1. Column Base -> Beam Landing
+    nodes.append([0.0, 0.0, 0.0]) # Node 0
+    nodes.append([0.0, 0.0, beam_h]) # Node 1
+    elements.append({"a": 0, "b": 1, "kind": "column"})
 
-    fig.add_trace(go.Scatter3d(
-        x=beam_x, y=beam_y, z=beam_z,
-        mode="lines", line=dict(color="#FF6B6B", width=10), name="Midrib"
-    ))
+    # 2. Column Beam Landing -> Tie Landing
+    nodes.append([0.0, 0.0, tie_h]) # Node 2
+    elements.append({"a": 1, "b": 2, "kind": "column"})
 
-    stub_t = 0.25
-    stub_x = outreach * stub_t
-    stub_z = 4.0 * rise * stub_t * (1.0 - stub_t)
-    stub_y_end = stub_length if stub_dir == "+Y" else -stub_length
+    # 3. Midrib (Spine)
+    n_beam = 20 # Lower count for the universal data for now
+    t_beam = np.linspace(0, 1, n_beam)
     
-    fig.add_trace(go.Scatter3d(
-        x=[stub_x, stub_x], y=[0, stub_y_end], z=[stub_z, stub_z],
-        mode="lines", line=dict(color="#e67e22", width=6), name="Stub"
-    ))
+    spine_indices = [1] # Starts at node 1 (beam_h)
     
-    fig.add_trace(go.Scatter3d(
-        x=[stub_x], y=[stub_y_end], z=[stub_z],
-        mode="markers", marker=dict(color="#f1c40f", size=8), name="Membrane Anchor"
-    ))
+    for i in range(1, n_beam):
+        t = t_beam[i]
+        bx = outreach * t
+        bz = beam_h + (arc_r * 0.5) * 4.0 * t * (1.0 - t)
+        
+        idx = len(nodes)
+        nodes.append([bx, 0.0, bz])
+        spine_indices.append(idx)
+        elements.append({"a": spine_indices[-2], "b": idx, "kind": "primary"})
 
+    # 4. Tie Beam (Horizontal from Node 2 to the Midrib)
+    tie_attach_x = outreach * 0.33 # fallback
+    if arc_r > 0.01:
+        target_rise = tie_h - beam_h
+        max_rise = arc_r * 0.5 * 4.0 * 0.25 
+        
+        if 0 < target_rise <= max_rise:
+            S = arc_r * 0.5
+            A = -4.0 * S / (outreach ** 2)
+            B = 4.0 * S / outreach
+            C = -target_rise
+            disc = B**2 - 4*A*C
+            if disc >= 0:
+                x1 = (-B + math.sqrt(disc)) / (2*A)
+                if 0 < x1 < outreach:
+                    tie_attach_x = x1
+                    
+    # Find nearest spine node to attach the tie beam
+    closest_spine_idx = 1
+    min_dist = float('inf')
+    for idx in spine_indices[1:]:
+        dist = abs(nodes[idx][0] - tie_attach_x)
+        if dist < min_dist:
+            min_dist = dist
+            closest_spine_idx = idx
+            
+    elements.append({"a": 2, "b": closest_spine_idx, "kind": "tie"})
+
+    # 5. Veins (Ribs)
     rib_ts = np.linspace(0.08, 0.92, n_ribs)
     for rt in rib_ts:
-        idx = int(rt * 79)
-        rx = beam_x[idx]
-        rz = beam_z[idx]
+        # Find nearest spine node
+        idx = spine_indices[int(rt * (n_beam - 1))]
+        rx, _, rz = nodes[idx]
         
         hw = vein_length * (math.sin(math.pi * rt) ** 0.7)
         tilt_rad = math.radians(tilt_deg) * (math.sin(math.pi * rt) ** 0.7)
         tip_z = rz + hw * math.tan(tilt_rad)
         
+        # Left Tip
+        l_idx = len(nodes)
+        nodes.append([rx, -hw, tip_z])
+        elements.append({"a": idx, "b": l_idx, "kind": "rib"})
+        
+        # Right Tip
+        r_idx = len(nodes)
+        nodes.append([rx, hw, tip_z])
+        elements.append({"a": idx, "b": r_idx, "kind": "rib"})
+
+    return nodes, elements
+
+
+def draw_from_universal_data(nodes, elements, max_height):
+    """Takes the universal payload and draws it."""
+    fig = go.Figure()
+    
+    # Draw Elements (Lines)
+    for elem in elements:
+        a = nodes[elem["a"]]
+        b = nodes[elem["b"]]
+        kind = elem["kind"]
+        
+        color = "#ffffff"
+        width = 3
+        name = ""
+        
+        if kind == "column":
+            color = "#2ecc71"; width = 10; name = "Column"
+        elif kind == "primary":
+            color = "#FF6B6B"; width = 8; name = "Midrib"
+        elif kind == "tie":
+            color = "#f39c12"; width = 6; name = "Tie Beam"
+        elif kind == "rib":
+            color = "#3498db"; width = 3; name = "Veins"
+            
         fig.add_trace(go.Scatter3d(
-            x=[rx, rx], y=[-hw, hw], z=[tip_z, tip_z],
-            mode="lines", line=dict(color="#3498db", width=3), showlegend=False
+            x=[a[0], b[0]], y=[a[1], b[1]], z=[a[2], b[2]],
+            mode="lines", line=dict(color=color, width=width), name=name, showlegend=False
         ))
 
-    n_u, n_v = 24, 24
-    X_s, Y_s, Z_s = np.zeros((n_u, n_v)), np.zeros((n_u, n_v)), np.zeros((n_u, n_v))
-    
-    for i, ut in enumerate(np.linspace(0.02, 0.98, n_u)):
-        idx = int(ut * 79)
-        bx, bz = beam_x[idx], beam_z[idx]
-        
-        hw = vein_length * (math.sin(math.pi * ut) ** 0.7)
-        tilt_rad = math.radians(tilt_deg) * (math.sin(math.pi * ut) ** 0.7)
-        tip_z = bz + hw * math.tan(tilt_rad)
-
-        for j, v in enumerate(np.linspace(-1, 1, n_v)):
-            y_loc = v * hw
-            z_edge = bz * (1 - abs(v)) + tip_z * abs(v)
-            sag = 0.15 * hw * (1 - (2 * abs(v) - 1) ** 2)
-            X_s[i, j] = bx
-            Y_s[i, j] = y_loc
-            Z_s[i, j] = z_edge - sag
-
-    fig.add_trace(go.Surface(
-        x=X_s, y=Y_s, z=Z_s,
-        colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
-        opacity=0.55, showscale=False, hoverinfo="skip"
-    ))
-
-    return apply_common_layout(fig, rise)
+    return apply_common_layout(fig, max_height)
 
 
 def render_tester_cantilever_leaf():
     _init_lab_defaults()
 
-    st.markdown("# Cantilever Leaf — Lab Test")
-    st.markdown("Simple UI. 3D visual updates live.")
+    st.markdown("# Parametric Leaf — Lab Test")
+    st.markdown("Proving the Universal Data Pipeline.")
     st.markdown("---")
 
-    # ============ THE COLUMN TOGGLE ============
-    has_col = st.toggle("Column", value=bool(st.session_state["lab_has_column"]))
-    st.session_state["lab_has_column"] = has_col
+    # ============ INPUTS ============
+    st.markdown("### 1. Column")
+    col1, col2 = st.columns(2)
+    with col1:
+        beam_h = st.number_input("Beam Landing Height (m)", min_value=1.0, max_value=30.0, value=float(st.session_state["ws_sl_beam_landing_height"]), step=0.5, format="%.2f", key="lab_beam_h")
+        st.session_state["ws_sl_beam_landing_height"] = beam_h
+    with col2:
+        tie_h = st.number_input("Tie Beam Landing Height (m)", min_value=beam_h + 0.5, max_value=40.0, value=max(float(st.session_state["ws_sl_tie_landing_height"]), beam_h + 0.5), step=0.5, format="%.2f", key="lab_tie_h")
+        st.session_state["ws_sl_tie_landing_height"] = tie_h
 
-    st.markdown("---")
-
-    if has_col:
-        # ============ COLUMN MODE ============
-        st.markdown("### 1. Column")
-        col1, col2 = st.columns(2)
-        with col1:
-            beam_h = st.number_input(
-                "Beam Landing Height (m)", min_value=1.0, max_value=30.0,
-                value=float(st.session_state["ws_sl_beam_landing_height"]),
-                step=0.5, format="%.2f", key="lab_beam_landing_input"
-            )
-            st.session_state["ws_sl_beam_landing_height"] = beam_h
-        with col2:
-            tie_h = st.number_input(
-                "Tie Beam Landing Height (m)", min_value=beam_h + 0.5, max_value=40.0,
-                value=max(float(st.session_state["ws_sl_tie_landing_height"]), beam_h + 0.5),
-                step=0.5, format="%.2f", key="lab_tie_landing_input"
-            )
-            st.session_state["ws_sl_tie_landing_height"] = tie_h
-            
-    else:
-        # ============ GROUNDED ARCH MODE ============
-        st.markdown("### 1. Grounded Arch Parameters")
-        col1, col2 = st.columns(2)
-        with col1:
-            rise = st.number_input(
-                "Parabolic Rise (m)", min_value=1.0, max_value=20.0,
-                value=float(st.session_state["lab_parabolic_rise"]),
-                step=0.5, format="%.2f", key="lab_rise_input"
-            )
-            st.session_state["lab_parabolic_rise"] = rise
-        with col2:
-            stub_l = st.number_input(
-                "Stub Length (m)", min_value=0.0, max_value=2.0,
-                value=float(st.session_state["lab_stub_length"]),
-                step=0.1, format="%.2f", key="lab_stub_len_input"
-            )
-            st.session_state["lab_stub_length"] = stub_l
-            
-        stub_dir = st.radio(
-            "Stub Direction", ["+Y", "-Y"], 
-            index=0 if st.session_state["lab_stub_direction"] == "+Y" else 1,
-            horizontal=True, key="lab_stub_dir_input"
-        )
-        st.session_state["lab_stub_direction"] = stub_dir
-
-    # ============ MIDRIB ============
     st.markdown("### 2. Midrib (Primary Beam)")
     col3, col4 = st.columns(2)
     with col3:
-        outreach = st.number_input(
-            "Midrib Length (m)", min_value=2.0, max_value=30.0,
-            value=float(st.session_state["ws_sl_outreach"]),
-            step=0.5, format="%.2f", key="lab_outreach_input"
-        )
+        outreach = st.number_input("Midrib Length (m)", min_value=2.0, max_value=30.0, value=float(st.session_state["ws_sl_outreach"]), step=0.5, format="%.2f", key="lab_outreach")
         st.session_state["ws_sl_outreach"] = outreach
     with col4:
-        arc_r = st.number_input(
-            "Midrib Arc Radius (m)", min_value=0.0, max_value=20.0,
-            value=float(st.session_state["ws_sl_arc_radius"]),
-            step=0.25, format="%.2f", key="lab_arc_r_input"
-        )
+        arc_r = st.number_input("Midrib Arc Radius (m)", min_value=0.0, max_value=20.0, value=float(st.session_state["ws_sl_arc_radius"]), step=0.25, format="%.2f", key="lab_arc_r")
         st.session_state["ws_sl_arc_radius"] = arc_r
 
-    # ============ VEINS ============
     st.markdown("### 3. Veins (Secondary Beams)")
     col5, col6 = st.columns(2)
     with col5:
-        vein_length = st.number_input(
-            "Vein Length (m)", min_value=0.5, max_value=6.0,
-            value=float(st.session_state["lab_vein_length"]),
-            step=0.25, format="%.2f", key="lab_vein_length_input"
-        )
+        vein_length = st.number_input("Vein Length (m)", min_value=0.5, max_value=6.0, value=float(st.session_state["lab_vein_length"]), step=0.25, format="%.2f", key="lab_vein_len")
         st.session_state["lab_vein_length"] = vein_length
     with col6:
-        tilt = st.number_input(
-            "Vein Tilt Angle (deg)", min_value=-45.0, max_value=45.0,
-            value=float(st.session_state["ws_sl_rib_tilt"]),
-            step=1.0, format="%.1f", key="lab_tilt_input"
-        )
+        tilt = st.number_input("Vein Tilt Angle (deg)", min_value=-45.0, max_value=45.0, value=float(st.session_state["ws_sl_rib_tilt"]), step=1.0, format="%.1f", key="lab_tilt")
         st.session_state["ws_sl_rib_tilt"] = tilt
 
-    # ============ MESH PRETENSIONS ============
-    st.markdown("### 5. Mesh Pretensions")
-    col9, col10 = st.columns(2)
-    with col9:
-        warp = st.number_input(
-            "Warp Pretension (kN)", min_value=0.1, max_value=20.0,
-            value=float(st.session_state["lab_warp_kN"]),
-            step=0.1, format="%.2f", key="lab_warp_input"
-        )
-        st.session_state["lab_warp_kN"] = warp
-    with col10:
-        weft = st.number_input(
-            "Weft Pretension (kN)", min_value=0.1, max_value=20.0,
-            value=float(st.session_state["lab_weft_kN"]),
-            step=0.1, format="%.2f", key="lab_weft_input"
-        )
-        st.session_state["lab_weft_kN"] = weft
-
-    # ============ PERIMETER CABLE ============
-    st.markdown("### 6. Perimeter Cable")
-    cable = st.number_input(
-        "Cable Pretension (kN)", min_value=0.1, max_value=50.0,
-        value=float(st.session_state["lab_cable_kN"]),
-        step=0.1, format="%.2f", key="lab_cable_input"
-    )
-    st.session_state["lab_cable_kN"] = cable
-
-    # ============ 3D VISUAL ============
+    # ============ GENERATE & DRAW ============
     st.markdown("---")
-    st.markdown("### 3D Preview")
+    st.markdown("### 3D Preview (from Universal Data)")
     
-    if has_col:
-        # We are just using the production viewer for the preview for now.
-        # Note: The production viewer looks at ws_sl_column_height, which we 
-        # haven't set here. So the visual might look a bit weird until we 
-        # update the drawing function to use the new tie beam logic.
-        from viewers.figures.cantilever_leaf import build_cantilever_leaf
-        st.session_state["ws_sl_column_height"] = st.session_state["ws_sl_tie_landing_height"]
-        fig = build_cantilever_leaf()
-    else:
-        fig = _draw_grounded_arch(
-            outreach=outreach,
-            rise=st.session_state["lab_parabolic_rise"],
-            vein_length=vein_length,
-            tilt_deg=tilt,
-            n_ribs=st.session_state["ws_sl_ribs_per_side"],
-            stub_length=st.session_state["lab_stub_length"],
-            stub_dir=st.session_state["lab_stub_direction"]
-        )
-
+    nodes, elements = generate_universal_leaf_data(
+        beam_h, tie_h, outreach, arc_r, vein_length, tilt, 
+        st.session_state["ws_sl_ribs_per_side"]
+    )
+    
+    fig = draw_from_universal_data(nodes, elements, tie_h)
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     # ============ BACK ============
