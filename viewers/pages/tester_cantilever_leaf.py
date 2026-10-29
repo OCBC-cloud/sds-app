@@ -11,7 +11,7 @@ def _init_lab_defaults():
         "ws_sl_outreach": 6.0,
         "ws_sl_arc_radius": 1.0,
         "ws_sl_rib_tilt": 0,
-        "ws_sl_ribs_per_side": 5,       # default leaves (5 pairs)
+        "ws_sl_ribs_per_side": 5,
         "ws_sl_strut_joint_height": 3.0,
         "ws_sl_strut_angle_deg": 42.0,
         "ws_sl_arrangement": "single",
@@ -21,7 +21,6 @@ def _init_lab_defaults():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # Lab-only values (not used by the figure yet)
     if "lab_warp_kN" not in st.session_state:
         st.session_state["lab_warp_kN"] = 1.0
     if "lab_weft_kN" not in st.session_state:
@@ -34,8 +33,7 @@ def render_tester_cantilever_leaf():
     _init_lab_defaults()
 
     st.markdown("# Cantilever Leaf — Lab Test")
-    st.markdown("Simple UI. 3D visual updates live. No solver yet.")
-
+    st.markdown("Simple UI. 3D visual updates live.")
     st.markdown("---")
 
     # ============ COLUMN ============
@@ -81,10 +79,6 @@ def render_tester_cantilever_leaf():
             value=2.0, step=0.25, format="%.2f",
             key="lab_vein_length_input",
         )
-        # Map vein length to half-width of the middle rib (2.0 m default)
-        # The geometry uses outreach * 0.42 for the mid half width,
-        # so adjust outreach-relative factor to match the input exactly.
-        # We store it for the future; the drawing uses the production law for now.
         st.session_state["lab_vein_length"] = vein_length
     with col4:
         tilt = st.number_input(
@@ -154,7 +148,10 @@ def render_tester_cantilever_leaf():
     # ============ 3D VISUAL ============
     st.markdown("---")
     st.markdown("### 3D Preview")
-    build_cantilever_leaf()
+    
+    # FIX: Wrap in st.plotly_chart to display it
+    fig = build_cantilever_leaf()
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     # ============ BACK ============
     st.markdown("---")
