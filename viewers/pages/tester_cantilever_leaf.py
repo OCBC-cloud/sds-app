@@ -8,20 +8,30 @@ from viewers.figures._shared import apply_common_layout
 
 def _init_lab_defaults():
     defaults = {
-        "ws_sl_column_height": 5.0,
+        "lab_has_column": True,
+        
+        # Column inputs
+        "ws_sl_beam_landing_height": 4.0,
+        "ws_sl_tie_landing_height": 5.0,
+        
+        # Midrib
         "ws_sl_outreach": 6.0,
         "ws_sl_arc_radius": 1.0,
+        
+        # Veins
+        "lab_vein_length": 2.0,
         "ws_sl_rib_tilt": 0,
         "ws_sl_ribs_per_side": 5,
-        "ws_sl_strut_joint_height": 3.0,
-        "ws_sl_strut_angle_deg": 42.0,
-        "lab_has_column": True,
-        "lab_parabolic_rise": 3.0,
-        "lab_stub_length": 0.3,
-        "lab_stub_direction": "+Y",
+        
+        # Pretensions
         "lab_warp_kN": 1.0,
         "lab_weft_kN": 1.0,
         "lab_cable_kN": 1.0,
+        
+        # Grounded Arch defaults
+        "lab_parabolic_rise": 3.0,
+        "lab_stub_length": 0.3,
+        "lab_stub_direction": "+Y",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -32,10 +42,7 @@ def _draw_grounded_arch(outreach, rise, vein_length, tilt_deg, n_ribs, stub_leng
     """Custom 3D drawing for the 'No Column' grounded arch configuration."""
     fig = go.Figure()
 
-    # 1. Parabolic Main Beam (from ground to tip)
     t = np.linspace(0, 1, 80)
-    # Parabola starting at (0,0,0), peaking, and ending at (outreach, 0, 0)
-    # z = 4 * rise * t * (1 - t)
     beam_x = outreach * t
     beam_z = 4.0 * rise * t * (1.0 - t)
     beam_y = np.zeros_like(t)
@@ -45,7 +52,6 @@ def _draw_grounded_arch(outreach, rise, vein_length, tilt_deg, n_ribs, stub_leng
         mode="lines", line=dict(color="#FF6B6B", width=10), name="Midrib"
     ))
 
-    # 2. The Stub at 1/4 length
     stub_t = 0.25
     stub_x = outreach * stub_t
     stub_z = 4.0 * rise * stub_t * (1.0 - stub_t)
@@ -56,20 +62,17 @@ def _draw_grounded_arch(outreach, rise, vein_length, tilt_deg, n_ribs, stub_leng
         mode="lines", line=dict(color="#e67e22", width=6), name="Stub"
     ))
     
-    # Anchor marker
     fig.add_trace(go.Scatter3d(
         x=[stub_x], y=[stub_y_end], z=[stub_z],
         mode="markers", marker=dict(color="#f1c40f", size=8), name="Membrane Anchor"
     ))
 
-    # 3. Veins (Ribs)
     rib_ts = np.linspace(0.08, 0.92, n_ribs)
     for rt in rib_ts:
         idx = int(rt * 79)
         rx = beam_x[idx]
         rz = beam_z[idx]
         
-        # Simple width law for the veins
         hw = vein_length * (math.sin(math.pi * rt) ** 0.7)
         tilt_rad = math.radians(tilt_deg) * (math.sin(math.pi * rt) ** 0.7)
         tip_z = rz + hw * math.tan(tilt_rad)
@@ -79,7 +82,6 @@ def _draw_grounded_arch(outreach, rise, vein_length, tilt_deg, n_ribs, stub_leng
             mode="lines", line=dict(color="#3498db", width=3), showlegend=False
         ))
 
-    # 4. Membrane Surface
     n_u, n_v = 24, 24
     X_s, Y_s, Z_s = np.zeros((n_u, n_v)), np.zeros((n_u, n_v)), np.zeros((n_u, n_v))
     
@@ -124,12 +126,22 @@ def render_tester_cantilever_leaf():
     if has_col:
         # ============ COLUMN MODE ============
         st.markdown("### 1. Column")
-        col_h = st.number_input(
-            "Column Height (m)", min_value=2.0, max_value=30.0,
-            value=float(st.session_state["ws_sl_column_height"]),
-            step=0.5, format="%.2f", key="lab_col_h_input"
-        )
-        st.session_state["ws_sl_column_height"] = col_h
+        col1, col2 = st.columns(2)
+        with col1:
+            beam_h = st.number_input(
+                "Beam Landing Height (m)", min_value=1.0, max_value=30.0,
+                value=float(st.session_state["ws_sl_beam_landing_height"]),
+                step=0.5, format="%.2f", key="lab_beam_landing_input"
+            )
+            st.session_state["ws_sl_beam_landing_height"] = beam_h
+        with col2:
+            tie_h = st.number_input(
+                "Tie Beam Landing Height (m)", min_value=beam_h + 0.5, max_value=40.0,
+                value=max(float(st.session_state["ws_sl_tie_landing_height"]), beam_h + 0.5),
+                step=0.5, format="%.2f", key="lab_tie_landing_input"
+            )
+            st.session_state["ws_sl_tie_landing_height"] = tie_h
+            
     else:
         # ============ GROUNDED ARCH MODE ============
         st.markdown("### 1. Grounded Arch Parameters")
@@ -180,7 +192,8 @@ def render_tester_cantilever_leaf():
     with col5:
         vein_length = st.number_input(
             "Vein Length (m)", min_value=0.5, max_value=6.0,
-            value=2.0, step=0.25, format="%.2f", key="lab_vein_length_input"
+            value=float(st.session_state["lab_vein_length"]),
+            step=0.25, format="%.2f", key="lab_vein_length_input"
         )
         st.session_state["lab_vein_length"] = vein_length
     with col6:
@@ -190,25 +203,6 @@ def render_tester_cantilever_leaf():
             step=1.0, format="%.1f", key="lab_tilt_input"
         )
         st.session_state["ws_sl_rib_tilt"] = tilt
-
-    # ============ STRUT (Only if Column is ON) ============
-    if has_col:
-        st.markdown("### 4. Strut")
-        col7, col8 = st.columns(2)
-        with col7:
-            strut_joint = st.number_input(
-                "Strut Joint Height on Column (m)", min_value=0.5, max_value=float(col_h),
-                value=min(float(st.session_state["ws_sl_strut_joint_height"]), float(col_h)),
-                step=0.25, format="%.2f", key="lab_strut_joint_input"
-            )
-            st.session_state["ws_sl_strut_joint_height"] = strut_joint
-        with col8:
-            strut_angle = st.number_input(
-                "Strut Angle (deg from horizontal)", min_value=15.0, max_value=85.0,
-                value=float(st.session_state["ws_sl_strut_angle_deg"]),
-                step=1.0, format="%.1f", key="lab_strut_angle_input"
-            )
-            st.session_state["ws_sl_strut_angle_deg"] = strut_angle
 
     # ============ MESH PRETENSIONS ============
     st.markdown("### 5. Mesh Pretensions")
@@ -242,11 +236,14 @@ def render_tester_cantilever_leaf():
     st.markdown("### 3D Preview")
     
     if has_col:
-        # Draw the original column leaf
+        # We are just using the production viewer for the preview for now.
+        # Note: The production viewer looks at ws_sl_column_height, which we 
+        # haven't set here. So the visual might look a bit weird until we 
+        # update the drawing function to use the new tie beam logic.
         from viewers.figures.cantilever_leaf import build_cantilever_leaf
+        st.session_state["ws_sl_column_height"] = st.session_state["ws_sl_tie_landing_height"]
         fig = build_cantilever_leaf()
     else:
-        # Draw the new grounded parabolic arch
         fig = _draw_grounded_arch(
             outreach=outreach,
             rise=st.session_state["lab_parabolic_rise"],
