@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from viewers.figures._shared import apply_common_layout
+from ui.components.lab_pickerboard import lab_pickerboard
 
 
 def _init_lab_defaults():
@@ -20,6 +21,8 @@ def _init_lab_defaults():
         "lab_warp_kN": 1.0,
         "lab_weft_kN": 1.0,
         "lab_cable_kN": 1.0,
+        "lab_boundary_connected": False,
+        "lab_boundary_loop": [],
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -41,7 +44,7 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
     ))
 
     # 2. Midrib (Parabolic Arch)
-    n_beam = 80 # We use a high count so the ribs can grab exact points
+    n_beam = 80 
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
     beam_y = np.zeros_like(t_beam)
@@ -61,26 +64,22 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
         mode="lines", line=dict(color="#f39c12", width=6), name="Tie Beam"
     ))
 
-    # 4. Veins (Now correctly attached to the midrib)
+    # 4. Veins
     rib_ts = np.linspace(0.08, 0.92, n_ribs)
     for rt in rib_ts:
-        # Find the exact point on the midrib for this rib
         idx = int(rt * (n_beam - 1))
         rx = beam_x[idx]
         rz = beam_z[idx]
         
-        # Calculate the vein tips based on the user input
         hw = vein_length * (math.sin(math.pi * rt) ** 0.7)
         tilt_rad = math.radians(tilt_deg) * (math.sin(math.pi * rt) ** 0.7)
         tip_z = rz + hw * math.tan(tilt_rad)
         
-        # Draw LEFT vein (from centerline midrib to left tip)
+        # Left and Right Vein segments attaching at the centerline
         fig.add_trace(go.Scatter3d(
             x=[rx, rx], y=[0, -hw], z=[rz, tip_z],
             mode="lines", line=dict(color="#3498db", width=3), showlegend=False
         ))
-        
-        # Draw RIGHT vein (from centerline midrib to right tip)
         fig.add_trace(go.Scatter3d(
             x=[rx, rx], y=[0, hw], z=[rz, tip_z],
             mode="lines", line=dict(color="#3498db", width=3), showlegend=False
@@ -112,14 +111,30 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
         opacity=0.55, showscale=False, hoverinfo="skip"
     ))
 
+    # Draw the boundary loop if it exists
+    if st.session_state.get("lab_boundary_connected") and st.session_state.get("lab_boundary_loop"):
+        loop_pts = st.session_state["lab_boundary_loop"]
+        lx = [p[0] for p in loop_pts]
+        ly = [p[1] for p in loop_pts]
+        lz = [p[2] for p in loop_pts]
+        # Close the loop
+        lx.append(loop_pts[0][0])
+        ly.append(loop_pts[0][1])
+        lz.append(loop_pts[0][2])
+        fig.add_trace(go.Scatter3d(
+            x=lx, y=ly, z=lz,
+            mode="lines", line=dict(color="#f1c40f", width=6), name="Perimeter Cable"
+        ))
+
     return apply_common_layout(fig, col_top_h)
 
 
 def render_tester_cantilever_leaf():
     _init_lab_defaults()
     
+    # Update total steps to 7
     step = st.session_state["lab_step"]
-    progress = (step - 1) / 5.0
+    progress = (step - 1) / 6.0
     st.progress(progress)
     
     st.markdown("<br>", unsafe_allow_html=True)
@@ -188,7 +203,6 @@ def render_tester_cantilever_leaf():
             tilt = st.number_input("Vein Tilt (deg)", min_value=-45.0, max_value=45.0, value=float(st.session_state["ws_sl_rib_tilt"]), step=1.0)
             st.session_state["ws_sl_rib_tilt"] = tilt
             
-        # ADDED THE NUMBER OF RIBS INPUT HERE
         n_ribs = st.number_input("Number of Ribs (Veins)", min_value=1, max_value=15, value=int(st.session_state["ws_sl_ribs_per_side"]), step=1)
         st.session_state["ws_sl_ribs_per_side"] = n_ribs
 
@@ -220,13 +234,77 @@ def render_tester_cantilever_leaf():
         if col_a.button("⬅ Back", use_container_width=True):
             st.session_state["lab_step"] = 4
             st.rerun()
-        if col_b.button("Review Structure ➔", type="primary", use_container_width=True):
+        if col_b.button("Next: Pick Boundary ➔", type="primary", use_container_width=True):
             st.session_state["lab_step"] = 6
             st.rerun()
 
-    # ================= SCREEN 6: REVIEW & ANALYZE =================
+    # ================= SCREEN 6: PICK BOUNDARY =================
     elif step == 6:
-        st.markdown("### Step 6: Review & Analyze")
+        st.markdown("### Step 6: Pick Boundary Anchors")
+        st.info("Tap the dots on the plan to set the perimeter cable anchors.")
+        
+        # Render the pickerboard
+        # We pass the current rib lengths and the currently active dots
+        picker_data = lab_pickerboard(
+            shape="leaf",
+            reach=float(st.session_state["ws_sl_outreach"]),
+            width=float(st.session_state["lab_vein_length"]),
+            rib_reach=float(st.session_state["ws_sl_outreach"] * 0.5),
+            rib_lengths=[],
+            key="lab_picker_1"
+        )
+        
+        # Save the active dots to session state
+        if picker_data and "active_dots" in picker_data:
+            st.session_state["lab_active_dots"] = picker_data["active_dots"]
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # The Connect Loop button
+        if st.button("🔗 Connect Loop", type="secondary", use_container_width=True):
+            # Build the 3D coordinates for the boundary loop
+            # For now, we will approximate them based on the active dots
+            active_dots = st.session_state.get("lab_active_dots", [])
+            if len(active_dots) > 0:
+                loop_pts = []
+                n_ribs = int(st.session_state["ws_sl_ribs_per_side"])
+                outreach = st.session_state["ws_sl_outreach"]
+                arc_r = st.session_state["ws_sl_arc_radius"]
+                beam_h = st.session_state["ws_sl_beam_landing_height"]
+                vein_length = st.session_state["lab_vein_length"]
+                tilt = st.session_state["ws_sl_rib_tilt"]
+                
+                # Generate the coordinates for the selected dots
+                for dot_idx in sorted(active_dots):
+                    # Map dot index to rib position
+                    rt = dot_idx / max(1, n_ribs - 1)
+                    bx = outreach * rt
+                    bz = beam_h + (arc_r * 0.5) * 4.0 * rt * (1.0 - rt)
+                    hw = vein_length * (math.sin(math.pi * rt) ** 0.7)
+                    tilt_rad = math.radians(tilt) * (math.sin(math.pi * rt) ** 0.7)
+                    tip_z = bz + hw * math.tan(tilt_rad)
+                    
+                    # Assume we pick the right tip for now
+                    loop_pts.append([bx, hw, tip_z])
+                    
+                st.session_state["lab_boundary_loop"] = loop_pts
+                st.session_state["lab_boundary_connected"] = True
+                st.success("Boundary loop connected! You can now review the structure.")
+            else:
+                st.warning("Please pick at least one dot to connect the loop.")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_a, col_b = st.columns(2)
+        if col_a.button("⬅ Back", use_container_width=True):
+            st.session_state["lab_step"] = 5
+            st.rerun()
+        if col_b.button("Review Structure ➔", type="primary", use_container_width=True):
+            st.session_state["lab_step"] = 7
+            st.rerun()
+
+    # ================= SCREEN 7: REVIEW & ANALYZE =================
+    elif step == 7:
+        st.markdown("### Step 7: Review & Analyze")
         
         fig = draw_wizard_preview(
             beam_h=st.session_state["ws_sl_beam_landing_height"],
@@ -244,8 +322,8 @@ def render_tester_cantilever_leaf():
             st.success("Solvers not connected yet. This is where the FDM and Steel Sizing will run!")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("⬅ Back to Pretensions", use_container_width=True):
-            st.session_state["lab_step"] = 5
+        if st.button("⬅ Back to Pickerboard", use_container_width=True):
+            st.session_state["lab_step"] = 6
             st.rerun()
 
     # ================= BACK TO LAB =================
