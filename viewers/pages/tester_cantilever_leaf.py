@@ -4,18 +4,12 @@ import numpy as np
 import plotly.graph_objects as go
 
 from viewers.figures._shared import apply_common_layout
-from ui.components.lab_pickerboard import lab_pickerboard
 
 
 def _init_lab_defaults():
     defaults = {
         "lab_step": 1,
-        "lab_shape": "leaf",
-        "lab_reach": 6.0,
-        "lab_width": 4.0,
-        "lab_rib_lengths": [],
-        "lab_picked_dots": [],
-        
+        "lab_support_type": "Ground Stand",
         "ws_sl_beam_landing_height": 4.0,
         "ws_sl_tie_landing_height": 5.0,
         "ws_sl_outreach": 6.0,
@@ -46,7 +40,7 @@ def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n
         mode="markers", marker=dict(color="#2ecc71", size=10, symbol="square"), name="Base"
     ))
 
-    # 2. Midrib
+    # 2. Midrib (Parabolic Arch)
     n_beam = 40
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
@@ -58,7 +52,7 @@ def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n
         mode="lines", line=dict(color="#FF6B6B", width=8), name="Midrib"
     ))
 
-    # 3. Tie Beam
+    # 3. Tie Beam (Horizontal)
     tie_attach_x = outreach * 0.33
     if arc_r > 0.01:
         target_rise = tie_h - beam_h
@@ -74,8 +68,9 @@ def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n
                 if 0 < x1 < outreach:
                     tie_attach_x = x1
 
+    tie_attach_z = tie_h 
     fig.add_trace(go.Scatter3d(
-        x=[0, tie_attach_x], y=[0, 0], z=[tie_h, tie_h],
+        x=[0, tie_attach_x], y=[0, 0], z=[tie_h, tie_attach_z],
         mode="lines", line=dict(color="#f39c12", width=6), name="Tie Beam"
     ))
 
@@ -85,6 +80,7 @@ def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n
         idx = int(rt * (n_beam - 1))
         rx = beam_x[idx]
         rz = beam_z[idx]
+        
         hw = vein_length * (math.sin(math.pi * rt) ** 0.7)
         tilt_rad = math.radians(tilt_deg) * (math.sin(math.pi * rt) ** 0.7)
         tip_z = rz + hw * math.tan(tilt_rad)
@@ -94,13 +90,14 @@ def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n
             mode="lines", line=dict(color="#3498db", width=3), showlegend=False
         ))
 
-    # 5. Membrane
+    # 5. Clean Membrane Surface
     n_u, n_v = 24, 24
     X_s, Y_s, Z_s = np.zeros((n_u, n_v)), np.zeros((n_u, n_v)), np.zeros((n_u, n_v))
     
     for i, ut in enumerate(np.linspace(0.02, 0.98, n_u)):
         idx = int(ut * (n_beam - 1))
         bx, bz = beam_x[idx], beam_z[idx]
+        
         hw = vein_length * (math.sin(math.pi * ut) ** 0.7)
         tilt_rad = math.radians(tilt_deg) * (math.sin(math.pi * ut) ** 0.7)
         tip_z = bz + hw * math.tan(tilt_rad)
@@ -125,34 +122,23 @@ def draw_wizard_preview(beam_h, tie_h, outreach, arc_r, vein_length, tilt_deg, n
 def render_tester_cantilever_leaf():
     _init_lab_defaults()
     
+    # Progress Bar
     step = st.session_state["lab_step"]
     progress = (step - 1) / 5.0
     st.progress(progress)
+    
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ================= SCREEN 1: PICKERBOARD =================
+    # ================= SCREEN 1: FOUNDATION =================
     if step == 1:
-        st.markdown("### Step 1: Plan View Pickers")
-        st.info("Tap the dots on the plan view to set the anchor points.")
+        st.markdown("### Step 1: Foundation & Support")
+        st.info("Define how the leaf touches the ground or structures.")
         
-        # The pickerboard takes the current state
-        picker_data = lab_pickerboard(
-            shape="leaf",
-            reach=float(st.session_state["lab_reach"]),
-            width=float(st.session_state["lab_width"]),
-            rib_reach=float(st.session_state["lab_reach"] * 0.5),
-            rib_lengths=st.session_state["lab_rib_lengths"],
-            key="lab_picker_1"
-        )
+        support_types = ["Ground Stand", "Wall Mounted", "Suspended"]
+        support_idx = support_types.index(st.session_state["lab_support_type"])
+        support = st.radio("Support Type", support_types, index=support_idx)
+        st.session_state["lab_support_type"] = support
         
-        # Save the picked dots to session state
-        if picker_data and "rib_lengths" in picker_data:
-            st.session_state["lab_rib_lengths"] = picker_data["rib_lengths"]
-            # Note: the HTML sends back rib_lengths, we'll store the picked ones
-            # For now, we assume all returned dots are the picked ones.
-            # In a future version, the HTML will explicitly send "picked_indices".
-            st.session_state["lab_picked_dots"] = picker_data["rib_lengths"]
-
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("Next: Column ➔", type="primary", use_container_width=True):
             st.session_state["lab_step"] = 2
@@ -161,6 +147,8 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 2: COLUMN =================
     elif step == 2:
         st.markdown("### Step 2: Column Heights")
+        st.info("The midrib lands at the lower height. The tie beam sits at the upper height.")
+        
         col1, col2 = st.columns(2)
         with col1:
             beam_h = st.number_input("Beam Landing (m)", min_value=1.0, max_value=30.0, value=float(st.session_state["ws_sl_beam_landing_height"]), step=0.5)
@@ -181,6 +169,8 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 3: MIDRIB =================
     elif step == 3:
         st.markdown("### Step 3: Midrib (Primary Beam)")
+        st.info("The main spine that carries the leaf outward.")
+        
         col3, col4 = st.columns(2)
         with col3:
             outreach = st.number_input("Midrib Length (m)", min_value=2.0, max_value=30.0, value=float(st.session_state["ws_sl_outreach"]), step=0.5)
@@ -201,6 +191,8 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 4: VEINS =================
     elif step == 4:
         st.markdown("### Step 4: Veins (Secondary Beams)")
+        st.info("The cross-beams that hold the fabric open.")
+        
         col5, col6 = st.columns(2)
         with col5:
             vein_length = st.number_input("Vein Length (m)", min_value=0.5, max_value=6.0, value=float(st.session_state["lab_vein_length"]), step=0.25)
@@ -221,6 +213,8 @@ def render_tester_cantilever_leaf():
     # ================= SCREEN 5: PRETENSIONS =================
     elif step == 5:
         st.markdown("### Step 5: Pretensions")
+        st.info("The forces that keep the fabric taut.")
+        
         col7, col8, col9 = st.columns(3)
         with col7:
             warp = st.number_input("Warp (kN)", min_value=0.1, max_value=20.0, value=float(st.session_state["lab_warp_kN"]), step=0.1)
@@ -245,6 +239,7 @@ def render_tester_cantilever_leaf():
     elif step == 6:
         st.markdown("### Step 6: Review & Analyze")
         
+        # Build the preview
         fig = draw_wizard_preview(
             beam_h=st.session_state["ws_sl_beam_landing_height"],
             tie_h=st.session_state["ws_sl_tie_landing_height"],
