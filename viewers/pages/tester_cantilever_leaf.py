@@ -97,27 +97,21 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
 
 
 def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, col_top_h, vein_length, tilt):
-    """Converts string IDs from the pickerboard into 3D coordinates, matching the visual t = 0.08 to 0.92."""
     loop_pts = []
-    
     for dot in active_dots:
         if dot == "root":
             loop_pts.append([0.0, 0.0, beam_h])
-            
         elif dot == "beam_tip":
             bx = outreach
             bz = beam_h + (arc_r * 0.5) * 4.0 * 1.0 * (1.0 - 1.0)
             loop_pts.append([bx, 0.0, bz])
-            
         elif dot.startswith("top_") or dot.startswith("bot_"):
             side = 1.0 if dot.startswith("top_") else -1.0
             rib_idx = int(dot.split("_")[1])
-            
-            # MATCH THE VISUAL: ribs run from t=0.08 to t=0.92
             if n_ribs > 1:
                 rt = 0.08 + (0.92 - 0.08) * rib_idx / (n_ribs - 1)
             else:
-                rt = 0.5 # fallback for 1 rib
+                rt = 0.5
             
             bx = outreach * rt
             bz = beam_h + (arc_r * 0.5) * 4.0 * rt * (1.0 - rt)
@@ -232,9 +226,14 @@ def render_tester_cantilever_leaf():
         
         outreach = float(st.session_state["ws_sl_outreach"])
         width = float(st.session_state["lab_vein_length"])
+        n_ribs = int(st.session_state["ws_sl_ribs_per_side"])
+        
+        # --- Dynamic Key: Forces re-render if geometry changes
+        geom_hash = f"{outreach}_{width}_{n_ribs}_{st.session_state['ws_sl_arc_radius']}_{st.session_state['ws_sl_rib_tilt']}"
+        picker_key = f"lab_picker_{geom_hash}"
         
         picker_data = lab_pickerboard(
-            reach=outreach, width=width, active_dots=st.session_state["lab_active_dots"], key="lab_picker_1"
+            reach=outreach, width=width, active_dots=st.session_state["lab_active_dots"], key=picker_key
         )
         
         if picker_data and "active_dots" in picker_data:
@@ -242,24 +241,32 @@ def render_tester_cantilever_leaf():
             
         st.markdown("<br>", unsafe_allow_html=True)
         
-        if st.button("🔗 Connect Loop", type="secondary", use_container_width=True):
-            active_dots = st.session_state.get("lab_active_dots", [])
-            if len(active_dots) > 0:
-                loop_pts = _build_boundary_loop_from_dots(
-                    active_dots=active_dots,
-                    n_ribs=st.session_state["ws_sl_ribs_per_side"],
-                    outreach=outreach,
-                    arc_r=st.session_state["ws_sl_arc_radius"],
-                    beam_h=st.session_state["ws_sl_beam_landing_height"],
-                    col_top_h=st.session_state["ws_sl_column_top_height"],
-                    vein_length=st.session_state["lab_vein_length"],
-                    tilt=st.session_state["ws_sl_rib_tilt"]
-                )
-                st.session_state["lab_boundary_loop"] = loop_pts
-                st.session_state["lab_boundary_connected"] = True
-                st.success(f"Boundary loop connected with {len(loop_pts)} anchors.")
-            else:
-                st.warning("Please pick at least one dot to connect.")
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("🗑 Clear Picks", use_container_width=True):
+                st.session_state["lab_active_dots"] = []
+                st.session_state["lab_boundary_loop"] = []
+                st.session_state["lab_boundary_connected"] = False
+                st.rerun()
+        with col_btn2:
+            if st.button("🔗 Connect Loop", type="secondary", use_container_width=True):
+                active_dots = st.session_state.get("lab_active_dots", [])
+                if len(active_dots) > 0:
+                    loop_pts = _build_boundary_loop_from_dots(
+                        active_dots=active_dots,
+                        n_ribs=n_ribs,
+                        outreach=outreach,
+                        arc_r=st.session_state["ws_sl_arc_radius"],
+                        beam_h=st.session_state["ws_sl_beam_landing_height"],
+                        col_top_h=st.session_state["ws_sl_column_top_height"],
+                        vein_length=st.session_state["lab_vein_length"],
+                        tilt=st.session_state["ws_sl_rib_tilt"]
+                    )
+                    st.session_state["lab_boundary_loop"] = loop_pts
+                    st.session_state["lab_boundary_connected"] = True
+                    st.success(f"Boundary loop connected with {len(loop_pts)} anchors.")
+                else:
+                    st.warning("Please pick at least one dot to connect.")
 
         st.markdown("<br>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
