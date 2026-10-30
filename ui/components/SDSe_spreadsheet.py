@@ -69,10 +69,16 @@ def render_element_spreadsheet(elements, key_prefix="dome"):
 
     updated_elements = []
     for index, row in edited_df.iterrows():
-        original_el = next((e for e in elements if e["id"] == df.iloc[index]["ID"]), None)
+        # FIX APPLIED HERE: Strip the display prefix to find the real ID
+        raw_id = row["ID"].replace("SDSe_", "", 1)
+        
+        # Match against the raw ID
+        original_el = next((e for e in elements if e["id"] == raw_id), None)
+        
         if original_el:
             new_el = original_el.copy()
-            new_el["id"] = row["ID"]
+            # Save the raw ID back to the engine state
+            new_el["id"] = raw_id
             new_el["visible"] = row["Visible"]
             new_el["seed"]["baseplate"] = row["Baseplate"]
             new_el["seed"]["bolts"] = row["Bolts"]
