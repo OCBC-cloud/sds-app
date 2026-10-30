@@ -1,32 +1,196 @@
-import os
-import streamlit as st
-import streamlit.components.v1 as components
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SDSe Lab Pickerboard</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; background: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #a8b8c8;
+  }
+  #wrap {
+    width: 100%; box-sizing: border-box; padding: 8px 0 4px 0;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  #svg-container {
+    width: 100%; max-width: 600px; aspect-ratio: 4 / 3;
+    background: #0e1117; border: 1px solid #1e2a3a; border-radius: 8px;
+  }
+  svg {
+    display: block; width: 100%; height: 100%;
+    touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  }
+  .grid-line { stroke: #a0522d; stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.6; }
+  .border-line { stroke: #2ecc71; stroke-width: 3; fill: none; }
+  .pick { cursor: pointer; transition: fill 0.12s ease, stroke 0.12s ease; }
+  .pick.off { fill: #3a4a5a; stroke: #556677; stroke-width: 2; }
+  .pick.on { fill: #f1c40f; stroke: #fff3b0; stroke-width: 2; }
+  #caption { padding: 8px 0 0 0; font-size: 13px; color: #a8b8c8; text-align: center; }
+  #caption b { color: #f1c40f; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="svg-container"></div>
+  <div id="caption">Picked positions: <b><span id="count">0</span></b></div>
+</div>
 
-_RELEASE = True
-_COMPONENT_NAME = "lab_pickerboard"
+<script>
+var Streamlit = (function () {
+  var RENDER_EVENT = "streamlit:render";
+  var SET_FRAME_HEIGHT = "streamlit:setFrameHeight";
+  var SET_COMPONENT_VALUE = "streamlit:setComponentValue";
+  var SET_COMPONENT_READY = "streamlit:componentReady";
+  var listeners = [];
 
-if not _RELEASE:
-    _component_func = components.declare_component(
-        _COMPONENT_NAME,
-        url="http://localhost:3001",
-    )
-else:
-    parent_dir = os.path.dirname(os.path.abspath(__file__))
-    build_dir = os.path.join(parent_dir, "lab_pickerboard")
-    _component_func = components.declare_component(_COMPONENT_NAME, path=build_dir)
+  function sendMessage(type, data) {
+    var msg = { isStreamlitMessage: true, type: type };
+    if (data) { for (var k in data) { msg[k] = data[k]; } }
+    window.parent.postMessage(msg, "*");
+  }
 
-def lab_pickerboard(reach=10.0, width=10.0, active_dots=None, key=None):
-    """
-    Renders the new rectangular 2D pickerboard.
-    """
-    if active_dots is None:
-        active_dots = []
-        
-    component_value = _component_func(
-        reach=reach,
-        width=width,
-        active_dots=active_dots,
-        key=key,
-        default={"active_dots": active_dots}
-    )
-    return component_value
+  window.addEventListener("message", function (event) {
+    if (!event.data || event.data.type !== RENDER_EVENT) { return; }
+    listeners.forEach(function (fn) { fn(event.data.args || {}); });
+  });
+
+  return {
+    setComponentReady: function () { sendMessage(SET_COMPONENT_READY, { apiVersion: 1 }); },
+    setFrameHeight: function (height) { sendMessage(SET_FRAME_HEIGHT, { height: height }); },
+    setComponentValue: function (value) { sendMessage(SET_COMPONENT_VALUE, { value: value, dataType: "json" }); },
+    onRender: function (fn) { listeners.push(fn); }
+  };
+})();
+
+var state = {
+  reach: 10.0,
+  width: 10.0,
+  active_dots: []
+};
+
+var SVG_NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs) {
+  var e = document.createElementNS(SVG_NS, tag);
+  for (var k in attrs) { e.setAttribute(k, attrs[k]); }
+  return e;
+}
+
+function render() {
+  var container = document.getElementById("svg-container");
+  if (!container) return;
+  container.innerHTML = "";
+  
+  var width = container.clientWidth || 500;
+  var height = container.clientHeight || 375;
+  
+  var padding = 40;
+  var maxX = state.reach * 1.1;
+  var maxY = state.width * 0.6; 
+  
+  var scale = Math.min((width - padding*2) / maxX, (height - padding*2) / (maxY*2));
+  var offsetX = padding;
+  var offsetY = height / 2; 
+
+  var svg = el("svg", {
+    viewBox: "0 0 " + width + " " + height,
+    preserveAspectRatio: "xMidYMid meet"
+  });
+
+  var borderW = maxX * scale;
+  var borderH = (maxY * 2) * scale;
+  svg.appendChild(el("rect", {
+    x: offsetX, y: offsetY - borderH/2, 
+    width: borderW, height: borderH,
+    class: "border-line"
+  }));
+
+  svg.appendChild(el("line", {
+    x1: offsetX, y1: offsetY, x2: offsetX + borderW, y2: offsetY,
+    class: "grid-line"
+  }));
+
+  function makeDot(x, y, id, is_square) {
+    var on = state.active_dots.indexOf(id) !== -1;
+    var cls = "pick " + (on ? "on" : "off");
+    var shape;
+    
+    if (is_square) {
+        shape = el("rect", { x: x-6, y: y-6, width: 12, height: 12, class: cls });
+    } else {
+        shape = el("circle", { cx: x, cy: y, r: 7, class: cls });
+    }
+    
+    shape.addEventListener("click", function(evt) { evt.preventDefault(); toggleDot(id); });
+    shape.addEventListener("touchend", function(evt) { evt.preventDefault(); toggleDot(id); });
+    svg.appendChild(shape);
+  }
+
+  makeDot(offsetX, offsetY, "root", true);
+
+  var n_ribs = 5;
+  var rib_ts = [];
+  for(var i=0; i<n_ribs; i++) {
+      rib_ts.push(0.08 + 0.84 * i / Math.max(1, n_ribs - 1));
+  }
+
+  for(var i=0; i<rib_ts.length; i++) {
+      var t = rib_ts[i];
+      var x_pos = t * maxX;
+      var hw = maxY * Math.sin(Math.PI * t);
+      
+      var px = offsetX + x_pos * scale;
+      var py_top = offsetY - hw * scale;
+      var py_bot = offsetY + hw * scale;
+      
+      svg.appendChild(el("line", { x1: px, y1: offsetY, x2: px, y2: py_top, class: "grid-line" }));
+      svg.appendChild(el("line", { x1: px, y1: offsetY, x2: px, y2: py_bot, class: "grid-line" }));
+      
+      makeDot(px, py_top, "top_" + i, false);
+      makeDot(px, py_bot, "bot_" + i, false);
+  }
+
+  var tipX = offsetX + maxX * scale;
+  var tipY = offsetY;
+  makeDot(tipX, tipY, "beam_tip", true);
+
+  document.getElementById("count").textContent = state.active_dots.length;
+  container.appendChild(svg);
+}
+
+function toggleDot(id) {
+  var pos = state.active_dots.indexOf(id);
+  if (pos !== -1) {
+    state.active_dots.splice(pos, 1);
+  } else {
+    state.active_dots.push(id);
+  }
+  sendValue();
+  render();
+}
+
+function sendValue() {
+  Streamlit.setComponentValue({ active_dots: state.active_dots });
+}
+
+Streamlit.onRender(function (args) {
+  state.reach = Number(args.reach || 10.0);
+  state.width = Number(args.width || 10.0);
+  // Only overwrite if args has a valid array
+  if (Array.isArray(args.active_dots)) {
+      state.active_dots = args.active_dots;
+  }
+  
+  render();
+  
+  setTimeout(function () {
+    var wrap = document.getElementById("wrap");
+    Streamlit.setFrameHeight(wrap.scrollHeight);
+  }, 30);
+});
+
+Streamlit.setComponentReady();
+window.addEventListener("resize", render);
+</script>
+</body>
+</html>
