@@ -531,7 +531,7 @@ def build_dome_multi_cone():
         boundary_keys_arr = np.asarray(boundary_keys_flat, dtype=np.int32)
 
         with st.spinner("Solving FDM seed..."):
-            fdm_bytes, _, summary = _cached_solve(mesh_hash, pts.astype(np.float64).tobytes(), np.asarray(tris, dtype=np.int32).tobytes(), _pack_edges(edges), np.asarray(fdm_fixed, dtype=np.int32).tobytes(), np.asarray(nfdm_fixed, dtype=np.int32).tobytes(), _pack_cables(cables), q_interior.astype(np.float64).tobytes(), boundary_keys_arr.tobytes(), float(edge_q_scalar), float(warp_pretension * 1000.0), float(weft_pretension * 1000.0), int(SOLVE_MAX_ITER), int(SOLVE_MAX_OUTER), float(SOLVE_TOL), 0.001)
+            fdm_bytes, _, summary = _cached_solve(mesh_hash, pts.astype(np.float64).tobytes(), np.asarray(tris, dtype=np.int32).tobytes(), _pack_edges(edges), np.asarray(fdm_fixed, dtype=np.int32).tobytes(), np.asarray(nfdm_fixed, dtype=np.int32).tobytes(), _pack_cables(cables), q_interior.astype(np.float64).tobytes(), boundary_keys_arr.tobytes(), float(edge_q_scalar), float(warp_pretension * 1000.0), float(weft_pretension * 1000.0), int(SOLVE_MAX_ITER), int(SOLVE_MAX_OUTER), float(SOLVE_TOL), 120.0)
             fdm_coords = np.frombuffer(fdm_bytes, dtype=np.float64).reshape(-1, 3).copy()
             solve_summary = summary
 
