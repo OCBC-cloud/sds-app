@@ -21,25 +21,12 @@
     display: block; width: 100%; height: 100%;
     touch-action: manipulation; user-select: none; -webkit-user-select: none;
   }
-  
-  /* Grid lines */
   .grid-line { stroke: #a0522d; stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.6; }
   .border-line { stroke: #2ecc71; stroke-width: 3; fill: none; }
-  
-  /* Dots */
-  .pick {
-    cursor: pointer; transition: fill 0.12s ease, stroke 0.12s ease;
-  }
-  .pick.off {
-    fill: #3a4a5a; stroke: #556677; stroke-width: 2;
-  }
-  .pick.on {
-    fill: #f1c40f; stroke: #fff3b0; stroke-width: 2;
-  }
-  
-  #caption {
-    padding: 8px 0 0 0; font-size: 13px; color: #a8b8c8; text-align: center;
-  }
+  .pick { cursor: pointer; transition: fill 0.12s ease, stroke 0.12s ease; }
+  .pick.off { fill: #3a4a5a; stroke: #556677; stroke-width: 2; }
+  .pick.on { fill: #f1c40f; stroke: #fff3b0; stroke-width: 2; }
+  #caption { padding: 8px 0 0 0; font-size: 13px; color: #a8b8c8; text-align: center; }
   #caption b { color: #f1c40f; }
 </style>
 </head>
@@ -110,7 +97,6 @@ function render() {
     preserveAspectRatio: "xMidYMid meet"
   });
 
-  // 1. Draw Square/Rectangle Border
   var borderW = maxX * scale;
   var borderH = (maxY * 2) * scale;
   svg.appendChild(el("rect", {
@@ -119,13 +105,11 @@ function render() {
     class: "border-line"
   }));
 
-  // 2. Draw Main Beam (dashed line along Y=0)
   svg.appendChild(el("line", {
     x1: offsetX, y1: offsetY, x2: offsetX + borderW, y2: offsetY,
     class: "grid-line"
   }));
 
-  // Function to toggle dot
   function makeDot(x, y, id, is_square) {
     var on = state.active_dots.indexOf(id) !== -1;
     var cls = "pick " + (on ? "on" : "off");
@@ -142,10 +126,8 @@ function render() {
     svg.appendChild(shape);
   }
 
-  // 3. Draw Root Dot (at the column base, X=0)
   makeDot(offsetX, offsetY, "root", true);
 
-  // 4. Draw Vein Lines and Tips
   var n_ribs = 5;
   var rib_ts = [];
   for(var i=0; i<n_ribs; i++) {
@@ -168,7 +150,6 @@ function render() {
       makeDot(px, py_bot, "bot_" + i, false);
   }
 
-  // 5. Draw Main Beam Tip
   var tipX = offsetX + maxX * scale;
   var tipY = offsetY;
   makeDot(tipX, tipY, "beam_tip", true);
@@ -195,7 +176,9 @@ function sendValue() {
 Streamlit.onRender(function (args) {
   state.reach = Number(args.reach || 10.0);
   state.width = Number(args.width || 10.0);
-  state.active_dots = args.active_dots || [];
+  if (Array.isArray(args.active_dots)) {
+      state.active_dots = args.active_dots;
+  }
   
   render();
   
