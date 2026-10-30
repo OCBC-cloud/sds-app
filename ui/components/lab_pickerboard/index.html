@@ -99,12 +99,11 @@ function render() {
   
   var padding = 40;
   var maxX = state.reach * 1.1;
-  var maxY = state.width * 0.6; // assume half-width for Y axis
+  var maxY = state.width * 0.6; 
   
-  // Calculate scale to fit
   var scale = Math.min((width - padding*2) / maxX, (height - padding*2) / (maxY*2));
   var offsetX = padding;
-  var offsetY = height / 2; // Center Y axis
+  var offsetY = height / 2; 
 
   var svg = el("svg", {
     viewBox: "0 0 " + width + " " + height,
@@ -126,13 +125,6 @@ function render() {
     class: "grid-line"
   }));
 
-  // 3. Draw Veins (dashed lines going out to tips)
-  var n_ribs = 5;
-  var rib_ts = [];
-  for(var i=0; i<n_ribs; i++) {
-      rib_ts.push(0.08 + 0.84 * i / Math.max(1, n_ribs - 1));
-  }
-
   // Function to toggle dot
   function makeDot(x, y, id, is_square) {
     var on = state.active_dots.indexOf(id) !== -1;
@@ -150,31 +142,33 @@ function render() {
     svg.appendChild(shape);
   }
 
-  // Draw Vein Lines and Tips
+  // 3. Draw Root Dot (at the column base, X=0)
+  makeDot(offsetX, offsetY, "root", true);
+
+  // 4. Draw Vein Lines and Tips
+  var n_ribs = 5;
+  var rib_ts = [];
+  for(var i=0; i<n_ribs; i++) {
+      rib_ts.push(0.08 + 0.84 * i / Math.max(1, n_ribs - 1));
+  }
+
   for(var i=0; i<rib_ts.length; i++) {
       var t = rib_ts[i];
       var x_pos = t * maxX;
-      var hw = maxY * Math.sin(Math.PI * t); // Y-width at this point
+      var hw = maxY * Math.sin(Math.PI * t);
       
       var px = offsetX + x_pos * scale;
       var py_top = offsetY - hw * scale;
       var py_bot = offsetY + hw * scale;
       
-      // Draw Vein Line Top
-      svg.appendChild(el("line", {
-          x1: px, y1: offsetY, x2: px, y2: py_top, class: "grid-line"
-      }));
-      // Draw Vein Line Bottom
-      svg.appendChild(el("line", {
-          x1: px, y1: offsetY, x2: px, y2: py_bot, class: "grid-line"
-      }));
+      svg.appendChild(el("line", { x1: px, y1: offsetY, x2: px, y2: py_top, class: "grid-line" }));
+      svg.appendChild(el("line", { x1: px, y1: offsetY, x2: px, y2: py_bot, class: "grid-line" }));
       
-      // Draw Tip Dots
       makeDot(px, py_top, "top_" + i, false);
       makeDot(px, py_bot, "bot_" + i, false);
   }
 
-  // Draw Main Beam Tip (the nose)
+  // 5. Draw Main Beam Tip
   var tipX = offsetX + maxX * scale;
   var tipY = offsetY;
   makeDot(tipX, tipY, "beam_tip", true);
@@ -195,9 +189,7 @@ function toggleDot(id) {
 }
 
 function sendValue() {
-  Streamlit.setComponentValue({ 
-      active_dots: state.active_dots 
-  });
+  Streamlit.setComponentValue({ active_dots: state.active_dots });
 }
 
 Streamlit.onRender(function (args) {
