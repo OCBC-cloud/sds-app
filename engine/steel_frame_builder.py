@@ -18,6 +18,7 @@ are correctly matched to the sizer's member-type dict.
 
 import numpy as np
 from data.sections import SECTION_PROPERTIES
+from engine.SDSe_load_transfer import extract_frame_loads
 
 NODE_ARCH = "arch"
 NODE_RING = "ring"
@@ -107,8 +108,20 @@ def _build_spine_with_crossings(xp, zp, target_zs, target_xs):
 
 def build_steel_frame(data, newton_data):
     coords_fdm = newton_data["dr_result"]["coordinates"]
-    reactions = newton_data["dr_result"].get("reactions", None)
+    
+    # --- NEW: Use the Physics Bridge to get exact loads ---
+    built = data["built"]
+    solve_summary = newton_data["dr_result"].get("solve_summary", {})
+    nfdm = solve_summary.get("nfdm", {})
+    cable_tensions = nfdm.get("cable_tension", [])
     anchor_idx = data["anchor_idx"]
+    ring_centre_indices = built["centre_indices"]
+    
+    membrane_loads = extract_frame_loads(
+        built, coords_fdm, cable_tensions, anchor_idx, ring_centre_indices
+    )
+    # ------------------------------------------------------
+
     eave_height = float(data["eave_height"])
 
     xp = data["xp"]
@@ -116,7 +129,7 @@ def build_steel_frame(data, newton_data):
     rib_xs = list(data["rib_x"])
 
     drop_zs = []
-    for cidx in data["built"]["centre_indices"]:
+    for cidx in built["centre_indices"]:
         drop_zs.append(float(coords_fdm[int(cidx)][2]))
 
     target_zs = sorted(set([eave_height] + drop_zs))
@@ -195,30 +208,30 @@ def build_steel_frame(data, newton_data):
                 bestd, best = d, cand_idx
         if best >= 0:
             anchor_map[int(mesh_idx)] = best
-            if reactions is not None:
-                loads[best] += -np.asarray(reactions[mesh_idx], dtype=float)
+            # Apply the exact membrane load we calculated earlier
+            loads[best] += membrane_loads[mesh_idx]
 
     # --- Rings, drops, spokes ---
     ring_map = {}
     drop_map = {}
-    for k, idx_list in enumerate(data["built"]["ring_indices"]):
+    for k, idx_list in enumerate(built["ring_indices"]):
         r_ids = []
         for mesh_node in idx_list:
             fid = add(coords_fdm[int(mesh_node)], KIND_RING)
             r_ids.append(fid)
             ring_map[int(mesh_node)] = fid
-            if reactions is not None:
-                loads[fid] += -np.asarray(reactions[mesh_node], dtype=float)
+            # Apply the exact membrane load we calculated earlier
+            loads[fid] += membrane_loads[mesh_node]
         for i in range(len(r_ids)):
             a, b = r_ids[i], r_ids[(i + 1) % len(r_ids)]
             elements.append({"a": a, "b": b, "section": KIND_RING, "kind": KIND_RING})
 
-        cidx = int(data["built"]["centre_indices"][k])
+        cidx = int(built["centre_indices"][k])
         dpos = coords_fdm[cidx]
         drop_id = add(dpos, KIND_DROP)
         drop_map[cidx] = drop_id
-        if reactions is not None:
-            loads[drop_id] += -np.asarray(reactions[cidx], dtype=float)
+        # Apply the exact membrane load we calculated earlier
+        loads[drop_id] += membrane_loads[cidx]
 
         drop_z = float(dpos[2])
         drop_spine_candidates = [idx for idx, sz in enumerate(spine_zs) if abs(sz - drop_z) < 1e-6]
@@ -246,9 +259,9 @@ def build_steel_frame(data, newton_data):
 
     total_load = float(np.sum(np.abs(loads)))
     total_reaction = 0.0
-    if reactions is not None:
+    if membrane_loads is not None:
         for m in list(anchor_map) + list(ring_map) + list(drop_map):
-            total_reaction += float(np.linalg.norm(reactions[m]))
+            total_reaction += float(np.linalg.norm(membrane_loads[m]))
 
     return {
         "nodes": nodes,
