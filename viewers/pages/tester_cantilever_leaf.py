@@ -1,4 +1,5 @@
 import math
+import uuid
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
@@ -24,6 +25,7 @@ def _init_lab_defaults():
         "lab_active_dots": [],
         "lab_boundary_loop": [],
         "lab_boundary_connected": False,
+        "lab_picker_uuid": str(uuid.uuid4()),
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -227,20 +229,18 @@ def render_tester_cantilever_leaf():
         width = float(st.session_state["lab_vein_length"])
         n_ribs = int(st.session_state["ws_sl_ribs_per_side"])
         
-        # A unique hash of the current geometry
-        geom_hash = f"{outreach}_{width}_{n_ribs}_{st.session_state['ws_sl_arc_radius']}_{st.session_state['ws_sl_rib_tilt']}"
-        
-        # --- REFRESH BUTTON ---
         st.info("If you edited previous steps, click Refresh to update the pickerboard geometry.")
+        
+        # --- FORCED REFRESH BUTTON ---
         if st.button("🔄 Refresh Pickerboard", use_container_width=True):
             st.session_state["lab_active_dots"] = []
             st.session_state["lab_boundary_loop"] = []
             st.session_state["lab_boundary_connected"] = False
-            st.session_state[f"picker_force_{geom_hash}"] = st.session_state.get(f"picker_force_{geom_hash}", 0) + 1
+            # Generate a brand new UUID, forcing Streamlit to destroy the old component
+            st.session_state["lab_picker_uuid"] = str(uuid.uuid4())
             st.rerun()
             
-        force_key = st.session_state.get(f"picker_force_{geom_hash}", 0)
-        picker_key = f"lab_picker_{geom_hash}_{force_key}"
+        picker_key = f"lab_picker_{st.session_state['lab_picker_uuid']}"
         
         picker_data = lab_pickerboard(
             reach=outreach, width=width, active_dots=st.session_state["lab_active_dots"], key=picker_key
@@ -257,6 +257,7 @@ def render_tester_cantilever_leaf():
                 st.session_state["lab_active_dots"] = []
                 st.session_state["lab_boundary_loop"] = []
                 st.session_state["lab_boundary_connected"] = False
+                st.session_state["lab_picker_uuid"] = str(uuid.uuid4()) # Force reload
                 st.rerun()
         with col_btn2:
             if st.button("🔗 Connect Loop", type="secondary", use_container_width=True):
@@ -289,13 +290,6 @@ def render_tester_cantilever_leaf():
 
     elif step == 7:
         st.markdown("### Step 7: Review & Analyze")
-        
-        # --- REFRESH 3D BUTTON ---
-        st.info("If the 3D shape doesn't match your inputs, click Refresh.")
-        if st.button("🔄 Refresh 3D View", use_container_width=True):
-            st.session_state["lab_boundary_loop"] = []
-            st.session_state["lab_boundary_connected"] = False
-            st.rerun()
         
         fig = draw_wizard_preview(
             beam_h=st.session_state["ws_sl_beam_landing_height"],
