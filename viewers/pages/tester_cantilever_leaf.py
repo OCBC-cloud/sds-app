@@ -22,6 +22,8 @@ def _init_lab_defaults():
         "lab_weft_kN": 1.0,
         "lab_cable_kN": 1.0,
         "lab_active_dots": [],
+        "lab_boundary_loop": [],
+        "lab_boundary_connected": False,
         "lab_picker_key": 0,
     }
     for k, v in defaults.items():
@@ -342,9 +344,8 @@ def render_tester_cantilever_leaf():
 
     elif step == 6:
         st.markdown("### Step 6: Pick Boundary Anchors")
-        st.info("Tap the dots on the 2D plan. The 3D view below updates live.")
+        st.info("Tap the dots on the 2D plan, then click Connect Loop.")
         
-        # 1. Draw the 2D Pickerboard
         html_code = draw_pickerboard_html(
             reach=float(st.session_state["ws_sl_outreach"]),
             width=float(st.session_state["lab_vein_length"]),
@@ -354,20 +355,30 @@ def render_tester_cantilever_leaf():
         )
         components.html(html_code, height=400)
         
-        # 2. Build boundary loop from current picks
-        active_dots = st.session_state.get("lab_active_dots", [])
-        boundary_loop = _build_boundary_loop_from_dots(
-            active_dots=active_dots,
-            n_ribs=st.session_state["ws_sl_ribs_per_side"],
-            outreach=st.session_state["ws_sl_outreach"],
-            arc_r=st.session_state["ws_sl_arc_radius"],
-            beam_h=st.session_state["ws_sl_beam_landing_height"],
-            col_top_h=st.session_state["ws_sl_column_top_height"],
-            vein_length=st.session_state["lab_vein_length"],
-            tilt=st.session_state["ws_sl_rib_tilt"]
-        )
+        st.markdown("<br>", unsafe_allow_html=True)
         
-        # 3. Draw the 3D Viewer below
+        # THE CONNECT LOOP BUTTON
+        if st.button("🔗 Connect Loop", type="secondary", use_container_width=True):
+            active_dots = st.session_state.get("lab_active_dots", [])
+            if len(active_dots) > 0:
+                loop_pts = _build_boundary_loop_from_dots(
+                    active_dots=active_dots,
+                    n_ribs=st.session_state["ws_sl_ribs_per_side"],
+                    outreach=st.session_state["ws_sl_outreach"],
+                    arc_r=st.session_state["ws_sl_arc_radius"],
+                    beam_h=st.session_state["ws_sl_beam_landing_height"],
+                    col_top_h=st.session_state["ws_sl_column_top_height"],
+                    vein_length=st.session_state["lab_vein_length"],
+                    tilt=st.session_state["ws_sl_rib_tilt"]
+                )
+                st.session_state["lab_boundary_loop"] = loop_pts
+                st.session_state["lab_boundary_connected"] = True
+            else:
+                st.warning("Please pick at least one dot to connect.")
+        
+        # Live 3D View
+        boundary_loop = st.session_state.get("lab_boundary_loop", [])
+        
         fig_3d = draw_3d_preview(
             beam_h=st.session_state["ws_sl_beam_landing_height"],
             col_top_h=st.session_state["ws_sl_column_top_height"],
@@ -382,7 +393,6 @@ def render_tester_cantilever_leaf():
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Removed Clear Picks. Only Review and Back remain.
         col_a, col_b = st.columns(2)
         if col_a.button("⬅ Back", use_container_width=True):
             st.session_state["lab_step"] = 5
@@ -394,18 +404,7 @@ def render_tester_cantilever_leaf():
     elif step == 7:
         st.markdown("### Step 7: Review & Analyze")
         
-        active_dots = st.session_state.get("lab_active_dots", [])
-        
-        boundary_loop = _build_boundary_loop_from_dots(
-            active_dots=active_dots,
-            n_ribs=st.session_state["ws_sl_ribs_per_side"],
-            outreach=st.session_state["ws_sl_outreach"],
-            arc_r=st.session_state["ws_sl_arc_radius"],
-            beam_h=st.session_state["ws_sl_beam_landing_height"],
-            col_top_h=st.session_state["ws_sl_column_top_height"],
-            vein_length=st.session_state["lab_vein_length"],
-            tilt=st.session_state["ws_sl_rib_tilt"]
-        )
+        boundary_loop = st.session_state.get("lab_boundary_loop", [])
         
         fig_3d = draw_3d_preview(
             beam_h=st.session_state["ws_sl_beam_landing_height"],
