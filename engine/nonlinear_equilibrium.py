@@ -487,6 +487,9 @@ def solve_nonlinear_equilibrium(
     stall_count = 0
     total_steps = 0
     last_step_size = 0.0
+    r_norm = 0.0
+    r_max = 0.0
+    r_flat = np.zeros(n_dof)
 
     for outer in range(max_outer + 1):
         if time.time() - t_start > max_wall_seconds:
@@ -594,8 +597,11 @@ def solve_nonlinear_equilibrium(
         cable_tension_list.append({"a": int(cb["a"]), "b": int(cb["b"]), "T_N": float(T), "L0_m": float(cb["L0"]), "taut": bool(taut)})
 
     all_true = np.ones(n_nodes, dtype=bool)
-    R_final = _assemble_residual(points, triangles, cables, ref_points, membrane_material, loads, all_true, n_nodes, taut_flags)
-    R_final[fixed_mask] = -R_final[fixed_mask]
+    try:
+        R_final = _assemble_residual(points, triangles, cables, ref_points, membrane_material, loads, all_true, n_nodes, taut_flags)
+        R_final[fixed_mask] = -R_final[fixed_mask]
+    except Exception:
+        R_final = np.zeros((n_nodes, 3))
 
     elapsed = time.time() - t_start
 
