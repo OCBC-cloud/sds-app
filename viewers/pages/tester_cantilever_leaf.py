@@ -10,7 +10,7 @@ from viewers.figures._shared import apply_common_layout
 def _init_lab_defaults():
     defaults = {
         "lab_step": 1,
-        "lab_support_type": "Ground Stand",  # <--- RESTORED
+        "lab_support_type": "Ground Stand",
         "ws_sl_beam_landing_height": 4.0,
         "ws_sl_column_top_height": 6.0,
         "ws_sl_outreach": 6.0,
@@ -342,8 +342,9 @@ def render_tester_cantilever_leaf():
 
     elif step == 6:
         st.markdown("### Step 6: Pick Boundary Anchors")
-        st.info("Tap the dots to set anchors.")
+        st.info("Tap the dots on the 2D plan. The 3D view below updates live.")
         
+        # 1. Draw the 2D Pickerboard
         html_code = draw_pickerboard_html(
             reach=float(st.session_state["ws_sl_outreach"]),
             width=float(st.session_state["lab_vein_length"]),
@@ -351,24 +352,43 @@ def render_tester_cantilever_leaf():
             active_dots=st.session_state["lab_active_dots"],
             picker_key=st.session_state["lab_picker_key"]
         )
+        components.html(html_code, height=400)
         
-        components.html(html_code, height=450)
+        # 2. Build boundary loop from current picks
+        active_dots = st.session_state.get("lab_active_dots", [])
+        boundary_loop = _build_boundary_loop_from_dots(
+            active_dots=active_dots,
+            n_ribs=st.session_state["ws_sl_ribs_per_side"],
+            outreach=st.session_state["ws_sl_outreach"],
+            arc_r=st.session_state["ws_sl_arc_radius"],
+            beam_h=st.session_state["ws_sl_beam_landing_height"],
+            col_top_h=st.session_state["ws_sl_column_top_height"],
+            vein_length=st.session_state["lab_vein_length"],
+            tilt=st.session_state["ws_sl_rib_tilt"]
+        )
+        
+        # 3. Draw the 3D Viewer below
+        fig_3d = draw_3d_preview(
+            beam_h=st.session_state["ws_sl_beam_landing_height"],
+            col_top_h=st.session_state["ws_sl_column_top_height"],
+            outreach=st.session_state["ws_sl_outreach"],
+            arc_r=st.session_state["ws_sl_arc_radius"],
+            vein_length=st.session_state["lab_vein_length"],
+            tilt_deg=st.session_state["ws_sl_rib_tilt"],
+            n_ribs=st.session_state["ws_sl_ribs_per_side"],
+            boundary_loop=boundary_loop
+        )
+        st.plotly_chart(fig_3d, use_container_width=True, config={"displayModeBar": False})
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("🗑 Clear Picks", use_container_width=True):
-                st.session_state["lab_active_dots"] = []
-                st.rerun()
-        with col_btn2:
-            if st.button("Review Structure ➔", type="primary", use_container_width=True):
-                st.session_state["lab_step"] = 7
-                st.rerun()
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("⬅ Back", use_container_width=True):
+        # Removed Clear Picks. Only Review and Back remain.
+        col_a, col_b = st.columns(2)
+        if col_a.button("⬅ Back", use_container_width=True):
             st.session_state["lab_step"] = 5
+            st.rerun()
+        if col_b.button("Review Structure ➔", type="primary", use_container_width=True):
+            st.session_state["lab_step"] = 7
             st.rerun()
 
     elif step == 7:
