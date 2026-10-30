@@ -30,43 +30,24 @@ def _init_lab_defaults():
             st.session_state[k] = v
 
 
-def draw_wizard_preview(
-    beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs,
-    boundary_loop=None
-):
+def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs, boundary_loop=None):
     fig = go.Figure()
 
-    # 1. Column
-    fig.add_trace(go.Scatter3d(
-        x=[0, 0], y=[0, 0], z=[0, col_top_h],
-        mode="lines", line=dict(color="#2ecc71", width=10), name="Column"
-    ))
-    fig.add_trace(go.Scatter3d(
-        x=[0], y=[0], z=[0],
-        mode="markers", marker=dict(color="#2ecc71", size=10, symbol="square"), name="Base"
-    ))
+    fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, 0], z=[0, col_top_h], mode="lines", line=dict(color="#2ecc71", width=10), name="Column"))
+    fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[0], mode="markers", marker=dict(color="#2ecc71", size=10, symbol="square"), name="Base"))
 
-    # 2. Midrib
     n_beam = 80 
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
     beam_y = np.zeros_like(t_beam)
     beam_z = beam_h + (arc_r * 0.5) * 4.0 * t_beam * (1.0 - t_beam)
     
-    fig.add_trace(go.Scatter3d(
-        x=beam_x, y=beam_y, z=beam_z,
-        mode="lines", line=dict(color="#FF6B6B", width=8), name="Midrib"
-    ))
+    fig.add_trace(go.Scatter3d(x=beam_x, y=beam_y, z=beam_z, mode="lines", line=dict(color="#FF6B6B", width=8), name="Midrib"))
 
-    # 3. Tie Beam
     tie_attach_x = outreach / 3.0
     tie_attach_z = beam_h + (arc_r * 0.5) * 4.0 * (1.0/3.0) * (1.0 - 1.0/3.0)
-    fig.add_trace(go.Scatter3d(
-        x=[0, tie_attach_x], y=[0, 0], z=[col_top_h, tie_attach_z],
-        mode="lines", line=dict(color="#f39c12", width=6), name="Tie Beam"
-    ))
+    fig.add_trace(go.Scatter3d(x=[0, tie_attach_x], y=[0, 0], z=[col_top_h, tie_attach_z], mode="lines", line=dict(color="#f39c12", width=6), name="Tie Beam"))
 
-    # 4. Veins
     rib_ts = np.linspace(0.08, 0.92, n_ribs)
     for rt in rib_ts:
         idx = int(rt * (n_beam - 1))
@@ -77,16 +58,9 @@ def draw_wizard_preview(
         tilt_rad = math.radians(tilt_deg) * (math.sin(math.pi * rt) ** 0.7)
         tip_z = rz + hw * math.tan(tilt_rad)
         
-        fig.add_trace(go.Scatter3d(
-            x=[rx, rx], y=[0, -hw], z=[rz, tip_z],
-            mode="lines", line=dict(color="#3498db", width=3), showlegend=False
-        ))
-        fig.add_trace(go.Scatter3d(
-            x=[rx, rx], y=[0, hw], z=[rz, tip_z],
-            mode="lines", line=dict(color="#3498db", width=3), showlegend=False
-        ))
+        fig.add_trace(go.Scatter3d(x=[rx, rx], y=[0, -hw], z=[rz, tip_z], mode="lines", line=dict(color="#3498db", width=3), showlegend=False))
+        fig.add_trace(go.Scatter3d(x=[rx, rx], y=[0, hw], z=[rz, tip_z], mode="lines", line=dict(color="#3498db", width=3), showlegend=False))
 
-    # 5. Membrane
     n_u, n_v = 24, 24
     X_s, Y_s, Z_s = np.zeros((n_u, n_v)), np.zeros((n_u, n_v)), np.zeros((n_u, n_v))
     
@@ -106,13 +80,8 @@ def draw_wizard_preview(
             Y_s[i, j] = y_loc
             Z_s[i, j] = z_edge - sag
 
-    fig.add_trace(go.Surface(
-        x=X_s, y=Y_s, z=Z_s,
-        colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]],
-        opacity=0.55, showscale=False, hoverinfo="skip"
-    ))
+    fig.add_trace(go.Surface(x=X_s, y=Y_s, z=Z_s, colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]], opacity=0.55, showscale=False, hoverinfo="skip"))
 
-    # 6. Boundary Loop
     if boundary_loop and len(boundary_loop) > 1:
         lx = [p[0] for p in boundary_loop]
         ly = [p[1] for p in boundary_loop]
@@ -121,31 +90,21 @@ def draw_wizard_preview(
         ly.append(boundary_loop[0][1])
         lz.append(boundary_loop[0][2])
         
-        fig.add_trace(go.Scatter3d(
-            x=lx, y=ly, z=lz,
-            mode="lines", line=dict(color="#f1c40f", width=6), name="Perimeter Cable"
-        ))
-        fig.add_trace(go.Scatter3d(
-            x=[p[0] for p in boundary_loop], 
-            y=[p[1] for p in boundary_loop], 
-            z=[p[2] for p in boundary_loop],
-            mode="markers", marker=dict(color="#f1c40f", size=6), name="Anchors"
-        ))
+        fig.add_trace(go.Scatter3d(x=lx, y=ly, z=lz, mode="lines", line=dict(color="#f1c40f", width=6), name="Perimeter Cable"))
+        fig.add_trace(go.Scatter3d(x=[p[0] for p in boundary_loop], y=[p[1] for p in boundary_loop], z=[p[2] for p in boundary_loop], mode="markers", marker=dict(color="#f1c40f", size=6), name="Anchors"))
 
     return apply_common_layout(fig, col_top_h)
 
 
 def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, col_top_h, vein_length, tilt):
-    """Converts string IDs from the pickerboard into 3D coordinates."""
+    """Converts string IDs from the pickerboard into 3D coordinates, matching the visual t = 0.08 to 0.92."""
     loop_pts = []
     
     for dot in active_dots:
         if dot == "root":
-            # Root of the main beam (at the column)
             loop_pts.append([0.0, 0.0, beam_h])
             
         elif dot == "beam_tip":
-            # Nose of the main beam
             bx = outreach
             bz = beam_h + (arc_r * 0.5) * 4.0 * 1.0 * (1.0 - 1.0)
             loop_pts.append([bx, 0.0, bz])
@@ -153,7 +112,12 @@ def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h,
         elif dot.startswith("top_") or dot.startswith("bot_"):
             side = 1.0 if dot.startswith("top_") else -1.0
             rib_idx = int(dot.split("_")[1])
-            rt = rib_idx / max(1, n_ribs - 1)
+            
+            # MATCH THE VISUAL: ribs run from t=0.08 to t=0.92
+            if n_ribs > 1:
+                rt = 0.08 + (0.92 - 0.08) * rib_idx / (n_ribs - 1)
+            else:
+                rt = 0.5 # fallback for 1 rib
             
             bx = outreach * rt
             bz = beam_h + (arc_r * 0.5) * 4.0 * rt * (1.0 - rt)
