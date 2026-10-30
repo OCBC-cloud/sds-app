@@ -609,6 +609,103 @@ def solve_nonlinear_equilibrium(
     }
 
 
+# =============================================================================
+# PULL-BACK: CABLE INITIAL TENSIONS (RESTORED FOR SADDLE COMPATIBILITY)
+# =============================================================================
+
+def pullback_cable_initial_tensions(
+    points,
+    triangles,
+    boundary_loop,
+    anchors,
+    segments,
+    material,
+):
+    """Compute per-edge cable tensions from the membrane pull."""
+    n_boundary = boundary_loop.shape[0]
+
+    boundary_edges = set()
+    for k in range(n_boundary):
+        i = int(k)
+        j = int((k + 1) % n_boundary)
+        key = (i, j) if i < j else (j, i)
+        boundary_edges.add(key)
+
+    edge_to_tri = {}
+    for tri in triangles:
+        a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
+        for i, j in ((a, b), (b, c), (c, a)):
+            key = (i, j) if i < j else (j, i)
+            if key in boundary_edges:
+                edge_to_tri[key] = (a, b, c)
+
+    tensions = {}
+    for seg in segments:
+        anchor_a = int(seg["anchor_a"])
+        anchor_b = int(seg["anchor_b"])
+        interior = list(seg["interior"])
+        chain = [anchor_a] + interior + [anchor_b]
+
+        for k in range(len(chain) - 1):
+            i = int(chain[k])
+            j = int(chain[k + 1])
+            key = (i, j) if i < j else (j, i)
+
+            if key not in edge_to_tri:
+                tensions[(i, j)] = 0.0
+                continue
+
+            tri = edge_to_tri[key]
+            a, b, c = tri
+            p0 = points[a]
+            p1 = points[b]
+            p2 = points[c]
+
+            try:
+                t1, t2, _normal = _triangle_basis(p0, p1, p2)
+            except ValueError:
+                tensions[(i, j)] = 0.0
+                continue
+
+            try:
+                sigma, _comp, _sp = membrane_stress(
+                    p0, p1, p2, p0, p1, p2, material
+                )
+            except ValueError:
+                tensions[(i, j)] = 0.0
+                continue
+
+            edge_3d = points[j] - points[i]
+            edge_2d = np.array([
+                float(np.dot(edge_3d, t1)),
+                float(np.dot(edge_3d, t2)),
+            ], dtype=float)
+            L = float(np.linalg.norm(edge_2d))
+            if L < EPS:
+                tensions[(i, j)] = 0.0
+                continue
+
+            n2d = np.array([-edge_2d[1], edge_2d[0]], dtype=float)
+            nn = float(np.linalg.norm(n2d))
+            if nn < EPS:
+                tensions[(i, j)] = 0.0
+                continue
+            n2d = n2d / nn
+
+            traction = sigma @ n2d
+            force_2d = traction * L
+
+            u_2d = edge_2d / L
+            axial = float(np.dot(force_2d, u_2d))
+
+            if axial <= 0.0:
+                tensions[(i, j)] = 0.0
+            else:
+                tensions[(i, j)] = axial
+
+    return tensions
+
+
 def run_all_tests():
     print("Diagnostic mode. Run via the Streamlit app to see output.")
     return True
