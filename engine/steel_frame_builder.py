@@ -1,34 +1,23 @@
 """SDSe Engine — 3D Steel Frame Builder (Exact Crossing Fusion).
 
-Builds the 3D steel frame from mesh data.
-
-Topology (no tolerance, exact indices):
-  1. Spine (primary arch) built from 200 samples.
-  2. At every eave anchor Z, drop Z, and rib apex X, a NEW spine node is
-     inserted at the exact geometric crossing (segment split).
-  3. Ribs are built from the ground up to the exact spine node at their X.
-  4. Drops are built from the exact spine node at their Z up to the ring centre.
-  5. Rings and spokes share exact node indices.
-  6. Only Z=0 baseplates are fixed. All other nodes are free.
-  7. Element kinds match the sizer keys: "primary", "rib", "ring", "drop", "spoke".
+Builds the 3D steel frame from mesh data with TRUE membrane boundary integration.
 """
 
 import numpy as np
 from data.sections import SECTION_PROPERTIES
+from engine.SDSe_boundary_integrator import extract_boundary_forces
 
 NODE_ARCH = "arch"
 NODE_RING = "ring"
 NODE_DROP = "drop"
 NODE_SPOKE = "spoke"
 
-# Sizer-matching labels
 KIND_PRIMARY = "primary"
 KIND_RIB = "rib"
 KIND_RING = "ring"
 KIND_DROP = "drop"
 KIND_SPOKE = "spoke"
 
-# Default starter section (sizer will overwrite this later)
 _DEFAULT_SECTION = SECTION_PROPERTIES.get("CHS_60x3", {"A": 1.0, "I": 1.0})
 
 
@@ -87,7 +76,6 @@ def _build_spine_with_crossings(xp, zp, target_zs, target_xs):
             x_ins = x_a + t * (x_b - x_a)
             z_ins = z_a + t * (z_b - z_a)
             new_idx = push_node(x_ins, z_ins)
-            # Spine element labelled as "primary" so the sizer finds it
             elements_spine.append({"a": prev_idx, "b": new_idx, "section": KIND_PRIMARY, "kind": KIND_PRIMARY})
             prev_idx = new_idx
             if kind == "z" and val not in crossmap_z:
@@ -109,33 +97,40 @@ def build_steel_frame(data, newton_data):
     eave_height = float(data["eave_height"])
 
     # =========================================================================
-    # REAL LOAD ESTIMATE (Robust Geometry-Based)
+    # TRUE FEA BOUNDARY INTEGRATION
     # =========================================================================
-    n_nodes_mesh = len(coords_fdm)
-    membrane_loads = np.zeros((n_nodes_mesh, 3), dtype=float)
-    
-    # Get prestress from session state data (default 20.0 kN/m)
-    warp_q = float(data.get("warp_pretension", 20.0)) * 1000.0
-    weft_q = float(data.get("weft_pretension", 20.0)) * 1000.0
-    avg_pull = (warp_q + weft_q) / 2.0
-    
-    # Apply a downward load to all ring and drop nodes
+    # 1. Gather the boundary nodes (anchors + rings)
+    boundary_nodes = set(int(i) for i in anchor_idx)
     for ring_idx_list in built["ring_indices"]:
         for node_idx in ring_idx_list:
-            membrane_loads[node_idx, 2] -= avg_pull * 0.5  # down force
-            
-    for cidx in built["centre_indices"]:
-        membrane_loads[cidx, 2] -= avg_pull * 1.0  # down force on drop cable
+            boundary_nodes.add(int(node_idx))
+    
+    # 2. Get the membrane material
+    from engine.nonlinear_equilibrium import make_membrane_material
+    warp_pre = float(data.get("warp_pretension", 20.0)) * 1000.0
+    weft_pre = float(data.get("weft_pretension", 20.0)) * 1000.0
+    material = make_membrane_material(
+        E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, 
+        nu=0.34, G_MPa=50.0, 
+        warp_prestress_N_per_m=warp_pre, 
+        weft_prestress_N_per_m=weft_pre
+    )
 
-    # Apply inward pull to anchors (assuming edge cable pretension)
-    edge_q = float(data.get("edge_cable_pretension", 25.0)) * 1000.0
-    for anchor_mesh_idx in anchor_idx:
-        px, py, pz = coords_fdm[anchor_mesh_idx]
-        # Radial pull towards center (0,0)
-        r = np.sqrt(px**2 + py**2)
-        if r > 1e-6:
-            membrane_loads[anchor_mesh_idx, 0] -= (px / r) * edge_q
-            membrane_loads[anchor_mesh_idx, 1] -= (py / r) * edge_q
+    # 3. Run the integrator
+    raw_boundary_forces = extract_boundary_forces(
+        points=coords_fdm,
+        triangles=built["triangles"],
+        material=material,
+        boundary_nodes=boundary_nodes
+    )
+
+    # 4. Separate into membrane loads for the mesh (so we can apply to the frame nodes)
+    membrane_loads = np.zeros_like(coords_fdm)
+    
+    # Map the raw forces to the mesh loads
+    for idx in boundary_nodes:
+        membrane_loads[idx] = raw_boundary_forces[idx]
+
     # =========================================================================
 
     xp = data["xp"]
@@ -163,8 +158,7 @@ def build_steel_frame(data, newton_data):
         loads.append(np.zeros(3))
         return len(nodes) - 1
 
-    # --- Ribs: each rib is a chain from Z=0 at (rib_x, -hw) to Z=0 at (rib_x, +hw),
-    #     passing through the exact spine node at (rib_x, 0, z_spine).
+    # --- Ribs ---
     for i, rib_x in enumerate(rib_xs):
         hw = data["rib_half_width"][i]
         apex_spine_idx = crossmap_x.get(float(rib_x))
@@ -222,8 +216,7 @@ def build_steel_frame(data, newton_data):
                 bestd, best = d, cand_idx
         if best >= 0:
             anchor_map[int(mesh_idx)] = best
-            # Apply the exact membrane load we calculated earlier
-            loads[best] += membrane_loads[mesh_idx]
+            loads[best] += membrane_loads[int(mesh_idx)]
 
     # --- Rings, drops, spokes ---
     ring_map = {}
@@ -234,8 +227,7 @@ def build_steel_frame(data, newton_data):
             fid = add(coords_fdm[int(mesh_node)], KIND_RING)
             r_ids.append(fid)
             ring_map[int(mesh_node)] = fid
-            # Apply the exact membrane load we calculated earlier
-            loads[fid] += membrane_loads[mesh_node]
+            loads[fid] += membrane_loads[int(mesh_node)]
         for i in range(len(r_ids)):
             a, b = r_ids[i], r_ids[(i + 1) % len(r_ids)]
             elements.append({"a": a, "b": b, "section": KIND_RING, "kind": KIND_RING})
@@ -244,7 +236,6 @@ def build_steel_frame(data, newton_data):
         dpos = coords_fdm[cidx]
         drop_id = add(dpos, KIND_DROP)
         drop_map[cidx] = drop_id
-        # Apply the exact membrane load we calculated earlier
         loads[drop_id] += membrane_loads[cidx]
 
         drop_z = float(dpos[2])
@@ -264,9 +255,6 @@ def build_steel_frame(data, newton_data):
     nodes = np.asarray(nodes, dtype=float)
     loads = np.asarray(loads, dtype=float)
 
-    # =========================================================================
-    # NEW FIX: Inject Section Properties so the Solver doesn't skip them!
-    # =========================================================================
     for elem in elements:
         if isinstance(elem["section"], str):
             elem["section"] = _DEFAULT_SECTION
