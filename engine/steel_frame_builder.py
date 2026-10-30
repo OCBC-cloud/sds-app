@@ -11,14 +11,10 @@ Topology (no tolerance, exact indices):
   5. Rings and spokes share exact node indices.
   6. Only Z=0 baseplates are fixed. All other nodes are free.
   7. Element kinds match the sizer keys: "primary", "rib", "ring", "drop", "spoke".
-
-Result: a single connected 3D structure. No singular matrix. Member sizes
-are correctly matched to the sizer's member-type dict.
 """
 
 import numpy as np
 from data.sections import SECTION_PROPERTIES
-from engine.SDSe_load_transfer import extract_frame_loads
 
 NODE_ARCH = "arch"
 NODE_RING = "ring"
@@ -108,21 +104,39 @@ def _build_spine_with_crossings(xp, zp, target_zs, target_xs):
 
 def build_steel_frame(data, newton_data):
     coords_fdm = newton_data["dr_result"]["coordinates"]
-    
-    # --- NEW: Use the Physics Bridge to get exact loads ---
     built = data["built"]
-    solve_summary = newton_data["dr_result"].get("solve_summary", {})
-    nfdm = solve_summary.get("nfdm", {})
-    cable_tensions = nfdm.get("cable_tension", [])
     anchor_idx = data["anchor_idx"]
-    ring_centre_indices = built["centre_indices"]
-    
-    membrane_loads = extract_frame_loads(
-        built, coords_fdm, cable_tensions, anchor_idx, ring_centre_indices
-    )
-    # ------------------------------------------------------
-
     eave_height = float(data["eave_height"])
+
+    # =========================================================================
+    # REAL LOAD ESTIMATE (Robust Geometry-Based)
+    # =========================================================================
+    n_nodes_mesh = len(coords_fdm)
+    membrane_loads = np.zeros((n_nodes_mesh, 3), dtype=float)
+    
+    # Get prestress from session state data (default 20.0 kN/m)
+    warp_q = float(data.get("warp_pretension", 20.0)) * 1000.0
+    weft_q = float(data.get("weft_pretension", 20.0)) * 1000.0
+    avg_pull = (warp_q + weft_q) / 2.0
+    
+    # Apply a downward load to all ring and drop nodes
+    for ring_idx_list in built["ring_indices"]:
+        for node_idx in ring_idx_list:
+            membrane_loads[node_idx, 2] -= avg_pull * 0.5  # down force
+            
+    for cidx in built["centre_indices"]:
+        membrane_loads[cidx, 2] -= avg_pull * 1.0  # down force on drop cable
+
+    # Apply inward pull to anchors (assuming edge cable pretension)
+    edge_q = float(data.get("edge_cable_pretension", 25.0)) * 1000.0
+    for anchor_mesh_idx in anchor_idx:
+        px, py, pz = coords_fdm[anchor_mesh_idx]
+        # Radial pull towards center (0,0)
+        r = np.sqrt(px**2 + py**2)
+        if r > 1e-6:
+            membrane_loads[anchor_mesh_idx, 0] -= (px / r) * edge_q
+            membrane_loads[anchor_mesh_idx, 1] -= (py / r) * edge_q
+    # =========================================================================
 
     xp = data["xp"]
     zp = data["zp"]
