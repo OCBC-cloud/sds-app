@@ -118,13 +118,16 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
         for case_name, frame in frames_by_case.items():
             elements = []
             for elem in frame["elements"]:
-                sec_name = sections.get(elem["section"], smallest)
+                # Safely handle if 'section' is a string or a dict
+                sec_key = elem["section"]
+                if isinstance(sec_key, dict):
+                    # It's the default dictionary we injected in the builder
+                    sec_name = smallest
+                else:
+                    # It's the string kind (e.g., "primary")
+                    sec_name = sections.get(sec_key, smallest)
+                
                 sec_props = SECTION_PROPERTIES.get(sec_name, {})
-                elements.append({
-                    "a": elem["a"], "b": elem["b"],
-                    "section": sec_props, "kind": elem["kind"],
-                    "section_name": sec_name,
-                })
 
             loads_6dof = np.zeros((len(frame["nodes"]), 6), dtype=float)
             loads_6dof[:, 0:3] = frame["membrane_loads"]
