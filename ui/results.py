@@ -67,7 +67,6 @@ def _build_params(variant_key):
 def _run_structural_analysis(vk, solved_data_id):
     """
     Runs the frame builder and sizer for the Dome.
-    Uses a cache ID so it doesn't re-run on every UI click.
     """
     if vk != "dome_multi_cone":
         return None
@@ -76,11 +75,26 @@ def _run_structural_analysis(vk, solved_data_id):
     if not data:
         return None
 
-    # Fake the newton_data structure the builder expects
+    # --- 1. Extract REAL loads from the NFDM solver ---
+    solve_summary = data["solve_summary"]
+    nfdm = solve_summary.get("nfdm", {})
+    cable_tensions = nfdm.get("cable_tension", [])
+    
+    reactions = np.zeros_like(data["fdm_coords"])
+    if cable_tensions:
+        for cb in cable_tensions:
+            node_a = int(cb["a"])
+            node_b = int(cb["b"])
+            T = float(cb["T_N"])
+            # Apply the tension as an outward pull on the nodes
+            if node_a < len(reactions):
+                reactions[node_a, 2] -= T  # Downward pull from cable
+            if node_b < len(reactions):
+                reactions[node_b, 2] -= T
+
     newton_data_cases = {"1.0_DL_LL": {"dr_result": {
         "coordinates": data["fdm_coords"],
-        # We pass a dummy reaction array of shape (N, 3) for now
-        "reactions": np.zeros_like(data["fdm_coords"])
+        "reactions": reactions
     }}}
     
     # Add required keys to data dict for the builder
@@ -250,22 +264,21 @@ def _render_analysis_and_quantities():
             if sections:
                 section_used = sections.get("primary", "CHS")
 
-            # 2. Grab forces from the primary beam (first element)
+            # 2. Grab forces from the primary beam
             frame_res = sizer_result.get("frame_result")
             if frame_res and len(frame_res.get("member_end_forces", [])) > 0:
-                # Find the first "primary" member
-                forces = frame_res["member_end_forces"][0]
-                n_ed = f"{abs(forces.get('N', 0.0)) / 1000.0:.1f}"
-                m_ed = f"{max(abs(forces.get('My_a', 0.0)), abs(forces.get('My_b', 0.0))) / 1000.0:.1f}"
-                
-                # Calculate total steel weight roughly (A * L * 7850)
-                # We just use the nodes distance for a rough estimate
-                total_len = 0.0
-                for elem in frame_res.get("elements", []):
-                    if "section" in elem and "A" in elem["section"]:
-                         # Skip for now, too complex for a quick fix, use placeholder
-                         pass
-                steel_weight = "Calc Pending"
+                # Find the first element that has real force (usually the arch)
+                for end_force in frame_res["member_end_forces"]:
+                    n_val = abs(end_force.get('N', 0.0))
+                    my = max(abs(end_force.get('My_a', 0.0)), abs(end_force.get('My_b', 0.0)))
+                    mz = max(abs(end_force.get('Mz_a', 0.0)), abs(end_force.get('Mz_b', 0.0)))
+                    
+                    # If this element actually has force, use it
+                    if n_val > 1.0 or my > 1.0 or mz > 1.0:
+                        n_ed = f"{n_val / 1000.0:.1f}"
+                        m_ed = f"{max(my, mz) / 1000.0:.1f}"
+                        v_ed = "0.0" # We don't extract shear yet
+                        break
 
         elif sizer_result and "error" in sizer_result:
             st.error("Solver failed: " + sizer_result["error"])
