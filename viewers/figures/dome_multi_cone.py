@@ -693,6 +693,26 @@ def build_dome_multi_cone():
                     lines.append("%6d  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %10.5f  %9.4e  %s" % (i, xi, yi, zi, xs, ys, zs, d, status_of[i]))
                 st.code("\n".join(lines), language="text")
 
+    # =========================================================================
+    # NEW FIX: Save the solved data to Session State for the Results Page
+    # =========================================================================
+    if solve_summary is not None and built is not None:
+        st.session_state["ws_dm_solved_data"] = {
+            "built": built,
+            "fdm_coords": fdm_coords,
+            "solve_summary": solve_summary,
+            "frames": frames,
+            "offsets_x": offsets_x,
+            "offsets_y": offsets_y,
+            "rib_x": [f["offset"] for f in frames if f["family"] == "A"],
+            "rib_half_width": [math.sqrt(max(0.0, ground_radius ** 2 - f["offset"] ** 2)) for f in frames if f["family"] == "A"],
+            "xp": [f["x"].tolist() for f in frames if f["family"] == "A"][0] if any(f["family"] == "A" for f in frames) else [],
+            "zp": [f["z"].tolist() for f in frames if f["family"] == "A"][0] if any(f["family"] == "A" for f in frames) else [],
+            "eave_height": eave_height,
+            "anchor_idx": anchor_idx,
+            "mc_rd": ring_diameter,
+        }
+
     return apply_common_layout(fig, crown_height)
 
 
