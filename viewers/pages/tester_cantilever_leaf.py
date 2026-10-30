@@ -10,6 +10,7 @@ from viewers.figures._shared import apply_common_layout
 def _init_lab_defaults():
     defaults = {
         "lab_step": 1,
+        "lab_support_type": "Ground Stand",  # <--- RESTORED
         "ws_sl_beam_landing_height": 4.0,
         "ws_sl_column_top_height": 6.0,
         "ws_sl_outreach": 6.0,
@@ -29,10 +30,6 @@ def _init_lab_defaults():
 
 
 def draw_pickerboard_html(reach, width, n_ribs, active_dots, picker_key):
-    """
-    Generates the HTML string dynamically to prevent caching.
-    It injects the current geometry values directly into the JavaScript.
-    """
     html_template = """
     <!DOCTYPE html>
     <html>
@@ -57,7 +54,6 @@ def draw_pickerboard_html(reach, width, n_ribs, active_dots, picker_key):
     <div id="caption">Picked positions: <b><span id="count">0</span></b></div>
 
     <script>
-    // INJECTED VARIABLES
     var state = {
         reach: __REACH__,
         width: __WIDTH__,
@@ -128,15 +124,12 @@ def draw_pickerboard_html(reach, width, n_ribs, active_dots, picker_key):
       if (pos !== -1) { state.active_dots.splice(pos, 1); } 
       else { state.active_dots.push(id); }
       render();
-      // Send data back to Streamlit
       var msg = { isStreamlitMessage: true, type: "streamlit:setComponentValue", value: { active_dots: state.active_dots }, dataType: "json" };
       window.parent.postMessage(msg, "*");
     }
 
-    // Listen for Streamlit render
     window.addEventListener("message", function(event) {
         if (!event.data || event.data.type !== "streamlit:render") return;
-        // If Streamlit passes new active_dots, update state
         if (event.data.args && event.data.args.active_dots) {
             state.active_dots = event.data.args.active_dots;
             render();
@@ -150,7 +143,6 @@ def draw_pickerboard_html(reach, width, n_ribs, active_dots, picker_key):
     </html>
     """
     
-    # Inject the dynamic variables
     html = html_template.replace("__REACH__", str(reach))
     html = html.replace("__WIDTH__", str(width))
     html = html.replace("__N_RIBS__", str(n_ribs))
@@ -352,7 +344,6 @@ def render_tester_cantilever_leaf():
         st.markdown("### Step 6: Pick Boundary Anchors")
         st.info("Tap the dots to set anchors.")
         
-        # Generate the HTML dynamically
         html_code = draw_pickerboard_html(
             reach=float(st.session_state["ws_sl_outreach"]),
             width=float(st.session_state["lab_vein_length"]),
@@ -361,7 +352,6 @@ def render_tester_cantilever_leaf():
             picker_key=st.session_state["lab_picker_key"]
         )
         
-        # Render it. This bypasses caching.
         components.html(html_code, height=450)
         
         st.markdown("<br>", unsafe_allow_html=True)
