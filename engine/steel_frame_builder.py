@@ -1,11 +1,10 @@
 """SDSe Engine — 3D Steel Frame Builder (Exact Crossing Fusion).
 
-Builds the 3D steel frame from mesh data with TRUE membrane boundary integration.
+Builds the 3D steel frame from mesh data using REAL reaction forces from the NFDM solver.
 """
 
 import numpy as np
 from data.sections import SECTION_PROPERTIES
-from engine.SDSe_boundary_integrator import extract_boundary_forces
 
 NODE_ARCH = "arch"
 NODE_RING = "ring"
@@ -95,42 +94,18 @@ def build_steel_frame(data, newton_data):
     built = data["built"]
     anchor_idx = data["anchor_idx"]
     eave_height = float(data["eave_height"])
-
-    # =========================================================================
-    # TRUE FEA BOUNDARY INTEGRATION
-    # =========================================================================
-    # 1. Gather the boundary nodes (anchors + rings)
-    boundary_nodes = set(int(i) for i in anchor_idx)
-    for ring_idx_list in built["ring_indices"]:
-        for node_idx in ring_idx_list:
-            boundary_nodes.add(int(node_idx))
     
-    # 2. Get the membrane material
-    from engine.nonlinear_equilibrium import make_membrane_material
-    warp_pre = float(data.get("warp_pretension", 20.0)) * 1000.0
-    weft_pre = float(data.get("weft_pretension", 20.0)) * 1000.0
-    material = make_membrane_material(
-        E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, 
-        nu=0.34, G_MPa=50.0, 
-        warp_prestress_N_per_m=warp_pre, 
-        weft_prestress_N_per_m=weft_pre
-    )
-
-    # 3. Run the integrator
-    raw_boundary_forces = extract_boundary_forces(
-        points=coords_fdm,
-        triangles=built["triangles"],
-        material=material,
-        boundary_nodes=boundary_nodes
-    )
-
-    # 4. Separate into membrane loads for the mesh (so we can apply to the frame nodes)
-    membrane_loads = np.zeros_like(coords_fdm)
+    # =========================================================================
+    # REAL LOADS: Pull the exact residual forces from the solver!
+    # =========================================================================
+    # newton_data["dr_result"] now contains the "reactions" from v5.5
+    raw_reactions = newton_data["dr_result"].get("reactions", None)
     
-    # Map the raw forces to the mesh loads
-    for idx in boundary_nodes:
-        membrane_loads[idx] = raw_boundary_forces[idx]
-
+    if raw_reactions is None or len(raw_reactions) != len(coords_fdm):
+        # Fallback if reactions are missing
+        membrane_loads = np.zeros_like(coords_fdm)
+    else:
+        membrane_loads = np.asarray(raw_reactions, dtype=float)
     # =========================================================================
 
     xp = data["xp"]
@@ -216,6 +191,7 @@ def build_steel_frame(data, newton_data):
                 bestd, best = d, cand_idx
         if best >= 0:
             anchor_map[int(mesh_idx)] = best
+            # APPLY REAL LOAD
             loads[best] += membrane_loads[int(mesh_idx)]
 
     # --- Rings, drops, spokes ---
@@ -227,6 +203,7 @@ def build_steel_frame(data, newton_data):
             fid = add(coords_fdm[int(mesh_node)], KIND_RING)
             r_ids.append(fid)
             ring_map[int(mesh_node)] = fid
+            # APPLY REAL LOAD
             loads[fid] += membrane_loads[int(mesh_node)]
         for i in range(len(r_ids)):
             a, b = r_ids[i], r_ids[(i + 1) % len(r_ids)]
@@ -236,6 +213,7 @@ def build_steel_frame(data, newton_data):
         dpos = coords_fdm[cidx]
         drop_id = add(dpos, KIND_DROP)
         drop_map[cidx] = drop_id
+        # APPLY REAL LOAD
         loads[drop_id] += membrane_loads[cidx]
 
         drop_z = float(dpos[2])
