@@ -2,6 +2,7 @@ import math
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
+import streamlit.components.v1 as components
 
 from viewers.figures._shared import apply_common_layout
 
@@ -9,7 +10,6 @@ from viewers.figures._shared import apply_common_layout
 def _init_lab_defaults():
     defaults = {
         "lab_step": 1,
-        "lab_support_type": "Ground Stand",
         "ws_sl_beam_landing_height": 4.0,
         "ws_sl_column_top_height": 6.0,
         "ws_sl_outreach": 6.0,
@@ -21,118 +21,162 @@ def _init_lab_defaults():
         "lab_weft_kN": 1.0,
         "lab_cable_kN": 1.0,
         "lab_active_dots": [],
+        "lab_picker_key": 0,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 
-def draw_2d_picker(outreach, width, n_ribs, active_dots):
-    """Draws the 2D plan view as a Plotly scatter with selectable points."""
-    fig = go.Figure()
-    
-    # 1. Draw the border (rectangle)
-    fig.add_trace(go.Scatter(
-        x=[0, outreach, outreach, 0, 0],
-        y=[-width, -width, width, width, -width],
-        mode="lines", line=dict(color="#2ecc71", width=3), hoverinfo="skip", showlegend=False
-    ))
-    
-    # 2. Draw the main beam
-    fig.add_trace(go.Scatter(
-        x=[0, outreach], y=[0, 0],
-        mode="lines", line=dict(color="#a0522d", width=1.5, dash="dash"), hoverinfo="skip", showlegend=False
-    ))
+def draw_pickerboard_html(reach, width, n_ribs, active_dots, picker_key):
+    """
+    Generates the HTML string dynamically to prevent caching.
+    It injects the current geometry values directly into the JavaScript.
+    """
+    html_template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <style>
+      body { margin: 0; background: #0e1117; font-family: sans-serif; color: #a8b8c8; }
+      #container { width: 100%; max-width: 600px; aspect-ratio: 4/3; margin: auto; border: 1px solid #1e2a3a; border-radius: 8px; position: relative; }
+      svg { width: 100%; height: 100%; display: block; touch-action: manipulation; }
+      .grid { stroke: #a0522d; stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.6; }
+      .border { stroke: #2ecc71; stroke-width: 3; fill: none; }
+      .pick { cursor: pointer; transition: fill 0.2s; }
+      .pick.off { fill: #3a4a5a; stroke: #556677; stroke-width: 2; }
+      .pick.on { fill: #f1c40f; stroke: #fff3b0; stroke-width: 2; }
+      #caption { text-align: center; padding: 10px; font-size: 14px; }
+      #caption b { color: #f1c40f; }
+    </style>
+    </head>
+    <body>
+    <div id="container">
+      <div id="svg-container"></div>
+    </div>
+    <div id="caption">Picked positions: <b><span id="count">0</span></b></div>
 
-    # 3. Generate the points
-    point_x = []
-    point_y = []
-    point_ids = []
-    
-    # Add root (at 0,0)
-    point_x.append(0)
-    point_y.append(0)
-    point_ids.append("root")
-    
-    # Add veins
-    rib_ts = np.linspace(0.08, 0.92, n_ribs)
-    for i, t in enumerate(rib_ts):
-        bx = outreach * t
-        hw = width * math.sin(math.pi * t)
-        
-        # Draw the vein lines
-        fig.add_trace(go.Scatter(
-            x=[bx, bx], y=[0, hw],
-            mode="lines", line=dict(color="#a0522d", width=1.5, dash="dash"), hoverinfo="skip", showlegend=False
-        ))
-        fig.add_trace(go.Scatter(
-            x=[bx, bx], y=[0, -hw],
-            mode="lines", line=dict(color="#a0522d", width=1.5, dash="dash"), hoverinfo="skip", showlegend=False
-        ))
-        
-        # Top dot
-        point_x.append(bx)
-        point_y.append(hw)
-        point_ids.append(f"top_{i}")
-        
-        # Bottom dot
-        point_x.append(bx)
-        point_y.append(-hw)
-        point_ids.append(f"bot_{i}")
+    <script>
+    // INJECTED VARIABLES
+    var state = {
+        reach: __REACH__,
+        width: __WIDTH__,
+        n_ribs: __N_RIBS__,
+        active_dots: __ACTIVE_DOTS__
+    };
 
-    # Add beam tip
-    point_x.append(outreach)
-    point_y.append(0)
-    point_ids.append("beam_tip")
+    var SVG_NS = "http://www.w3.org/2000/svg";
+    function el(tag, attrs) { var e = document.createElementNS(SVG_NS, tag); for (var k in attrs) { e.setAttribute(k, attrs[k]); } return e; }
 
-    # 4. Draw the selectable dots
-    colors = ["#f1c40f" if pid in active_dots else "#3a4a5a" for pid in point_ids]
+    function render() {
+      var container = document.getElementById("svg-container");
+      container.innerHTML = "";
+      
+      var cw = container.clientWidth || 400;
+      var ch = container.clientHeight || 300;
+      var padding = 30;
+      var maxX = state.reach * 1.1;
+      var maxY = state.width * 0.6;
+      
+      var scale = Math.min((cw - padding*2) / maxX, (ch - padding*2) / (maxY*2));
+      var ox = padding;
+      var oy = ch / 2;
+
+      var svg = el("svg", { viewBox: "0 0 " + cw + " " + ch });
+
+      svg.appendChild(el("rect", { x: ox, y: oy - (maxY*scale), width: maxX*scale, height: maxY*2*scale, class: "border" }));
+      svg.appendChild(el("line", { x1: ox, y1: oy, x2: ox + maxX*scale, y2: oy, class: "grid" }));
+
+      function makeDot(x, y, id, square) {
+        var on = state.active_dots.indexOf(id) !== -1;
+        var cls = "pick " + (on ? "on" : "off");
+        var shape = square ? el("rect", { x: x-6, y: y-6, width: 12, height: 12, class: cls }) : el("circle", { cx: x, cy: y, r: 7, class: cls });
+        shape.addEventListener("click", function(e) { e.preventDefault(); toggle(id); });
+        shape.addEventListener("touchend", function(e) { e.preventDefault(); toggle(id); });
+        svg.appendChild(shape);
+      }
+
+      makeDot(ox, oy, "root", true);
+
+      var rib_ts = [];
+      if (state.n_ribs > 1) { for (var i=0; i<state.n_ribs; i++) rib_ts.push(0.08 + 0.84 * i / (state.n_ribs - 1)); }
+      else { rib_ts.push(0.5); }
+
+      for (var i=0; i<rib_ts.length; i++) {
+        var t = rib_ts[i];
+        var xp = t * maxX;
+        var hw = maxY * Math.sin(Math.PI * t);
+        var px = ox + xp * scale;
+        var py_t = oy - hw * scale;
+        var py_b = oy + hw * scale;
+        
+        svg.appendChild(el("line", { x1: px, y1: oy, x2: px, y2: py_t, class: "grid" }));
+        svg.appendChild(el("line", { x1: px, y1: oy, x2: px, y2: py_b, class: "grid" }));
+        
+        makeDot(px, py_t, "top_" + i, false);
+        makeDot(px, py_b, "bot_" + i, false);
+      }
+
+      makeDot(ox + maxX * scale, oy, "beam_tip", true);
+
+      document.getElementById("count").textContent = state.active_dots.length;
+      container.appendChild(svg);
+    }
+
+    function toggle(id) {
+      var pos = state.active_dots.indexOf(id);
+      if (pos !== -1) { state.active_dots.splice(pos, 1); } 
+      else { state.active_dots.push(id); }
+      render();
+      // Send data back to Streamlit
+      var msg = { isStreamlitMessage: true, type: "streamlit:setComponentValue", value: { active_dots: state.active_dots }, dataType: "json" };
+      window.parent.postMessage(msg, "*");
+    }
+
+    // Listen for Streamlit render
+    window.addEventListener("message", function(event) {
+        if (!event.data || event.data.type !== "streamlit:render") return;
+        // If Streamlit passes new active_dots, update state
+        if (event.data.args && event.data.args.active_dots) {
+            state.active_dots = event.data.args.active_dots;
+            render();
+        }
+    });
+
+    window.addEventListener("resize", render);
+    render();
+    </script>
+    </body>
+    </html>
+    """
     
-    fig.add_trace(go.Scatter(
-        x=point_x, y=point_y,
-        mode="markers",
-        marker=dict(size=14, color=colors, line=dict(color="#ffffff", width=1)),
-        customdata=point_ids,
-        hoverinfo="skip",
-        showlegend=False
-    ))
+    # Inject the dynamic variables
+    html = html_template.replace("__REACH__", str(reach))
+    html = html.replace("__WIDTH__", str(width))
+    html = html.replace("__N_RIBS__", str(n_ribs))
+    html = html.replace("__ACTIVE_DOTS__", str(active_dots).replace("'", '"'))
     
-    fig.update_layout(
-        plot_bgcolor="#0e1117",
-        paper_bgcolor="#0e1117",
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        margin=dict(l=0, r=0, t=0, b=0),
-        height=300,
-        dragmode="select",
-        clickmode="event+select"
-    )
-    
-    return fig
+    return html
 
 
 def draw_3d_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs, boundary_loop=None):
-    """Draws the 3D preview."""
     fig = go.Figure()
 
-    # Column
     fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, 0], z=[0, col_top_h], mode="lines", line=dict(color="#2ecc71", width=10), name="Column"))
     fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[0], mode="markers", marker=dict(color="#2ecc71", size=10, symbol="square"), name="Base"))
 
-    # Midrib
     n_beam = 80 
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
     beam_y = np.zeros_like(t_beam)
     beam_z = beam_h + (arc_r * 0.5) * 4.0 * t_beam * (1.0 - t_beam)
+    
     fig.add_trace(go.Scatter3d(x=beam_x, y=beam_y, z=beam_z, mode="lines", line=dict(color="#FF6B6B", width=8), name="Midrib"))
 
-    # Tie Beam
     tie_attach_x = outreach / 3.0
     tie_attach_z = beam_h + (arc_r * 0.5) * 4.0 * (1.0/3.0) * (1.0 - 1.0/3.0)
     fig.add_trace(go.Scatter3d(x=[0, tie_attach_x], y=[0, 0], z=[col_top_h, tie_attach_z], mode="lines", line=dict(color="#f39c12", width=6), name="Tie Beam"))
 
-    # Veins
     rib_ts = np.linspace(0.08, 0.92, n_ribs)
     for rt in rib_ts:
         idx = int(rt * (n_beam - 1))
@@ -146,7 +190,6 @@ def draw_3d_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n
         fig.add_trace(go.Scatter3d(x=[rx, rx], y=[0, -hw], z=[rz, tip_z], mode="lines", line=dict(color="#3498db", width=3), showlegend=False))
         fig.add_trace(go.Scatter3d(x=[rx, rx], y=[0, hw], z=[rz, tip_z], mode="lines", line=dict(color="#3498db", width=3), showlegend=False))
 
-    # Membrane
     n_u, n_v = 24, 24
     X_s, Y_s, Z_s = np.zeros((n_u, n_v)), np.zeros((n_u, n_v)), np.zeros((n_u, n_v))
     
@@ -168,7 +211,6 @@ def draw_3d_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n
 
     fig.add_trace(go.Surface(x=X_s, y=Y_s, z=Z_s, colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]], opacity=0.55, showscale=False, hoverinfo="skip"))
 
-    # Boundary Loop
     if boundary_loop and len(boundary_loop) > 1:
         lx = [p[0] for p in boundary_loop]
         ly = [p[1] for p in boundary_loop]
@@ -183,7 +225,7 @@ def draw_3d_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n
     return apply_common_layout(fig, col_top_h)
 
 
-def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, vein_length, tilt):
+def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, col_top_h, vein_length, tilt):
     loop_pts = []
     for dot in active_dots:
         if dot == "root":
@@ -308,32 +350,20 @@ def render_tester_cantilever_leaf():
 
     elif step == 6:
         st.markdown("### Step 6: Pick Boundary Anchors")
-        st.info("Tap the dots on the 2D plan to set anchors.")
+        st.info("Tap the dots to set anchors.")
         
-        outreach = float(st.session_state["ws_sl_outreach"])
-        width = float(st.session_state["lab_vein_length"])
-        n_ribs = int(st.session_state["ws_sl_ribs_per_side"])
-        
-        fig_2d = draw_2d_picker(outreach, width, n_ribs, st.session_state["lab_active_dots"])
-        
-        # Plotly selection event
-        selection = st.plotly_chart(
-            fig_2d, use_container_width=True, 
-            config={"displayModeBar": False},
-            on_select="rerun",
-            selection_mode="points",
-            key="lab_2d_picker"
+        # Generate the HTML dynamically
+        html_code = draw_pickerboard_html(
+            reach=float(st.session_state["ws_sl_outreach"]),
+            width=float(st.session_state["lab_vein_length"]),
+            n_ribs=int(st.session_state["ws_sl_ribs_per_side"]),
+            active_dots=st.session_state["lab_active_dots"],
+            picker_key=st.session_state["lab_picker_key"]
         )
         
-        # Update active dots based on selection
-        if selection and "selection" in selection and selection["selection"]["points"]:
-            new_dots = []
-            for pt in selection["selection"]["points"]:
-                dot_id = pt.get("customdata", [])
-                if dot_id:
-                    new_dots.append(dot_id[0])
-            st.session_state["lab_active_dots"] = new_dots
-            
+        # Render it. This bypasses caching.
+        components.html(html_code, height=450)
+        
         st.markdown("<br>", unsafe_allow_html=True)
         
         col_btn1, col_btn2 = st.columns(2)
@@ -356,13 +386,13 @@ def render_tester_cantilever_leaf():
         
         active_dots = st.session_state.get("lab_active_dots", [])
         
-        # Build the loop based on current active dots
         boundary_loop = _build_boundary_loop_from_dots(
             active_dots=active_dots,
             n_ribs=st.session_state["ws_sl_ribs_per_side"],
             outreach=st.session_state["ws_sl_outreach"],
             arc_r=st.session_state["ws_sl_arc_radius"],
             beam_h=st.session_state["ws_sl_beam_landing_height"],
+            col_top_h=st.session_state["ws_sl_column_top_height"],
             vein_length=st.session_state["lab_vein_length"],
             tilt=st.session_state["ws_sl_rib_tilt"]
         )
