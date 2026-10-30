@@ -21,25 +21,20 @@
     display: block; width: 100%; height: 100%;
     touch-action: manipulation; user-select: none; -webkit-user-select: none;
   }
-  .grid-line-minor { stroke: #1e2a3a; stroke-width: 1; }
-  .grid-line-major { stroke: #2c3e50; stroke-width: 1.5; }
-  .ruler-text { fill: #566073; font-size: 10px; text-anchor: middle; }
   
-  .column { fill: #2ecc71; }
-  .arm { stroke: #FF6B6B; stroke-width: 4; }
-  .membrane { fill: rgba(74, 122, 156, 0.2); stroke: #4a7a9c; stroke-width: 2; }
-  .rib-line { stroke: #3498db; stroke-width: 2; stroke-opacity: 0.5; }
+  /* Grid lines */
+  .grid-line { stroke: #a0522d; stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.6; }
+  .border-line { stroke: #2ecc71; stroke-width: 3; fill: none; }
   
+  /* Dots */
   .pick {
     cursor: pointer; transition: fill 0.12s ease, stroke 0.12s ease;
   }
   .pick.off {
     fill: #3a4a5a; stroke: #556677; stroke-width: 2;
-    vector-effect: non-scaling-stroke;
   }
   .pick.on {
-    fill: #f1c40f; stroke: #fff3b0; stroke-width: 3;
-    vector-effect: non-scaling-stroke;
+    fill: #f1c40f; stroke: #fff3b0; stroke-width: 2;
   }
   
   #caption {
@@ -51,7 +46,7 @@
 <body>
 <div id="wrap">
   <div id="svg-container"></div>
-  <div id="caption">Tap the highlighted dots to pick anchors.</div>
+  <div id="caption">Picked positions: <b><span id="count">0</span></b></div>
 </div>
 
 <script>
@@ -82,14 +77,8 @@ var Streamlit = (function () {
 })();
 
 var state = {
-  shape: "leaf",
   reach: 10.0,
   width: 10.0,
-  rib_reach: 5.0,
-  rib_lengths: [],
-  scale: 1.0,
-  offsetX: 0,
-  offsetY: 0,
   active_dots: []
 };
 
@@ -109,114 +98,97 @@ function render() {
   var height = container.clientHeight || 375;
   
   var padding = 40;
-  var drawWidth = width - padding;
-  var drawHeight = height - padding;
+  var maxX = state.reach * 1.1;
+  var maxY = state.width * 0.6; // assume half-width for Y axis
   
-  var maxX = state.reach * 1.2;
-  var maxY = state.width * 1.2;
-  
-  var scaleX = drawWidth / maxX;
-  var scaleY = drawHeight / maxY;
-  state.scale = Math.min(scaleX, scaleY);
-  
-  state.offsetX = padding;
-  state.offsetY = height - padding;
+  // Calculate scale to fit
+  var scale = Math.min((width - padding*2) / maxX, (height - padding*2) / (maxY*2));
+  var offsetX = padding;
+  var offsetY = height / 2; // Center Y axis
 
   var svg = el("svg", {
     viewBox: "0 0 " + width + " " + height,
     preserveAspectRatio: "xMidYMid meet"
   });
 
-  // 1. Draw Grid and Rulers
-  for (var x = 0; x <= maxX; x += 0.5) {
-    var px = state.offsetX + x * state.scale;
-    var isMajor = (Math.abs(x % 1.0) < 0.01);
-    svg.appendChild(el("line", {
-      x1: px, y1: 0, x2: px, y2: state.offsetY,
-      class: isMajor ? "grid-line-major" : "grid-line-minor"
-    }));
-    if (isMajor) {
-      var txt = el("text", { x: px, y: state.offsetY + 15, class: "ruler-text" });
-      txt.textContent = x.toFixed(0);
-      svg.appendChild(txt);
-    }
-  }
-  
-  for (var y = -maxY/2; y <= maxY/2; y += 0.5) {
-    var py = state.offsetY - y * state.scale;
-    var isMajorY = (Math.abs(y % 1.0) < 0.01);
-    svg.appendChild(el("line", {
-      x1: state.offsetX, y1: py, x2: width, y2: py,
-      class: isMajorY ? "grid-line-major" : "grid-line-minor"
-    }));
-    if (isMajorY) {
-      var txtY = el("text", { x: state.offsetX - 15, y: py + 4, class: "ruler-text", "text-anchor": "end" });
-      txtY.textContent = y.toFixed(0);
-      svg.appendChild(txtY);
-    }
-  }
-
-  // 2. Draw Column
-  svg.appendChild(el("circle", {
-    cx: state.offsetX, cy: state.offsetY, r: 8, class: "column"
+  // 1. Draw Square/Rectangle Border
+  var borderW = maxX * scale;
+  var borderH = (maxY * 2) * scale;
+  svg.appendChild(el("rect", {
+    x: offsetX, y: offsetY - borderH/2, 
+    width: borderW, height: borderH,
+    class: "border-line"
   }));
 
-  // 3. Draw Structure (Leaf)
-  var n = state.rib_lengths.length;
-  if (n === 0) n = 7;
-  
-  for (var i = 0; i < n; i++) {
-    var r = state.rib_lengths.length > i ? state.rib_lengths[i] : (state.reach * (0.08 + 0.84 * i / Math.max(1, n - 1)));
-    var t = r / state.reach;
-    var rx = state.offsetX + r * state.scale;
-    var ry = state.offsetY - (state.width * 0.4 * Math.sin(Math.PI * t)) * state.scale;
-    
-    svg.appendChild(el("line", {
-      x1: state.offsetX, y1: state.offsetY,
-      x2: rx, y2: ry,
-      class: "rib-line"
-    }));
-    
-    var on = state.active_dots.indexOf(i) !== -1;
-    var cls = "pick " + (on ? "on" : "off");
-    
-    var node = el("circle", {
-      cx: rx, cy: ry, r: 10, class: cls
-    });
-    
-    node.addEventListener("click", (function(index) {
-      return function(evt) { evt.preventDefault(); toggleDot(index); };
-    })(i));
-    
-    node.addEventListener("touchend", (function(index) {
-      return function(evt) { evt.preventDefault(); toggleDot(index); };
-    })(i));
-    
-    svg.appendChild(node);
+  // 2. Draw Main Beam (dashed line along Y=0)
+  svg.appendChild(el("line", {
+    x1: offsetX, y1: offsetY, x2: offsetX + borderW, y2: offsetY,
+    class: "grid-line"
+  }));
+
+  // 3. Draw Veins (dashed lines going out to tips)
+  var n_ribs = 5;
+  var rib_ts = [];
+  for(var i=0; i<n_ribs; i++) {
+      rib_ts.push(0.08 + 0.84 * i / Math.max(1, n_ribs - 1));
   }
 
-  // 4. Draw Main Beam Tip (the last point)
-  var tipX = state.offsetX + state.reach * state.scale;
-  var tipY = state.offsetY;
-  var tipOn = state.active_dots.indexOf(-1) !== -1;
-  var tipCls = "pick " + (tipOn ? "on" : "off");
-  
-  var tipNode = el("circle", {
-    cx: tipX, cy: tipY, r: 10, class: tipCls
-  });
-  tipNode.addEventListener("click", function(evt) { evt.preventDefault(); toggleDot(-1); });
-  tipNode.addEventListener("touchend", function(evt) { evt.preventDefault(); toggleDot(-1); });
-  svg.appendChild(tipNode);
-  
+  // Function to toggle dot
+  function makeDot(x, y, id, is_square) {
+    var on = state.active_dots.indexOf(id) !== -1;
+    var cls = "pick " + (on ? "on" : "off");
+    var shape;
+    
+    if (is_square) {
+        shape = el("rect", { x: x-6, y: y-6, width: 12, height: 12, class: cls });
+    } else {
+        shape = el("circle", { cx: x, cy: y, r: 7, class: cls });
+    }
+    
+    shape.addEventListener("click", function(evt) { evt.preventDefault(); toggleDot(id); });
+    shape.addEventListener("touchend", function(evt) { evt.preventDefault(); toggleDot(id); });
+    svg.appendChild(shape);
+  }
+
+  // Draw Vein Lines and Tips
+  for(var i=0; i<rib_ts.length; i++) {
+      var t = rib_ts[i];
+      var x_pos = t * maxX;
+      var hw = maxY * Math.sin(Math.PI * t); // Y-width at this point
+      
+      var px = offsetX + x_pos * scale;
+      var py_top = offsetY - hw * scale;
+      var py_bot = offsetY + hw * scale;
+      
+      // Draw Vein Line Top
+      svg.appendChild(el("line", {
+          x1: px, y1: offsetY, x2: px, y2: py_top, class: "grid-line"
+      }));
+      // Draw Vein Line Bottom
+      svg.appendChild(el("line", {
+          x1: px, y1: offsetY, x2: px, y2: py_bot, class: "grid-line"
+      }));
+      
+      // Draw Tip Dots
+      makeDot(px, py_top, "top_" + i, false);
+      makeDot(px, py_bot, "bot_" + i, false);
+  }
+
+  // Draw Main Beam Tip (the nose)
+  var tipX = offsetX + maxX * scale;
+  var tipY = offsetY;
+  makeDot(tipX, tipY, "beam_tip", true);
+
+  document.getElementById("count").textContent = state.active_dots.length;
   container.appendChild(svg);
 }
 
-function toggleDot(index) {
-  var pos = state.active_dots.indexOf(index);
+function toggleDot(id) {
+  var pos = state.active_dots.indexOf(id);
   if (pos !== -1) {
     state.active_dots.splice(pos, 1);
   } else {
-    state.active_dots.push(index);
+    state.active_dots.push(id);
   }
   sendValue();
   render();
@@ -224,17 +196,13 @@ function toggleDot(index) {
 
 function sendValue() {
   Streamlit.setComponentValue({ 
-      rib_lengths: state.rib_lengths,
       active_dots: state.active_dots 
   });
 }
 
 Streamlit.onRender(function (args) {
-  state.shape = String(args.shape || "leaf");
   state.reach = Number(args.reach || 10.0);
   state.width = Number(args.width || 10.0);
-  state.rib_reach = Number(args.rib_reach || 5.0);
-  state.rib_lengths = args.rib_lengths || [];
   state.active_dots = args.active_dots || [];
   
   render();
