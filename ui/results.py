@@ -75,26 +75,10 @@ def _run_structural_analysis(vk, solved_data_id):
     if not data:
         return None
 
-    # --- 1. Extract REAL loads from the NFDM solver ---
-    solve_summary = data["solve_summary"]
-    nfdm = solve_summary.get("nfdm", {})
-    cable_tensions = nfdm.get("cable_tension", [])
-    
-    reactions = np.zeros_like(data["fdm_coords"])
-    if cable_tensions:
-        for cb in cable_tensions:
-            node_a = int(cb["a"])
-            node_b = int(cb["b"])
-            T = float(cb["T_N"])
-            # Apply the tension as an outward pull on the nodes
-            if node_a < len(reactions):
-                reactions[node_a, 2] -= T  # Downward pull from cable
-            if node_b < len(reactions):
-                reactions[node_b, 2] -= T
-
+    # --- Pass the FULL solve summary so the builder can read cable tensions ---
     newton_data_cases = {"1.0_DL_LL": {"dr_result": {
         "coordinates": data["fdm_coords"],
-        "reactions": reactions
+        "solve_summary": data["solve_summary"]
     }}}
     
     # Add required keys to data dict for the builder
