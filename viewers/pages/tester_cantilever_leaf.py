@@ -79,7 +79,6 @@ def draw_wizard_preview(
         tilt_rad = math.radians(tilt_deg) * (math.sin(math.pi * rt) ** 0.7)
         tip_z = rz + hw * math.tan(tilt_rad)
         
-        # Left and Right Vein segments attaching at the centerline
         fig.add_trace(go.Scatter3d(
             x=[rx, rx], y=[0, -hw], z=[rz, tip_z],
             mode="lines", line=dict(color="#3498db", width=3), showlegend=False
@@ -120,15 +119,14 @@ def draw_wizard_preview(
         lx = [p[0] for p in boundary_loop]
         ly = [p[1] for p in boundary_loop]
         lz = [p[2] for p in boundary_loop]
-        # Close the loop
         lx.append(boundary_loop[0][0])
         ly.append(boundary_loop[0][1])
         lz.append(boundary_loop[0][2])
+        
         fig.add_trace(go.Scatter3d(
             x=lx, y=ly, z=lz,
             mode="lines", line=dict(color="#f1c40f", width=6), name="Perimeter Cable"
         ))
-        # Add markers at the picked anchor points
         fig.add_trace(go.Scatter3d(
             x=[p[0] for p in boundary_loop], 
             y=[p[1] for p in boundary_loop], 
@@ -140,26 +138,27 @@ def draw_wizard_preview(
 
 
 def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, vein_length, tilt):
-    """
-    Converts the active dot indices from the pickerboard into a 3D boundary loop.
-    Dots are indexed 0..n_ribs-1 for the ribs (right side), and -1 for the beam tip.
-    """
+    """Converts string IDs from the pickerboard into 3D coordinates."""
     loop_pts = []
-    # We assume the user is picking the right-side tips (in +Y)
-    for dot in sorted(active_dots):
-        if dot == -1:
-            # Beam tip
+    
+    for dot in active_dots:
+        if dot == "beam_tip":
             bx = outreach
-            bz = beam_h + (arc_r * 0.5) * 4.0 * 1.0 * (1.0 - 1.0) # = beam_h
+            bz = beam_h + (arc_r * 0.5) * 4.0 * 1.0 * (1.0 - 1.0)
             loop_pts.append([bx, 0.0, bz])
-        else:
-            rt = dot / max(1, n_ribs - 1)
+            
+        elif dot.startswith("top_") or dot.startswith("bot_"):
+            side = 1.0 if dot.startswith("top_") else -1.0
+            rib_idx = int(dot.split("_")[1])
+            rt = rib_idx / max(1, n_ribs - 1)
+            
             bx = outreach * rt
             bz = beam_h + (arc_r * 0.5) * 4.0 * rt * (1.0 - rt)
             hw = vein_length * (math.sin(math.pi * rt) ** 0.7)
             tilt_rad = math.radians(tilt) * (math.sin(math.pi * rt) ** 0.7)
             tip_z = bz + hw * math.tan(tilt_rad)
-            loop_pts.append([bx, hw, tip_z])
+            
+            loop_pts.append([bx, side * hw, tip_z])
             
     return loop_pts
 
@@ -277,18 +276,14 @@ def render_tester_cantilever_leaf():
         st.markdown("### Step 6: Pick Boundary Anchors")
         st.info("Tap the dots to set the anchor points, then click Connect Loop.")
         
-        # Generate the rib_lengths array for the pickerboard to draw
-        n_ribs = int(st.session_state["ws_sl_ribs_per_side"])
         outreach = float(st.session_state["ws_sl_outreach"])
-        rib_lengths = [outreach * (0.08 + 0.84 * i / max(1, n_ribs - 1)) for i in range(n_ribs)]
+        width = float(st.session_state["lab_vein_length"])
         
-        # Render the pickerboard
+        # Render the new pickerboard
         picker_data = lab_pickerboard(
-            shape="leaf",
             reach=outreach,
-            width=float(st.session_state["lab_vein_length"]),
-            rib_reach=outreach * 0.5,
-            rib_lengths=rib_lengths,
+            width=width,
+            active_dots=st.session_state["lab_active_dots"],
             key="lab_picker_1"
         )
         
@@ -303,7 +298,7 @@ def render_tester_cantilever_leaf():
             if len(active_dots) > 0:
                 loop_pts = _build_boundary_loop_from_dots(
                     active_dots=active_dots,
-                    n_ribs=n_ribs,
+                    n_ribs=st.session_state["ws_sl_ribs_per_side"],
                     outreach=outreach,
                     arc_r=st.session_state["ws_sl_arc_radius"],
                     beam_h=st.session_state["ws_sl_beam_landing_height"],
