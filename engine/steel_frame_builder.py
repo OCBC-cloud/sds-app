@@ -17,6 +17,7 @@ are correctly matched to the sizer's member-type dict.
 """
 
 import numpy as np
+from data.sections import SECTION_PROPERTIES
 
 NODE_ARCH = "arch"
 NODE_RING = "ring"
@@ -29,6 +30,9 @@ KIND_RIB = "rib"
 KIND_RING = "ring"
 KIND_DROP = "drop"
 KIND_SPOKE = "spoke"
+
+# Default starter section (sizer will overwrite this later)
+_DEFAULT_SECTION = SECTION_PROPERTIES.get("CHS_60x3", {"A": 1.0, "I": 1.0})
 
 
 def _interp_z_at_x(xp, zp, x_target):
@@ -232,6 +236,13 @@ def build_steel_frame(data, newton_data):
 
     nodes = np.asarray(nodes, dtype=float)
     loads = np.asarray(loads, dtype=float)
+
+    # =========================================================================
+    # NEW FIX: Inject Section Properties so the Solver doesn't skip them!
+    # =========================================================================
+    for elem in elements:
+        if isinstance(elem["section"], str):
+            elem["section"] = _DEFAULT_SECTION
 
     total_load = float(np.sum(np.abs(loads)))
     total_reaction = 0.0
