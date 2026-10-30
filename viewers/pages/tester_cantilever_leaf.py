@@ -1,11 +1,9 @@
 import math
-import uuid
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 
 from viewers.figures._shared import apply_common_layout
-from ui.components.lab_pickerboard import lab_pickerboard
 
 
 def _init_lab_defaults():
@@ -23,33 +21,118 @@ def _init_lab_defaults():
         "lab_weft_kN": 1.0,
         "lab_cable_kN": 1.0,
         "lab_active_dots": [],
-        "lab_boundary_loop": [],
-        "lab_boundary_connected": False,
-        "lab_picker_uuid": str(uuid.uuid4()),
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 
-def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs, boundary_loop=None):
+def draw_2d_picker(outreach, width, n_ribs, active_dots):
+    """Draws the 2D plan view as a Plotly scatter with selectable points."""
+    fig = go.Figure()
+    
+    # 1. Draw the border (rectangle)
+    fig.add_trace(go.Scatter(
+        x=[0, outreach, outreach, 0, 0],
+        y=[-width, -width, width, width, -width],
+        mode="lines", line=dict(color="#2ecc71", width=3), hoverinfo="skip", showlegend=False
+    ))
+    
+    # 2. Draw the main beam
+    fig.add_trace(go.Scatter(
+        x=[0, outreach], y=[0, 0],
+        mode="lines", line=dict(color="#a0522d", width=1.5, dash="dash"), hoverinfo="skip", showlegend=False
+    ))
+
+    # 3. Generate the points
+    point_x = []
+    point_y = []
+    point_ids = []
+    
+    # Add root (at 0,0)
+    point_x.append(0)
+    point_y.append(0)
+    point_ids.append("root")
+    
+    # Add veins
+    rib_ts = np.linspace(0.08, 0.92, n_ribs)
+    for i, t in enumerate(rib_ts):
+        bx = outreach * t
+        hw = width * math.sin(math.pi * t)
+        
+        # Draw the vein lines
+        fig.add_trace(go.Scatter(
+            x=[bx, bx], y=[0, hw],
+            mode="lines", line=dict(color="#a0522d", width=1.5, dash="dash"), hoverinfo="skip", showlegend=False
+        ))
+        fig.add_trace(go.Scatter(
+            x=[bx, bx], y=[0, -hw],
+            mode="lines", line=dict(color="#a0522d", width=1.5, dash="dash"), hoverinfo="skip", showlegend=False
+        ))
+        
+        # Top dot
+        point_x.append(bx)
+        point_y.append(hw)
+        point_ids.append(f"top_{i}")
+        
+        # Bottom dot
+        point_x.append(bx)
+        point_y.append(-hw)
+        point_ids.append(f"bot_{i}")
+
+    # Add beam tip
+    point_x.append(outreach)
+    point_y.append(0)
+    point_ids.append("beam_tip")
+
+    # 4. Draw the selectable dots
+    colors = ["#f1c40f" if pid in active_dots else "#3a4a5a" for pid in point_ids]
+    
+    fig.add_trace(go.Scatter(
+        x=point_x, y=point_y,
+        mode="markers",
+        marker=dict(size=14, color=colors, line=dict(color="#ffffff", width=1)),
+        customdata=point_ids,
+        hoverinfo="skip",
+        showlegend=False
+    ))
+    
+    fig.update_layout(
+        plot_bgcolor="#0e1117",
+        paper_bgcolor="#0e1117",
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=300,
+        dragmode="select",
+        clickmode="event+select"
+    )
+    
+    return fig
+
+
+def draw_3d_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs, boundary_loop=None):
+    """Draws the 3D preview."""
     fig = go.Figure()
 
+    # Column
     fig.add_trace(go.Scatter3d(x=[0, 0], y=[0, 0], z=[0, col_top_h], mode="lines", line=dict(color="#2ecc71", width=10), name="Column"))
     fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[0], mode="markers", marker=dict(color="#2ecc71", size=10, symbol="square"), name="Base"))
 
+    # Midrib
     n_beam = 80 
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
     beam_y = np.zeros_like(t_beam)
     beam_z = beam_h + (arc_r * 0.5) * 4.0 * t_beam * (1.0 - t_beam)
-    
     fig.add_trace(go.Scatter3d(x=beam_x, y=beam_y, z=beam_z, mode="lines", line=dict(color="#FF6B6B", width=8), name="Midrib"))
 
+    # Tie Beam
     tie_attach_x = outreach / 3.0
     tie_attach_z = beam_h + (arc_r * 0.5) * 4.0 * (1.0/3.0) * (1.0 - 1.0/3.0)
     fig.add_trace(go.Scatter3d(x=[0, tie_attach_x], y=[0, 0], z=[col_top_h, tie_attach_z], mode="lines", line=dict(color="#f39c12", width=6), name="Tie Beam"))
 
+    # Veins
     rib_ts = np.linspace(0.08, 0.92, n_ribs)
     for rt in rib_ts:
         idx = int(rt * (n_beam - 1))
@@ -63,6 +146,7 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
         fig.add_trace(go.Scatter3d(x=[rx, rx], y=[0, -hw], z=[rz, tip_z], mode="lines", line=dict(color="#3498db", width=3), showlegend=False))
         fig.add_trace(go.Scatter3d(x=[rx, rx], y=[0, hw], z=[rz, tip_z], mode="lines", line=dict(color="#3498db", width=3), showlegend=False))
 
+    # Membrane
     n_u, n_v = 24, 24
     X_s, Y_s, Z_s = np.zeros((n_u, n_v)), np.zeros((n_u, n_v)), np.zeros((n_u, n_v))
     
@@ -84,6 +168,7 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
 
     fig.add_trace(go.Surface(x=X_s, y=Y_s, z=Z_s, colorscale=[[0, "#1a2a5f"], [0.5, "#4a7a9c"], [1, "#6ab0d4"]], opacity=0.55, showscale=False, hoverinfo="skip"))
 
+    # Boundary Loop
     if boundary_loop and len(boundary_loop) > 1:
         lx = [p[0] for p in boundary_loop]
         ly = [p[1] for p in boundary_loop]
@@ -98,7 +183,7 @@ def draw_wizard_preview(beam_h, col_top_h, outreach, arc_r, vein_length, tilt_de
     return apply_common_layout(fig, col_top_h)
 
 
-def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, col_top_h, vein_length, tilt):
+def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, vein_length, tilt):
     loop_pts = []
     for dot in active_dots:
         if dot == "root":
@@ -122,7 +207,6 @@ def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h,
             tip_z = bz + hw * math.tan(tilt_rad)
             
             loop_pts.append([bx, side * hw, tip_z])
-            
     return loop_pts
 
 
@@ -224,30 +308,31 @@ def render_tester_cantilever_leaf():
 
     elif step == 6:
         st.markdown("### Step 6: Pick Boundary Anchors")
+        st.info("Tap the dots on the 2D plan to set anchors.")
         
         outreach = float(st.session_state["ws_sl_outreach"])
         width = float(st.session_state["lab_vein_length"])
         n_ribs = int(st.session_state["ws_sl_ribs_per_side"])
         
-        st.info("If you edited previous steps, click Refresh to update the pickerboard geometry.")
+        fig_2d = draw_2d_picker(outreach, width, n_ribs, st.session_state["lab_active_dots"])
         
-        # --- FORCED REFRESH BUTTON ---
-        if st.button("🔄 Refresh Pickerboard", use_container_width=True):
-            st.session_state["lab_active_dots"] = []
-            st.session_state["lab_boundary_loop"] = []
-            st.session_state["lab_boundary_connected"] = False
-            # Generate a brand new UUID, forcing Streamlit to destroy the old component
-            st.session_state["lab_picker_uuid"] = str(uuid.uuid4())
-            st.rerun()
-            
-        picker_key = f"lab_picker_{st.session_state['lab_picker_uuid']}"
-        
-        picker_data = lab_pickerboard(
-            reach=outreach, width=width, active_dots=st.session_state["lab_active_dots"], key=picker_key
+        # Plotly selection event
+        selection = st.plotly_chart(
+            fig_2d, use_container_width=True, 
+            config={"displayModeBar": False},
+            on_select="rerun",
+            selection_mode="points",
+            key="lab_2d_picker"
         )
         
-        if picker_data and "active_dots" in picker_data:
-            st.session_state["lab_active_dots"] = picker_data["active_dots"]
+        # Update active dots based on selection
+        if selection and "selection" in selection and selection["selection"]["points"]:
+            new_dots = []
+            for pt in selection["selection"]["points"]:
+                dot_id = pt.get("customdata", [])
+                if dot_id:
+                    new_dots.append(dot_id[0])
+            st.session_state["lab_active_dots"] = new_dots
             
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -255,43 +340,34 @@ def render_tester_cantilever_leaf():
         with col_btn1:
             if st.button("🗑 Clear Picks", use_container_width=True):
                 st.session_state["lab_active_dots"] = []
-                st.session_state["lab_boundary_loop"] = []
-                st.session_state["lab_boundary_connected"] = False
-                st.session_state["lab_picker_uuid"] = str(uuid.uuid4()) # Force reload
                 st.rerun()
         with col_btn2:
-            if st.button("🔗 Connect Loop", type="secondary", use_container_width=True):
-                active_dots = st.session_state.get("lab_active_dots", [])
-                if len(active_dots) > 0:
-                    loop_pts = _build_boundary_loop_from_dots(
-                        active_dots=active_dots,
-                        n_ribs=n_ribs,
-                        outreach=outreach,
-                        arc_r=st.session_state["ws_sl_arc_radius"],
-                        beam_h=st.session_state["ws_sl_beam_landing_height"],
-                        col_top_h=st.session_state["ws_sl_column_top_height"],
-                        vein_length=st.session_state["lab_vein_length"],
-                        tilt=st.session_state["ws_sl_rib_tilt"]
-                    )
-                    st.session_state["lab_boundary_loop"] = loop_pts
-                    st.session_state["lab_boundary_connected"] = True
-                    st.success(f"Boundary loop connected with {len(loop_pts)} anchors.")
-                else:
-                    st.warning("Please pick at least one dot to connect.")
+            if st.button("Review Structure ➔", type="primary", use_container_width=True):
+                st.session_state["lab_step"] = 7
+                st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
-        col_a, col_b = st.columns(2)
-        if col_a.button("⬅ Back", use_container_width=True):
+        if st.button("⬅ Back", use_container_width=True):
             st.session_state["lab_step"] = 5
-            st.rerun()
-        if col_b.button("Review Structure ➔", type="primary", use_container_width=True):
-            st.session_state["lab_step"] = 7
             st.rerun()
 
     elif step == 7:
         st.markdown("### Step 7: Review & Analyze")
         
-        fig = draw_wizard_preview(
+        active_dots = st.session_state.get("lab_active_dots", [])
+        
+        # Build the loop based on current active dots
+        boundary_loop = _build_boundary_loop_from_dots(
+            active_dots=active_dots,
+            n_ribs=st.session_state["ws_sl_ribs_per_side"],
+            outreach=st.session_state["ws_sl_outreach"],
+            arc_r=st.session_state["ws_sl_arc_radius"],
+            beam_h=st.session_state["ws_sl_beam_landing_height"],
+            vein_length=st.session_state["lab_vein_length"],
+            tilt=st.session_state["ws_sl_rib_tilt"]
+        )
+        
+        fig_3d = draw_3d_preview(
             beam_h=st.session_state["ws_sl_beam_landing_height"],
             col_top_h=st.session_state["ws_sl_column_top_height"],
             outreach=st.session_state["ws_sl_outreach"],
@@ -299,9 +375,9 @@ def render_tester_cantilever_leaf():
             vein_length=st.session_state["lab_vein_length"],
             tilt_deg=st.session_state["ws_sl_rib_tilt"],
             n_ribs=st.session_state["ws_sl_ribs_per_side"],
-            boundary_loop=st.session_state.get("lab_boundary_loop", [])
+            boundary_loop=boundary_loop
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_3d, use_container_width=True, config={"displayModeBar": False})
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("⚡ Analyze & Size Steel", type="primary", use_container_width=True):
