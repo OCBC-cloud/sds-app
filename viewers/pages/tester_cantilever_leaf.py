@@ -34,7 +34,6 @@ def draw_wizard_preview(
     beam_h, col_top_h, outreach, arc_r, vein_length, tilt_deg, n_ribs,
     boundary_loop=None
 ):
-    """Draws a clean 3D preview with correct rib attachments and the boundary loop."""
     fig = go.Figure()
 
     # 1. Column
@@ -47,7 +46,7 @@ def draw_wizard_preview(
         mode="markers", marker=dict(color="#2ecc71", size=10, symbol="square"), name="Base"
     ))
 
-    # 2. Midrib (Parabolic Arch)
+    # 2. Midrib
     n_beam = 80 
     t_beam = np.linspace(0, 1, n_beam)
     beam_x = outreach * t_beam
@@ -59,10 +58,9 @@ def draw_wizard_preview(
         mode="lines", line=dict(color="#FF6B6B", width=8), name="Midrib"
     ))
 
-    # 3. Diagonal Tie Beam
+    # 3. Tie Beam
     tie_attach_x = outreach / 3.0
     tie_attach_z = beam_h + (arc_r * 0.5) * 4.0 * (1.0/3.0) * (1.0 - 1.0/3.0)
-    
     fig.add_trace(go.Scatter3d(
         x=[0, tie_attach_x], y=[0, 0], z=[col_top_h, tie_attach_z],
         mode="lines", line=dict(color="#f39c12", width=6), name="Tie Beam"
@@ -88,7 +86,7 @@ def draw_wizard_preview(
             mode="lines", line=dict(color="#3498db", width=3), showlegend=False
         ))
 
-    # 5. Membrane Surface
+    # 5. Membrane
     n_u, n_v = 24, 24
     X_s, Y_s, Z_s = np.zeros((n_u, n_v)), np.zeros((n_u, n_v)), np.zeros((n_u, n_v))
     
@@ -114,7 +112,7 @@ def draw_wizard_preview(
         opacity=0.55, showscale=False, hoverinfo="skip"
     ))
 
-    # 6. Boundary Loop (if connected)
+    # 6. Boundary Loop
     if boundary_loop and len(boundary_loop) > 1:
         lx = [p[0] for p in boundary_loop]
         ly = [p[1] for p in boundary_loop]
@@ -137,12 +135,17 @@ def draw_wizard_preview(
     return apply_common_layout(fig, col_top_h)
 
 
-def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, vein_length, tilt):
+def _build_boundary_loop_from_dots(active_dots, n_ribs, outreach, arc_r, beam_h, col_top_h, vein_length, tilt):
     """Converts string IDs from the pickerboard into 3D coordinates."""
     loop_pts = []
     
     for dot in active_dots:
-        if dot == "beam_tip":
+        if dot == "root":
+            # Root of the main beam (at the column)
+            loop_pts.append([0.0, 0.0, beam_h])
+            
+        elif dot == "beam_tip":
+            # Nose of the main beam
             bx = outreach
             bz = beam_h + (arc_r * 0.5) * 4.0 * 1.0 * (1.0 - 1.0)
             loop_pts.append([bx, 0.0, bz])
@@ -169,23 +172,19 @@ def render_tester_cantilever_leaf():
     step = st.session_state["lab_step"]
     progress = (step - 1) / 6.0
     st.progress(progress)
-    
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ================= SCREEN 1: FOUNDATION =================
     if step == 1:
         st.markdown("### Step 1: Foundation & Support")
         support_types = ["Ground Stand", "Wall Mounted", "Suspended"]
         support_idx = support_types.index(st.session_state["lab_support_type"])
         support = st.radio("Support Type", support_types, index=support_idx)
         st.session_state["lab_support_type"] = support
-        
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("Next: Column ➔", type="primary", use_container_width=True):
             st.session_state["lab_step"] = 2
             st.rerun()
 
-    # ================= SCREEN 2: COLUMN =================
     elif step == 2:
         st.markdown("### Step 2: Column Heights")
         col1, col2 = st.columns(2)
@@ -195,7 +194,6 @@ def render_tester_cantilever_leaf():
         with col2:
             col_top_h = st.number_input("Column Top Height (m)", min_value=beam_h + 0.5, max_value=40.0, value=max(float(st.session_state["ws_sl_column_top_height"]), beam_h + 0.5), step=0.5)
             st.session_state["ws_sl_column_top_height"] = col_top_h
-
         st.markdown("<br>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
         if col_a.button("⬅ Back", use_container_width=True):
@@ -205,7 +203,6 @@ def render_tester_cantilever_leaf():
             st.session_state["lab_step"] = 3
             st.rerun()
 
-    # ================= SCREEN 3: MIDRIB =================
     elif step == 3:
         st.markdown("### Step 3: Midrib (Primary Beam)")
         col3, col4 = st.columns(2)
@@ -215,7 +212,6 @@ def render_tester_cantilever_leaf():
         with col4:
             arc_r = st.number_input("Arc Radius (m)", min_value=0.0, max_value=20.0, value=float(st.session_state["ws_sl_arc_radius"]), step=0.25)
             st.session_state["ws_sl_arc_radius"] = arc_r
-
         st.markdown("<br>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
         if col_a.button("⬅ Back", use_container_width=True):
@@ -225,7 +221,6 @@ def render_tester_cantilever_leaf():
             st.session_state["lab_step"] = 4
             st.rerun()
 
-    # ================= SCREEN 4: VEINS =================
     elif step == 4:
         st.markdown("### Step 4: Veins (Secondary Beams)")
         col5, col6 = st.columns(2)
@@ -235,10 +230,8 @@ def render_tester_cantilever_leaf():
         with col6:
             tilt = st.number_input("Vein Tilt (deg)", min_value=-45.0, max_value=45.0, value=float(st.session_state["ws_sl_rib_tilt"]), step=1.0)
             st.session_state["ws_sl_rib_tilt"] = tilt
-            
         n_ribs = st.number_input("Number of Ribs (Veins)", min_value=1, max_value=15, value=int(st.session_state["ws_sl_ribs_per_side"]), step=1)
         st.session_state["ws_sl_ribs_per_side"] = n_ribs
-
         st.markdown("<br>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
         if col_a.button("⬅ Back", use_container_width=True):
@@ -248,7 +241,6 @@ def render_tester_cantilever_leaf():
             st.session_state["lab_step"] = 5
             st.rerun()
 
-    # ================= SCREEN 5: PRETENSIONS =================
     elif step == 5:
         st.markdown("### Step 5: Pretensions")
         col7, col8, col9 = st.columns(3)
@@ -261,7 +253,6 @@ def render_tester_cantilever_leaf():
         with col9:
             cable = st.number_input("Cable (kN)", min_value=0.1, max_value=50.0, value=float(st.session_state["lab_cable_kN"]), step=0.1)
             st.session_state["lab_cable_kN"] = cable
-
         st.markdown("<br>", unsafe_allow_html=True)
         col_a, col_b = st.columns(2)
         if col_a.button("⬅ Back", use_container_width=True):
@@ -271,7 +262,6 @@ def render_tester_cantilever_leaf():
             st.session_state["lab_step"] = 6
             st.rerun()
 
-    # ================= SCREEN 6: PICK BOUNDARY =================
     elif step == 6:
         st.markdown("### Step 6: Pick Boundary Anchors")
         st.info("Tap the dots to set the anchor points, then click Connect Loop.")
@@ -279,15 +269,10 @@ def render_tester_cantilever_leaf():
         outreach = float(st.session_state["ws_sl_outreach"])
         width = float(st.session_state["lab_vein_length"])
         
-        # Render the new pickerboard
         picker_data = lab_pickerboard(
-            reach=outreach,
-            width=width,
-            active_dots=st.session_state["lab_active_dots"],
-            key="lab_picker_1"
+            reach=outreach, width=width, active_dots=st.session_state["lab_active_dots"], key="lab_picker_1"
         )
         
-        # Save the active dots to session state
         if picker_data and "active_dots" in picker_data:
             st.session_state["lab_active_dots"] = picker_data["active_dots"]
             
@@ -302,6 +287,7 @@ def render_tester_cantilever_leaf():
                     outreach=outreach,
                     arc_r=st.session_state["ws_sl_arc_radius"],
                     beam_h=st.session_state["ws_sl_beam_landing_height"],
+                    col_top_h=st.session_state["ws_sl_column_top_height"],
                     vein_length=st.session_state["lab_vein_length"],
                     tilt=st.session_state["ws_sl_rib_tilt"]
                 )
@@ -320,7 +306,6 @@ def render_tester_cantilever_leaf():
             st.session_state["lab_step"] = 7
             st.rerun()
 
-    # ================= SCREEN 7: REVIEW & ANALYZE =================
     elif step == 7:
         st.markdown("### Step 7: Review & Analyze")
         
@@ -345,7 +330,6 @@ def render_tester_cantilever_leaf():
             st.session_state["lab_step"] = 6
             st.rerun()
 
-    # ================= BACK TO LAB =================
     st.markdown("---")
     if st.button("Exit to Lab", key="lab_exit", use_container_width=True):
         st.session_state["lab_step"] = 1
