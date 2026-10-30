@@ -75,11 +75,14 @@ def _run_structural_analysis(vk, solved_data_id):
     if not data:
         return None
 
-    # --- Pass the FULL solve summary so the builder can read cable tensions ---
+    # --- CRITICAL FIX: Pass the full solve summary with reactions ---
     newton_data_cases = {"1.0_DL_LL": {"dr_result": {
         "coordinates": data["fdm_coords"],
-        "solve_summary": data["solve_summary"]
+        "solve_summary": data["solve_summary"],
+        "reactions": data["solve_summary"].get("nfdm", {}).get("reactions", None)
     }}}
+    
+    # If reactions are missing from nfdm, it will be handled by the builder
     
     # Add required keys to data dict for the builder
     data["built"] = data["built"]
