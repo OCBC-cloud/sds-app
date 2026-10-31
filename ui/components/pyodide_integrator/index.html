@@ -12,7 +12,7 @@
 </head>
 <body>
     <div id="status">Waiting for data from Streamlit...</div>
-    <div id="spinner" class="spinner">Running 3D Matrix Stiffness Solver on iPhone... ⏳</div>
+    <div id="spinner" class="spinner">Running FEA loads & matrix solver on iPhone... ⏳</div>
     <div id="error" class="error"></div>
 
     <script>
@@ -39,9 +39,7 @@
             try {
                 const pyodide = await pyodideReadyPromise;
 
-                // Pass the complex data structure as JSON strings
                 pyodide.globals.set("topology_json", JSON.stringify(data.topology));
-                pyodide.globals.set("loads_json", JSON.stringify(data.loads));
                 pyodide.globals.set("sections_json", JSON.stringify(data.sections));
                 pyodide.globals.set("grade_json", JSON.stringify(data.grade));
 
@@ -50,7 +48,6 @@ import json
 import numpy as np
 
 topology = json.loads(topology_json)
-loads = np.array(json.loads(loads_json), dtype=float)
 section_props = json.loads(sections_json)
 grade_props = json.loads(grade_json)
 
@@ -61,9 +58,25 @@ fixed_nodes = topology["fixed_indices"]
 n_nodes = nodes.shape[0]
 n_dof = 6 * n_nodes
 
+# ==========================================
+# 1. CALCULATE ULS LOADS ON THE PHONE
+# ==========================================
+loads = np.zeros((n_nodes, 3), dtype=float)
+# Hardcode ULS tension for now (we will wire the material DB later)
+uls_tension = 9000.0  # 9 kN/m (Allowable for PVDF Type III)
+wind_pressure = 600.0 # 0.6 kPa suction
+
+for i in range(n_nodes):
+    # Downward gravity on all nodes
+    loads[i, 2] -= 1000.0 
+    # Wind suction in X
+    loads[i, 0] -= wind_pressure * 0.1
+
+# ==========================================
+# 2. SOLVE MATRIX STIFFNESS
+# ==========================================
 E = grade_props.get("E", 210000.0) * 1e6
 G = grade_props.get("G", E / (2 * (1 + 0.3)))
-
 K_global = np.zeros((n_dof, n_dof), dtype=float)
 F_global = np.zeros(n_dof, dtype=float)
 
