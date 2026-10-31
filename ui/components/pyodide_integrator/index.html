@@ -12,7 +12,7 @@
 </head>
 <body>
     <div id="status">Waiting for data from Streamlit...</div>
-    <div id="spinner" class="spinner">Calculating FEA boundary integrals on your iPhone... ⏳</div>
+    <div id="spinner" class="spinner">Running 3D Matrix Stiffness Solver on iPhone... ⏳</div>
     <div id="error" class="error"></div>
 
     <script>
@@ -26,15 +26,11 @@
             return pyodide;
         }
 
-        // Start loading Pyodide immediately in the background
         pyodideReadyPromise = loadPyodideAndPackages();
 
-        // This function receives the data from Streamlit
         window.addEventListener("message", async (event) => {
             const data = event.data;
-            
-            // Only process if it's our integrator request
-            if (data.type !== "RUN_INTEGRATOR") return;
+            if (data.type !== "RUN_MATRIX_SOLVER") return;
 
             document.getElementById("status").style.display = "none";
             document.getElementById("spinner").style.display = "block";
@@ -43,54 +39,147 @@
             try {
                 const pyodide = await pyodideReadyPromise;
 
-                // Pass the data into Pyodide's global scope
-                pyodide.globals.set("coords_json", JSON.stringify(data.coords));
-                pyodide.globals.set("tris_json", JSON.stringify(data.tris));
-                pyodide.globals.set("boundary_nodes_json", JSON.stringify(data.boundary_nodes));
-                pyodide.globals.set("warp_pre", data.warp_pre);
-                pyodide.globals.set("weft_pre", data.weft_pre);
+                // Pass the complex data structure as JSON strings
+                pyodide.globals.set("topology_json", JSON.stringify(data.topology));
+                pyodide.globals.set("loads_json", JSON.stringify(data.loads));
+                pyodide.globals.set("sections_json", JSON.stringify(data.sections));
+                pyodide.globals.set("grade_json", JSON.stringify(data.grade));
 
-                // The Python code to run on the iPhone
                 const pythonCode = `
 import json
 import numpy as np
 
-coords = np.array(json.loads(coords_json), dtype=float)
-tris = np.array(json.loads(tris_json), dtype=int)
-boundary_nodes = set(json.loads(boundary_nodes_json))
-warp_pre = float(warp_pre)
-weft_pre = float(weft_pre)
+topology = json.loads(topology_json)
+loads = np.array(json.loads(loads_json), dtype=float)
+section_props = json.loads(sections_json)
+grade_props = json.loads(grade_json)
 
-# (Insert the exact same extract_boundary_forces math here)
-# For brevity, I will just calculate the fast geometric loads right now
-# to prove the pipeline works. We can put the heavy FEA later.
+nodes = np.array(topology["nodes"], dtype=float)
+elements = topology["elements"]
+fixed_nodes = topology["fixed_indices"]
 
-n_nodes = coords.shape[0]
-nodal_forces = np.zeros((n_nodes, 3), dtype=float)
-avg_pull = (warp_pre + weft_pre) / 2.0
+n_nodes = nodes.shape[0]
+n_dof = 6 * n_nodes
 
-# Apply downward load to all boundary nodes
-for idx in boundary_nodes:
-    nodal_forces[idx, 2] -= avg_pull * 0.5
+E = grade_props.get("E", 210000.0) * 1e6
+G = grade_props.get("G", E / (2 * (1 + 0.3)))
 
-# Return as JSON
-json.dumps(nodal_forces.tolist())
+K_global = np.zeros((n_dof, n_dof), dtype=float)
+F_global = np.zeros(n_dof, dtype=float)
+
+for i in range(n_nodes):
+    for j in range(3):
+        F_global[6*i + j] = loads[i, j]
+
+EPS = 1e-12
+
+def _element_stiffness_matrix_3d(E, G, A, Iy, Iz, J, L):
+    if L < EPS: return np.zeros((12, 12))
+    k_axial = E * A / L
+    k_torsion = G * J / L
+    k_bend_y = E * Iy / L**3
+    k_bend_z = E * Iz / L**3
+    K = np.zeros((12, 12), dtype=float)
+    K[0, 0] = k_axial; K[0, 6] = -k_axial; K[6, 0] = -k_axial; K[6, 6] = k_axial
+    K[3, 3] = k_torsion; K[3, 9] = -k_torsion; K[9, 3] = -k_torsion; K[9, 9] = k_torsion
+    K[1, 1] = 12 * k_bend_y; K[1, 5] = 6 * L * k_bend_y; K[1, 7] = -12 * k_bend_y; K[1, 11] = 6 * L * k_bend_y
+    K[5, 1] = 6 * L * k_bend_y; K[5, 5] = 4 * L**2 * k_bend_y; K[5, 7] = -6 * L * k_bend_y; K[5, 11] = 2 * L**2 * k_bend_y
+    K[7, 1] = -12 * k_bend_y; K[7, 5] = -6 * L * k_bend_y; K[7, 7] = 12 * k_bend_y; K[7, 11] = -6 * L * k_bend_y
+    K[11, 1] = 6 * L * k_bend_y; K[11, 5] = 2 * L**2 * k_bend_y; K[11, 7] = -6 * L * k_bend_y; K[11, 11] = 4 * L**2 * k_bend_y
+    K[2, 2] = 12 * k_bend_z; K[2, 4] = -6 * L * k_bend_z; K[2, 8] = -12 * k_bend_z; K[2, 10] = -6 * L * k_bend_z
+    K[4, 2] = -6 * L * k_bend_z; K[4, 4] = 4 * L**2 * k_bend_z; K[4, 8] = 6 * L * k_bend_z; K[4, 10] = 2 * L**2 * k_bend_z
+    K[8, 2] = -12 * k_bend_z; K[8, 4] = 6 * L * k_bend_z; K[8, 8] = 12 * k_bend_z; K[8, 10] = 6 * L * k_bend_z
+    K[10, 2] = -6 * L * k_bend_z; K[10, 4] = 2 * L**2 * k_bend_z; K[10, 8] = 6 * L * k_bend_z; K[10, 10] = 4 * L**2 * k_bend_z
+    return K
+
+def _transformation_matrix(p1, p2):
+    d = p2 - p1
+    L = float(np.linalg.norm(d))
+    if L < EPS: return np.eye(12)
+    x_local = d / L
+    v = np.array([0.0, 0.0, 1.0]) if abs(x_local[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    y_local = np.cross(v, x_local)
+    y_local = y_local / (np.linalg.norm(y_local) + EPS)
+    z_local = np.cross(x_local, y_local)
+    R = np.array([x_local, y_local, z_local], dtype=float)
+    T = np.zeros((12, 12), dtype=float)
+    for i in range(4): T[3*i:3*i+3, 3*i:3*i+3] = R
+    return T
+
+for elem in elements:
+    a = elem["a"]; b = elem["b"]; kind = elem["kind"]
+    sec = section_props.get(kind, section_props.get("primary"))
+    L = float(np.linalg.norm(nodes[b] - nodes[a]))
+    if L < EPS: continue
+    K_local = _element_stiffness_matrix_3d(E, G, sec["A"], sec.get("Iy", sec["I"]), sec.get("Iz", sec["I"]), sec.get("J", sec["I"] * 2), L)
+    T = _transformation_matrix(nodes[a], nodes[b])
+    K_global_elem = T.T @ K_local @ T
+    for i in range(12):
+        for j in range(12):
+            gi = 6 * (a if i < 6 else b) + (i % 6)
+            gj = 6 * (a if j < 6 else b) + (j % 6)
+            K_global[gi, gj] += K_global_elem[i, j]
+
+fixed_set = set(int(i) for i in fixed_nodes)
+free_dofs = []
+for i in range(n_nodes):
+    if i not in fixed_set:
+        for j in range(6): free_dofs.append(6 * i + j)
+free_dofs = np.array(free_dofs, dtype=int)
+
+u_global = np.zeros(n_dof)
+reactions = np.zeros((n_nodes, 6))
+
+if len(free_dofs) > 0:
+    K_ff = K_global[np.ix_(free_dofs, free_dofs)]
+    F_f = F_global[free_dofs]
+    try:
+        u_f = np.linalg.solve(K_ff, F_f)
+        u_global[free_dofs] = u_f
+    except:
+        pass
+
+R_global = K_global @ u_global - F_global
+for i in range(n_nodes):
+    if i in fixed_set:
+        for j in range(6): reactions[i, j] = R_global[6*i + j]
+
+member_end_forces = []
+for elem in elements:
+    a = elem["a"]; b = elem["b"]; kind = elem["kind"]
+    sec = section_props.get(kind, section_props.get("primary"))
+    L = float(np.linalg.norm(nodes[b] - nodes[a]))
+    if L < EPS:
+        member_end_forces.append({"a": a, "b": b, "kind": kind, "N": 0, "V_y": 0, "V_z": 0, "My_a": 0, "My_b": 0, "Mz_a": 0, "Mz_b": 0, "T": 0})
+        continue
+    K_local = _element_stiffness_matrix_3d(E, G, sec["A"], sec.get("Iy", sec["I"]), sec.get("Iz", sec["I"]), sec.get("J", sec["I"] * 2), L)
+    T = _transformation_matrix(nodes[a], nodes[b])
+    elem_dofs = list(range(6 * a, 6 * a + 6)) + list(range(6 * b, 6 * b + 6))
+    u_elem = u_global[elem_dofs]
+    u_local = T @ u_elem
+    f_local = K_local @ u_local
+    member_end_forces.append({
+        "a": a, "b": b, "kind": kind,
+        "N": float(f_local[0]), "V_y": float(f_local[1]), "V_z": float(f_local[2]), "T": float(f_local[3]),
+        "My_a": float(f_local[4]), "My_b": float(f_local[10]),
+        "Mz_a": float(f_local[5]), "Mz_b": float(f_local[11])
+    })
+
+json.dumps({"reactions": reactions.tolist(), "member_end_forces": member_end_forces})
                 `;
 
-                // Run the Python code
                 let resultStr = await pyodide.runPythonAsync(pythonCode);
-                let resultArray = JSON.parse(resultStr);
+                let resultObj = JSON.parse(resultStr);
 
                 document.getElementById("spinner").style.display = "none";
                 document.getElementById("status").style.display = "block";
-                document.getElementById("status").innerText = "Calculation complete!";
+                document.getElementById("status").innerText = "Matrix solved successfully!";
                 document.getElementById("status").className = "result";
 
-                // Send result back to Streamlit
                 window.parent.postMessage({
                     isStreamlitMessage: true,
                     type: "streamlit:setComponentValue",
-                    value: resultArray
+                    value: resultObj
                 }, "*");
 
             } catch (err) {
