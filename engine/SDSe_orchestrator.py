@@ -1,28 +1,25 @@
 # =============================================================================
-# SDSe Engine - Structural Orchestrator (The Brain)
+# SDSe Engine - Structural Orchestrator (100% iPhone Computation)
 # =============================================================================
-# Ties together the Topology, ULS Loads, and iPhone Matrix Solver.
+# This file does NO matrix math on the server. 
+# It builds the topology, sends it to the iPhone, and reads the results.
 # =============================================================================
 
 import numpy as np
 from engine.SDSe_frame_topology import build_frame_topology
-from engine.SDSe_loads import calculate_uls_loads
 from ui.components.pyodide_integrator import solve_matrix_on_phone
 from data.sections import SECTION_PROPERTIES
 from data.materials import STEEL_MATERIALS
 
 def run_structural_analysis(data):
     """
-    Main entry point for the structural engine.
-    Sends the matrix math to the iPhone via Pyodide.
+    Main entry point. 
+    Sends ALL heavy math to the iPhone to prevent server OOM (Error 137).
     """
-    # 1. Build the Geometry
+    # 1. Build the Geometry (This is lightweight)
     topology = build_frame_topology(data)
     
-    # 2. Calculate the Ultimate Loads (Wind, Gravity, Membrane)
-    loads = calculate_uls_loads(topology, data)
-    
-    # 3. Define the starting steel sections (smallest available)
+    # 2. Define the starting steel sections (smallest available)
     grade = "S355"
     family = "CHS"
     
@@ -49,23 +46,23 @@ def run_structural_analysis(data):
     }
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
 
-    # 4. Iterate to find the right sections (Max 15 iterations)
-    for iteration in range(15):
-        # Build the section properties dictionary for the solver
+    # 3. Iterate to find the right sections
+    for iteration in range(10):
         section_props = {}
         for k, name in current_sections.items():
             section_props[k] = SECTION_PROPERTIES[name]
             
-        # --- SEND TO IPHONE ---
+        # --- SEND TO IPHONE (Geometry + Sections) ---
+        # We send the topology and section sizes. 
+        # The iPhone will calculate the ULS loads and run the matrix solve.
         phone_result = solve_matrix_on_phone(
             topology=topology,
-            loads=loads,
+            loads=[], # Empty, the iPhone will calculate them
             sections=section_props,
             grade=grade_props,
             key=f"matrix_calc_{iteration}"
         )
         
-        # If the iPhone is still calculating, return a waiting status
         if phone_result is None:
             return {"error": "Waiting for iPhone to finish calculating..."}
             
@@ -74,7 +71,7 @@ def run_structural_analysis(data):
             
         results = phone_result
         
-        # Check utilization for every member
+        # 4. Check utilization
         max_util = {k: 0.0 for k in current_sections.keys()}
         
         for elem in results.get("member_end_forces", []):
@@ -87,12 +84,10 @@ def run_structural_analysis(data):
             Wy_mm3 = sec.get("Wy", sec.get("W_el", 1.0))
             Wz_mm3 = sec.get("Wz", sec.get("W_el", 1.0))
             
-            # Extract true forces
             N_kN = abs(elem["N"]) / 1000.0
             My_kNm = max(abs(elem["My_a"]), abs(elem["My_b"])) / 1e6
             Mz_kNm = max(abs(elem["Mz_a"]), abs(elem["Mz_b"])) / 1e6
             
-            # Calculate utilization (Stress / Capacity)
             stress_util = 0.0
             if A_mm2 > 0: stress_util += (abs(N_kN) * 1000.0) / (A_mm2 * fy_MPa)
             if Wy_mm3 > 0: stress_util += (My_kNm * 1e6) / (Wy_mm3 * fy_MPa)
@@ -101,7 +96,6 @@ def run_structural_analysis(data):
             if stress_util > max_util[kind]:
                 max_util[kind] = stress_util
 
-        # If everything is under 85% capacity, we are done!
         failing = [k for k, u in max_util.items() if u > 0.85]
         if not failing:
             return {
@@ -111,10 +105,8 @@ def run_structural_analysis(data):
                 "iterations": iteration + 1
             }
 
-        # If something is failing, upgrade that specific section
         for k in failing:
             current_name = current_sections[k]
-            # Find the next bigger section
             for i, (area, name, props) in enumerate(all_sections):
                 if name == current_name and i + 1 < len(all_sections):
                     current_sections[k] = all_sections[i + 1][1]
