@@ -1,11 +1,10 @@
 # =============================================================================
-# SDSe Fluid Design Studio - Results Page (Global Statics)
+# SDSe Fluid Design Studio - Results Page (Geometry Documentation Only)
 # =============================================================================
 
 import streamlit as st
 import pandas as pd
-from viewers.results_viewer import generate_results_figure
-from engine.SDSe_orchestrator import run_structural_analysis
+import numpy as np
 
 
 def render_results():
@@ -17,69 +16,67 @@ def render_results():
     pname = info.get("name", "") or "Untitled Project"
     cname = info.get("client", "") or "Unknown Client"
 
-    # Header
     st.markdown(f'<div style="font-size: 0.85rem; color: #a8b8c8; margin-bottom: 1rem;">SDSe Fluid Design Studio / <span style="color: #f39c12;">{sn}</span> / {vn} / Results</div>', unsafe_allow_html=True)
     st.markdown(f'<div style="background: #121e2e; border: 1px solid #1e2a3a; border-radius: 10px; padding: 1rem;"><div style="color: #ffffff; font-size: 1.15rem; font-weight: 700;">{pname}</div><div style="color: #a8b8c8; font-size: 0.85rem; margin-top: 0.3rem;">Client: {cname}</div></div>', unsafe_allow_html=True)
 
-    # --- 3D VIEWER ---
-    st.markdown('<div style="color: #f39c12; font-weight: 700; margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">3D View</div>', unsafe_allow_html=True)
-    try:
-        fig = generate_results_figure(sk, vk)
-        st.plotly_chart(fig, use_container_width=True, key="results_3d_view")
-    except Exception as e:
-        st.error("3D view failed: " + str(e))
-
     st.markdown("---")
-
-    # --- ANALYSIS SECTION ---
-    with st.expander("Analysis and Quantities", expanded=True):
+    
+    with st.expander("📐 Geometry Documentation (Raw Mesh Data)", expanded=True):
         
-        if st.button("🚀 Run Structural Analysis", type="primary", use_container_width=True):
-            with st.spinner("Calculating Global Statics..."):
-                solved_data = st.session_state.get("ws_dm_solved_data", None)
-                
-                if not solved_data:
-                    st.error("❌ No FDM data found. Please run the form-finding again.")
-                else:
-                    # Prepare data for orchestrator
-                    data = solved_data.copy()
-                    data["fabric_type"] = st.session_state.get("ws_dm_fabric_type", "PVDF")
-                    data["fabric_grade"] = st.session_state.get("ws_dm_fabric_grade", "Ferrari 702")
-                    data["dome_diameter"] = st.session_state.get("ws_dm_dome_diameter", 18.0)
-                    data["crown_height"] = st.session_state.get("ws_dm_crown_height", 9.0)
-
-                    result = run_structural_analysis(data)
-                    
-                    if "error" in result:
-                        st.error("❌ " + result["error"])
-                    else:
-                        st.session_state["global_statics_results"] = result
-                        st.success("✅ Analysis Complete!")
-
-        # Display results if they exist
-        if "global_statics_results" in st.session_state:
-            result = st.session_state["global_statics_results"]
-            sections = result.get("sections", {})
-            loads = result.get("loads", {})
+        solved_data = st.session_state.get("ws_dm_solved_data", None)
+        
+        if not solved_data:
+            st.error("❌ No FDM solved data found in session state.")
+            return
             
-            st.markdown("### 🌪️ Wind & Uplift Forces")
-            st.write(f"**True Surface Area:** {loads.get('surface_area', 0.0):.1f} m²")
-            st.write(f"**Total Wind Uplift:** {loads.get('total_wind_uplift_N', 0.0) / 1000:.1f} kN")
-            st.write(f"**Total Wind Pressure:** {loads.get('total_wind_pressure_N', 0.0) / 1000:.1f} kN")
-
-            st.markdown("### 🏗️ Steel Sections (S355)")
-            for k, v in sections.items():
-                st.write(f"**{k.capitalize()}:** {v}")
+        fdm_coords = solved_data.get("fdm_coords", None)
+        built = solved_data.get("built", None)
+        
+        if fdm_coords is None:
+            st.error("❌ 'fdm_coords' is missing from session state.")
+            return
+            
+        if built is None:
+            st.error("❌ 'built' dictionary is missing from session state.")
+            return
+            
+        triangles = built.get("triangles", [])
+        
+        # 1. Document the Surface Area
+        st.write("### 🌐 True Curved Surface Area")
+        st.write(f"**Mesh Nodes:** {len(fdm_coords)}")
+        st.write(f"**Mesh Triangles:** {len(triangles)}")
+        
+        true_surface_area = 0.0
+        if len(triangles) > 0:
+            for tri in triangles:
+                p0 = fdm_coords[int(tri[0])]
+                p1 = fdm_coords[int(tri[1])]
+                p2 = fdm_coords[int(tri[2])]
+                cross_prod = np.cross(p1 - p0, p2 - p0)
+                true_surface_area += 0.5 * np.linalg.norm(cross_prod)
                 
-            st.markdown("### 📊 Utilization")
-            for k, v in result.get("max_utilization", {}).items():
-                st.write(f"**{k.capitalize()}:** {v:.1%}")
-                
-            if st.button("Clear Results"):
-                del st.session_state["global_statics_results"]
-                st.rerun()
+            st.success(f"**Calculated True Surface Area:** {true_surface_area:.2f} m²")
+        else:
+            st.error("❌ No triangles found in mesh. Cannot calculate surface area.")
 
-    # Footer buttons
+        # 2. Document the Digitised Node State
+        st.write("### 🖥️ Digitised Node State (Raw Coordinates)")
+        
+        node_data = []
+        for i in range(len(fdm_coords)):
+            node_data.append({
+                "Node ID": i,
+                "X": f"{fdm_coords[i][0]:.4f}",
+                "Y": f"{fdm_coords[i][1]:.4f}",
+                "Z": f"{fdm_coords[i][2]:.4f}",
+            })
+            
+        if node_data:
+            st.dataframe(pd.DataFrame(node_data), use_container_width=True)
+        else:
+            st.warning("No node data found.")
+
     st.markdown("---")
     col1, col2 = st.columns(2)
     with col1:
