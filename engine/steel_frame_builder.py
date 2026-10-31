@@ -1,11 +1,13 @@
-"""SDSe Engine — 3D Steel Frame Builder (Stable Geometry Loads).
+"""SDSe Engine — 3D Steel Frame Builder (Pyodide iPhone Integration).
 
-Builds the 3D steel frame from mesh data. 
-Uses a fast, stable geometric load estimator to prevent server crashes.
+Builds the 3D steel frame from mesh data.
+Uses the iPhone's processor (via Pyodide) to calculate the exact boundary forces
+without crashing the Streamlit server.
 """
 
 import numpy as np
 from data.sections import SECTION_PROPERTIES
+from ui.components.pyodide_integrator import calculate_forces_on_phone
 
 NODE_ARCH = "arch"
 NODE_RING = "ring"
@@ -95,35 +97,33 @@ def build_steel_frame(data, newton_data):
     built = data["built"]
     anchor_idx = data["anchor_idx"]
     eave_height = float(data["eave_height"])
-    
+
     # =========================================================================
-    # FAST STABLE LOADS: Geometric distribution based on prestress
+    # IPHONE COMPUTATION: Call Pyodide to calculate forces locally
     # =========================================================================
-    n_nodes_mesh = len(coords_fdm)
-    membrane_loads = np.zeros((n_nodes_mesh, 3), dtype=float)
-    
-    # Get prestress from UI (default 20.0 kN/m)
-    warp_q = float(data.get("warp_pretension", 20.0)) * 1000.0
-    weft_q = float(data.get("weft_pretension", 20.0)) * 1000.0
-    avg_pull = (warp_q + weft_q) / 2.0
-    
-    # Apply a downward load to all ring and drop nodes
+    boundary_nodes = set(int(i) for i in anchor_idx)
     for ring_idx_list in built["ring_indices"]:
         for node_idx in ring_idx_list:
-            membrane_loads[node_idx, 2] -= avg_pull * 0.5  # down force
-            
-    for cidx in built["centre_indices"]:
-        membrane_loads[cidx, 2] -= avg_pull * 1.0  # down force on drop cable
+            boundary_nodes.add(int(node_idx))
 
-    # Apply inward pull to anchors (assuming edge cable pretension)
-    edge_q = float(data.get("edge_cable_pretension", 25.0)) * 1000.0
-    for anchor_mesh_idx in anchor_idx:
-        px, py, pz = coords_fdm[anchor_mesh_idx]
-        # Radial pull towards center (0,0)
-        r = np.sqrt(px**2 + py**2)
-        if r > 1e-6:
-            membrane_loads[anchor_mesh_idx, 0] -= (px / r) * edge_q
-            membrane_loads[anchor_mesh_idx, 1] -= (py / r) * edge_q
+    warp_pre = float(data.get("warp_pretension", 20.0)) * 1000.0
+    weft_pre = float(data.get("weft_pretension", 20.0)) * 1000.0
+
+    # We pass the data to the iPhone and wait for the result
+    raw_forces = calculate_forces_on_phone(
+        coords=coords_fdm,
+        triangles=built["triangles"],
+        boundary_nodes=boundary_nodes,
+        warp_pre=warp_pre,
+        weft_pre=weft_pre,
+        key="dome_boundary_calc"
+    )
+
+    if raw_forces is None:
+        # If the phone hasn't finished yet, return zero (the app will re-run automatically)
+        membrane_loads = np.zeros_like(coords_fdm)
+    else:
+        membrane_loads = np.array(raw_forces, dtype=float)
     # =========================================================================
 
     xp = data["xp"]
@@ -252,9 +252,6 @@ def build_steel_frame(data, newton_data):
         if isinstance(elem["section"], str):
             elem["section"] = _DEFAULT_SECTION
 
-    total_load = float(np.sum(np.abs(loads)))
-    total_reaction = 0.0
-
     return {
         "nodes": nodes,
         "elements": elements,
@@ -264,8 +261,8 @@ def build_steel_frame(data, newton_data):
         "anchor_to_frame_id": anchor_map,
         "ring_to_frame_id": ring_map,
         "drop_to_frame_id": drop_map,
-        "diagnostic_total_load_magnitude_N": total_load,
-        "diagnostic_total_reaction_magnitude_N": total_reaction,
+        "diagnostic_total_load_magnitude_N": float(np.sum(np.abs(loads))),
+        "diagnostic_total_reaction_magnitude_N": 0.0,
         "diagnostic_n_anchor_loads": len(anchor_map),
         "diagnostic_n_ring_loads": len(ring_map),
         "diagnostic_n_drop_loads": len(drop_map),
