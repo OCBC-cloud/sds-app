@@ -24,21 +24,18 @@ def _build_params(variant_key):
 @st.cache_data(show_spinner=False)
 def _run_structural_analysis(vk, solved_data_id):
     if vk != "dome_multi_cone":
-        return None
+        return {"error": "Variant not wired for steel sizing yet."}
 
     data = st.session_state.get("ws_dm_solved_data", None)
     if not data:
         return {"error": "No solved data in session state."}
 
-    # --- USE FDM COORDINATES (STABLE) ---
-    # The FDM solver output is saved in "fdm_coords"
     fdm_coords = data.get("fdm_coords")
     if fdm_coords is None:
          return {"error": "FDM solver did not produce coordinates."}
 
     newton_data_cases = {"1.0_DL_LL": {"dr_result": {
         "coordinates": fdm_coords,
-        # We pass None for reactions, forcing the Builder to use the Boundary Integrator
         "reactions": None
     }}}
     
@@ -60,7 +57,7 @@ def _run_structural_analysis(vk, solved_data_id):
         )
         return sizer_result
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": "Fatal: " + str(e)}
 
 
 def _render_analysis_and_quantities():
@@ -80,10 +77,19 @@ def _render_analysis_and_quantities():
         section_used = "--"
         n_ed, m_ed, v_ed = "--", "--", "--"
         
-        if sizer_result and "error" not in sizer_result:
+        # =====================================================================
+        # THE HONEST CHECK: Show the error, don't hide it.
+        # =====================================================================
+        if sizer_result is None:
+            st.error("❌ Sizer returned nothing.")
+        elif "error" in sizer_result:
+            st.error("❌ ENGINE FAILED: " + sizer_result["error"])
+        else:
             sections = sizer_result.get("sections", {})
             if sections:
                 section_used = sections.get("primary", "CHS")
+            else:
+                st.warning("⚠️ Sizer returned no sections.")
 
             frame_res = sizer_result.get("frame_result")
             if frame_res and len(frame_res.get("member_end_forces", [])) > 0:
@@ -95,9 +101,7 @@ def _render_analysis_and_quantities():
                         n_ed = f"{n_val / 1000.0:.1f}"
                         m_ed = f"{max(my, mz) / 1000.0:.1f}"
                         break
-
-        elif sizer_result and "error" in sizer_result:
-            st.error("Sizer/Builder failed: " + sizer_result["error"])
+        # =====================================================================
 
         st.markdown("---")
         
