@@ -99,11 +99,34 @@ def build_steel_frame(data, newton_data):
     # REAL LOADS: Pull the exact residual forces from the solver!
     # =========================================================================
     # newton_data["dr_result"] now contains the "reactions" from v5.5
-    raw_reactions = newton_data["dr_result"].get("reactions", None)
-    
+    # =========================================================================
+    # REAL LOADS: Use solver reactions if available, otherwise use integrator
+    # =========================================================================
+    raw_reactions = newton_data["dr_result"].get("reactions", None)    
     if raw_reactions is None or len(raw_reactions) != len(coords_fdm):
-        # Fallback if reactions are missing
-        membrane_loads = np.zeros_like(coords_fdm)
+        # Fallback: Use the boundary integrator with the current coordinates
+        from engine.SDSe_boundary_integrator import extract_boundary_forces
+        from engine.nonlinear_equilibrium import make_membrane_material
+        
+        boundary_nodes = set(int(i) for i in anchor_idx)
+        for ring_idx_list in built["ring_indices"]:
+            for node_idx in ring_idx_list:
+                boundary_nodes.add(int(node_idx))
+                
+        warp_pre = float(data.get("warp_pretension", 20.0)) * 1000.0
+        weft_pre = float(data.get("weft_pretension", 20.0)) * 1000.0
+        material = make_membrane_material(
+            E_warp_MPa=1400.0, E_weft_MPa=1400.0, thickness_mm=1.02, 
+            nu=0.34, G_MPa=50.0, 
+            warp_prestress_N_per_m=warp_pre, 
+            weft_prestress_N_per_m=weft_pre
+        )
+        membrane_loads = extract_boundary_forces(
+            points=coords_fdm,
+            triangles=built["triangles"],
+            material=material,
+            boundary_nodes=boundary_nodes
+        )
     else:
         membrane_loads = np.asarray(raw_reactions, dtype=float)
     # =========================================================================
