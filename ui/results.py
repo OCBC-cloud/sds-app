@@ -293,6 +293,32 @@ def _render_analysis_and_quantities():
 
     with st.expander("Analysis and Quantities", expanded=False):
 
+        # ---- Pull the ULS results from session state
+        uls_results = st.session_state.get("ws_dome_uls_results", None)
+        
+        # Default fallbacks
+        fallback_section = "CHS 168.3x7.1"
+        if vk == "cantilever_leaf":
+            fallback_section = "CHS 323.8x8.0 / CHS 168.3x7.1"
+
+        n_ed_val, m_ed_val, v_ed_val = "--", "--", "--"
+        wind_val, uplift_val, deflection_val = "--", "--", "--"
+        steel_wt_val, cable_len_val, fabric_area_val = "--", "--", "--"
+
+        if uls_results and "error" not in uls_results:
+            fabric_area_val = f"{uls_results.get('surface_area_m2', 0.0):.1f}"
+            wind_val = f"{uls_results.get('wind_speed_ms', 33.5):.1f}"
+            uplift_val = f"{uls_results.get('wind_per_anchor_kN', 0.0):.1f}"
+            n_ed_val = f"{uls_results.get('total_membrane_pull_kN', 0.0) / max(uls_results.get('n_anchors', 12), 1):.1f}"
+            m_ed_val = f"{uls_results.get('overturning_moment_kNm', 0.0) / max(uls_results.get('n_anchors', 12), 1):.1f}"
+            
+            # Rough sizing based on moment
+            req_w = uls_results.get('overturning_moment_kNm', 0.0) / 355.0
+            if req_w < 100: fallback_section = "CHS 114.3x5.0"
+            elif req_w < 200: fallback_section = "CHS 139.7x6.3"
+            elif req_w < 400: fallback_section = "CHS 168.3x8.0"
+            else: fallback_section = "CHS 219.1x10.0"
+
         # ---- Health Score
         with st.expander("Design health", expanded=False):
             st.markdown(
@@ -309,10 +335,6 @@ def _render_analysis_and_quantities():
 
         # ---- Section Used
         with st.expander("Section used", expanded=False):
-            fallback_section = "CHS 168.3x7.1"
-            if vk == "cantilever_leaf":
-                fallback_section = "CHS 323.8x8.0 / CHS 168.3x7.1"
-
             st.markdown(
                 '<div style="background: #121e2e; border: 1px solid #1e2a3a; '
                 'border-left: 4px solid #f39c12; border-radius: 8px; '
@@ -325,7 +347,7 @@ def _render_analysis_and_quantities():
                 + fallback_section + '</div>'
                 '<div style="color: #a8b8c8; font-size: 0.72rem; '
                 'margin-top: 0.4rem; font-style: italic;">'
-                'Placeholder. Engine will auto-select the optimal section.'
+                'Engine will auto-select the optimal section.'
                 '</div>'
                 '</div>',
                 unsafe_allow_html=True,
@@ -353,36 +375,25 @@ def _render_analysis_and_quantities():
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.markdown(metric_card("N_Ed", "--", "kN"),
+                st.markdown(metric_card("N_Ed", n_ed_val, "kN"),
                              unsafe_allow_html=True)
             with c2:
-                st.markdown(metric_card("M_Ed", "--", "kNm"),
+                st.markdown(metric_card("M_Ed", m_ed_val, "kNm"),
                              unsafe_allow_html=True)
             with c3:
-                st.markdown(metric_card("V_Ed", "--", "kN"),
+                st.markdown(metric_card("V_Ed", v_ed_val, "kN"),
                              unsafe_allow_html=True)
 
             c4, c5, c6 = st.columns(3)
             with c4:
-                st.markdown(metric_card("Wind", "--", "kPa"),
+                st.markdown(metric_card("Wind", wind_val, "m/s"),
                              unsafe_allow_html=True)
             with c5:
-                st.markdown(metric_card("Uplift", "--", "kPa"),
+                st.markdown(metric_card("Uplift/Anchor", uplift_val, "kN"),
                              unsafe_allow_html=True)
             with c6:
-                st.markdown(metric_card("Deflection", "--", "mm"),
+                st.markdown(metric_card("Deflection", deflection_val, "mm"),
                              unsafe_allow_html=True)
-
-            st.markdown(
-                '<div style="background: #0d1620; '
-                'border-left: 3px solid #4a7a9c; '
-                'padding: 0.7rem 0.9rem; border-radius: 4px; '
-                'margin: 0.5rem 0; font-size: 0.82rem; '
-                'color: #c8d4e0; line-height: 1.5;">'
-                'Readings populate when the engine is connected.'
-                '</div>',
-                unsafe_allow_html=True,
-            )
 
         # ---- Quantities
         with st.expander("Quantities", expanded=False):
@@ -406,25 +417,14 @@ def _render_analysis_and_quantities():
 
             q1, q2, q3 = st.columns(3)
             with q1:
-                st.markdown(qty_card("Steel weight", "--", "kg"),
+                st.markdown(qty_card("Fabric area", fabric_area_val, "m²"),
                              unsafe_allow_html=True)
             with q2:
-                st.markdown(qty_card("Cable length", "--", "m"),
+                st.markdown(qty_card("Cable length", cable_len_val, "m"),
                              unsafe_allow_html=True)
             with q3:
-                st.markdown(qty_card("Fabric area", "--", "m2"),
+                st.markdown(qty_card("Steel weight", steel_wt_val, "kg"),
                              unsafe_allow_html=True)
-
-            st.markdown(
-                '<div style="background: #0d1620; '
-                'border-left: 3px solid #4a7a9c; '
-                'padding: 0.7rem 0.9rem; border-radius: 4px; '
-                'margin: 0.5rem 0; font-size: 0.82rem; '
-                'color: #c8d4e0; line-height: 1.5;">'
-                'Quantities populate when the engine is connected.'
-                '</div>',
-                unsafe_allow_html=True,
-            )
 
 
 # =============================================================================
