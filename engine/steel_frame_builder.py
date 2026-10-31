@@ -97,7 +97,7 @@ def build_steel_frame(data, newton_data):
     eave_height = float(data["eave_height"])
     
     # =========================================================================
-    # FAST STABLE LOADS: Geometric distribution based on prestress
+    # FAST STABLE LOADS: Scaled Geometric Distribution
     # =========================================================================
     n_nodes_mesh = len(coords_fdm)
     membrane_loads = np.zeros((n_nodes_mesh, 3), dtype=float)
@@ -106,20 +106,29 @@ def build_steel_frame(data, newton_data):
     weft_q = float(data.get("weft_pretension", 20.0)) * 1000.0
     avg_pull = (warp_q + weft_q) / 2.0
     
+    # Count total boundary nodes to distribute the load safely
+    total_ring_nodes = sum(len(ring) for ring in built["ring_indices"])
+    total_anchors = len(anchor_idx)
+    
+    # Distribute the load so it doesn't crush the frame
+    node_ring_load = (avg_pull * 2.0) / max(total_ring_nodes, 1)
+    node_anchor_load = (avg_pull * 5.0) / max(total_anchors, 1)
+
     for ring_idx_list in built["ring_indices"]:
         for node_idx in ring_idx_list:
-            membrane_loads[node_idx, 2] -= avg_pull * 0.5
+            membrane_loads[node_idx, 2] -= node_ring_load
             
     for cidx in built["centre_indices"]:
-        membrane_loads[cidx, 2] -= avg_pull * 1.0
+        # Drop cable takes the load of the whole ring
+        membrane_loads[cidx, 2] -= (node_ring_load * len(built["ring_indices"][0]))
 
     edge_q = float(data.get("edge_cable_pretension", 25.0)) * 1000.0
     for anchor_mesh_idx in anchor_idx:
         px, py, pz = coords_fdm[anchor_mesh_idx]
         r = np.sqrt(px**2 + py**2)
         if r > 1e-6:
-            membrane_loads[anchor_mesh_idx, 0] -= (px / r) * edge_q
-            membrane_loads[anchor_mesh_idx, 1] -= (py / r) * edge_q
+            membrane_loads[anchor_mesh_idx, 0] -= (px / r) * node_anchor_load
+            membrane_loads[anchor_mesh_idx, 1] -= (py / r) * node_anchor_load
     # =========================================================================
 
     xp = data["xp"]
