@@ -1,21 +1,20 @@
 # =============================================================================
 # SDSe Engine - Structural Orchestrator (The Brain)
 # =============================================================================
-# Ties together the Topology, ULS Loads, and Frame Analysis.
-# Calculates the exact member utilizations for the final steel sizes.
+# Ties together the Topology, ULS Loads, and iPhone Matrix Solver.
 # =============================================================================
 
 import numpy as np
 from engine.SDSe_frame_topology import build_frame_topology
 from engine.SDSe_loads import calculate_uls_loads
-from engine.SDSe_frame_analysis import solve_frame_analysis
+from ui.components.pyodide_integrator import solve_matrix_on_phone
 from data.sections import SECTION_PROPERTIES
 from data.materials import STEEL_MATERIALS
 
 def run_structural_analysis(data):
     """
     Main entry point for the structural engine.
-    Returns a dict with the final sized sections, reactions, and member forces.
+    Sends the matrix math to the iPhone via Pyodide.
     """
     # 1. Build the Geometry
     topology = build_frame_topology(data)
@@ -24,7 +23,6 @@ def run_structural_analysis(data):
     loads = calculate_uls_loads(topology, data)
     
     # 3. Define the starting steel sections (smallest available)
-    # We iterate until the structure passes.
     grade = "S355"
     family = "CHS"
     
@@ -58,13 +56,28 @@ def run_structural_analysis(data):
         for k, name in current_sections.items():
             section_props[k] = SECTION_PROPERTIES[name]
             
-        # Run the matrix stiffness solver
-        results = solve_frame_analysis(topology, loads, section_props, grade_props)
+        # --- SEND TO IPHONE ---
+        phone_result = solve_matrix_on_phone(
+            topology=topology,
+            loads=loads,
+            sections=section_props,
+            grade=grade_props,
+            key=f"matrix_calc_{iteration}"
+        )
+        
+        # If the iPhone is still calculating, return a waiting status
+        if phone_result is None:
+            return {"error": "Waiting for iPhone to finish calculating..."}
+            
+        if "error" in phone_result:
+            return {"error": "iPhone Solver Error: " + phone_result["error"]}
+            
+        results = phone_result
         
         # Check utilization for every member
         max_util = {k: 0.0 for k in current_sections.keys()}
         
-        for elem in results["member_end_forces"]:
+        for elem in results.get("member_end_forces", []):
             kind = elem["kind"]
             if kind not in max_util:
                 continue
