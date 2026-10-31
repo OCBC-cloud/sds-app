@@ -1,7 +1,5 @@
 # =============================================================================
-# SDSe Engine - Structural Orchestrator (Global Statics)
-# =============================================================================
-# Runs Uplift and Pressure cases, checks steel capacity, and sizes members.
+# SDSe Engine - Structural Orchestrator (Global Statics - Fixed KeyError)
 # =============================================================================
 
 import numpy as np
@@ -11,9 +9,6 @@ from data.sections import SECTION_PROPERTIES
 from data.materials import STEEL_MATERIALS, FABRIC_PROPERTIES
 
 def run_structural_analysis(data):
-    """
-    Main entry point for the structural engine.
-    """
     topology = build_frame_topology(data)
     
     fabric_type = data.get("fabric_type", "PVDF")
@@ -25,33 +20,41 @@ def run_structural_analysis(data):
     grade = "S355"
     family = "CHS"
     
+    # 1. Safely find the smallest section in the catalogue
     all_sections = []
     for name, props in SECTION_PROPERTIES.items():
         if props.get("type") == family and "A" in props and "I" in props:
-            all_sections.append((props["A"], name, props))
+            all_sections.append((props["A"], name))
     all_sections.sort(key=lambda x: x[0])
     
-    current_sections = {k: all_sections[0][0] for k in ("primary", "rib", "ring", "drop", "spoke")}
+    if not all_sections:
+        return {"error": "No valid CHS sections found in the catalogue."}
+        
+    smallest_section_name = all_sections[0][1]
+    
+    # Start with the smallest section for all members
+    current_sections = {k: smallest_section_name for k in ("primary", "rib", "ring", "drop", "spoke")}
     fy_MPa = STEEL_MATERIALS.get("Steel", {}).get(grade, {}).get("fy", 355)
 
-    # For Global Statics, we calculate utilization directly from global forces
+    # 2. Iterate to find the right size
     for iteration in range(10):
-        section_props = {k: SECTION_PROPERTIES[name] for k, name in current_sections.items()}
+        # Fetch properties safely
+        try:
+            section_props = {k: SECTION_PROPERTIES[name] for k, name in current_sections.items()}
+        except KeyError as e:
+            return {"error": f"Section not found in catalogue: {e}"}
         
         max_util = {k: 0.0 for k in current_sections.keys()}
         
-        # We check the capacity of the primary arch against the Total Global Forces
-        # Primary Arch: Resists the overturning moment from wind and the axial pull
         primary_sec = section_props["primary"]
-        A_mm2 = primary_sec["A"]
+        A_mm2 = primary_sec.get("A", 1.0)
         Wy_mm3 = primary_sec.get("Wy", primary_sec.get("W_el", 1.0))
         
-        # Total overturning moment (Moment = Force * Height)
+        # Calculate global wind forces
         max_wind_N = max(loads_dict["total_wind_uplift_N"], loads_dict["total_wind_pressure_N"])
         dome_height = float(data.get("crown_height", 9.0))
         global_moment_Nm = max_wind_N * (dome_height / 2.0)
         
-        # Total axial compression from membrane
         global_axial_N = np.sum(np.abs(loads_dict["pressure"][:, 0])) 
         
         # Calculate utilization for primary
@@ -72,9 +75,10 @@ def run_structural_analysis(data):
                 "status": "PASS"
             }
 
+        # Upgrade the failing sections
         for k in failing:
             current_name = current_sections[k]
-            for i, (area, name, props) in enumerate(all_sections):
+            for i, (area, name) in enumerate(all_sections):
                 if name == current_name and i + 1 < len(all_sections):
                     current_sections[k] = all_sections[i + 1][1]
                     break
