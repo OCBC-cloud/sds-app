@@ -712,7 +712,11 @@ def build_dome_multi_cone():
             "anchor_idx": anchor_idx,
             "mc_rd": ring_diameter,
         }
-
+# Save ULS results to session state for the results page
+    from engine.SDSe_dome_uls_writer import write_dome_uls_to_session
+    write_dome_uls_to_session(built, fdm_coords, dome_diameter, crown_height, 
+                              st.session_state.get("ws_dm_fabric_type", "PVDF"), 
+                              st.session_state.get("ws_dm_fabric_grade", "Ferrari 702"))
     return apply_common_layout(fig, crown_height)
 
 
