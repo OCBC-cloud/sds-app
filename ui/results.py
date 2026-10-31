@@ -30,11 +30,16 @@ def _run_structural_analysis(vk, solved_data_id):
     if not data:
         return {"error": "No solved data in session state."}
 
-    # Pass the summary to the builder
+    # --- USE FDM COORDINATES (STABLE) ---
+    # The FDM solver output is saved in "fdm_coords"
+    fdm_coords = data.get("fdm_coords")
+    if fdm_coords is None:
+         return {"error": "FDM solver did not produce coordinates."}
+
     newton_data_cases = {"1.0_DL_LL": {"dr_result": {
-        "coordinates": data["fdm_coords"],
-        "solve_summary": data["solve_summary"],
-        "reactions": data["solve_summary"].get("nfdm", {}).get("reactions", None)
+        "coordinates": fdm_coords,
+        # We pass None for reactions, forcing the Builder to use the Boundary Integrator
+        "reactions": None
     }}}
     
     data["built"] = data["built"]
@@ -58,47 +63,16 @@ def _run_structural_analysis(vk, solved_data_id):
         return {"error": str(e)}
 
 
-def _render_marketing_render(vk, sk):
-    # (Kept simple for diagnostic testing - will restore full version later)
-    st.info("Marketing Render section here.")
-
-
 def _render_analysis_and_quantities():
     vk = st.session_state.get("variant_key", "")
-
     with st.expander("Analysis and Quantities", expanded=True):
 
-        # =====================================================================
-        # DIAGNOSTIC ZONE
-        # =====================================================================
         solved_data = st.session_state.get("ws_dm_solved_data", None)
         
         if not solved_data:
-            st.error("❌ CRITICAL: NO SOLVED DATA FOUND. The viewer didn't save the solver results.")
+            st.error("❌ NO SOLVED DATA FOUND.")
         else:
-            st.success("✅ Solved data found in session state.")
-            summary = solved_data.get("solve_summary", {})
-            nfdm = summary.get("nfdm", {})
-            
-            st.write("### 🔍 Solver Diagnostics")
-            st.write(f"**Converged:** `{nfdm.get('converged')}`")
-            st.write(f"**Reason:** `{nfdm.get('reason')}`")
-            st.write(f"**Iterations:** `{nfdm.get('iterations')}`")
-            st.write(f"**Total Steps:** `{nfdm.get('total_steps')}`")
-            st.write(f"**Elapsed (s):** `{nfdm.get('elapsed_seconds'):.2f}`" if nfdm.get('elapsed_seconds') else "N/A")
-            st.write(f"**Max Residual:** `{nfdm.get('max_residual')}`")
-            
-            reactions = nfdm.get("reactions")
-            if reactions is not None:
-                try:
-                    max_force = np.max(np.abs(np.asarray(reactions)))
-                    st.write(f"**Reactions Shape:** `{np.asarray(reactions).shape}`")
-                    st.write(f"**Max Reaction Force:** `{max_force:.2f} N`")
-                except Exception as e:
-                    st.error(f"Reactions exist but failed to read: {e}")
-            else:
-                st.error("❌ NO 'REACTIONS' ARRAY FOUND IN NFDM SUMMARY.")
-        # =====================================================================
+            st.success("✅ Using FDM stable geometry for force extraction.")
 
         cache_id = str(len(solved_data["built"]["points"])) if solved_data else "0"
         sizer_result = _run_structural_analysis(vk, cache_id)
@@ -110,8 +84,17 @@ def _render_analysis_and_quantities():
             sections = sizer_result.get("sections", {})
             if sections:
                 section_used = sections.get("primary", "CHS")
-            
-            st.write(f"**Sizer Result Section:** `{section_used}`")
+
+            frame_res = sizer_result.get("frame_result")
+            if frame_res and len(frame_res.get("member_end_forces", [])) > 0:
+                for end_force in frame_res["member_end_forces"]:
+                    n_val = abs(end_force.get('N', 0.0))
+                    my = max(abs(end_force.get('My_a', 0.0)), abs(end_force.get('My_b', 0.0)))
+                    mz = max(abs(end_force.get('Mz_a', 0.0)), abs(end_force.get('Mz_b', 0.0)))
+                    if n_val > 1.0 or my > 1.0 or mz > 1.0:
+                        n_ed = f"{n_val / 1000.0:.1f}"
+                        m_ed = f"{max(my, mz) / 1000.0:.1f}"
+                        break
 
         elif sizer_result and "error" in sizer_result:
             st.error("Sizer/Builder failed: " + sizer_result["error"])
@@ -122,9 +105,9 @@ def _render_analysis_and_quantities():
             st.markdown(f"**{section_used}**")
 
         with st.expander("Analysis readings", expanded=True):
-            st.write(f"N_Ed: {n_ed} kN")
-            st.write(f"M_Ed: {m_ed} kNm")
-            st.write(f"V_Ed: {v_ed} kN")
+            st.write(f"**N_Ed:** {n_ed} kN")
+            st.write(f"**M_Ed:** {m_ed} kNm")
+            st.write(f"**V_Ed:** {v_ed} kN")
 
 
 def render_results():
@@ -136,20 +119,8 @@ def render_results():
     pname = info.get("name", "") or "Untitled Project"
     cname = info.get("client", "") or "Unknown Client"
 
-    st.markdown(
-        '<div style="font-size: 0.85rem; color: #a8b8c8; margin-bottom: 1rem;">'
-        'SDSe Fluid Design Studio / <span style="color: #f39c12;">' + sn + '</span> / ' + vn + ' / Results</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div style="background: #121e2e; border: 1px solid #1e2a3a; '
-        'border-radius: 10px; padding: 1rem;">'
-        '<div style="color: #ffffff; font-size: 1.15rem; font-weight: 700;">' + pname + '</div>'
-        '<div style="color: #a8b8c8; font-size: 0.85rem; margin-top: 0.3rem;">Client: ' + cname + '</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown(f'<div style="font-size: 0.85rem; color: #a8b8c8; margin-bottom: 1rem;">SDSe Fluid Design Studio / <span style="color: #f39c12;">{sn}</span> / {vn} / Results</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="background: #121e2e; border: 1px solid #1e2a3a; border-radius: 10px; padding: 1rem;"><div style="color: #ffffff; font-size: 1.15rem; font-weight: 700;">{pname}</div><div style="color: #a8b8c8; font-size: 0.85rem; margin-top: 0.3rem;">Client: {cname}</div></div>', unsafe_allow_html=True)
 
     st.markdown('<div style="color: #f39c12; font-weight: 700; margin: 1.4rem 0 0.6rem 0; font-size: 1.05rem;">3D View</div>', unsafe_allow_html=True)
 
@@ -157,9 +128,7 @@ def render_results():
         fig = generate_results_figure(sk, vk)
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
-        import traceback
         st.error("3D view failed: " + str(e))
-        st.code(traceback.format_exc())
 
     _render_analysis_and_quantities()
 
