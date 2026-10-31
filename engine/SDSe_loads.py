@@ -1,109 +1,125 @@
 # =============================================================================
-# SDSe Engine - Ultimate Limit State (ULS) Load Generator
+# SDSe Engine - Ultimate Limit State (ULS) Load Generator (Global Statics)
 # =============================================================================
-# This file takes the final form-found shape (FDM) and calculates the 
-# true Ultimate Limit State (ULS) forces based on wind code and material limits.
+# Calculates True Surface Area and applies Code-Compliant Load Combinations
+# for both Wind Uplift (Negative) and Wind Pressure (Positive).
 # =============================================================================
 
 import numpy as np
-from engine.SDSe_materials import calculate_uls_forces
+from data.materials import STEEL_MATERIALS
 
-# Standard steel density (kg/m^3)
-RHO_STEEL = 7850.0
 GRAVITY = 9.81
 
-def calculate_uls_loads(topology, data):
+def calculate_uls_loads(topology, data, material_data):
     """
-    Calculates the exact 3D force vectors on every node at Ultimate Limit State.
-    Returns an array of shape (n_nodes, 3) in Newtons.
+    Calculates the exact 3D force vectors on every node for both Uplift and Pressure.
+    Returns a dictionary containing the loads for both cases and the true surface area.
     """
     nodes = topology["nodes"]
     elements = topology["elements"]
     anchor_map = topology["anchor_to_frame_id"]
     ring_map = topology["ring_to_frame_id"]
-    drop_map = topology["drop_to_frame_id"]
     
     n_nodes = len(nodes)
-    loads = np.zeros((n_nodes, 3), dtype=float)
+    loads_uplift = np.zeros((n_nodes, 3), dtype=float)
+    loads_pressure = np.zeros((n_nodes, 3), dtype=float)
 
-    # 1. Get the ULS material and wind parameters
-    fabric_type = data.get("fabric_type", "PVDF")
-    fabric_grade = data.get("fabric_grade", "Type III")
-    wind_code = data.get("load_standard", "MY")
+    # 1. Extract Material Properties from the database file
+    f_u_warp = material_data.get("f_u_warp", 56.0) # kN/m
+    # Apply safety factor of 6 for membrane
+    allowable_tension_kN = f_u_warp / 6.0
+    allowable_tension_N = allowable_tension_kN * 1000.0
+
+    # 2. Calculate Code Wind Pressures (Based on 33.5 m/s for MY)
+    wind_speed = 33.5 # m/s
+    q_basic = 0.613 * (wind_speed ** 2) # Pa
     
-    uls = calculate_uls_forces(fabric_type, fabric_grade, wind_code)
+    # Cp factors for dome (Suction and Pressure)
+    cp_suction = -0.8
+    cp_pressure = 0.5
     
-    # The maximum tension the fabric is allowed to pull with
-    allowable_tension_N_per_m = uls["allowable_warp_kNm"] * 1000.0
-    wind_suction_kpa = abs(uls["wind_uls_suction_kpa"])
+    wind_suction_pa = abs(q_basic * cp_suction)
+    wind_pressure_pa = q_basic * cp_pressure
+
+    # 3. Calculate True Curved Surface Area
+    fdm_coords = data["fdm_coords"]
+    triangles = data["built"]["triangles"]
     
-    # =========================================================================
-    # 2. CALCULATE MEMBRANE PULL (Based on ULS Allowable Tension)
-    # =========================================================================
-    # The membrane pulls inward on the anchors at the allowable tension.
+    true_surface_area = 0.0
+    for tri in triangles:
+        p0 = fdm_coords[int(tri[0])]
+        p1 = fdm_coords[int(tri[1])]
+        p2 = fdm_coords[int(tri[2])]
+        cross_prod = np.cross(p1 - p0, p2 - p0)
+        true_surface_area += 0.5 * np.linalg.norm(cross_prod)
+
+    # Calculate Total Forces
+    total_wind_uplift_N = wind_suction_pa * true_surface_area
+    total_wind_pressure_N = wind_pressure_pa * true_surface_area
+    
+    dome_diameter = float(data.get("dome_diameter", 18.0))
+    perimeter_length = np.pi * dome_diameter
+    total_membrane_pull_N = allowable_tension_N * perimeter_length
+
+    # 4. Calculate Self-Weight per node
+    weights = np.zeros(n_nodes)
+    for elem in elements:
+        a = elem["a"]
+        b = elem["b"]
+        length = np.linalg.norm(nodes[b] - nodes[a])
+        
+        # Estimate mass based on member type
+        area_m2 = 0.005 if elem["kind"] == "primary" else (0.003 if elem["kind"] == "rib" else 0.001)
+        mass = length * area_m2 * 7850.0 # steel density
+        weight_N = mass * GRAVITY
+        
+        weights[a] += weight_N * 0.5
+        weights[b] += weight_N * 0.5
+
+    # 5. Distribute Forces to Nodes
+    n_anchors = max(len(anchor_map), 1)
+    n_rings = max(len(ring_map), 1)
+    
+    wind_up_per_anchor = total_wind_uplift_N / n_anchors
+    wind_down_per_anchor = total_wind_pressure_N / n_anchors
+    pull_per_anchor = total_membrane_pull_N / n_anchors
+    ring_force = allowable_tension_N * 1.5 / n_rings # Membrane pulling down on rings
+
+    for i in range(n_nodes):
+        px, py, pz = nodes[i]
+        
+        # --- CASE 1: UPLIFT (Wind Suction + Dead Load) ---
+        # 1.0 * Dead Load + 1.5 * Wind Uplift
+        loads_uplift[i, 2] -= 1.0 * weights[i] 
+        
+        # --- CASE 2: PRESSURE (Wind Push + Dead Load) ---
+        # 1.35 * Dead Load + 1.5 * Wind Pressure
+        loads_pressure[i, 2] -= 1.35 * weights[i]
+
+    # Apply Anchor Loads
     for mesh_idx, frame_idx in anchor_map.items():
         px, py, pz = nodes[frame_idx]
         r = np.sqrt(px**2 + py**2)
         if r > 1e-6:
-            # Pull towards the center
-            loads[frame_idx, 0] -= (px / r) * allowable_tension_N_per_m
-            loads[frame_idx, 1] -= (py / r) * allowable_tension_N_per_m
-            # Vertical pull (assuming roughly 45 degree slope at the edge)
-            loads[frame_idx, 2] -= allowable_tension_N_per_m
+            # Inward pull from membrane (happens in both cases)
+            loads_uplift[frame_idx, 0] -= 1.5 * (px / r) * pull_per_anchor
+            loads_uplift[frame_idx, 1] -= 1.5 * (py / r) * pull_per_anchor
+            loads_pressure[frame_idx, 0] -= 1.5 * (px / r) * pull_per_anchor
+            loads_pressure[frame_idx, 1] -= 1.5 * (py / r) * pull_per_anchor
+            
+            # Wind Forces
+            loads_uplift[frame_idx, 2] += 1.5 * wind_up_per_anchor
+            loads_pressure[frame_idx, 2] -= 1.5 * wind_down_per_anchor
 
-    # The membrane pulls down on the rings
+    # Apply Ring Loads (Downward)
     for mesh_idx, frame_idx in ring_map.items():
-        loads[frame_idx, 2] -= allowable_tension_N_per_m * 0.5
+        loads_uplift[frame_idx, 2] -= 1.5 * ring_force
+        loads_pressure[frame_idx, 2] -= 1.5 * ring_force
 
-    # The membrane pulls down on the drop poles
-    for mesh_idx, frame_idx in drop_map.items():
-        loads[frame_idx, 2] -= allowable_tension_N_per_m * 1.0
-
-    # =========================================================================
-    # 3. SELF-WEIGHT (Gravity on Steel Members)
-    # =========================================================================
-    for elem in elements:
-        a = elem["a"]
-        b = elem["b"]
-        length = np.linalg.norm(nodes[b] - nodes[a])
-        
-        # Estimate mass based on member type (ULS preliminary sizing)
-        if elem["kind"] == "primary":
-            area_m2 = 0.005  # roughly CHS 168x8
-        elif elem["kind"] == "rib":
-            area_m2 = 0.003  # roughly CHS 114x6
-        else:
-            area_m2 = 0.001  # roughly CHS 60x3
-            
-        mass = length * area_m2 * RHO_STEEL
-        weight_N = mass * GRAVITY
-        
-        loads[a, 2] -= weight_N * 0.5
-        loads[b, 2] -= weight_N * 0.5
-
-    # =========================================================================
-    # 4. WIND LOAD (Horizontal Force on the projected area)
-    # =========================================================================
-    wind_pa = wind_suction_kpa * 1000.0
-    
-    for elem in elements:
-        a = elem["a"]
-        b = elem["b"]
-        length = np.linalg.norm(nodes[b] - nodes[a])
-        
-        # Estimate diameter based on type
-        if elem["kind"] == "primary":
-            dia = 0.168
-        elif elem["kind"] == "rib":
-            dia = 0.114
-        else:
-            dia = 0.060
-            
-        area_proj = length * dia
-        wind_force = area_proj * wind_pa
-        
-        # Apply wind in the +X direction (worst case scenario)
-        loads[a, 0] += wind_force * 0.5
-        loads[b, 0] += wind_force * 0.5
-
-    return loads
+    return {
+        "uplift": loads_uplift,
+        "pressure": loads_pressure,
+        "surface_area": true_surface_area,
+        "total_wind_uplift_N": total_wind_uplift_N,
+        "total_wind_pressure_N": total_wind_pressure_N
+    }
