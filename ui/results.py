@@ -1,44 +1,26 @@
 # =============================================================================
-# SDSe Fluid Design Studio - Results Page
+# SDSe Fluid Design Studio - Results Page (True Structural Analysis)
 # =============================================================================
 
 import streamlit as st
 import streamlit.components.v1 as components
 import numpy as np
+import pandas as pd
 
 from viewers.results_viewer import generate_results_figure
-from engine.steel_frame_sizer import size_steel_frame
+from engine.SDSe_orchestrator import run_structural_analysis
 
 
-def _build_params(variant_key):
-    get = st.session_state.get
-    if variant_key == "cantilever_leaf":
-        return {"arrangement": get("ws_sl_arrangement", "single")}
-    if variant_key == "standard_saddle":
-        return {"span": get("ws_ss_span", None)}
-    if variant_key == "frame_supported_saddle":
-        return {"span": get("ws_bs_span", None)}
-    return {}
-
-
-@st.cache_data(show_spinner=False)
-def _run_structural_analysis(vk, solved_data_id):
+def _run_analysis(vk, cache_id):
     if vk != "dome_multi_cone":
         return {"error": "Variant not wired for steel sizing yet."}
 
     data = st.session_state.get("ws_dm_solved_data", None)
     if not data:
         return {"error": "No solved data in session state."}
-
-    fdm_coords = data.get("fdm_coords")
-    if fdm_coords is None:
-         return {"error": "FDM solver did not produce coordinates."}
-
-    newton_data_cases = {"1.0_DL_LL": {"dr_result": {
-        "coordinates": fdm_coords,
-        "reactions": None
-    }}}
-    
+        
+    # Assemble the data dictionary the orchestrator needs
+    data["fdm_coords"] = data["fdm_coords"]
     data["built"] = data["built"]
     data["anchor_idx"] = data["anchor_idx"]
     data["eave_height"] = data["eave_height"]
@@ -47,71 +29,94 @@ def _run_structural_analysis(vk, solved_data_id):
     data["rib_x"] = data["rib_x"]
     data["rib_half_width"] = data["rib_half_width"]
     data["mc_rd"] = data["mc_rd"]
+    
+    # Pull material/wind inputs from session state
+    data["fabric_type"] = st.session_state.get("ws_dm_fabric_type", "PVDF")
+    data["fabric_grade"] = st.session_state.get("ws_dm_fabric_grade", "Type III")
+    data["load_standard"] = st.session_state.get("ws_dm_load_standard", "MY")
 
     try:
-        sizer_result = size_steel_frame(
-            data=data,
-            newton_data_cases=newton_data_cases,
-            grade="S355",
-            family="CHS"
-        )
-        return sizer_result
+        return run_structural_analysis(data)
     except Exception as e:
         return {"error": "Fatal: " + str(e)}
 
 
-def _render_analysis_and_quantities():
+def _render_analysis():
     vk = st.session_state.get("variant_key", "")
+    solved_data = st.session_state.get("ws_dm_solved_data", None)
+    cache_id = str(len(solved_data["built"]["points"])) if solved_data else "0"
+    
+    result = _run_analysis(vk, cache_id)
+
     with st.expander("Analysis and Quantities", expanded=True):
-
-        solved_data = st.session_state.get("ws_dm_solved_data", None)
         
-        if not solved_data:
-            st.error("❌ NO SOLVED DATA FOUND.")
-        else:
-            st.success("✅ Using FDM stable geometry for force extraction.")
+        if "error" in result:
+            st.error("❌ ENGINE FAILED: " + result["error"])
+            return
 
-        cache_id = str(len(solved_data["built"]["points"])) if solved_data else "0"
-        sizer_result = _run_structural_analysis(vk, cache_id)
-
-        section_used = "--"
-        n_ed, m_ed, v_ed = "--", "--", "--"
+        sections = result.get("sections", {})
+        results = result.get("results", {})
         
-        # =====================================================================
-        # THE HONEST CHECK: Show the error, don't hide it.
-        # =====================================================================
-        if sizer_result is None:
-            st.error("❌ Sizer returned nothing.")
-        elif "error" in sizer_result:
-            st.error("❌ ENGINE FAILED: " + sizer_result["error"])
-        else:
-            sections = sizer_result.get("sections", {})
-            if sections:
-                section_used = sections.get("primary", "CHS")
-            else:
-                st.warning("⚠️ Sizer returned no sections.")
-
-            frame_res = sizer_result.get("frame_result")
-            if frame_res and len(frame_res.get("member_end_forces", [])) > 0:
-                for end_force in frame_res["member_end_forces"]:
-                    n_val = abs(end_force.get('N', 0.0))
-                    my = max(abs(end_force.get('My_a', 0.0)), abs(end_force.get('My_b', 0.0)))
-                    mz = max(abs(end_force.get('Mz_a', 0.0)), abs(end_force.get('Mz_b', 0.0)))
-                    if n_val > 1.0 or my > 1.0 or mz > 1.0:
-                        n_ed = f"{n_val / 1000.0:.1f}"
-                        m_ed = f"{max(my, mz) / 1000.0:.1f}"
-                        break
-        # =====================================================================
-
-        st.markdown("---")
+        section_used = sections.get("primary", "--")
         
+        # 1. Display the section
         with st.expander("Section used", expanded=True):
-            st.markdown(f"**{section_used}**")
+            st.markdown(f"**Primary:** {sections.get('primary', '--')}")
+            st.markdown(f"**Ribs:** {sections.get('rib', '--')}")
+            st.markdown(f"**Rings:** {sections.get('ring', '--')}")
 
-        with st.expander("Analysis readings", expanded=True):
-            st.write(f"**N_Ed:** {n_ed} kN")
-            st.write(f"**M_Ed:** {m_ed} kNm")
-            st.write(f"**V_Ed:** {v_ed} kN")
+        # 2. Display the worst-case forces
+        member_forces = results.get("member_end_forces", [])
+        n_ed, m_ed, v_ed = 0.0, 0.0, 0.0
+        
+        for elem in member_forces:
+            n_ed = max(n_ed, abs(elem.get("N", 0.0)) / 1000.0)
+            m_ed = max(m_ed, max(abs(elem.get("My_a", 0.0)), abs(elem.get("Mz_a", 0.0))) / 1e6)
+            v_ed = max(v_ed, max(abs(elem.get("V_y", 0.0)), abs(elem.get("V_z", 0.0))) / 1000.0)
+
+        with st.expander("Maximum Analysis Readings", expanded=True):
+            st.write(f"**N_Ed (Max):** {n_ed:.1f} kN")
+            st.write(f"**M_Ed (Max):** {m_ed:.1f} kNm")
+            st.write(f"**V_Ed (Max):** {v_ed:.1f} kN")
+
+        # 3. DIGITISED NODE STATE REPORTING
+        with st.expander("🔍 Digitised Node State (Full Report)", expanded=False):
+            st.write("### Reactions at Baseplates")
+            reactions = results.get("reactions", [])
+            
+            if len(reactions) > 0:
+                react_data = []
+                for i, r in enumerate(reactions):
+                    if np.any(r != 0):  # Only show fixed nodes
+                        react_data.append({
+                            "Node": i,
+                            "Fx (kN)": f"{r[0]/1000:.2f}",
+                            "Fy (kN)": f"{r[1]/1000:.2f}",
+                            "Fz (kN)": f"{r[2]/1000:.2f}",
+                            "Mx (kNm)": f"{r[3]/1000:.2f}",
+                            "My (kNm)": f"{r[4]/1000:.2f}",
+                            "Mz (kNm)": f"{r[5]/1000:.2f}"
+                        })
+                st.dataframe(pd.DataFrame(react_data), use_container_width=True)
+            else:
+                st.info("No reactions found.")
+
+            st.write("### Member Forces (First 10)")
+            if len(member_forces) > 0:
+                elem_data = []
+                for elem in member_forces[:10]:
+                    elem_data.append({
+                        "Member Type": elem.get("kind", "?"),
+                        "Node A": elem.get("a"),
+                        "Node B": elem.get("b"),
+                        "Axial (kN)": f"{elem.get('N', 0.0)/1000:.1f}",
+                        "Shear Y (kN)": f"{elem.get('V_y', 0.0)/1000:.1f}",
+                        "Shear Z (kN)": f"{elem.get('V_z', 0.0)/1000:.1f}",
+                        "Moment Y (kNm)": f"{max(abs(elem.get('My_a', 0.0)), abs(elem.get('My_b', 0.0)))/1e6:.1f}",
+                        "Moment Z (kNm)": f"{max(abs(elem.get('Mz_a', 0.0)), abs(elem.get('Mz_b', 0.0)))/1e6:.1f}",
+                        "Torsion (kNm)": f"{elem.get('T', 0.0)/1e6:.2f}"
+                    })
+                st.dataframe(pd.DataFrame(elem_data), use_container_width=True)
 
 
 def render_results():
@@ -134,7 +139,7 @@ def render_results():
     except Exception as e:
         st.error("3D view failed: " + str(e))
 
-    _render_analysis_and_quantities()
+    _render_analysis()
 
     st.markdown("---")
     col1, col2 = st.columns(2)
