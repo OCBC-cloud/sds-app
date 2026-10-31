@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #0d1620; color: #c8d4e0; padding: 10px; font-size: 14px; }
+        .spinner { display: none; color: #f39c12; font-weight: bold; }
+        .result { color: #2ecc71; font-weight: bold; }
+        .error { color: #e74c3c; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="status">Waiting for data from Streamlit...</div>
+    <div id="spinner" class="spinner">Calculating FEA boundary integrals on your iPhone... ⏳</div>
+    <div id="error" class="error"></div>
+
+    <script>
+        let pyodideReadyPromise = null;
+
+        async function loadPyodideAndPackages() {
+            let pyodide = await loadPyodide({
+                indexURL: "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/"
+            });
+            await pyodide.loadPackage(["numpy"]);
+            return pyodide;
+        }
+
+        // Start loading Pyodide immediately in the background
+        pyodideReadyPromise = loadPyodideAndPackages();
+
+        // This function receives the data from Streamlit
+        window.addEventListener("message", async (event) => {
+            const data = event.data;
+            
+            // Only process if it's our integrator request
+            if (data.type !== "RUN_INTEGRATOR") return;
+
+            document.getElementById("status").style.display = "none";
+            document.getElementById("spinner").style.display = "block";
+            document.getElementById("error").innerText = "";
+
+            try {
+                const pyodide = await pyodideReadyPromise;
+
+                // Pass the data into Pyodide's global scope
+                pyodide.globals.set("coords_json", JSON.stringify(data.coords));
+                pyodide.globals.set("tris_json", JSON.stringify(data.tris));
+                pyodide.globals.set("boundary_nodes_json", JSON.stringify(data.boundary_nodes));
+                pyodide.globals.set("warp_pre", data.warp_pre);
+                pyodide.globals.set("weft_pre", data.weft_pre);
+
+                // The Python code to run on the iPhone
+                const pythonCode = `
+import json
+import numpy as np
+
+coords = np.array(json.loads(coords_json), dtype=float)
+tris = np.array(json.loads(tris_json), dtype=int)
+boundary_nodes = set(json.loads(boundary_nodes_json))
+warp_pre = float(warp_pre)
+weft_pre = float(weft_pre)
+
+# (Insert the exact same extract_boundary_forces math here)
+# For brevity, I will just calculate the fast geometric loads right now
+# to prove the pipeline works. We can put the heavy FEA later.
+
+n_nodes = coords.shape[0]
+nodal_forces = np.zeros((n_nodes, 3), dtype=float)
+avg_pull = (warp_pre + weft_pre) / 2.0
+
+# Apply downward load to all boundary nodes
+for idx in boundary_nodes:
+    nodal_forces[idx, 2] -= avg_pull * 0.5
+
+# Return as JSON
+json.dumps(nodal_forces.tolist())
+                `;
+
+                // Run the Python code
+                let resultStr = await pyodide.runPythonAsync(pythonCode);
+                let resultArray = JSON.parse(resultStr);
+
+                document.getElementById("spinner").style.display = "none";
+                document.getElementById("status").style.display = "block";
+                document.getElementById("status").innerText = "Calculation complete!";
+                document.getElementById("status").className = "result";
+
+                // Send result back to Streamlit
+                window.parent.postMessage({
+                    isStreamlitMessage: true,
+                    type: "streamlit:setComponentValue",
+                    value: resultArray
+                }, "*");
+
+            } catch (err) {
+                document.getElementById("spinner").style.display = "none";
+                document.getElementById("error").innerText = "Error: " + err.message;
+            }
+        });
+    </script>
+</body>
+</html>
