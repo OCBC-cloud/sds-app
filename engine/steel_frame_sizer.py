@@ -51,7 +51,6 @@ def _member_utilization(section_name, N_Ed_N, My_Ed_Nm, Mz_Ed_Nm,
     Wz_mm3 = props.get("Wz", props.get("W_el", 1.0))
     I_mm4 = props.get("I", 1.0)
 
-    # CAPACITIES (in Newtons and N-mm)
     N_cap = A_mm2 * fy_MPa
     My_cap = Wy_mm3 * fy_MPa
     Mz_cap = Wz_mm3 * fy_MPa
@@ -60,7 +59,6 @@ def _member_utilization(section_name, N_Ed_N, My_Ed_Nm, Mz_Ed_Nm,
     if N_cap > 0:
         stress_util += abs(N_Ed_N) / N_cap
     
-    # FIXED: Convert My_Ed and Mz_Ed from N-m to N-mm before dividing!
     if My_cap > 0:
         stress_util += (abs(My_Ed_Nm) * 1000.0) / My_cap
     if Mz_cap > 0:
@@ -97,7 +95,7 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
     """Sizes for worst utilization across all CONVERGED cases."""
     all_sections = _sections_by_area(family)
     if not all_sections:
-        return {"sections": {}, "frame_result": None, "details": {}, "iteration_log": []}
+        return {"sections": {}, "frame_result": None, "details": {}, "iteration_log": [], "error": "No sections found in catalogue"}
 
     smallest = all_sections[0][0]
     sections = {k: smallest for k in ("primary", "rib", "ring", "drop", "spoke")}
@@ -105,29 +103,35 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
 
     # Build the frame for each case
     frames_by_case = {}
-    for case_name, nd in newton_data_cases.items():
-        frames_by_case[case_name] = build_steel_frame(data, nd)
+    try:
+        for case_name, nd in newton_data_cases.items():
+            frames_by_case[case_name] = build_steel_frame(data, nd)
+    except Exception as e:
+        return {"sections": {}, "frame_result": None, "details": {}, "iteration_log": [], "error": "Frame Builder crashed: " + str(e)}
+
+    last_result = None
 
     for iteration in range(max_iterations):
         util_by_type = {
             k: {"max_util": 0.0, "max_N": 0.0, "governing_case": "n/a"}
             for k in ("primary", "rib", "ring", "drop", "spoke")
         }
-        last_result = None
 
         for case_name, frame in frames_by_case.items():
             elements = []
             for elem in frame["elements"]:
-                # Safely handle if 'section' is a string or a dict
                 sec_key = elem["section"]
                 if isinstance(sec_key, dict):
-                    # It's the default dictionary we injected in the builder
                     sec_name = smallest
                 else:
-                    # It's the string kind (e.g., "primary")
                     sec_name = sections.get(sec_key, smallest)
                 
                 sec_props = SECTION_PROPERTIES.get(sec_name, {})
+                elements.append({
+                    "a": elem["a"], "b": elem["b"],
+                    "section": sec_props, "kind": elem["kind"],
+                    "section_name": sec_name,
+                })
 
             loads_6dof = np.zeros((len(frame["nodes"]), 6), dtype=float)
             loads_6dof[:, 0:3] = frame["membrane_loads"]
@@ -145,8 +149,8 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
                     fixed_nodes=frame["fixed_indices"],
                     grade_props=grade_props,
                 )
-            except Exception:
-                continue
+            except Exception as e:
+                return {"sections": {}, "frame_result": None, "details": {}, "iteration_log": [], "error": "Solver crashed: " + str(e)}
 
             if len(result["member_end_forces"]) != len(elements):
                 continue
@@ -181,8 +185,6 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
 
         failing_types = [k for k, v in util_by_type.items() if v["max_util"] > utilization_cap]
         if not failing_types:
-            if last_result is not None and "uplift" in frames_by_case:
-                last_result["anchor_to_frame_id"] = frames_by_case["uplift"]["anchor_to_frame_id"]
             return {
                 "sections": sections,
                 "frame_result": last_result,
@@ -198,16 +200,12 @@ def size_steel_frame(data, newton_data_cases, code_choice="MS 1553",
                 progressed = True
 
         if not progressed:
-            if last_result is not None and "uplift" in frames_by_case:
-                last_result["anchor_to_frame_id"] = frames_by_case["uplift"]["anchor_to_frame_id"]
             return {
                 "sections": sections, "frame_result": last_result,
                 "details": util_by_type, "iteration_log": iteration_log,
                 "error": "Oversize required — catalogue exhausted",
             }
 
-    if last_result is not None and "uplift" in frames_by_case:
-        last_result["anchor_to_frame_id"] = frames_by_case["uplift"]["anchor_to_frame_id"]
     return {
         "sections": sections, "frame_result": last_result,
         "details": util_by_type, "iteration_log": iteration_log,
